@@ -70,7 +70,9 @@ export function QuickAccess() {
     const next = await api.status();
     setStatus(next);
     setItems(next.state === "unlocked" ? await api.listItems() : []);
+    return next;
   }, []);
+  const [autoUnlock, setAutoUnlock] = useState(0);
 
   const reset = useCallback(() => {
     setQuery("");
@@ -81,7 +83,10 @@ export function QuickAccess() {
       applyLanguage(s.language);
       setTheme(s.theme);
     });
-    void refresh();
+    void refresh().then((next) => {
+      // Opening Quick Access is an explicit request: ask the system at once.
+      if (next.state === "locked" && next.systemUnlock) setAutoUnlock((n) => n + 1);
+    });
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [refresh]);
 
@@ -192,7 +197,7 @@ export function QuickAccess() {
   return (
     <div className="flex h-full flex-col overflow-hidden border border-line bg-panel text-fg">
       {status?.state === "locked" ? (
-        <QuickUnlock status={status} onUnlocked={refresh} />
+        <QuickUnlock status={status} onUnlocked={refresh} autoUnlock={autoUnlock} />
       ) : status?.state === "no_account" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted">
           <Logo className="size-10" />
@@ -308,12 +313,25 @@ export function QuickAccess() {
   );
 }
 
-function QuickUnlock({ status, onUnlocked }: { status: AppStatus; onUnlocked: () => Promise<void> }) {
+function QuickUnlock({
+  status,
+  onUnlocked,
+  autoUnlock,
+}: {
+  status: AppStatus;
+  onUnlocked: () => Promise<unknown>;
+  /** Bumped when Quick Access opens locked with system unlock available. */
+  autoUnlock: number;
+}) {
   const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (autoUnlock > 0) void unlock(true);
+  }, [autoUnlock]);
 
   const unlock = async (withSystem: boolean) => {
     setBusy(true);

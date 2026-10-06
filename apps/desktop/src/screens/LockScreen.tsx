@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowRight, Eye, EyeOff, Fingerprint, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -45,7 +46,12 @@ export function LockScreen({ status }: { status: AppStatus }) {
     }
   };
 
+  const prompting = useRef(false);
+  const promptEnded = useRef(0);
+
   const unlockWithSystem = async () => {
+    if (prompting.current) return;
+    prompting.current = true;
     setSystemBusy(true);
     setError(null);
     try {
@@ -57,9 +63,24 @@ export function LockScreen({ status }: { status: AppStatus }) {
       await refreshStatus();
       requestAnimationFrame(() => inputRef.current?.focus());
     } finally {
+      prompting.current = false;
+      promptEnded.current = Date.now();
       setSystemBusy(false);
     }
   };
+
+  // With unlock by computer password on, bringing Keyless to the front asks
+  // the system right away, like opening it. Not when the lock happens with
+  // the window already in front (Ctrl+L, inactivity), and not when focus
+  // only comes back from the system dialog itself.
+  const systemUnlock = status.systemUnlock;
+  useEffect(() => {
+    if (!systemUnlock) return;
+    const unlisten = getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+      if (focused && !prompting.current && Date.now() - promptEnded.current > 1500) void unlockWithSystem();
+    });
+    return () => void unlisten.then((u) => u());
+  }, [systemUnlock]);
 
   const signOut = async () => {
     await api.signOut();
