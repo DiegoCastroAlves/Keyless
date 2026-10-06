@@ -148,6 +148,38 @@ account has, approximate item sizes (padded), and when items change.
   bundled UI, no plugin APIs exposed to the web UI (file dialogs and links are
   opened from Rust).
 
+## The browser extension
+
+The extension never stores vault data or keys. It asks the desktop app, which
+must be running and unlocked, for what it needs.
+
+- **Transport.** The browser starts the Keyless executable as a native
+  messaging host, which only relays messages to the running app over a local
+  socket (Unix socket with mode 0600 and a peer user check on Linux, a named
+  pipe on Windows). Host manifests only allow the Keyless extension IDs.
+- **Pairing.** Each browser generates a non-extractable X25519 key pair
+  (WebCrypto, stored in IndexedDB). The first connection must be approved in
+  the app after checking that the app and the extension show the same 8-digit
+  code, derived from both public keys. The extension then pins the app's
+  public key; paired browsers are listed in Settings and can be removed.
+- **Channel.** Every request and response is encrypted with AES-256-GCM using
+  a key from X25519 + HKDF-SHA256 over both public keys, with a direction
+  label as associated data. Requests carry a timestamp and a unique ID; stale
+  or repeated requests are rejected.
+- **Pages get only their own logins.** Content scripts run only in the top
+  frame of `http(s)` pages, in a closed shadow root, and only act on real user
+  clicks. The background script reports the page URL from the browser (not
+  from the page), and the app returns credentials only if that URL matches
+  the item's website (same registrable domain, using the Public Suffix List).
+  A login saved for an `https` address is never offered to a plain `http`
+  page.
+  Search, copy and listing every login are available only to the extension's
+  own popup.
+- **Copying** from the popup is done by the app, so the clipboard is kept out
+  of history and cleared automatically.
+- Turning off "Browser integration" in Settings removes the host manifests,
+  so browsers can no longer start the bridge.
+
 ## Accepted limitations
 
 - **No password recovery.** If a user forgets the master password and loses
@@ -161,6 +193,10 @@ account has, approximate item sizes (padded), and when items change.
   Keyless is unlocked can read what Keyless displays.
 - **The web UI's memory cannot be wiped.** Values the user reveals or edits
   stay in the webview's memory until it reuses it.
+- **Filled passwords belong to the page.** Once a password is filled into a
+  site, that site's scripts can read it, as with any password manager. A
+  compromised browser can also act as the paired extension while the app is
+  unlocked.
 - **A malicious server can withhold data** or refuse to store it, and it can
   serve stale data for items a device has never seen before. It cannot read,
   forge, roll back or delete data on a device. Keep an encrypted backup.

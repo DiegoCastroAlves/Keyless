@@ -1,0 +1,117 @@
+{
+  "name": {
+    "message": "Keyless"
+  },
+  "description": {
+    "message": "Fill passwords from Keyless, the zero-knowledge password manager."
+  },
+  "commandFill": {
+    "message": "Fill the login for this page"
+  },
+  "loading": {
+    "message": "Loading…"
+  },
+  "lockedTitle": {
+    "message": "Keyless is locked"
+  },
+  "lockedNote": {
+    "message": "Unlock Keyless to fill passwords."
+  },
+  "unlockApp": {
+    "message": "Unlock Keyless"
+  },
+  "notConnectedNote": {
+    "message": "This browser is not connected to Keyless. Open the Keyless extension to connect."
+  },
+  "noMatches": {
+    "message": "No logins saved for this site."
+  },
+  "fillWith": {
+    "message": "Fill with Keyless"
+  },
+  "hostMissingTitle": {
+    "message": "Keyless app not found"
+  },
+  "hostMissingBody": {
+    "message": "Install the Keyless app and turn on \"Allow the browser extension\" in Settings > Browser, then reopen this window."
+  },
+  "notRunningTitle": {
+    "message": "Keyless is not running"
+  },
+  "notRunningBody": {
+    "message": "Open the Keyless app to fill passwords."
+  },
+  "openApp": {
+    "message": "Open Keyless"
+  },
+  "errorTitle": {
+    "message": "Something went wrong"
+  },
+  "errorBody": {
+    "message": "The extension could not talk to Keyless."
+  },
+  "retry": {
+    "message": "Try again"
+  },
+  "pairTitle": {
+    "message": "Connect to Keyless"
+  },
+  "pairBody": {
+    "message": "Keyless will ask you to approve this browser. Check that it shows this code:"
+  },
+  "connect": {
+    "message": "Connect"
+  },
+  "pairHint": {
+    "message": "You only need to do this once per browser."
+  },
+  "pairWaiting": {
+    "message": "Approve the connection in the Keyless app…"
+  },
+  "pairFailed": {
+    "message": "The connection was not approved."
+  },
+  "copied": {
+    "message": "Copied · clears in $SECONDS$s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "copyFailed": {
+    "message": "Could not copy."
+  },
+  "copyUsername": {
+    "message": "Copy username"
+  },
+  "copyPassword": {
+    "message": "Copy password"
+  },
+  "copyCode": {
+    "message": "Copy one-time password"
+  },
+  "fill": {
+    "message": "Fill on this page"
+  },
+  "fillFailed": {
+    "message": "Could not fill this page."
+  },
+  "searchPlaceholder": {
+    "message": "Search Keyless"
+  },
+  "suggestionsFor": {
+    "message": "Suggestions for $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "searchHint": {
+    "message": "Search your logins."
+  },
+  "noResults": {
+    "message": "No results."
+  }
+}

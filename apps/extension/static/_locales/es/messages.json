@@ -1,0 +1,117 @@
+{
+  "name": {
+    "message": "Keyless"
+  },
+  "description": {
+    "message": "Rellena contraseñas desde Keyless, el gestor de contraseñas de conocimiento cero."
+  },
+  "commandFill": {
+    "message": "Rellenar el inicio de sesión de esta página"
+  },
+  "loading": {
+    "message": "Cargando…"
+  },
+  "lockedTitle": {
+    "message": "Keyless está bloqueado"
+  },
+  "lockedNote": {
+    "message": "Desbloquea Keyless para rellenar contraseñas."
+  },
+  "unlockApp": {
+    "message": "Desbloquear Keyless"
+  },
+  "notConnectedNote": {
+    "message": "Este navegador no está conectado a Keyless. Abre la extensión de Keyless para conectarlo."
+  },
+  "noMatches": {
+    "message": "No hay inicios de sesión guardados para este sitio."
+  },
+  "fillWith": {
+    "message": "Rellenar con Keyless"
+  },
+  "hostMissingTitle": {
+    "message": "No se encontró la app Keyless"
+  },
+  "hostMissingBody": {
+    "message": "Instala la app Keyless y activa \"Permitir la extensión del navegador\" en Ajustes > Navegador; después vuelve a abrir esta ventana."
+  },
+  "notRunningTitle": {
+    "message": "Keyless no se está ejecutando"
+  },
+  "notRunningBody": {
+    "message": "Abre la app Keyless para rellenar contraseñas."
+  },
+  "openApp": {
+    "message": "Abrir Keyless"
+  },
+  "errorTitle": {
+    "message": "Algo salió mal"
+  },
+  "errorBody": {
+    "message": "La extensión no pudo comunicarse con Keyless."
+  },
+  "retry": {
+    "message": "Reintentar"
+  },
+  "pairTitle": {
+    "message": "Conectar con Keyless"
+  },
+  "pairBody": {
+    "message": "Keyless te pedirá que apruebes este navegador. Comprueba que muestre este código:"
+  },
+  "connect": {
+    "message": "Conectar"
+  },
+  "pairHint": {
+    "message": "Solo tienes que hacerlo una vez por navegador."
+  },
+  "pairWaiting": {
+    "message": "Aprueba la conexión en la app Keyless…"
+  },
+  "pairFailed": {
+    "message": "La conexión no fue aprobada."
+  },
+  "copied": {
+    "message": "Copiado · se borra en $SECONDS$ s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "copyFailed": {
+    "message": "No se pudo copiar."
+  },
+  "copyUsername": {
+    "message": "Copiar nombre de usuario"
+  },
+  "copyPassword": {
+    "message": "Copiar contraseña"
+  },
+  "copyCode": {
+    "message": "Copiar contraseña de un solo uso"
+  },
+  "fill": {
+    "message": "Rellenar en esta página"
+  },
+  "fillFailed": {
+    "message": "No se pudo rellenar esta página."
+  },
+  "searchPlaceholder": {
+    "message": "Buscar en Keyless"
+  },
+  "suggestionsFor": {
+    "message": "Sugerencias para $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "searchHint": {
+    "message": "Busca tus inicios de sesión."
+  },
+  "noResults": {
+    "message": "Sin resultados."
+  }
+}

@@ -24,6 +24,9 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Encrypted backups (`.keyless`) with a separate backup password
 - Auto-lock on inactivity, sleep and screen lock; clipboard auto-clear that
   stays out of clipboard history
+- Browser extension for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: fills
+  logins on the matching site, with an end-to-end encrypted, paired connection
+  to the desktop app
 - English and Spanish
 
 ## Install
@@ -32,12 +35,30 @@ Download the installer for your system from the
 [releases page](https://github.com/DiegoCastroAlves/Keyless/releases):
 `.exe` for Windows, `.deb`/`.rpm`/`.AppImage` for Linux.
 
+### Browser extension
+
+The extension talks to the desktop app, so install and open the app first.
+It registers itself with your browsers when it starts (Settings > Browser).
+
+- **Chrome, Edge, Brave, Vivaldi, Opera:** unzip `keyless-chrome-*.zip`, open
+  `chrome://extensions`, turn on *Developer mode*, choose *Load unpacked* and
+  pick the unzipped folder.
+- **Firefox:** Firefox only installs signed extensions permanently. Until
+  Keyless is signed by Mozilla, load `keyless-firefox-*.zip` from
+  `about:debugging#/runtime/this-firefox` (*Load Temporary Add-on*); it stays
+  until Firefox restarts.
+
+Click the Keyless icon in the toolbar, choose *Connect* and approve the
+browser in the app after checking that both show the same code. Then click
+the Keyless button inside a login field, or press `Ctrl+Shift+L`.
+
 ## Repository layout
 
 | Path | What it is |
 | --- | --- |
 | `crates/keyless-core` | Cryptography, key hierarchy, item model, TOTP, generator, importers and backups. |
 | `apps/desktop` | Desktop app: Tauri (Rust, `src-tauri/`) and React UI (`src/`). |
+| `apps/extension` | Browser extension (Manifest V3) for Chromium browsers and Firefox. |
 | `supabase/migrations` | Database schema, Row Level Security and RPCs. |
 | `docs/SECURITY.md` | Security design and threat model. |
 
@@ -54,10 +75,14 @@ pnpm tauri build      # build installers
 
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+
+cd apps/extension
+pnpm install
+pnpm build            # dist/chrome and dist/firefox
 ```
 
 Releases: push a tag like `v0.1.0` and GitHub Actions builds the Windows and
-Linux installers into a draft release.
+Linux installers and the browser extension into a draft release.
 
 ## Credits
 

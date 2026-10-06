@@ -59,5 +59,43 @@ jobs:
 
             - Windows: download the `.exe` installer (Windows may warn that the publisher is unknown: the installer is not code-signed yet).
             - Linux: `.deb` (Debian/Ubuntu), `.rpm` (Fedora/openSUSE) or `.AppImage` (any distribution).
+            - Browser extension: `keyless-chrome-*.zip` (Chrome, Edge, Brave, Vivaldi, Opera) and `keyless-firefox-*.zip`. See the README for how to install them.
           releaseDraft: true
           prerelease: true
+
+  extension:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/extension/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/extension/pnpm-lock.yaml
+
+      - name: Build and pack the browser extension
+        working-directory: apps/extension
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          version=$(node -p "require('./package.json').version")
+          (cd dist/chrome && zip -qr "../../keyless-chrome-$version.zip" .)
+          (cd dist/firefox && zip -qr "../../keyless-firefox-$version.zip" .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: browser-extension
+          path: apps/extension/keyless-*.zip
+
+      - name: Attach to the draft release
+        if: github.ref_type == 'tag'
+        working-directory: apps/extension
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" keyless-*.zip --clobber --repo "$GITHUB_REPOSITORY"

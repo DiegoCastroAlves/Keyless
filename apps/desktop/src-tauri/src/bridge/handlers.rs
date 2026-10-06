@@ -37,6 +37,24 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value,
             let url = args.get("url").and_then(Value::as_str);
             credentials(app, id, url).await
         }
+        "copy" => {
+            // Copied by the app: kept out of clipboard history and cleared
+            // automatically, unlike a copy made by the browser.
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let field = args.get("field").and_then(Value::as_str).ok_or("bad_request")?;
+            if !matches!(field, "username" | "password" | "totp") {
+                return Err("bad_request");
+            }
+            let state = app.state::<AppState>();
+            let value = crate::items::copy_value(&state, id, None, Some(field)).await.map_err(|err| match err {
+                crate::error::AppError::Locked => "locked",
+                _ => "not_found",
+            })?;
+            let seconds = state.settings().clipboard_clear_seconds;
+            let generation = state.clipboard.copy(value, true).map_err(|_| "clipboard")?;
+            crate::clipboard::schedule_clear(app.clone(), generation, std::time::Duration::from_secs(seconds as u64));
+            Ok(json!({ "clearAfterSeconds": seconds }))
+        }
         _ => Err("unknown_command"),
     }
 }
@@ -66,12 +84,36 @@ pub fn site_of(host: &str) -> String {
     psl::domain_str(host).map(str::to_string).unwrap_or_else(|| host.to_string())
 }
 
-/// 2 = same host, 1 = same site, 0 = no match.
-pub fn match_score(page_host: &str, item_url: &str) -> u8 {
+/// The page a request comes from, as reported by the browser.
+pub struct Page {
+    host: String,
+    secure: bool,
+}
+
+impl Page {
+    pub fn parse(url: &str) -> Option<Page> {
+        let parsed = url::Url::parse(url.trim()).ok()?;
+        let secure = match parsed.scheme() {
+            "https" => true,
+            "http" => false,
+            _ => return None,
+        };
+        let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+        Some(Page { host, secure })
+    }
+}
+
+/// 2 = same host, 1 = same site, 0 = no match. A login saved for an https
+/// address is never offered to a plain http page, where anyone on the network
+/// could read it.
+pub fn match_score(page: &Page, item_url: &str) -> u8 {
     let Some(item_host) = url_host(item_url) else { return 0 };
-    if item_host == page_host {
+    let item_secure = item_url.trim().get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
+    if item_secure && !page.secure {
+        0
+    } else if item_host == page.host {
         2
-    } else if site_of(&item_host) == site_of(page_host) {
+    } else if site_of(&item_host) == site_of(&page.host) {
         1
     } else {
         0
@@ -95,8 +137,8 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
     let guard = state.session.lock().await;
     let session = guard.as_ref().ok_or("locked")?;
 
-    let page_host = match &query {
-        Query::Url(url) => Some(url_host(url).ok_or("bad_request")?),
+    let page = match &query {
+        Query::Url(url) => Some(Page::parse(url).ok_or("bad_request")?),
         Query::Text(_) => None,
     };
     let needle = match &query {
@@ -110,8 +152,8 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
         if o.trashed_at.is_some() || o.archived || !is_fillable(o.category) {
             continue;
         }
-        let score = match &page_host {
-            Some(host) => o.urls.iter().map(|u| match_score(host, &u.href)).max().unwrap_or(0),
+        let score = match &page {
+            Some(page) => o.urls.iter().map(|u| match_score(page, &u.href)).max().unwrap_or(0),
             None => {
                 let hit = needle.is_empty()
                     || o.title.to_lowercase().contains(&needle)
@@ -156,8 +198,8 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>) -> Result<Val
 
     // Requests that come from a page must match that page's site.
     if let Some(url) = url {
-        let host = url_host(url).ok_or("bad_request")?;
-        if !cached.overview.urls.iter().any(|u| match_score(&host, &u.href) > 0) {
+        let page = Page::parse(url).ok_or("bad_request")?;
+        if !cached.overview.urls.iter().any(|u| match_score(&page, &u.href) > 0) {
             return Err("url_mismatch");
         }
     }
@@ -184,20 +226,37 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>) -> Result<Val
 mod tests {
     use super::*;
 
+    fn page(url: &str) -> Page {
+        Page::parse(url).unwrap()
+    }
+
     #[test]
     fn url_matching() {
         assert_eq!(url_host("https://www.GitHub.com/login"), Some("github.com".into()));
         assert_eq!(url_host("github.com"), Some("github.com".into()));
         assert_eq!(url_host("javascript:alert(1)"), None);
         assert_eq!(url_host("file:///etc/passwd"), None);
+        assert!(Page::parse("javascript:alert(1)").is_none());
+        assert!(Page::parse("github.com").is_none());
 
-        assert_eq!(match_score("github.com", "https://github.com"), 2);
-        assert_eq!(match_score("gist.github.com", "https://github.com"), 1);
-        assert_eq!(match_score("accounts.google.com", "google.com"), 1);
-        assert_eq!(match_score("evilgithub.com", "https://github.com"), 0);
-        assert_eq!(match_score("github.com.evil.io", "https://github.com"), 0);
+        assert_eq!(match_score(&page("https://github.com/login"), "https://github.com"), 2);
+        assert_eq!(match_score(&page("https://gist.github.com"), "https://github.com"), 1);
+        assert_eq!(match_score(&page("https://accounts.google.com"), "google.com"), 1);
+        assert_eq!(match_score(&page("https://evilgithub.com"), "https://github.com"), 0);
+        assert_eq!(match_score(&page("https://github.com.evil.io"), "https://github.com"), 0);
         // Different sites under a public suffix must not match.
-        assert_eq!(match_score("alice.github.io", "https://bob.github.io"), 0);
-        assert_eq!(match_score("foo.co.uk", "https://bar.co.uk"), 0);
+        assert_eq!(match_score(&page("https://alice.github.io"), "https://bob.github.io"), 0);
+        assert_eq!(match_score(&page("https://foo.co.uk"), "https://bar.co.uk"), 0);
+    }
+
+    #[test]
+    fn https_logins_stay_off_http_pages() {
+        assert_eq!(match_score(&page("http://github.com"), "https://github.com"), 0);
+        assert_eq!(match_score(&page("http://github.com"), "HTTPS://github.com"), 0);
+        // Upgrading is fine, and so are addresses saved without a scheme or
+        // for plain http (routers, local services).
+        assert_eq!(match_score(&page("https://github.com"), "http://github.com"), 2);
+        assert_eq!(match_score(&page("http://router.lan"), "router.lan"), 2);
+        assert_eq!(match_score(&page("http://localhost:8765/login"), "http://localhost:8765"), 2);
     }
 }

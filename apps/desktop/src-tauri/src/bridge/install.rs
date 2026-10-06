@@ -56,24 +56,30 @@ mod linux {
 
     use super::{HOST_NAME, chrome_manifest, firefox_manifest};
 
-    /// Profile roots (relative to $HOME) and the manifest folder inside them.
+    /// Chromium-family profile roots, relative to $XDG_CONFIG_HOME (which is
+    /// where these browsers look for user-level host manifests).
     const CHROMIUM: &[&str] = &[
-        ".config/google-chrome",
-        ".config/google-chrome-beta",
-        ".config/google-chrome-unstable",
-        ".config/chromium",
-        ".config/BraveSoftware/Brave-Browser",
-        ".config/microsoft-edge",
-        ".config/vivaldi",
-        ".config/opera",
+        "google-chrome",
+        "google-chrome-beta",
+        "google-chrome-unstable",
+        "chromium",
+        "BraveSoftware/Brave-Browser",
+        "microsoft-edge",
+        "vivaldi",
+        "opera",
     ];
+    /// Firefox-family roots, relative to $HOME.
     const FIREFOX: &[&str] = &[".mozilla", ".librewolf", ".zen", ".waterfox"];
 
     pub fn apply(enabled: bool, exe: &Path) {
         let Some(home) = std::env::var_os("HOME").map(std::path::PathBuf::from) else { return };
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .map(std::path::PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| home.join(".config"));
         let targets = CHROMIUM
             .iter()
-            .map(|root| (home.join(root), "NativeMessagingHosts", chrome_manifest(exe)))
+            .map(|root| (config.join(root), "NativeMessagingHosts", chrome_manifest(exe)))
             .chain(
                 FIREFOX
                     .iter()

@@ -33,10 +33,18 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+          cache-dependency-path: |
+            apps/desktop/pnpm-lock.yaml
+            apps/extension/pnpm-lock.yaml
 
       - name: Frontend type check and build
         working-directory: apps/desktop
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Browser extension type check and build
+        working-directory: apps/extension
         run: |
           pnpm install --frozen-lockfile
           pnpm build
