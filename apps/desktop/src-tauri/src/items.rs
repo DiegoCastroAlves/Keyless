@@ -724,6 +724,67 @@ pub async fn delete_items_permanently(app: &AppHandle, item_ids: &[String]) -> A
     Ok(())
 }
 
+/// Moves items to another vault. The encryption context binds an item to its
+/// vault and id, so each item is encrypted again with the destination vault's
+/// key under a new id, then the original is deleted with a tombstone proof.
+/// The copy is written first: an interruption leaves a duplicate, never a
+/// lost item. Returns how many items moved.
+pub async fn move_items(app: &AppHandle, item_ids: &[String], to_vault: &str) -> AppResult<usize> {
+    let state = app.state::<AppState>();
+    let moved = {
+        let mut guard = state.session.lock().await;
+        let session = unlocked(&mut guard)?;
+        if !session.vault(to_vault)?.can_write() {
+            return Err(AppError::Invalid(Msg::new("vault_read_only")));
+        }
+        let mut moved = 0;
+        for id in item_ids {
+            let Some(local) = state.store().item(id)? else { continue };
+            if local.deleted || local.vault_id == to_vault {
+                continue;
+            }
+            if !session.vault(&local.vault_id)?.can_write() {
+                return Err(AppError::Invalid(Msg::new("vault_read_only")));
+            }
+            let mut overview = session.items.get(id).ok_or(AppError::NotFound)?.overview.clone();
+            // Checks the item's integrity before copying it.
+            let (_, mut details) = load_details(&state, session, id)?;
+            let new_id = uuid::Uuid::new_v4().to_string();
+            write_local_item(&state, session, &new_id, to_vault, 0, 1, &mut overview, &mut details)?;
+            tombstone_local(&state, session, &local)?;
+            let _ = state.store().move_item_usage(id, &new_id);
+            moved += 1;
+        }
+        moved
+    };
+    sync::spawn_sync(app);
+    Ok(moved)
+}
+
+/// Moves every item of a vault to another one and, if asked, deletes the
+/// emptied vault once the move has reached the server.
+pub async fn move_vault_items(app: &AppHandle, from_vault: &str, to_vault: &str, delete_source: bool) -> AppResult<usize> {
+    let state = app.state::<AppState>();
+    let ids: Vec<String> = {
+        let mut guard = state.session.lock().await;
+        let session = unlocked(&mut guard)?;
+        if from_vault == to_vault {
+            return Err(AppError::Invalid(Msg::new("vault_same")));
+        }
+        if delete_source && session.vault(from_vault)?.role != "owner" {
+            return Err(AppError::Invalid(Msg::new("vault_owner_only")));
+        }
+        session.items.iter().filter(|(_, i)| i.vault_id == from_vault).map(|(id, _)| id.clone()).collect()
+    };
+    let moved = move_items(app, &ids, to_vault).await?;
+    if delete_source {
+        // Upload the copies and the tombstones before the vault goes away.
+        sync::sync_now(app).await.map_err(|_| AppError::Invalid(Msg::new("vault_moved_not_deleted")))?;
+        delete_vault(app, from_vault).await.map_err(|_| AppError::Invalid(Msg::new("vault_moved_not_deleted")))?;
+    }
+    Ok(moved)
+}
+
 /// Permanently deletes items that have been in Recently Deleted for 30 days.
 pub async fn purge_old_trash(app: &AppHandle) -> AppResult<()> {
     let state = app.state::<AppState>();

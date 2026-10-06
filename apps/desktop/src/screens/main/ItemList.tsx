@@ -1,5 +1,5 @@
 import { Command } from "cmdk";
-import { Archive, ArrowDownWideNarrow, Copy, KeyRound, Pencil, Plus, RotateCcw, Search, Star, Trash, User } from "lucide-react";
+import { Archive, ArrowDownWideNarrow, ArrowRightLeft, Copy, KeyRound, Pencil, Plus, RotateCcw, Search, Star, Trash, User } from "lucide-react";
 import { ContextMenu, Popover } from "radix-ui";
 import { forwardRef, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -22,6 +22,7 @@ import { api, errorMessage, type Category, type ItemSummary, type ListSort } fro
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
 import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { MoveItemsDialog } from "./MoveDialog";
 
 export interface ItemListHandle {
   focusSearch: () => void;
@@ -283,6 +284,7 @@ function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: bo
   const loadData = useApp((s) => s.loadData);
   const startEditing = useApp((s) => s.startEditing);
   const trashed = item.trashedAt !== null;
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const run = (fn: () => Promise<unknown>, success?: string) => async () => {
     try {
@@ -304,57 +306,63 @@ function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: bo
   };
 
   return (
-    <ContextMenu.Root>
-      <ContextMenu.Trigger asChild>
-        <ItemRowButton item={item} selected={selected} onSelect={onSelect} />
-      </ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        <ContextMenu.Content className="z-50 min-w-52 rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop">
-          {trashed ? (
-            <CtxItem icon={<RotateCcw className="size-4" />} onSelect={run(() => api.restoreItem(item.id), t("item.restored"))}>
-              {t("common.restore")}
-            </CtxItem>
-          ) : (
-            <>
-              <CtxItem icon={<User className="size-4" />} onSelect={copy("username", t("item.username"))}>
-                {t("item.copyUsername")}
+    <>
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <ItemRowButton item={item} selected={selected} onSelect={onSelect} />
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content className="z-50 min-w-52 rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop">
+            {trashed ? (
+              <CtxItem icon={<RotateCcw className="size-4" />} onSelect={run(() => api.restoreItem(item.id), t("item.restored"))}>
+                {t("common.restore")}
               </CtxItem>
-              <CtxItem icon={<Copy className="size-4" />} onSelect={copy("password", t("item.password"))}>
-                {t("item.copyPassword")}
-              </CtxItem>
-              <CtxItem icon={<KeyRound className="size-4" />} onSelect={copy("totp", t("item.code"))}>
-                {t("item.copyCode")}
-              </CtxItem>
-              <ContextMenu.Separator className="my-1 h-px bg-line" />
-              <CtxItem icon={<Star className="size-4" />} onSelect={run(() => api.setFavorite(item.id, !item.favorite))}>
-                {item.favorite ? t("item.unfavorite") : t("item.favorite")}
-              </CtxItem>
-              <CtxItem
-                icon={<Pencil className="size-4" />}
-                onSelect={async () => {
-                  onSelect();
-                  try {
-                    const draft = await api.getItemDraft(item.id);
-                    startEditing({ draft, isNew: false });
-                  } catch (err) {
-                    toast.error(errorMessage(err));
-                  }
-                }}
-              >
-                {t("common.edit")}
-              </CtxItem>
-              <CtxItem icon={<Archive className="size-4" />} onSelect={run(() => api.setArchived(item.id, !item.archived), item.archived ? undefined : t("item.archived"))}>
-                {item.archived ? t("item.unarchive") : t("item.archive")}
-              </CtxItem>
-              <ContextMenu.Separator className="my-1 h-px bg-line" />
-              <CtxItem icon={<Trash className="size-4" />} danger onSelect={run(() => api.trashItem(item.id), t("item.movedToTrash"))}>
-                {t("item.moveToTrash")}
-              </CtxItem>
-            </>
-          )}
-        </ContextMenu.Content>
-      </ContextMenu.Portal>
-    </ContextMenu.Root>
+            ) : (
+              <>
+                <CtxItem icon={<User className="size-4" />} onSelect={copy("username", t("item.username"))}>
+                  {t("item.copyUsername")}
+                </CtxItem>
+                <CtxItem icon={<Copy className="size-4" />} onSelect={copy("password", t("item.password"))}>
+                  {t("item.copyPassword")}
+                </CtxItem>
+                <CtxItem icon={<KeyRound className="size-4" />} onSelect={copy("totp", t("item.code"))}>
+                  {t("item.copyCode")}
+                </CtxItem>
+                <ContextMenu.Separator className="my-1 h-px bg-line" />
+                <CtxItem icon={<Star className="size-4" />} onSelect={run(() => api.setFavorite(item.id, !item.favorite))}>
+                  {item.favorite ? t("item.unfavorite") : t("item.favorite")}
+                </CtxItem>
+                <CtxItem
+                  icon={<Pencil className="size-4" />}
+                  onSelect={async () => {
+                    onSelect();
+                    try {
+                      const draft = await api.getItemDraft(item.id);
+                      startEditing({ draft, isNew: false });
+                    } catch (err) {
+                      toast.error(errorMessage(err));
+                    }
+                  }}
+                >
+                  {t("common.edit")}
+                </CtxItem>
+                <CtxItem icon={<Archive className="size-4" />} onSelect={run(() => api.setArchived(item.id, !item.archived), item.archived ? undefined : t("item.archived"))}>
+                  {item.archived ? t("item.unarchive") : t("item.archive")}
+                </CtxItem>
+                <CtxItem icon={<ArrowRightLeft className="size-4" />} onSelect={() => setMoveOpen(true)}>
+                  {t("move.toVaultAction")}
+                </CtxItem>
+                <ContextMenu.Separator className="my-1 h-px bg-line" />
+                <CtxItem icon={<Trash className="size-4" />} danger onSelect={run(() => api.trashItem(item.id), t("item.movedToTrash"))}>
+                  {t("item.moveToTrash")}
+                </CtxItem>
+              </>
+            )}
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
+      <MoveItemsDialog open={moveOpen} onOpenChange={setMoveOpen} itemIds={[item.id]} fromVaultId={item.vaultId} />
+    </>
   );
 }
 

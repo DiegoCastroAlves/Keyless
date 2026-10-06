@@ -264,6 +264,8 @@ pub fn run() {
             commands::cancel_account_deletion,
             commands::version_info,
             commands::configure_tray,
+            commands::move_items,
+            commands::move_vault_items,
             commands::show_quick_access,
             commands::hide_quick_access,
             commands::quick_access_ready,

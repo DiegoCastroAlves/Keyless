@@ -416,6 +416,12 @@ impl Store {
         Ok(())
     }
 
+    /// Keeps the usage of an item that moved to another vault under a new id.
+    pub fn move_item_usage(&self, from: &str, to: &str) -> AppResult<()> {
+        self.conn.execute("UPDATE item_usage SET item_id = ?2 WHERE item_id = ?1", [from, to])?;
+        Ok(())
+    }
+
     /// item id -> (uses, last used at in Unix seconds).
     pub fn item_usage(&self) -> AppResult<std::collections::HashMap<String, (u32, i64)>> {
         let mut stmt = self.conn.prepare("SELECT item_id, uses, last_used_at FROM item_usage")?;

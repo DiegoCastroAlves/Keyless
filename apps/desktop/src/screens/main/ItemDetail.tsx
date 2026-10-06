@@ -1,4 +1,4 @@
-import { Archive, Copy, Ellipsis, ExternalLink, Eye, EyeOff, Pencil, RotateCcw, Star, Trash } from "lucide-react";
+import { Archive, ArrowRightLeft, Copy, Ellipsis, ExternalLink, Eye, EyeOff, Pencil, RotateCcw, Star, Trash } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +10,7 @@ import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { MoveItemsDialog } from "./MoveDialog";
 
 export function ItemDetail() {
   const { t } = useTranslation();
@@ -22,6 +23,7 @@ export function ItemDetail() {
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,7 +126,7 @@ export function ItemDetail() {
               )}
               <Menu>
                 <MenuTrigger asChild>
-                  <IconButton label="More">
+                  <IconButton label={t("common.more")}>
                     <Ellipsis className="size-[18px]" />
                   </IconButton>
                 </MenuTrigger>
@@ -135,6 +137,9 @@ export function ItemDetail() {
                     onSelect={() => run(() => api.setArchived(item.id, !item.archived), item.archived ? undefined : t("item.archived"))}
                   >
                     {item.archived ? t("item.unarchive") : t("item.archive")}
+                  </MenuItem>
+                  <MenuItem icon={<ArrowRightLeft className="size-4" />} disabled={!item.canEdit} onSelect={() => setMoveOpen(true)}>
+                    {t("move.toVaultAction")}
                   </MenuItem>
                   <MenuSeparator />
                   <MenuItem
@@ -151,6 +156,8 @@ export function ItemDetail() {
           )}
         </div>
       </header>
+
+      <MoveItemsDialog open={moveOpen} onOpenChange={setMoveOpen} itemIds={[item.id]} fromVaultId={item.vaultId} />
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-5">

@@ -373,6 +373,9 @@ export const api = {
   createVault: (meta: VaultMeta) => invoke<string>("create_vault", { meta }),
   updateVault: (vaultId: string, meta: VaultMeta) => invoke<void>("update_vault", { vaultId, meta }),
   deleteVault: (vaultId: string) => invoke<void>("delete_vault", { vaultId }),
+  moveItems: (itemIds: string[], vaultId: string) => invoke<number>("move_items", { itemIds, vaultId }),
+  moveVaultItems: (fromVault: string, toVault: string, deleteSource: boolean) =>
+    invoke<number>("move_vault_items", { fromVault, toVault, deleteSource }),
 
   listItems: () => invoke<ItemSummary[]>("list_items"),
   getItem: (itemId: string) => invoke<ItemDetail>("get_item", { itemId }),

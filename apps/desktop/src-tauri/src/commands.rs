@@ -473,3 +473,17 @@ pub fn set_quick_access_shortcut(app: AppHandle, state: State<'_, AppState>, sho
     state.save_settings(&settings)?;
     Ok(settings)
 }
+
+// ----- moving items ---------------------------------------------------------
+
+#[tauri::command]
+pub async fn move_items(app: AppHandle, state: State<'_, AppState>, item_ids: Vec<String>, vault_id: String) -> AppResult<usize> {
+    state.touch();
+    items::move_items(&app, &item_ids, &vault_id).await
+}
+
+#[tauri::command]
+pub async fn move_vault_items(app: AppHandle, state: State<'_, AppState>, from_vault: String, to_vault: String, delete_source: bool) -> AppResult<usize> {
+    state.touch();
+    items::move_vault_items(&app, &from_vault, &to_vault, delete_source).await
+}

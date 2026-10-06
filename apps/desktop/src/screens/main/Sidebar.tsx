@@ -1,5 +1,6 @@
 import {
   Archive,
+  ArrowRightLeft,
   ChevronDown,
   CircleArrowUp,
   Cloud,
@@ -31,6 +32,7 @@ import { CATEGORIES, categoryLabel } from "../../lib/categories";
 import { relativeTime } from "../../lib/format";
 import { useApp, type View } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { MoveVaultDialog } from "./MoveDialog";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 
 function sameView(a: View, b: View): boolean {
@@ -114,6 +116,7 @@ export function Sidebar({
   const refreshStatus = useApp((s) => s.refreshStatus);
   const loadData = useApp((s) => s.loadData);
   const [deleting, setDeleting] = useState<Vault | null>(null);
+  const [moving, setMoving] = useState<Vault | null>(null);
   const { t } = useTranslation();
 
   const active = useMemo(() => items.filter((i) => i.trashedAt === null && !i.archived), [items]);
@@ -243,6 +246,9 @@ export function Sidebar({
                       <MenuItem icon={<Pencil className="size-4" />} onSelect={() => onEditVault(vault)}>
                         {t("sidebar.renameVault")}
                       </MenuItem>
+                      <MenuItem icon={<ArrowRightLeft className="size-4" />} onSelect={() => setMoving(vault)} disabled={vault.itemCount === 0}>
+                        {t("move.vaultAction")}
+                      </MenuItem>
                       <MenuItem icon={<Trash className="size-4" />} onSelect={() => setDeleting(vault)} danger disabled={vaults.length <= 1}>
                         {t("sidebar.deleteVault")}
                       </MenuItem>
@@ -300,6 +306,8 @@ export function Sidebar({
         </button>
         <UpdateBadge />
       </div>
+
+      <MoveVaultDialog vault={moving} onOpenChange={(open) => !open && setMoving(null)} />
 
       <Dialog
         open={!!deleting}
