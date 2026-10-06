@@ -87,3 +87,28 @@ jobs:
 
       - name: Tests (Windows)
         run: cargo test --workspace
+
+  arch:
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    env:
+      CARGO_HOME: /tmp/cargo-home
+      CARGO_TARGET_DIR: /tmp/cargo-target
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm --needed git rust nodejs pnpm webkit2gtk-4.1 gtk3 libsoup3 hicolor-icon-theme
+
+      - uses: actions/checkout@v4
+
+      # Saved on main and reused by the release workflow.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/cargo-home/registry
+            /tmp/cargo-home/git
+            /tmp/cargo-target
+          key: arch-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: arch-cargo-
+
+      - name: Build the Arch Linux package
+        run: .github/scripts/build-arch-package.sh "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"

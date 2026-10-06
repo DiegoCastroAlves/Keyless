@@ -100,40 +100,38 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" keyless-*.zip --clobber --repo "$GITHUB_REPOSITORY"
 
+  # Runs alongside the other builds; the publish job attaches the package.
   arch:
-    needs: build
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     container: archlinux:base-devel
+    env:
+      CARGO_HOME: /tmp/cargo-home
+      CARGO_TARGET_DIR: /tmp/cargo-target
     steps:
       - name: Install build tools
-        run: pacman -Syu --noconfirm --needed git rust nodejs pnpm webkit2gtk-4.1 gtk3 libsoup3 hicolor-icon-theme github-cli
+        run: pacman -Syu --noconfirm --needed git rust nodejs pnpm webkit2gtk-4.1 gtk3 libsoup3 hicolor-icon-theme
 
       - uses: actions/checkout@v4
 
+      # Tag runs can only read caches saved on main, by the CI arch job.
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            /tmp/cargo-home/registry
+            /tmp/cargo-home/git
+            /tmp/cargo-target
+          key: arch-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: arch-cargo-
+
       - name: Build the Arch Linux package
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          useradd -m builder
-          mkdir /tmp/arch
-          cp packaging/arch/PKGBUILD /tmp/arch/
-          sed -i "s/^pkgver=.*/pkgver=$version/" /tmp/arch/PKGBUILD
-          # makepkg uses this local copy of the tagged source instead of downloading it.
-          git archive --format=tar.gz --prefix="Keyless-$version/" -o "/tmp/arch/keyless-$version.tar.gz" HEAD
-          chown -R builder /tmp/arch
-          cd /tmp/arch
-          sudo -u builder makepkg --noconfirm
+        run: .github/scripts/build-arch-package.sh "${GITHUB_REF_NAME#v}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: arch-package
           path: /tmp/arch/keyless-*.pkg.tar.zst
-
-      - name: Attach to the draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" /tmp/arch/keyless-*.pkg.tar.zst --clobber --repo "$GITHUB_REPOSITORY"
+          if-no-files-found: error
 
   publish:
     needs: [build, extension, arch]
@@ -156,6 +154,11 @@ jobs:
         working-directory: apps/desktop
         run: pnpm install --frozen-lockfile
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-package
+          path: ${{ runner.temp }}/release
+
       # The only step that uses the signing key. Each signature is bound to the
       # version, which the app checks (no downgrades). Without the key this
       # fails and the release stays a draft.
@@ -169,7 +172,8 @@ jobs:
           dir="$RUNNER_TEMP/release"
           mkdir -p "$dir"
           gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
-            --pattern '*_x64-setup.exe' --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' --pattern '*.pkg.tar.zst'
+            --pattern '*_x64-setup.exe' --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm'
+          gh release upload "$GITHUB_REF_NAME" "$dir"/*.pkg.tar.zst --clobber --repo "$GITHUB_REPOSITORY"
           for file in "$dir"/*; do
             apps/desktop/node_modules/.bin/tauri signer sign --app-version "$version" "$file" > /dev/null
           done
