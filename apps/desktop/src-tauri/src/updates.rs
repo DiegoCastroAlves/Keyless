@@ -316,9 +316,15 @@ async fn install_pacman(app: &AppHandle, manifest_url: &str, version: &str) -> A
 
 fn private_temp_dir() -> AppResult<PathBuf> {
     let dir = std::env::temp_dir().join(format!("keyless-update-{}", uuid::Uuid::new_v4()));
-    let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let builder = {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder
+    };
+    #[cfg(not(unix))]
+    let builder = std::fs::DirBuilder::new();
     builder.create(&dir).map_err(|e| AppError::Store(e.to_string()))?;
     Ok(dir)
 }
