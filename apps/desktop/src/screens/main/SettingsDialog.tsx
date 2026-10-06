@@ -1,4 +1,5 @@
-import { Download, Fingerprint, Globe, Info, KeyRound, Settings2, ShieldCheck, Trash, User } from "lucide-react";
+import { Download, Fingerprint, Globe, Info, KeyRound, Settings2, ShieldCheck, Trash, User, X } from "lucide-react";
+import { Dialog as RDialog } from "radix-ui";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -38,41 +39,62 @@ export function SettingsDialog({
     { id: "about", label: t("settings.about"), icon: <Info className="size-4" /> },
   ];
 
+  const current = tabs.find((item) => item.id === tab);
+
+  // A fixed sidebar and header; only the section content scrolls.
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={t("settings.title")} width="max-w-3xl">
-      <div className="flex min-h-[460px] gap-6">
-        <nav className="w-44 shrink-0 space-y-0.5">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setTab(item.id)}
-              className={cx(
-                "flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px]",
-                tab === item.id ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-panel-3 hover:text-fg",
-              )}
-            >
-              {item.icon}
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="min-w-0 flex-1">
-          {tab === "general" && <GeneralTab />}
-          {tab === "security" && <SecurityTab />}
-          {tab === "browser" && <BrowserTab />}
-          {tab === "account" && <AccountTab onClose={() => onOpenChange(false)} />}
-          {tab === "import" && (
-            <div className="space-y-8">
-              <ImportPanel onDone={() => onOpenChange(false)} />
-              <div className="border-t border-line pt-6">
-                <ExportPanel />
-              </div>
+    <RDialog.Root open={open} onOpenChange={onOpenChange}>
+      <RDialog.Portal>
+        <RDialog.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] animate-fade" />
+        <RDialog.Content
+          aria-describedby={undefined}
+          className="fixed left-1/2 top-1/2 z-50 flex h-[min(720px,calc(100vh-2rem))] w-[min(960px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl outline-none animate-pop"
+        >
+          <nav className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-line bg-panel-2 p-3">
+            <RDialog.Title className="px-2.5 pb-3 pt-1.5 text-base font-semibold">{t("settings.title")}</RDialog.Title>
+            {tabs.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setTab(item.id)}
+                className={cx(
+                  "flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px]",
+                  tab === item.id ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-panel-3 hover:text-fg",
+                )}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex h-14 shrink-0 items-center justify-between border-b border-line pl-7 pr-4">
+              <span className="text-sm font-semibold">{current?.label}</span>
+              <RDialog.Close
+                aria-label={t("common.close")}
+                className="flex size-8 items-center justify-center rounded-lg text-muted hover:bg-panel-3 hover:text-fg"
+              >
+                <X className="size-4" />
+              </RDialog.Close>
             </div>
-          )}
-          {tab === "about" && <AboutTab />}
-        </div>
-      </div>
-    </Dialog>
+            <div key={tab} className="min-h-0 flex-1 overflow-y-auto px-7 py-5">
+              {tab === "general" && <GeneralTab />}
+              {tab === "security" && <SecurityTab />}
+              {tab === "browser" && <BrowserTab />}
+              {tab === "account" && <AccountTab onClose={() => onOpenChange(false)} />}
+              {tab === "import" && (
+                <div className="space-y-8">
+                  <ImportPanel onDone={() => onOpenChange(false)} />
+                  <div className="border-t border-line pt-6">
+                    <ExportPanel />
+                  </div>
+                </div>
+              )}
+              {tab === "about" && <AboutTab />}
+            </div>
+          </div>
+        </RDialog.Content>
+      </RDialog.Portal>
+    </RDialog.Root>
   );
 }
 

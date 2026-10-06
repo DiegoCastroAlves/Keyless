@@ -10,6 +10,7 @@ import {
   type ReactNode,
   type TextareaHTMLAttributes,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 export { clsx as cx };
 
@@ -193,17 +194,19 @@ export function Dialog({
   width?: string;
   hideClose?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
         <RDialog.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px] animate-fade" />
         <RDialog.Content
           className={clsx(
-            "fixed left-1/2 top-1/2 z-50 max-h-[88vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-line bg-panel p-6 shadow-2xl outline-none animate-pop",
+            "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-line bg-panel py-6 shadow-2xl outline-none animate-pop",
             width,
           )}
         >
-          <div className="mb-4 flex items-start justify-between gap-4">
+          {/* The header stays put; only the body scrolls. */}
+          <div className="mb-4 flex shrink-0 items-start justify-between gap-4 px-6">
             <div>
               <RDialog.Title className="text-lg font-semibold text-fg">{title}</RDialog.Title>
               {description ? (
@@ -214,13 +217,13 @@ export function Dialog({
             </div>
             {!hideClose && (
               <RDialog.Close asChild>
-                <IconButton label="Close" className="-mr-2 -mt-1">
+                <IconButton label={t("common.close")} className="-mr-2 -mt-1">
                   <X className="size-4" />
                 </IconButton>
               </RDialog.Close>
             )}
           </div>
-          {children}
+          <div className="min-h-0 overflow-y-auto px-6">{children}</div>
         </RDialog.Content>
       </RDialog.Portal>
     </RDialog.Root>
