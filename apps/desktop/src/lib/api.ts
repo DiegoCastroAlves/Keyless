@@ -75,6 +75,7 @@ export interface Settings {
   lock_on_sleep: boolean;
   theme: "system" | "light" | "dark";
   language: "system" | "en" | "es";
+  browser_integration: boolean;
 }
 
 export interface SyncStatus {
@@ -92,6 +93,7 @@ export interface Vault {
   role: "owner" | "editor" | "viewer";
   canWrite: boolean;
   itemCount: number;
+  orphaned: boolean;
 }
 
 export interface VaultMeta {
@@ -230,6 +232,24 @@ export interface ImportSummary {
 
 export type ImportTarget = { mode: "new_vaults" } | { mode: "vault"; vaultId: string };
 
+export interface AccountInfo {
+  email: string;
+  deleteAfter: string | null;
+  secretKeyInFile: boolean;
+}
+
+export interface BridgePeer {
+  publicKey: string;
+  name: string;
+  pairedAt: number;
+}
+
+export interface PairRequest {
+  requestId: string;
+  code: string;
+  name: string;
+}
+
 export function errorMessage(err: unknown): string {
   return translateError(err);
 }
@@ -252,7 +272,13 @@ export const api = {
   lock: () => invoke<void>("lock"),
   signOut: () => invoke<void>("sign_out"),
   resendConfirmation: (email: string) => invoke<void>("resend_confirmation", { email }),
-  revealSecretKey: () => invoke<string>("reveal_secret_key"),
+  revealSecretKey: (masterPassword: string) => invoke<string>("reveal_secret_key", { masterPassword }),
+  copySecretKey: () => invoke<CopyResult>("copy_secret_key"),
+  accountInfo: () => invoke<AccountInfo>("account_info"),
+  cancelAccountDeletion: () => invoke<void>("cancel_account_deletion"),
+  bridgePairRespond: (requestId: string, approve: boolean) => invoke<void>("bridge_pair_respond", { requestId, approve }),
+  listBridgePeers: () => invoke<BridgePeer[]>("list_bridge_peers"),
+  removeBridgePeer: (publicKey: string) => invoke<void>("remove_bridge_peer", { publicKey }),
   changeMasterPassword: (current: string, next: string) =>
     invoke<void>("change_master_password", { current, new: next }),
   deleteAccount: (masterPassword: string) => invoke<void>("delete_account", { masterPassword }),
@@ -303,4 +329,6 @@ export const events = {
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
   onSyncStatus: (cb: (s: SyncStatus) => void): Promise<UnlistenFn> =>
     listen<SyncStatus>("keyless://sync-status", (e) => cb(e.payload)),
+  onPairRequest: (cb: (r: PairRequest) => void): Promise<UnlistenFn> =>
+    listen<PairRequest>("keyless://pair-request", (e) => cb(e.payload)),
 };

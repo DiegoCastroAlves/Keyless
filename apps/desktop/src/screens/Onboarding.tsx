@@ -109,7 +109,7 @@ function CreateAccount({
 
   const mismatch = confirm.length > 0 && confirm !== password;
   const tooShort = password.length > 0 && password.trim().length < 10;
-  const canSubmit = email && password && confirm && !mismatch && !tooShort && understood && (strength?.score ?? 0) >= 2;
+  const canSubmit = email && password && confirm && !mismatch && !tooShort && understood && (strength?.score ?? 0) >= 3;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -161,7 +161,7 @@ function CreateAccount({
         <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!canSubmit} loading={busy}>
           {t("create.submit")} <ArrowRight className="size-4" />
         </Button>
-        {password && (strength?.score ?? 0) < 2 && !tooShort && (
+        {password && (strength?.score ?? 0) < 3 && !tooShort && (
           <p className="text-center text-xs text-subtle">{t("create.stronger")}</p>
         )}
       </form>

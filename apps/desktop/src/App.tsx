@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { Logo, Toaster } from "./components/common";
+import { PairRequestDialog } from "./components/PairRequestDialog";
 import { TooltipProvider } from "./components/ui";
 import { applyLanguage } from "./i18n";
 import { api, events } from "./lib/api";
@@ -99,6 +100,7 @@ export function App() {
       ) : (
         <MainLayout />
       )}
+      <PairRequestDialog />
       <Toaster />
     </TooltipProvider>
   );

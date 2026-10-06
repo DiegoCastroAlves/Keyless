@@ -12,6 +12,16 @@ use crate::{
     item::{ItemDetails, ItemOverview},
 };
 
+/// Proof that whoever deleted an item held the vault key. Clients ignore
+/// deletions without a valid proof (e.g. made with only a stolen session).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tombstone {
+    /// Version of the deletion (one more than the last content version).
+    pub version: u64,
+    /// Unix seconds.
+    pub deleted_at: i64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultMeta {
     pub name: String,
@@ -81,6 +91,29 @@ impl VaultKey {
     }
 }
 
+impl VaultKey {
+    pub fn seal_tombstone(&self, vault_id: &str, item_id: &str, tombstone: &Tombstone) -> Result<String> {
+        let json = serde_json::to_vec(tombstone)?;
+        self.0.seal(&json, &context("item-tombstone", &[vault_id, item_id]))
+    }
+
+    pub fn open_tombstone(&self, vault_id: &str, item_id: &str, enc: &str) -> Result<Tombstone> {
+        let json = self.0.open(enc, &context("item-tombstone", &[vault_id, item_id]))?;
+        Ok(serde_json::from_slice(&json)?)
+    }
+
+    /// Proof that the vault's deletion was requested by a key holder.
+    pub fn seal_vault_tombstone(&self, vault_id: &str, deleted_at: i64) -> Result<String> {
+        self.0.seal(&deleted_at.to_be_bytes(), &context("vault-tombstone", &[vault_id]))
+    }
+
+    pub fn open_vault_tombstone(&self, vault_id: &str, enc: &str) -> Result<i64> {
+        let bytes = self.0.open(enc, &context("vault-tombstone", &[vault_id]))?;
+        let array: [u8; 8] = bytes.as_slice().try_into().map_err(|_| crate::Error::InvalidEnvelope)?;
+        Ok(i64::from_be_bytes(array))
+    }
+}
+
 impl std::fmt::Debug for VaultKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("VaultKey(<redacted>)")
@@ -130,6 +163,21 @@ mod tests {
         assert!(vk.open_overview("v2", "i1", &eo).is_err());
         assert!(vk.open_details("v1", "i1", &eo).is_err());
         assert!(vk.open_overview("v1", "i1", &ed).is_err());
+    }
+
+    #[test]
+    fn tombstones_are_bound_and_authenticated() {
+        let vk = VaultKey::generate().unwrap();
+        let other = VaultKey::generate().unwrap();
+        let t = Tombstone { version: 7, deleted_at: 100 };
+        let enc = vk.seal_tombstone("v1", "i1", &t).unwrap();
+        assert_eq!(vk.open_tombstone("v1", "i1", &enc).unwrap(), t);
+        assert!(vk.open_tombstone("v1", "i2", &enc).is_err());
+        assert!(other.open_tombstone("v1", "i1", &enc).is_err());
+        let vt = vk.seal_vault_tombstone("v1", 42).unwrap();
+        assert_eq!(vk.open_vault_tombstone("v1", &vt).unwrap(), 42);
+        assert!(vk.open_vault_tombstone("v2", &vt).is_err());
+        assert!(vk.open_tombstone("v1", "i1", &vt).is_err());
     }
 
     #[test]

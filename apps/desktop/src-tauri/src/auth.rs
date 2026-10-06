@@ -52,10 +52,17 @@ pub fn normalize_email(email: &str) -> AppResult<String> {
     if valid { Ok(email) } else { Err(AppError::Invalid(Msg::new("email_invalid"))) }
 }
 
-pub fn validate_new_master_password(password: &str) -> AppResult<()> {
+/// Minimum zxcvbn score (0-4) for a new master password.
+pub const MIN_MASTER_PASSWORD_SCORE: u8 = 3;
+
+pub fn validate_new_master_password(password: &str, email: &str) -> AppResult<()> {
     let normalized = normalize_master_password(password);
     if normalized.chars().count() < MIN_MASTER_PASSWORD_CHARS {
         return Err(AppError::Invalid(Msg::new("password_too_short").with("min", MIN_MASTER_PASSWORD_CHARS)));
+    }
+    let local_part = email.split('@').next().unwrap_or("");
+    if crate::health::strength(&normalized, &[local_part, "keyless"]).score < MIN_MASTER_PASSWORD_SCORE {
+        return Err(AppError::Invalid(Msg::new("password_weak")));
     }
     Ok(())
 }
@@ -77,7 +84,7 @@ pub async fn status(state: &AppState) -> AppResult<AppStatus> {
     let pending_email: Option<String> = store.setting(PENDING_EMAIL)?;
     drop(store);
     let has_secret_key = match pending_email.as_ref().or(account.as_ref().map(|a| &a.email)) {
-        Some(email) => state.secrets.load(email).ok().flatten().is_some(),
+        Some(email) => state.secrets.load_secret_key(email).ok().flatten().is_some(),
         None => false,
     };
     Ok(AppStatus {
@@ -97,7 +104,7 @@ pub async fn status(state: &AppState) -> AppResult<AppStatus> {
 pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroizing<String>) -> AppResult<CreatedAccount> {
     let state = app.state::<AppState>();
     let email = normalize_email(email)?;
-    validate_new_master_password(&master_password)?;
+    validate_new_master_password(&master_password, &email)?;
     if state.store().account()?.is_some() {
         return Err(AppError::Invalid(Msg::new("device_has_account")));
     }
@@ -108,7 +115,7 @@ pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroi
 
     let outcome = state.api.sign_up(&email, &keys.auth_secret).await?;
     // Only keep the Secret Key once the server accepted the sign-up.
-    state.secrets.save(&email, &secret_key)?;
+    state.secrets.save_secret_key(&email, &secret_key)?;
     state.store().set_setting(PENDING_EMAIL, &email)?;
 
     let confirmation_required = match outcome {
@@ -123,14 +130,14 @@ pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroi
 
 pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, master_password: Zeroizing<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
-    state.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).check()?;
+    let _busy = state.begin_unlock()?;
     let email = normalize_email(email)?;
     let secret_key = match secret_key.map(Zeroizing::new).filter(|s| !s.trim().is_empty()) {
         Some(input) => SecretKey::parse(&input)
             .map_err(|_| AppError::Invalid(Msg::new("secret_key_invalid")))?,
         None => state
             .secrets
-            .load(&email)?
+            .load_secret_key(&email)?
             .ok_or_else(|| AppError::Invalid(Msg::new("secret_key_required")))?,
     };
     if let Some(existing) = state.store().account()?
@@ -145,12 +152,12 @@ pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, m
         Ok(auth) => auth,
         Err(err) => {
             if matches!(err, AppError::Auth(_)) {
-                state.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).record_failure();
+                state.record_unlock_result(false);
             }
             return Err(err);
         }
     };
-    state.secrets.save(&email, &secret_key)?;
+    state.secrets.save_secret_key(&email, &secret_key)?;
     complete_sign_in(app, &email, kdf, keys, auth).await
 }
 
@@ -162,8 +169,15 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
     let user_id = auth.user_id.clone();
 
     let (bundle, account) = match state.api.profile(&token, &user_id).await? {
-        None => initialize_remote_account(&state, &token, &user_id, &keys, kdf).await?,
-        Some(profile) => match unlock_account(&profile.bundle(), &keys.kek) {
+        None => {
+            // This device already holds keys for this account: never replace
+            // them because the server claims there are none.
+            if state.store().account()?.is_some_and(|a| a.user_id == user_id) {
+                return Err(AppError::Auth(Msg::new("account_keys_missing")));
+            }
+            initialize_remote_account(&state, &token, &user_id, &keys, kdf).await?
+        }
+        Some(profile) => match unlock_account(&profile.bundle(), &keys.kek, &user_id) {
             Ok(account) => (profile.bundle(), account),
             Err(_) => {
                 // A master password change may have been interrupted after the
@@ -171,7 +185,7 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
                 let pending = profile
                     .pending_bundle()
                     .ok_or_else(|| AppError::Auth(Msg::new("account_keys_undecryptable")))?;
-                let account = unlock_account(&pending, &keys.kek)?;
+                let account = unlock_account(&pending, &keys.kek, &user_id)?;
                 state
                     .api
                     .update_profile(
@@ -221,7 +235,7 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
         load_caches(&mut session, &store)?;
     }
     *state.session.lock().await = Some(session);
-    state.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).reset();
+    state.record_unlock_result(true);
     state.touch();
 
     // First sign-in on a device: wait for the data so the UI is not empty.
@@ -257,11 +271,11 @@ async fn initialize_remote_account(
     keys: &AccountKeys,
     kdf: KdfParams,
 ) -> AppResult<(AccountBundle, UnlockedAccount)> {
-    let (bundle, account) = create_keys(&keys.kek, kdf)?;
+    let (bundle, account) = create_keys(&keys.kek, kdf, user_id)?;
     if let Err(err) = state.api.insert_profile(token, user_id, &bundle).await {
         // Another device may have initialised the account at the same time.
         if let Some(profile) = state.api.profile(token, user_id).await? {
-            let account = unlock_account(&profile.bundle(), &keys.kek)?;
+            let account = unlock_account(&profile.bundle(), &keys.kek, user_id)?;
             return Ok((profile.bundle(), account));
         }
         return Err(err);
@@ -278,14 +292,14 @@ async fn initialize_remote_account(
 
 pub async fn unlock(app: &AppHandle, master_password: Zeroizing<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
-    state.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).check()?;
+    let _busy = state.begin_unlock()?;
     let local = state.store().account()?.ok_or(AppError::NoAccount)?;
-    let secret_key = state.secrets.load(&local.email)?.ok_or_else(|| {
+    let secret_key = state.secrets.load_secret_key(&local.email)?.ok_or_else(|| {
         AppError::Auth(Msg::new("secret_key_missing"))
     })?;
 
     let (keys, secret_key) = derive(master_password, secret_key, local.bundle.kdf.clone()).await?;
-    match unlock_account(&local.bundle, &keys.kek) {
+    match unlock_account(&local.bundle, &keys.kek, &local.user_id) {
         Ok(account) => {
             let mut session = Session {
                 user_id: local.user_id.clone(),
@@ -298,7 +312,7 @@ pub async fn unlock(app: &AppHandle, master_password: Zeroizing<String>) -> AppR
             };
             load_caches(&mut session, &state.store())?;
             *state.session.lock().await = Some(session);
-            state.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).reset();
+            state.record_unlock_result(true);
             state.touch();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -322,7 +336,7 @@ pub async fn unlock(app: &AppHandle, master_password: Zeroizing<String>) -> AppR
                     complete_sign_in(app, &local.email, local.bundle.kdf.clone(), keys, auth).await
                 }
                 Err(_) => {
-                    state.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).record_failure();
+                    state.record_unlock_result(false);
                     Err(AppError::WrongPassword)
                 }
             }
@@ -362,7 +376,7 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     let store = state.store();
     let email = store.account()?.map(|a| a.email).or(store.setting::<String>(PENDING_EMAIL)?);
     if let Some(email) = email {
-        state.secrets.delete(&email);
+        state.secrets.delete_secret_key(&email);
     }
     store.wipe_account_data()?;
     store.delete_setting(PENDING_EMAIL)?;
@@ -377,32 +391,56 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
 /// Verifies the master password against the local account keys.
 async fn verify_master_password(state: &AppState, master_password: Zeroizing<String>) -> AppResult<(LocalAccount, AccountKeys, SecretKey)> {
     let local = state.store().account()?.ok_or(AppError::NoAccount)?;
-    let secret_key = state.secrets.load(&local.email)?.ok_or(AppError::NoAccount)?;
+    let secret_key = state.secrets.load_secret_key(&local.email)?.ok_or(AppError::NoAccount)?;
     let (keys, secret_key) = derive(master_password, secret_key, local.bundle.kdf.clone()).await?;
-    unlock_account(&local.bundle, &keys.kek).map_err(|_| AppError::WrongPassword)?;
+    unlock_account(&local.bundle, &keys.kek, &local.user_id).map_err(|_| AppError::WrongPassword)?;
     Ok((local, keys, secret_key))
 }
 
-pub async fn reveal_secret_key(state: &AppState) -> AppResult<String> {
-    let email = state
-        .session
-        .lock()
-        .await
-        .as_ref()
-        .map(|s| s.email.clone())
-        .ok_or(AppError::Locked)?;
-    let key = state.secrets.load(&email)?.ok_or(AppError::NotFound)?;
-    Ok(key.to_display().to_string())
+/// Shows the Secret Key after re-entering the master password (throttled
+/// like unlocking).
+pub async fn reveal_secret_key(state: &AppState, master_password: Zeroizing<String>) -> AppResult<String> {
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    let _busy = state.begin_unlock()?;
+    match verify_master_password(state, master_password).await {
+        Ok((_, _, key)) => {
+            state.record_unlock_result(true);
+            Ok(key.to_display().to_string())
+        }
+        Err(err) => {
+            if matches!(err, AppError::WrongPassword) {
+                state.record_unlock_result(false);
+            }
+            Err(err)
+        }
+    }
+}
+
+/// Copies the Secret Key of this device's account (or of an account waiting
+/// for email confirmation) with the protected clipboard. Used by the
+/// Emergency Kit right after sign-up, before there is a session.
+pub fn secret_key_for_kit(state: &AppState) -> AppResult<Zeroizing<String>> {
+    let store = state.store();
+    let email = match store.account()? {
+        Some(account) => account.email,
+        None => store.setting::<String>(PENDING_EMAIL)?.ok_or(AppError::NoAccount)?,
+    };
+    drop(store);
+    let key = state.secrets.load_secret_key(&email)?.ok_or(AppError::NotFound)?;
+    Ok(key.to_display())
 }
 
 pub async fn change_master_password(app: &AppHandle, current: Zeroizing<String>, new: Zeroizing<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
-    validate_new_master_password(&new)?;
+    let email = state.store().account()?.map(|a| a.email).unwrap_or_default();
+    validate_new_master_password(&new, &email)?;
     let (local, current_keys, secret_key) = verify_master_password(&state, current).await?;
-    let account = unlock_account(&local.bundle, &current_keys.kek)?;
+    let account = unlock_account(&local.bundle, &current_keys.kek, &local.user_id)?;
     let kdf = KdfParams::recommended();
     let (new_keys, _) = derive(new, secret_key, kdf.clone()).await?;
-    let new_bundle = rewrap_account(&local.bundle, &account, &new_keys.kek, kdf)?;
+    let new_bundle = rewrap_account(&local.bundle, &account, &new_keys.kek, kdf, &local.user_id)?;
 
     let (user_id, token) = sync::ensure_token(&state).await?;
     // 1. Stage the new wrapping so a crash at any point stays recoverable.
@@ -414,8 +452,14 @@ pub async fn change_master_password(app: &AppHandle, current: Zeroizing<String>,
             json!({ "pending_kdf": new_bundle.kdf, "pending_enc_user_key": new_bundle.enc_user_key }),
         )
         .await?;
-    // 2. Switch the sign-in secret.
-    state.api.update_auth_secret(&token, &new_keys.auth_secret).await?;
+    // 2. Switch the sign-in secret. If that fails, drop the staged keys.
+    if let Err(err) = state.api.update_auth_secret(&token, &new_keys.auth_secret).await {
+        let _ = state
+            .api
+            .update_profile(&token, &user_id, json!({ "pending_kdf": null, "pending_enc_user_key": null }))
+            .await;
+        return Err(err);
+    }
     // 3. Promote the staged keys.
     state
         .api
@@ -436,12 +480,46 @@ pub async fn change_master_password(app: &AppHandle, current: Zeroizing<String>,
     Ok(())
 }
 
+/// Schedules the account for deletion in 7 days (cancellable by signing in
+/// again) and signs this device out.
 pub async fn delete_account(app: &AppHandle, master_password: Zeroizing<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
     verify_master_password(&state, master_password).await?;
     let (_, token) = sync::ensure_token(&state).await?;
     state.api.delete_account(&token).await?;
     sign_out(app).await
+}
+
+/// Server-side account information for the UI.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountInfo {
+    pub email: String,
+    /// When the account will be deleted, if a deletion is scheduled.
+    pub delete_after: Option<String>,
+    /// The Secret Key is stored in a plain file (no OS credential store).
+    pub secret_key_in_file: bool,
+}
+
+pub async fn account_info(state: &AppState) -> AppResult<AccountInfo> {
+    let email = state
+        .session
+        .lock()
+        .await
+        .as_ref()
+        .map(|s| s.email.clone())
+        .ok_or(AppError::Locked)?;
+    let secret_key_in_file = state.secrets.uses_fallback();
+    let delete_after = match sync::ensure_token(state).await {
+        Ok((user_id, token)) => state.api.profile(&token, &user_id).await.ok().flatten().and_then(|p| p.delete_after),
+        Err(_) => None,
+    };
+    Ok(AccountInfo { email, delete_after, secret_key_in_file })
+}
+
+pub async fn cancel_account_deletion(state: &AppState) -> AppResult<()> {
+    let (_, token) = sync::ensure_token(state).await?;
+    state.api.cancel_account_deletion(&token).await
 }
 
 pub async fn resend_confirmation(state: &AppState, email: &str) -> AppResult<()> {

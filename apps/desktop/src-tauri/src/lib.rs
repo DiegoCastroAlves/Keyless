@@ -5,6 +5,7 @@
 
 mod api;
 mod auth;
+mod bridge;
 mod clipboard;
 mod commands;
 mod config;
@@ -50,7 +51,28 @@ fn navigation_guard<R: tauri::Runtime>() -> TauriPlugin<R> {
         .build()
 }
 
+/// The app's X25519 key for the browser bridge, kept with the other
+/// device secrets.
+fn load_or_create_bridge_key(secrets: &SecretStore) -> Result<x25519_dalek::StaticSecret, Box<dyn std::error::Error>> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    if let Some(encoded) = secrets.get(secrets::BRIDGE_KEY)?
+        && let Ok(bytes) = STANDARD.decode(encoded.as_bytes())
+        && let Ok(array) = <[u8; 32]>::try_from(bytes.as_slice())
+    {
+        return Ok(x25519_dalek::StaticSecret::from(array));
+    }
+    let bytes = keyless_core::crypto::random_array::<32>()?;
+    secrets.put(secrets::BRIDGE_KEY, &STANDARD.encode(bytes.as_ref()))?;
+    Ok(x25519_dalek::StaticSecret::from(*bytes))
+}
+
 pub fn run() {
+    // Started by a browser for the extension: relay messages, no window.
+    let args: Vec<String> = std::env::args().collect();
+    if bridge::host::is_host_invocation(&args) {
+        bridge::host::run();
+        return;
+    }
     hardening::apply();
 
     tauri::Builder::default()
@@ -68,24 +90,32 @@ pub fn run() {
             let data_dir = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Store::open(&data_dir.join("keyless.db"))?;
-            let settings: Settings = store.setting("settings")?.unwrap_or_default();
+            let settings: Settings = store.setting::<Settings>("settings")?.unwrap_or_default().sanitized();
+            let throttle: UnlockThrottle = store.setting("unlock_throttle")?.unwrap_or_default();
+            let secrets = SecretStore::new(&data_dir);
+            let bridge_secret = load_or_create_bridge_key(&secrets)?;
+            let browser_integration = settings.browser_integration;
 
             app.manage(AppState {
                 store: Mutex::new(store),
-                secrets: SecretStore::new(&data_dir),
+                secrets,
                 api: Api::new()?,
                 session: tokio::sync::Mutex::new(None),
                 last_activity: Mutex::new((Instant::now(), SystemTime::now())),
-                settings: Mutex::new(settings.sanitized()),
+                settings: Mutex::new(settings),
                 clipboard: ClipboardGuard::default(),
                 sync_gate: tokio::sync::Mutex::new(()),
                 sync_status: Mutex::new(SyncStatus::default()),
-                unlock_throttle: Mutex::new(UnlockThrottle::default()),
+                unlock_throttle: Mutex::new(throttle),
+                unlock_busy: std::sync::atomic::AtomicBool::new(false),
+                bridge: bridge::Bridge::new(bridge_secret),
                 pending_import: Mutex::new(None),
             });
 
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
+            bridge::server::start(app.handle().clone());
+            std::thread::spawn(move || bridge::install::sync_registration(browser_integration));
 
             // Daily cleanup of items deleted more than 30 days ago.
             let handle = app.handle().clone();
@@ -148,6 +178,12 @@ pub fn run() {
             commands::import_commit,
             commands::import_cancel,
             commands::export_backup,
+            commands::copy_secret_key,
+            commands::account_info,
+            commands::cancel_account_deletion,
+            commands::bridge_pair_respond,
+            commands::list_bridge_peers,
+            commands::remove_bridge_peer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keyless");

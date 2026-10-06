@@ -215,6 +215,7 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
         trashed_at: None,
         created_at: raw.get("createdAt").and_then(Value::as_i64).unwrap_or(0),
         updated_at: raw.get("updatedAt").and_then(Value::as_i64).unwrap_or(0),
+        ..Default::default()
     };
     Some(ImportedItem { overview, details })
 }

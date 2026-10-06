@@ -37,8 +37,10 @@ kek    = HKDF-Expand(root, "keyless/v1 key encryption key")[32]   -> wraps the u
 - `auth` and `kek` come from the same root through HKDF with distinct labels,
   so knowing `auth` (or its hash) reveals nothing about `kek`.
 - The client refuses Argon2id parameters below 64 MiB / 3 iterations or above
-  2 GiB, so a malicious server can neither weaken derivation nor exhaust the
-  device's memory.
+  1 GiB / 10 iterations / 8 lanes, and the parameters (with the user id) are
+  bound into the encryption of the user key. A server cannot weaken
+  derivation, swap in another account's keys, or change the parameters to
+  make every unlock take minutes.
 
 ## Key hierarchy
 
@@ -65,6 +67,40 @@ decryption fail instead of showing the wrong data.
 
 Item and vault contents are padded to a multiple of 64 bytes before
 encryption to hide exact lengths.
+
+## Integrity: what the server cannot do
+
+The server can store and serve data, but the client checks everything it
+receives and repairs the server when a check fails:
+
+- **Versions (rollback protection).** Every write carries a version number
+  and a random content id inside both encrypted documents of an item. The
+  client never replaces its copy with an older version, and never accepts an
+  overview and details that come from different writes.
+- **Authenticated deletions.** Deleting an item uploads a *tombstone*
+  encrypted with the vault key. Deletions without a valid, newer tombstone
+  are ignored and the item is uploaded again. Deleted items and vaults stay
+  on the server (encrypted) for 30 days before a daily job purges them.
+- **Vaults.** Vaults are deleted with a proof as well. A vault that
+  disappears from the server is kept on the device, read-only, instead of
+  being wiped.
+- **Account deletion** is scheduled 7 days ahead and can be cancelled.
+
+## Sessions
+
+Signing in requires the auth secret, i.e. the master password **and** the
+Secret Key. Email-based sign-ins (password recovery, magic links, one-time
+codes) would give a session without either, so they are refused twice:
+
+- a Supabase Auth *Custom Access Token* hook
+  (`public.keyless_access_token_hook`) rejects every authentication method
+  except `password` and `token_refresh` (it must be enabled in the Supabase
+  dashboard, Authentication > Hooks);
+- every Row Level Security policy and RPC also requires a `password` entry in
+  the session's `amr` claim.
+
+Even with a stolen session, an attacker cannot read anything, and the
+integrity checks above stop them from destroying data.
 
 Libraries: RustCrypto `chacha20poly1305`, `argon2`, `hkdf`, `sha2`, `hmac`
 and `x25519-dalek`; randomness from the operating system via `getrandom`.
@@ -94,13 +130,18 @@ account has, approximate item sizes (padded), and when items change.
   clipboard on Windows) and are cleared after a configurable delay.
 - Auto-lock after inactivity, on system sleep and on screen lock. Locking drops
   every key from memory (keys are zeroized on drop).
-- Unlock attempts are throttled (exponential back-off after 5 failures).
+- Unlock attempts are throttled (exponential back-off after 5 failures,
+  persisted across restarts, one attempt at a time).
+- Showing the Secret Key again requires the master password.
 - The local database contains only what the server stores, plus the refresh
   token encrypted with the user key. File permissions are restricted to the
   current user.
 - The Secret Key is kept in the OS credential store (Windows Credential
-  Manager, Secret Service on Linux). Without one, it falls back to a file
-  readable only by the current user.
+  Manager with local-only persistence, Secret Service on Linux). Without one,
+  it falls back to a file readable only by the current user, and the app says
+  so in Settings.
+- New master passwords and backup passwords must reach a zxcvbn score of 3
+  ("good"), checked in Rust, not only in the UI.
 - On Linux release builds the process is non-dumpable (no core dumps, no
   ptrace by other processes of the same user).
 - Strict Content Security Policy, no remote content, navigation locked to the
@@ -120,8 +161,9 @@ account has, approximate item sizes (padded), and when items change.
   Keyless is unlocked can read what Keyless displays.
 - **The web UI's memory cannot be wiped.** Values the user reveals or edits
   stay in the webview's memory until it reuses it.
-- **A malicious server can delete or withhold data** (but not read or forge
-  it). Keep a backup export.
+- **A malicious server can withhold data** or refuse to store it, and it can
+  serve stale data for items a device has never seen before. It cannot read,
+  forge, roll back or delete data on a device. Keep an encrypted backup.
 
 ## Reporting a vulnerability
 

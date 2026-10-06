@@ -1,12 +1,13 @@
-//! Storage for the account Secret Key on this device.
+//! Device-local secrets: the account Secret Key and the browser bridge key.
 //!
-//! The Secret Key is kept in the operating system's credential store (Windows
-//! Credential Manager, or the Secret Service on Linux — KWallet / GNOME
-//! Keyring), which encrypts it with the user's login. If no credential store
-//! is available, it falls back to a file readable only by the current user.
+//! They are kept in the operating system's credential store (Windows
+//! Credential Manager with local-only persistence, or the Secret Service on
+//! Linux — KWallet / GNOME Keyring), which encrypts them with the user's
+//! login. If no credential store is available, they fall back to files
+//! readable only by the current user.
 //!
-//! Either way, the Secret Key alone cannot decrypt anything: the master
-//! password is also required.
+//! The Secret Key alone cannot decrypt anything: the master password is also
+//! required.
 
 use std::path::{Path, PathBuf};
 
@@ -18,12 +19,32 @@ use crate::{
     error::{AppError, AppResult},
 };
 
+const SECRET_KEY: &str = "secret-key";
+pub const BRIDGE_KEY: &str = "bridge-key";
+
 pub struct SecretStore {
     fallback_dir: PathBuf,
 }
 
-fn entry_name(email: &str) -> String {
-    format!("secret-key:{}", email.trim().to_lowercase())
+fn entry(name: &str) -> Option<keyring_core::Entry> {
+    if keyring::Entry::store_status().is_err() {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        // Enterprise persistence (the default) would roam the secret to other
+        // machines on domain-joined computers.
+        let modifiers = std::collections::HashMap::from([("persistence", "Local")]);
+        keyring_core::Entry::new_with_modifiers(KEYRING_SERVICE, name, &modifiers).ok()
+    }
+    #[cfg(not(windows))]
+    {
+        keyring_core::Entry::new(KEYRING_SERVICE, name).ok()
+    }
+}
+
+fn account_entry_name(email: &str) -> String {
+    format!("{SECRET_KEY}:{}", email.trim().to_lowercase())
 }
 
 impl SecretStore {
@@ -31,60 +52,79 @@ impl SecretStore {
         Self { fallback_dir: fallback_dir.to_path_buf() }
     }
 
-    /// Keyless keeps one account per device, so a single fallback file is
-    /// enough.
-    fn fallback_path(&self, _email: &str) -> PathBuf {
-        self.fallback_dir.join("secret-key")
+    fn fallback_path(&self, name: &str) -> PathBuf {
+        // Only one account per device, so the email is not part of the file
+        // name.
+        let file = if name.starts_with(SECRET_KEY) { SECRET_KEY } else { name };
+        self.fallback_dir.join(file)
     }
 
-    pub fn save(&self, email: &str, key: &SecretKey) -> AppResult<()> {
-        let display = key.to_display();
-        match keyring::Entry::new(KEYRING_SERVICE, &entry_name(email)).and_then(|e| e.set_password(&display)) {
-            Ok(()) => {
-                // Remove any older fallback copy now that the keyring works.
-                let _ = std::fs::remove_file(self.fallback_path(email));
+    /// True when secrets are kept in plain files because no OS credential
+    /// store is available.
+    pub fn uses_fallback(&self) -> bool {
+        self.fallback_path(SECRET_KEY).exists()
+    }
+
+    pub fn put(&self, name: &str, value: &str) -> AppResult<()> {
+        match entry(name).map(|e| e.set_password(value)) {
+            Some(Ok(())) => {
+                remove_file_securely(&self.fallback_path(name));
                 Ok(())
             }
-            Err(err) => {
-                log::warn!("OS credential store unavailable ({err}); using a protected file instead");
-                write_private_file(&self.fallback_path(email), display.as_bytes())
+            other => {
+                if let Some(Err(err)) = other {
+                    log::warn!("OS credential store unavailable ({err}); using a protected file instead");
+                }
+                write_private_file(&self.fallback_path(name), value.as_bytes())
             }
         }
     }
 
-    pub fn load(&self, email: &str) -> AppResult<Option<SecretKey>> {
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &entry_name(email)) {
+    pub fn get(&self, name: &str) -> AppResult<Option<Zeroizing<String>>> {
+        if let Some(entry) = entry(name) {
             match entry.get_password() {
-                Ok(display) => {
-                    let display = Zeroizing::new(display);
-                    return Ok(Some(SecretKey::parse(&display)?));
-                }
-                Err(keyring::Error::NoEntry) => {}
+                Ok(value) => return Ok(Some(Zeroizing::new(value))),
+                Err(keyring_core::Error::NoEntry) => {}
                 Err(err) => log::warn!("could not read from the OS credential store: {err}"),
             }
         }
-        match std::fs::read_to_string(self.fallback_path(email)) {
-            Ok(display) => {
-                let display = Zeroizing::new(display);
-                Ok(Some(SecretKey::parse(display.trim())?))
-            }
+        match std::fs::read_to_string(self.fallback_path(name)) {
+            Ok(value) => Ok(Some(Zeroizing::new(value.trim().to_string()))),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(AppError::Store(err.to_string())),
         }
     }
 
-    pub fn delete(&self, email: &str) {
-        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &entry_name(email)) {
+    pub fn delete(&self, name: &str) {
+        if let Some(entry) = entry(name) {
             let _ = entry.delete_credential();
         }
-        let path = self.fallback_path(email);
-        if path.exists() {
-            // Overwrite before unlinking; best effort on journaling filesystems.
-            if let Ok(len) = std::fs::metadata(&path).map(|m| m.len()) {
-                let _ = std::fs::write(&path, vec![0u8; len as usize]);
-            }
-            let _ = std::fs::remove_file(path);
+        remove_file_securely(&self.fallback_path(name));
+    }
+
+    pub fn save_secret_key(&self, email: &str, key: &SecretKey) -> AppResult<()> {
+        self.put(&account_entry_name(email), &key.to_display())
+    }
+
+    pub fn load_secret_key(&self, email: &str) -> AppResult<Option<SecretKey>> {
+        match self.get(&account_entry_name(email))? {
+            Some(display) => Ok(Some(SecretKey::parse(&display)?)),
+            None => Ok(None),
         }
+    }
+
+    pub fn delete_secret_key(&self, email: &str) {
+        self.delete(&account_entry_name(email));
+    }
+}
+
+fn remove_file_securely(path: &Path) {
+    if path.exists() {
+        // Overwrite before unlinking; best effort on journaling filesystems.
+        if let Ok(len) = std::fs::metadata(path).map(|m| m.len()) {
+            let _ = std::fs::write(path, vec![0u8; len as usize]);
+        }
+        let _ = std::fs::remove_file(path);
     }
 }
 

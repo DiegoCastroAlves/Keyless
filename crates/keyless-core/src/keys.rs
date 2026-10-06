@@ -57,6 +57,12 @@ pub struct KdfParams {
 }
 
 impl KdfParams {
+    /// Canonical text form, bound into the encryption of the user key so the
+    /// parameters cannot be swapped without detection.
+    pub fn canonical(&self) -> String {
+        format!("{}:m={}:t={}:p={}", self.alg, self.m, self.t, self.p)
+    }
+
     /// 64 MiB, 3 iterations, 4 lanes. Chosen to stay usable on phones (iOS
     /// autofill extensions are memory constrained) while being far above the
     /// OWASP minimum. The Secret Key already makes offline guessing infeasible;
@@ -69,10 +75,11 @@ impl KdfParams {
     /// trying to weaken derivation) and absurdly high ones (protects against a
     /// server trying to exhaust the device's memory).
     pub fn validate(&self) -> Result<()> {
+        // Upper bounds: 1 GiB, 10 passes, 8 lanes.
         let ok = self.alg == "argon2id"
-            && (64 * 1024..=2 * 1024 * 1024).contains(&self.m)
-            && (3..=32).contains(&self.t)
-            && (1..=16).contains(&self.p);
+            && (64 * 1024..=1024 * 1024).contains(&self.m)
+            && (3..=10).contains(&self.t)
+            && (1..=8).contains(&self.p);
         if ok { Ok(()) } else { Err(Error::UnsafeKdfParams) }
     }
 }
@@ -310,7 +317,7 @@ mod tests {
         weak.m = 1024;
         assert!(matches!(derive_account_keys("pw", &sk, &weak), Err(Error::UnsafeKdfParams)));
         let mut huge = KdfParams::recommended();
-        huge.m = u32::MAX;
+        huge.m = 2 * 1024 * 1024;
         assert!(matches!(derive_account_keys("pw", &sk, &huge), Err(Error::UnsafeKdfParams)));
         let mut other_alg = KdfParams::recommended();
         other_alg.alg = "pbkdf2".into();

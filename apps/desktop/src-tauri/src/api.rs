@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use keyless_core::{account::AccountBundle, keys::KdfParams};
 use reqwest::{Method, RequestBuilder, StatusCode};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use url::Url;
 use zeroize::Zeroizing;
@@ -76,6 +76,9 @@ pub struct RemoteProfile {
     pub pending_kdf: Option<KdfParams>,
     #[serde(default)]
     pub pending_enc_user_key: Option<String>,
+    /// Set when the account is scheduled for deletion.
+    #[serde(default)]
+    pub delete_after: Option<String>,
 }
 
 impl RemoteProfile {
@@ -105,6 +108,10 @@ pub struct RemoteVault {
     pub owner_id: String,
     pub enc_meta: String,
     pub seq: i64,
+    #[serde(default)]
+    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub enc_tombstone: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -124,14 +131,8 @@ pub struct RemoteItem {
     pub revision: i64,
     pub seq: i64,
     pub deleted_at: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct ItemWrite<'a> {
-    pub enc_overview: Option<&'a str>,
-    pub enc_details: Option<&'a str>,
-    /// `Some("now")` is not valid; the server accepts an RFC 3339 timestamp.
-    pub deleted_at: Option<String>,
+    #[serde(default)]
+    pub enc_tombstone: Option<String>,
 }
 
 pub fn now_secs() -> i64 {
@@ -302,7 +303,7 @@ impl Api {
             self.url(
                 "rest/v1/vault_members",
                 &[
-                    ("select", "vault_id,role,enc_vault_key,vaults(owner_id,enc_meta,seq)"),
+                    ("select", "vault_id,role,enc_vault_key,vaults(owner_id,enc_meta,seq,deleted_at,enc_tombstone)"),
                     ("user_id", &filter),
                 ],
             ),
@@ -321,11 +322,20 @@ impl Api {
         Ok(())
     }
 
-    pub async fn delete_vault(&self, token: &str, id: &str) -> AppResult<()> {
-        let filter = format!("eq.{id}");
+    /// Marks a vault deleted (recoverable for 30 days). `enc_tombstone`
+    /// proves the request came from a holder of the vault key.
+    pub async fn delete_vault(&self, token: &str, id: &str, enc_tombstone: &str) -> AppResult<()> {
         let req = self
-            .request(Method::DELETE, self.url("rest/v1/vaults", &[("id", &filter)]), Some(token))
-            .header("Prefer", "return=minimal");
+            .request(Method::POST, self.url("rest/v1/rpc/delete_vault", &[]), Some(token))
+            .json(&json!({ "p_id": id, "p_enc_tombstone": enc_tombstone }));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    pub async fn restore_vault(&self, token: &str, id: &str) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/restore_vault", &[]), Some(token))
+            .json(&json!({ "p_id": id }));
         let _: Value = self.send(req).await?;
         Ok(())
     }
@@ -380,8 +390,9 @@ impl Api {
     }
 
     /// Updates an item only if the server still has `base_revision`.
-    /// Returns `Ok(None)` on a revision conflict.
-    pub async fn update_item(&self, token: &str, id: &str, base_revision: i64, write: &ItemWrite<'_>) -> AppResult<Option<RemoteItem>> {
+    /// Returns `Ok(None)` on a revision conflict. `write` holds the columns
+    /// to change (`enc_overview`, `enc_details`, `enc_tombstone`).
+    pub async fn update_item(&self, token: &str, id: &str, base_revision: i64, write: &Value) -> AppResult<Option<RemoteItem>> {
         let id_filter = format!("eq.{id}");
         let rev_filter = format!("eq.{base_revision}");
         let req = self
@@ -396,9 +407,18 @@ impl Api {
         Ok(rows.pop())
     }
 
+    /// Schedules the account for deletion in 7 days.
     pub async fn delete_account(&self, token: &str) -> AppResult<()> {
         let req = self
             .request(Method::POST, self.url("rest/v1/rpc/delete_account", &[]), Some(token))
+            .json(&json!({}));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    pub async fn cancel_account_deletion(&self, token: &str) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/cancel_account_deletion", &[]), Some(token))
             .json(&json!({}));
         let _: Value = self.send(req).await?;
         Ok(())

@@ -85,6 +85,11 @@ const en = {
     backup_wrong_password: "Wrong backup password, or the file was modified.",
     backup_password_too_short: "The backup password must have at least {{min}} characters.",
     file_unwritable: "Could not save the file.",
+    password_weak: "That password is too easy to guess. Use a longer passphrase of random words.",
+    account_keys_missing: "The server has no keys for this account, but this device does. Keyless stopped to protect your data. Contact support before signing in again.",
+    item_integrity: "This item failed an integrity check and was not opened.",
+    item_too_large: "This item is too large. Shorten the notes or remove some fields.",
+    busy: "Already working on it, please wait.",
   },
   welcome: {
     title: "Welcome to Keyless",
@@ -161,6 +166,18 @@ const en = {
     deleteVaultTitle: "Delete \"{{name}}\"?",
     deleteVaultBody: "The vault and every item in it will be permanently deleted on all your devices. This cannot be undone.",
     vaultDeleted: "Deleted \"{{name}}\"",
+    orphaned: "not on server",
+  },
+  pairing: {
+    title: "Connect a browser extension?",
+    body: "{{name}} wants to connect to Keyless to fill your passwords.",
+    compare: "Make sure the browser shows exactly the same code. If it doesn't, or you didn't just connect a browser, deny.",
+    allow: "Connect",
+    deny: "Deny",
+  },
+  account: {
+    deletionScheduled: "This account will be deleted on {{date}}.",
+    cancelDeletion: "Cancel deletion",
   },
   sync: {
     syncing: "Syncing…",
@@ -440,6 +457,18 @@ const en = {
     clipboard: "Clear copied passwords after",
     seconds_one: "{{count}} second",
     seconds_other: "{{count}} seconds",
+    confirmWithPassword: "Enter your master password to show your Secret Key",
+    secretKeyInFile:
+      "No system keyring was found, so your Secret Key is stored in a file only your user can read. Installing a keyring (KWallet, GNOME Keyring) protects it better.",
+    browser: "Browser",
+    browserTitle: "Browser extension",
+    browserBody:
+      "The Keyless extension fills passwords in Chrome, Edge, Brave, Vivaldi and Firefox. It talks to this app over an encrypted connection that you approve once per browser.",
+    browserIntegration: "Allow the browser extension",
+    browserIntegrationHint: "Registers Keyless with the browsers installed on this computer.",
+    pairedBrowsers: "Connected browsers",
+    noPairedBrowsers: "No browser is connected yet.",
+    unpair: "Disconnect",
     secretKeyTitle: "Secret Key and Emergency Kit",
     secretKeyBody: "You need your Secret Key to sign in on a new device. Keep a copy of your Emergency Kit somewhere safe.",
     showKit: "Show Emergency Kit",
@@ -451,7 +480,7 @@ const en = {
     signedInAs: "Signed in as",
     deleteAccount: "Delete account",
     deleteAccountBody:
-      "Permanently delete your account and every vault you own, on all devices. This cannot be undone. Enter your master password to confirm.",
+      "Your account and every vault you own will be permanently deleted in 7 days, on all devices. Until then you can cancel by signing in again. Enter your master password to confirm.",
     deleteAccountConfirm: "Delete my account",
     importTitle: "Import your data",
     importBody: "Bring your passwords from another password manager. Everything is encrypted on this device before it is uploaded.",

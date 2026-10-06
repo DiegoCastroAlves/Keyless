@@ -37,11 +37,13 @@ pub struct Settings {
     pub theme: String,
     /// "system", "en" or "es".
     pub language: String,
+    /// Register the native messaging host so the browser extension works.
+    pub browser_integration: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into() }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true }
     }
 }
 
@@ -119,35 +121,42 @@ pub struct SyncStatus {
     pub message: Option<String>,
 }
 
-#[derive(Default)]
+/// Failed unlock attempts. Persisted, so restarting the app does not reset
+/// the back-off.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct UnlockThrottle {
     pub failures: u32,
-    pub blocked_until: Option<Instant>,
+    /// Unix seconds.
+    pub blocked_until: i64,
 }
 
 impl UnlockThrottle {
     pub fn check(&self) -> AppResult<()> {
-        if let Some(until) = self.blocked_until {
-            let now = Instant::now();
-            if until > now {
-                return Err(AppError::RateLimited((until - now).as_secs().max(1)));
-            }
+        let now = crate::api::now_secs();
+        if self.blocked_until > now {
+            return Err(AppError::RateLimited((self.blocked_until - now).max(1) as u64));
         }
         Ok(())
     }
 
-    pub fn record_failure(&mut self) {
+    fn record_failure(&mut self) {
         self.failures += 1;
         if self.failures >= 5 {
             // 5 failures: 30 s, then doubling up to 15 minutes.
             let exp = (self.failures - 5).min(5);
-            let secs = (30u64 << exp).min(900);
-            self.blocked_until = Some(Instant::now() + Duration::from_secs(secs));
+            let secs = (30i64 << exp).min(900);
+            self.blocked_until = crate::api::now_secs() + secs;
         }
     }
+}
 
-    pub fn reset(&mut self) {
-        *self = Self::default();
+/// Held while an unlock/sign-in is running; concurrent attempts are refused
+/// so they cannot slip past the throttle.
+pub struct UnlockGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
+impl Drop for UnlockGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -164,6 +173,8 @@ pub struct AppState {
     pub sync_gate: tokio::sync::Mutex<()>,
     pub sync_status: Mutex<SyncStatus>,
     pub unlock_throttle: Mutex<UnlockThrottle>,
+    pub unlock_busy: std::sync::atomic::AtomicBool,
+    pub bridge: crate::bridge::Bridge,
     pub pending_import: Mutex<Option<ImportResult>>,
 }
 
@@ -184,6 +195,25 @@ impl AppState {
         let (instant, wall) = *self.last_activity.lock().unwrap_or_else(|e| e.into_inner());
         let wall_elapsed = SystemTime::now().duration_since(wall).unwrap_or_default();
         instant.elapsed().max(wall_elapsed)
+    }
+
+    pub fn begin_unlock(&self) -> AppResult<UnlockGuard<'_>> {
+        if self.unlock_busy.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err(AppError::Invalid(crate::error::Msg::new("busy")));
+        }
+        let guard = UnlockGuard(&self.unlock_busy);
+        self.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner()).check()?;
+        Ok(guard)
+    }
+
+    pub fn record_unlock_result(&self, success: bool) {
+        let mut throttle = self.unlock_throttle.lock().unwrap_or_else(|e| e.into_inner());
+        if success {
+            *throttle = UnlockThrottle::default();
+        } else {
+            throttle.record_failure();
+        }
+        let _ = self.store().set_setting("unlock_throttle", &*throttle);
     }
 
     pub fn set_sync_status(&self, status: SyncStatus) {

@@ -13,27 +13,33 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = "2"
 
 [dependencies]
+aes-gcm = "0.11.1"
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 base64 = "0.23.1"
 futures-lite = "2.6.1"
 hex = "0.4.3"
+hkdf = "0.13.0"
 keyless-core = { path = "../../../crates/keyless-core" }
 keyring = "4.2.0"
+keyring-core = "1"
 log = "0.4.34"
+psl = "2.1.239"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "http2", "rustls-no-provider"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha1 = "0.11.0"
+sha2 = "0.11.0"
 tauri = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 thiserror = "2.0.21"
-tokio = { version = "1.53.2", features = ["sync", "time", "macros"] }
+tokio = { version = "1.53.2", features = ["sync", "time", "macros", "net", "io-util", "rt"] }
 url = "2.5.8"
 uuid = { version = "1.27.0", features = ["v4", "serde"] }
+x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
 zeroize = "1.9.0"
 zxcvbn = "3.1.1"
 
@@ -44,4 +50,4 @@ libc = "0.2"
 zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_StationsAndDesktops", "Win32_System_Diagnostics_Debug", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_StationsAndDesktops", "Win32_System_Diagnostics_Debug", "Win32_System_Threading", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Registry", "Win32_Storage_FileSystem", "Win32_System_Memory"] }

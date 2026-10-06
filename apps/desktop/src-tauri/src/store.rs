@@ -12,7 +12,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppResult;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 pub struct Store {
     conn: Connection,
@@ -66,6 +66,10 @@ pub struct LocalItem {
     pub seq: i64,
     pub deleted: bool,
     pub dirty: Dirty,
+    /// Client-side version of this copy (rollback protection).
+    pub version: u64,
+    /// Proof of deletion, for tombstones waiting to be uploaded.
+    pub enc_tombstone: Option<String>,
 }
 
 impl Store {
@@ -127,6 +131,21 @@ impl Store {
                  CREATE TABLE IF NOT EXISTS sync_cursors (
                     vault_id TEXT PRIMARY KEY,
                     cursor INTEGER NOT NULL
+                 );",
+            )?;
+        }
+        if version < 2 {
+            // Version 2: item versions and tombstone proofs, per-vault sync
+            // counters (old cursors are meaningless), paired browser
+            // extensions.
+            self.conn.execute_batch(
+                "ALTER TABLE items ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+                 ALTER TABLE items ADD COLUMN enc_tombstone TEXT;
+                 DELETE FROM sync_cursors;
+                 CREATE TABLE IF NOT EXISTS bridge_peers (
+                    public_key TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
                  );",
             )?;
         }
@@ -227,7 +246,7 @@ impl Store {
     /// Removes every account-related row (sign out). Settings are kept.
     pub fn wipe_account_data(&self) -> AppResult<()> {
         self.conn.execute_batch(
-            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account;",
+            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers;",
         )?;
         // Reclaim pages so deleted ciphertext does not linger in the file.
         let _ = self.conn.execute_batch("VACUUM;");
@@ -289,11 +308,13 @@ impl Store {
             seq: r.get(5)?,
             deleted: r.get::<_, i64>(6)? != 0,
             dirty: Dirty::from_i64(r.get(7)?),
+            version: r.get::<_, i64>(8)?.max(0) as u64,
+            enc_tombstone: r.get(9)?,
         })
     }
 
     const ITEM_COLUMNS: &'static str =
-        "id, vault_id, enc_overview, enc_details, revision, seq, deleted, dirty";
+        "id, vault_id, enc_overview, enc_details, revision, seq, deleted, dirty, version, enc_tombstone";
 
     pub fn items(&self) -> AppResult<Vec<LocalItem>> {
         let mut stmt = self.conn.prepare(&format!(
@@ -326,8 +347,8 @@ impl Store {
 
     pub fn upsert_item(&self, item: &LocalItem) -> AppResult<()> {
         self.conn.execute(
-            "INSERT INTO items (id, vault_id, enc_overview, enc_details, revision, seq, deleted, dirty)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO items (id, vault_id, enc_overview, enc_details, revision, seq, deleted, dirty, version, enc_tombstone)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                 vault_id = excluded.vault_id,
                 enc_overview = excluded.enc_overview,
@@ -335,7 +356,9 @@ impl Store {
                 revision = excluded.revision,
                 seq = excluded.seq,
                 deleted = excluded.deleted,
-                dirty = excluded.dirty",
+                dirty = excluded.dirty,
+                version = excluded.version,
+                enc_tombstone = excluded.enc_tombstone",
             params![
                 item.id,
                 item.vault_id,
@@ -344,15 +367,42 @@ impl Store {
                 item.revision,
                 item.seq,
                 item.deleted as i64,
-                item.dirty as i64
+                item.dirty as i64,
+                item.version as i64,
+                item.enc_tombstone
             ],
         )?;
         Ok(())
     }
 
-    /// Drops a tombstone once the server has acknowledged the deletion.
-    pub fn purge_item(&self, id: &str) -> AppResult<()> {
-        self.conn.execute("DELETE FROM items WHERE id = ?1", [id])?;
+    // ----- browser extension peers ------------------------------------------
+
+    pub fn is_bridge_peer(&self, public_key: &str) -> AppResult<bool> {
+        Ok(self
+            .conn
+            .query_row("SELECT 1 FROM bridge_peers WHERE public_key = ?1", [public_key], |_| Ok(()))
+            .optional()?
+            .is_some())
+    }
+
+    pub fn add_bridge_peer(&self, public_key: &str, name: &str) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO bridge_peers (public_key, name, created_at) VALUES (?1, ?2, strftime('%s','now'))",
+            params![public_key, name],
+        )?;
+        Ok(())
+    }
+
+    pub fn bridge_peers(&self) -> AppResult<Vec<(String, String, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT public_key, name, created_at FROM bridge_peers ORDER BY created_at")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn remove_bridge_peer(&self, public_key: &str) -> AppResult<()> {
+        self.conn.execute("DELETE FROM bridge_peers WHERE public_key = ?1", [public_key])?;
         Ok(())
     }
 
@@ -436,6 +486,8 @@ mod tests {
             seq: 0,
             deleted: false,
             dirty: Dirty::Upsert,
+            version: 1,
+            enc_tombstone: None,
         };
         store.upsert_item(&item).unwrap();
         assert_eq!(store.dirty_items().unwrap().len(), 1);

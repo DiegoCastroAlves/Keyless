@@ -4,9 +4,10 @@ import { useTranslation } from "react-i18next";
 
 import { PasswordInput } from "../../components/common";
 import { Button, Dialog, ErrorText } from "../../components/ui";
-import { api, errorMessage, type Category, type Vault } from "../../lib/api";
+import { api, errorMessage, type AccountInfo, type Category, type Vault } from "../../lib/api";
 import { categoryInfo, templateFields } from "../../lib/categories";
 import { useApp } from "../../lib/store";
+import { toast } from "../../lib/toast";
 import { GeneratorDialog } from "./Generator";
 import { ImportDialog } from "./ImportDialog";
 import { ItemDetail } from "./ItemDetail";
@@ -26,7 +27,12 @@ export function MainLayout() {
   const [importOpen, setImportOpen] = useState(false);
   const [vaultDialog, setVaultDialog] = useState<{ open: boolean; vault: Vault | null }>({ open: false, vault: null });
   const [reauthOpen, setReauthOpen] = useState(false);
+  const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api.accountInfo().then(setAccountInfo).catch(() => setAccountInfo(null));
+  }, [syncStatus?.last_synced_at]);
 
   const newItem = useCallback((category: Category) => {
     const { vaults, view: current, startEditing, select } = useApp.getState();
@@ -84,6 +90,12 @@ export function MainLayout() {
   return (
     <div className="flex h-full flex-col">
       {syncStatus?.state === "signed_out" && <ReauthBanner onClick={() => setReauthOpen(true)} />}
+      {accountInfo?.deleteAfter && (
+        <DeletionBanner
+          deleteAfter={accountInfo.deleteAfter}
+          onCancelled={() => setAccountInfo({ ...accountInfo, deleteAfter: null })}
+        />
+      )}
       <div className="flex min-h-0 flex-1">
         <Sidebar
           onOpenSettings={() => setSettingsOpen(true)}
@@ -116,6 +128,27 @@ function ReauthBanner({ onClick }: { onClick: () => void }) {
     <button onClick={onClick} className="flex items-center justify-center gap-2 bg-warning-soft px-4 py-1.5 text-xs font-medium text-warning hover:underline">
       <TriangleAlert className="size-3.5" /> {t("sync.reauthTitle")}
     </button>
+  );
+}
+
+function DeletionBanner({ deleteAfter, onCancelled }: { deleteAfter: string; onCancelled: () => void }) {
+  const { t, i18n } = useTranslation();
+  const date = new Date(deleteAfter).toLocaleDateString(i18n.language, { year: "numeric", month: "long", day: "numeric" });
+  const cancel = async () => {
+    try {
+      await api.cancelAccountDeletion();
+      onCancelled();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <div className="flex items-center justify-center gap-3 bg-danger-soft px-4 py-1.5 text-xs font-medium text-danger">
+      <TriangleAlert className="size-3.5" /> {t("account.deletionScheduled", { date })}
+      <button onClick={cancel} className="underline hover:no-underline">
+        {t("account.cancelDeletion")}
+      </button>
+    </div>
   );
 }
 

@@ -236,7 +236,7 @@ export function ExportPanel() {
         <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} invalid={!!confirm && confirm !== password} />
       </div>
       <ErrorText>{error}</ErrorText>
-      <Button type="submit" loading={busy} disabled={!password || password !== confirm || (strength?.score ?? 0) < 2}>
+      <Button type="submit" loading={busy} disabled={!password || password !== confirm || (strength?.score ?? 0) < 3}>
         {t("importer.exportRun")}
       </Button>
     </form>

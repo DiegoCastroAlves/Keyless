@@ -5,9 +5,12 @@
 //! happens entirely in Rust.
 
 use keyless_core::{
-    item::{Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, PasswordHistoryEntry, Section, new_field_id},
+    item::{
+        Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, PasswordHistoryEntry, Section, new_field_id,
+        same_write, stamp_version,
+    },
     totp::Totp,
-    vault::{VaultKey, VaultMeta},
+    vault::{Tombstone, VaultKey, VaultMeta},
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -18,13 +21,15 @@ use crate::{
     error::{AppError, AppResult, Msg},
     state::{AppState, CachedItem, Session},
     store::{Dirty, LocalItem, LocalVault},
-    sync::{self, cache_item, open_vault},
+    sync::{self, ORPHANED_ROLE, cache_item, open_vault},
 };
 
 const MAX_TITLE: usize = 512;
 const MAX_FIELDS: usize = 200;
 const MAX_VALUE: usize = 64 * 1024;
-const MAX_NOTES: usize = 256 * 1024;
+const MAX_NOTES: usize = 64 * 1024;
+/// Serialized details must fit the server's 256 KiB ciphertext limit.
+const MAX_DETAILS_JSON: usize = 180 * 1024;
 const MAX_HISTORY: usize = 30;
 
 #[derive(Serialize)]
@@ -38,6 +43,8 @@ pub struct VaultDto {
     pub role: String,
     pub can_write: bool,
     pub item_count: usize,
+    /// The vault no longer exists on the server; this is the local copy.
+    pub orphaned: bool,
 }
 
 #[derive(Serialize)]
@@ -166,6 +173,11 @@ fn load_details(state: &AppState, session: &Session, item_id: &str) -> AppResult
     let enc = local.enc_details.as_deref().ok_or(AppError::NotFound)?;
     let vault = session.vault(&local.vault_id)?;
     let details = vault.key.open_details(&local.vault_id, &local.id, enc)?;
+    if let Some(cached) = session.items.get(item_id)
+        && !same_write(&cached.overview, &details)
+    {
+        return Err(AppError::Invalid(Msg::new("item_integrity")));
+    }
     Ok((local, details))
 }
 
@@ -189,6 +201,7 @@ pub async fn list_vaults(state: &AppState) -> AppResult<Vec<VaultDto>> {
             color: v.meta.color.clone(),
             role: v.role.clone(),
             can_write: v.can_write(),
+            orphaned: v.role == ORPHANED_ROLE,
             item_count: session
                 .items
                 .values()
@@ -279,8 +292,13 @@ pub async fn delete_vault(app: &AppHandle, vault_id: &str) -> AppResult<()> {
             return Err(AppError::Invalid(Msg::new("vault_last")));
         }
     }
+    let proof = {
+        let guard = state.session.lock().await;
+        let session = guard.as_ref().ok_or(AppError::Locked)?;
+        session.vault(vault_id)?.key.seal_vault_tombstone(vault_id, now_secs())?
+    };
     let (_, token) = sync::ensure_token(&state).await?;
-    state.api.delete_vault(&token, vault_id).await?;
+    state.api.delete_vault(&token, vault_id, &proof).await?;
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;
     state.store().delete_vault(vault_id)?;
@@ -459,7 +477,22 @@ fn validate_draft(draft: &ItemDraft) -> AppResult<()> {
     Ok(())
 }
 
-fn write_local_item(state: &AppState, session: &mut Session, item_id: &str, vault_id: &str, revision: i64, overview: &ItemOverview, details: &ItemDetails) -> AppResult<()> {
+/// Encrypts and stores a new version of an item (to be uploaded).
+#[allow(clippy::too_many_arguments)]
+fn write_local_item(
+    state: &AppState,
+    session: &mut Session,
+    item_id: &str,
+    vault_id: &str,
+    revision: i64,
+    version: u64,
+    overview: &mut ItemOverview,
+    details: &mut ItemDetails,
+) -> AppResult<()> {
+    if serde_json::to_vec(&*details).map(|j| j.len()).unwrap_or(usize::MAX) > MAX_DETAILS_JSON {
+        return Err(AppError::Invalid(Msg::new("item_too_large")));
+    }
+    stamp_version(overview, details, version);
     let vault = session.vault(vault_id)?;
     let local = LocalItem {
         id: item_id.to_string(),
@@ -470,6 +503,8 @@ fn write_local_item(state: &AppState, session: &mut Session, item_id: &str, vaul
         seq: 0,
         deleted: false,
         dirty: Dirty::Upsert,
+        version,
+        enc_tombstone: None,
     };
     state.store().upsert_item(&local)?;
     cache_item(session, &local);
@@ -477,11 +512,18 @@ fn write_local_item(state: &AppState, session: &mut Session, item_id: &str, vaul
 }
 
 fn tombstone_local(state: &AppState, session: &mut Session, local: &LocalItem) -> AppResult<()> {
+    let version = local.version + 1;
+    let proof = session
+        .vault(&local.vault_id)?
+        .key
+        .seal_tombstone(&local.vault_id, &local.id, &Tombstone { version, deleted_at: now_secs() })?;
     let tombstone = LocalItem {
         enc_overview: None,
         enc_details: None,
         deleted: true,
         dirty: Dirty::Delete,
+        version,
+        enc_tombstone: Some(proof),
         ..local.clone()
     };
     state.store().upsert_item(&tombstone)?;
@@ -552,7 +594,7 @@ pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemS
         tags.sort_by_key(|t| t.to_lowercase());
         tags.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
 
-        let overview = ItemOverview {
+        let mut overview = ItemOverview {
             title: if draft.title.trim().is_empty() { "Untitled".into() } else { draft.title.trim().to_string() },
             subtitle: compute_subtitle(draft.category, &details),
             category: draft.category,
@@ -568,24 +610,26 @@ pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemS
             trashed_at: None,
             created_at,
             updated_at: now,
+            ..Default::default()
         };
 
         let item_id = match existing {
-            Some((local, _, _)) if local.vault_id == draft.vault_id => {
-                write_local_item(&state, session, &local.id, &draft.vault_id, local.revision, &overview, &details)?;
+            Some((local, _, old_overview)) if local.vault_id == draft.vault_id => {
+                let version = local.version.max(old_overview.version) + 1;
+                write_local_item(&state, session, &local.id, &draft.vault_id, local.revision, version, &mut overview, &mut details)?;
                 local.id
             }
             Some((local, _, _)) => {
                 // Moving between vaults: ciphertexts are bound to their vault,
                 // so the item is re-created in the target vault.
                 let new_id = uuid::Uuid::new_v4().to_string();
-                write_local_item(&state, session, &new_id, &draft.vault_id, 0, &overview, &details)?;
+                write_local_item(&state, session, &new_id, &draft.vault_id, 0, 1, &mut overview, &mut details)?;
                 tombstone_local(&state, session, &local)?;
                 new_id
             }
             None => {
                 let new_id = uuid::Uuid::new_v4().to_string();
-                write_local_item(&state, session, &new_id, &draft.vault_id, 0, &overview, &details)?;
+                write_local_item(&state, session, &new_id, &draft.vault_id, 0, 1, &mut overview, &mut details)?;
                 new_id
             }
         };
@@ -597,26 +641,21 @@ pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemS
     Ok(result)
 }
 
-/// Changes overview-only flags without touching the details ciphertext.
+/// Changes overview flags (favorite, archive, trash) as a new version of the
+/// whole item, so overview and details stay paired.
 async fn update_overview(app: &AppHandle, item_id: &str, change: impl FnOnce(&mut ItemOverview)) -> AppResult<()> {
     let state = app.state::<AppState>();
     {
         let mut guard = state.session.lock().await;
         let session = unlocked(&mut guard)?;
-        let local = state.store().item(item_id)?.ok_or(AppError::NotFound)?;
-        let vault = session.vault(&local.vault_id)?;
-        if !vault.can_write() {
+        let (local, mut details) = load_details(&state, session, item_id)?;
+        if !session.vault(&local.vault_id)?.can_write() {
             return Err(AppError::Invalid(Msg::new("vault_read_only")));
         }
         let mut overview = session.items.get(item_id).ok_or(AppError::NotFound)?.overview.clone();
         change(&mut overview);
-        let updated = LocalItem {
-            enc_overview: Some(vault.key.seal_overview(&local.vault_id, item_id, &overview)?),
-            dirty: Dirty::Upsert,
-            ..local
-        };
-        state.store().upsert_item(&updated)?;
-        cache_item(session, &updated);
+        let version = local.version.max(overview.version) + 1;
+        write_local_item(&state, session, item_id, &local.vault_id, local.revision, version, &mut overview, &mut details)?;
     }
     sync::spawn_sync(app);
     Ok(())
@@ -704,7 +743,8 @@ pub async fn insert_imported(state: &AppState, vault_id: &str, items: Vec<(ItemO
             overview.subtitle = compute_subtitle(overview.category, &details);
         }
         let id = uuid::Uuid::new_v4().to_string();
-        write_local_item(state, session, &id, vault_id, 0, &overview, &details)?;
+        let mut details = details;
+        write_local_item(state, session, &id, vault_id, 0, 1, &mut overview, &mut details)?;
         count += 1;
     }
     Ok(count)

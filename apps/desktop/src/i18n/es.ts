@@ -87,6 +87,11 @@ const es: Translations = {
     backup_wrong_password: "Contraseña incorrecta, o el archivo fue modificado.",
     backup_password_too_short: "La contraseña de la copia de seguridad debe tener al menos {{min}} caracteres.",
     file_unwritable: "No se pudo guardar el archivo.",
+    password_weak: "Esa contraseña es demasiado fácil de adivinar. Usa una frase más larga de palabras al azar.",
+    account_keys_missing: "El servidor no tiene claves para esta cuenta, pero este dispositivo sí. Keyless se detuvo para proteger tus datos. Contacta con soporte antes de volver a iniciar sesión.",
+    item_integrity: "Este elemento no superó una comprobación de integridad y no se abrió.",
+    item_too_large: "Este elemento es demasiado grande. Acorta las notas o quita algunos campos.",
+    busy: "Ya se está procesando, espera un momento.",
   },
   welcome: {
     title: "Te damos la bienvenida a Keyless",
@@ -164,6 +169,18 @@ const es: Translations = {
     deleteVaultBody:
       "La bóveda y todos sus elementos se eliminarán de forma permanente en todos tus dispositivos. Esto no se puede deshacer.",
     vaultDeleted: "\"{{name}}\" eliminada",
+    orphaned: "no está en el servidor",
+  },
+  pairing: {
+    title: "¿Conectar una extensión del navegador?",
+    body: "{{name}} quiere conectarse a Keyless para rellenar tus contraseñas.",
+    compare: "Comprueba que el navegador muestre exactamente el mismo código. Si no es así, o no acabas de conectar un navegador, recházalo.",
+    allow: "Conectar",
+    deny: "Rechazar",
+  },
+  account: {
+    deletionScheduled: "Esta cuenta se eliminará el {{date}}.",
+    cancelDeletion: "Cancelar eliminación",
   },
   sync: {
     syncing: "Sincronizando…",
@@ -443,6 +460,18 @@ const es: Translations = {
     clipboard: "Borrar contraseñas copiadas después de",
     seconds_one: "{{count}} segundo",
     seconds_other: "{{count}} segundos",
+    confirmWithPassword: "Introduce tu contraseña maestra para ver tu clave secreta",
+    secretKeyInFile:
+      "No se encontró un llavero del sistema, así que tu clave secreta se guarda en un archivo que solo tu usuario puede leer. Instalar un llavero (KWallet, GNOME Keyring) la protege mejor.",
+    browser: "Navegador",
+    browserTitle: "Extensión del navegador",
+    browserBody:
+      "La extensión de Keyless rellena contraseñas en Chrome, Edge, Brave, Vivaldi y Firefox. Se comunica con esta app mediante una conexión cifrada que apruebas una vez por navegador.",
+    browserIntegration: "Permitir la extensión del navegador",
+    browserIntegrationHint: "Registra Keyless en los navegadores instalados en este equipo.",
+    pairedBrowsers: "Navegadores conectados",
+    noPairedBrowsers: "Todavía no hay ningún navegador conectado.",
+    unpair: "Desconectar",
     secretKeyTitle: "Clave secreta y Kit de emergencia",
     secretKeyBody:
       "Necesitas tu clave secreta para iniciar sesión en un dispositivo nuevo. Guarda una copia de tu Kit de emergencia en un lugar seguro.",
@@ -455,7 +484,7 @@ const es: Translations = {
     signedInAs: "Sesión iniciada como",
     deleteAccount: "Eliminar cuenta",
     deleteAccountBody:
-      "Elimina de forma permanente tu cuenta y todas las bóvedas que te pertenecen, en todos los dispositivos. Esto no se puede deshacer. Introduce tu contraseña maestra para confirmar.",
+      "Tu cuenta y todas las bóvedas que te pertenecen se eliminarán de forma permanente en 7 días, en todos los dispositivos. Hasta entonces puedes cancelarlo iniciando sesión de nuevo. Introduce tu contraseña maestra para confirmar.",
     deleteAccountConfirm: "Eliminar mi cuenta",
     importTitle: "Importa tus datos",
     importBody: "Trae tus contraseñas desde otro gestor. Todo se cifra en este dispositivo antes de subirse.",

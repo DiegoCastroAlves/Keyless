@@ -81,9 +81,57 @@ pub async fn resend_confirmation(state: State<'_, AppState>, email: String) -> A
 }
 
 #[tauri::command]
-pub async fn reveal_secret_key(state: State<'_, AppState>) -> AppResult<String> {
+pub async fn reveal_secret_key(state: State<'_, AppState>, master_password: String) -> AppResult<String> {
     state.touch();
-    auth::reveal_secret_key(&state).await
+    auth::reveal_secret_key(&state, Zeroizing::new(master_password)).await
+}
+
+/// Copies the Secret Key for the Emergency Kit (works before the first
+/// sign-in, e.g. while waiting for email confirmation).
+#[tauri::command]
+pub fn copy_secret_key(app: AppHandle, state: State<'_, AppState>) -> AppResult<CopyResult> {
+    let key = auth::secret_key_for_kit(&state)?;
+    copy(&app, &state, key)
+}
+
+#[tauri::command]
+pub async fn account_info(state: State<'_, AppState>) -> AppResult<auth::AccountInfo> {
+    auth::account_info(&state).await
+}
+
+#[tauri::command]
+pub async fn cancel_account_deletion(state: State<'_, AppState>) -> AppResult<()> {
+    state.touch();
+    auth::cancel_account_deletion(&state).await
+}
+
+#[tauri::command]
+pub fn bridge_pair_respond(state: State<'_, AppState>, request_id: String, approve: bool) {
+    crate::bridge::server::respond_to_pairing(&state, &request_id, approve);
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgePeer {
+    pub public_key: String,
+    pub name: String,
+    pub paired_at: i64,
+}
+
+#[tauri::command]
+pub fn list_bridge_peers(state: State<'_, AppState>) -> AppResult<Vec<BridgePeer>> {
+    Ok(state
+        .store()
+        .bridge_peers()?
+        .into_iter()
+        .map(|(public_key, name, paired_at)| BridgePeer { public_key, name, paired_at })
+        .collect())
+}
+
+#[tauri::command]
+pub fn remove_bridge_peer(state: State<'_, AppState>, public_key: String) -> AppResult<()> {
+    state.touch();
+    state.store().remove_bridge_peer(&public_key)
 }
 
 #[tauri::command]
@@ -119,6 +167,10 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 #[tauri::command]
 pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
     let settings = settings.sanitized();
+    if settings.browser_integration != state.settings().browser_integration {
+        let enabled = settings.browser_integration;
+        std::thread::spawn(move || crate::bridge::install::sync_registration(enabled));
+    }
     state.store().set_setting("settings", &settings)?;
     *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings.clone();
     Ok(settings)

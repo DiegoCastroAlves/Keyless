@@ -220,8 +220,8 @@ export function Sidebar({
           {vaults.map((vault) => (
             <NavItem
               key={vault.id}
-              icon={<VaultIcon className="size-4" />}
-              label={vault.name}
+              icon={vault.orphaned ? <TriangleAlert className="size-4 text-warning" /> : <VaultIcon className="size-4" />}
+              label={vault.orphaned ? `${vault.name} · ${t("sidebar.orphaned")}` : vault.name}
               count={vault.itemCount}
               view={{ kind: "vault", id: vault.id }}
               actions={

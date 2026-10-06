@@ -149,8 +149,14 @@ pub fn cancel(state: &AppState) {
 /// Returns the number of items written, or `Cancelled` if no file was chosen.
 pub async fn export(app: &AppHandle, password: Zeroizing<String>) -> AppResult<usize> {
     let state = app.state::<AppState>();
-    if keyless_core::keys::normalize_master_password(&password).chars().count() < MIN_MASTER_PASSWORD_CHARS {
+    // A backup has no Secret Key: its password alone protects it against
+    // offline guessing, so it must be strong.
+    let normalized = keyless_core::keys::normalize_master_password(&password);
+    if normalized.chars().count() < MIN_MASTER_PASSWORD_CHARS {
         return Err(AppError::Invalid(Msg::new("backup_password_too_short").with("min", MIN_MASTER_PASSWORD_CHARS)));
+    }
+    if crate::health::strength(&normalized, &["keyless"]).score < crate::auth::MIN_MASTER_PASSWORD_SCORE {
+        return Err(AppError::Invalid(Msg::new("password_weak")));
     }
 
     let data = {

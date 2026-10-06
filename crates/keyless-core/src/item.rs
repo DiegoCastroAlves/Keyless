@@ -71,6 +71,14 @@ pub struct ItemOverview {
     /// Unix seconds.
     #[serde(default)]
     pub updated_at: i64,
+    /// Incremented by the client on every write. Clients refuse to replace a
+    /// copy with an older version (rollback protection).
+    #[serde(default)]
+    pub version: u64,
+    /// Random id shared by the overview and details written together, so the
+    /// two documents of different versions cannot be mixed.
+    #[serde(default)]
+    pub content_id: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
@@ -149,6 +157,12 @@ pub struct ItemDetails {
     pub notes: String,
     #[serde(default)]
     pub password_history: Vec<PasswordHistoryEntry>,
+    /// Same as [`ItemOverview::version`].
+    #[serde(default)]
+    pub version: u64,
+    /// Same as [`ItemOverview::content_id`].
+    #[serde(default)]
+    pub content_id: String,
 }
 
 impl ItemDetails {
@@ -176,6 +190,25 @@ impl ItemDetails {
 /// Short random id for fields and sections.
 pub fn new_field_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..12].to_string()
+}
+
+/// Random id linking an overview and details written together.
+pub fn new_content_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()
+}
+
+/// Stamps a new version on both documents of an item before encryption.
+pub fn stamp_version(overview: &mut ItemOverview, details: &mut ItemDetails, version: u64) {
+    let content_id = new_content_id();
+    overview.version = version;
+    overview.content_id = content_id.clone();
+    details.version = version;
+    details.content_id = content_id;
+}
+
+/// Whether an overview and details belong to the same write.
+pub fn same_write(overview: &ItemOverview, details: &ItemDetails) -> bool {
+    overview.version == details.version && overview.content_id == details.content_id
 }
 
 #[cfg(test)]

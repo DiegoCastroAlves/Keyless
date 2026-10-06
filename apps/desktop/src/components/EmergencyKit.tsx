@@ -15,19 +15,14 @@ export function EmergencyKit({ email, secretKey }: { email: string; secretKey: s
   const { t, i18n } = useTranslation();
   const created = new Date().toLocaleDateString(i18n.language, { year: "numeric", month: "long", day: "numeric" });
 
+  // Copied by Rust with the protected clipboard (kept out of clipboard
+  // history and cleared after a while), even before the first sign-in.
   const copy = async () => {
     try {
-      const result = await api.copyText(secretKey);
+      const result = await api.copySecretKey();
       toast.copied(t("common.secretKey"), result.clearAfterSeconds);
-    } catch {
-      // Not signed in yet (e.g. waiting for email confirmation): fall back
-      // to the browser clipboard.
-      try {
-        await navigator.clipboard.writeText(secretKey);
-        toast.success(t("kit.copy"));
-      } catch (err) {
-        toast.error(errorMessage(err));
-      }
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   };
 
