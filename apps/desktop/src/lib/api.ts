@@ -291,7 +291,9 @@ export const api = {
   generatePassword: (options: GeneratorOptions) => invoke<GeneratedPassword>("generate_password", { options }),
   passwordHealth: () => invoke<HealthReport>("password_health"),
   checkBreaches: () => invoke<BreachReport>("check_breaches"),
-  importPick: (format: "one_pux" | "csv") => invoke<ImportSummary>("import_pick", { format }),
+  importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
+    invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
+  exportBackup: (password: string) => invoke<number>("export_backup", { password }),
   importCommit: (target: ImportTarget) => invoke<number>("import_commit", { target }),
   importCancel: () => invoke<void>("import_cancel"),
 };

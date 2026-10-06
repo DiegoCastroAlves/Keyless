@@ -1,8 +1,9 @@
-import { FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { DatabaseBackup, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button, Combobox, Dialog, cx } from "../../components/ui";
+import { PasswordInput, StrengthMeter, useStrength } from "../../components/common";
+import { Button, Combobox, Dialog, ErrorText, Label, cx } from "../../components/ui";
 import { api, errorCode, errorMessage, type ImportSummary } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -15,11 +16,17 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   const [mode, setMode] = useState<"new_vaults" | "vault">("new_vaults");
   const writable = vaults.filter((v) => v.canWrite);
   const [vaultId, setVaultId] = useState<string>(writable[0]?.id ?? "");
+  const [backupPrompt, setBackupPrompt] = useState(false);
+  const [backupPassword, setBackupPassword] = useState("");
+  const [source, setSource] = useState<"one_pux" | "csv" | "keyless_backup">("one_pux");
 
-  const pick = async (format: "one_pux" | "csv") => {
+  const pick = async (format: "one_pux" | "csv" | "keyless_backup", password?: string) => {
     setBusy("pick");
     try {
-      const result = await api.importPick(format);
+      const result = await api.importPick(format, password);
+      setSource(format);
+      setBackupPrompt(false);
+      setBackupPassword("");
       setSummary(result);
       setMode(result.vaults.length > 1 ? "new_vaults" : "vault");
     } catch (err) {
@@ -64,6 +71,30 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
             onClick={() => pick("csv")}
             busy={busy === "pick"}
           />
+          <SourceCard
+            icon={<DatabaseBackup className="size-5" />}
+            title={t("importer.backup")}
+            hint={t("importer.backupHint")}
+            onClick={() => setBackupPrompt(true)}
+            busy={busy === "pick"}
+          />
+          {backupPrompt && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void pick("keyless_backup", backupPassword);
+              }}
+              className="flex items-end gap-2 rounded-xl border border-accent/40 p-3"
+            >
+              <div className="flex-1">
+                <Label>{t("importer.backupPassword")}</Label>
+                <PasswordInput value={backupPassword} onChange={(e) => setBackupPassword(e.target.value)} autoFocus />
+              </div>
+              <Button type="submit" variant="primary" disabled={!backupPassword} loading={busy === "pick"} className="h-10">
+                {t("importer.choose")}
+              </Button>
+            </form>
+          )}
         </div>
       </div>
     );
@@ -114,7 +145,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           )}
         </div>
       </div>
-      <p className="text-xs text-muted">{t("importer.deleteExport")}</p>
+      {source !== "keyless_backup" && <p className="text-xs text-warning">{t("importer.deleteExport")}</p>}
       <div className="flex justify-end gap-2">
         <Button
           onClick={() => {
@@ -162,5 +193,52 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
     >
       <ImportPanel onDone={() => onOpenChange(false)} />
     </Dialog>
+  );
+}
+
+export function ExportPanel() {
+  const { t } = useTranslation();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const strength = useStrength(password);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const count = await api.exportBackup(password);
+      setPassword("");
+      setConfirm("");
+      toast.success(t("importer.exported", { count }));
+    } catch (err) {
+      if (errorCode(err) !== "cancelled") setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <div>
+        <div className="text-sm font-semibold">{t("importer.exportTitle")}</div>
+        <p className="mt-1 text-xs leading-relaxed text-muted">{t("importer.exportBody")}</p>
+      </div>
+      <div>
+        <Label>{t("importer.exportPassword")}</Label>
+        <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
+        <StrengthMeter strength={strength} />
+      </div>
+      <div>
+        <Label>{t("importer.exportConfirm")}</Label>
+        <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} invalid={!!confirm && confirm !== password} />
+      </div>
+      <ErrorText>{error}</ErrorText>
+      <Button type="submit" loading={busy} disabled={!password || password !== confirm || (strength?.score ?? 0) < 2}>
+        {t("importer.exportRun")}
+      </Button>
+    </form>
   );
 }

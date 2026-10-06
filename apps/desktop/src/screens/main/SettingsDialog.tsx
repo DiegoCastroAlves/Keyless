@@ -9,7 +9,7 @@ import { LANGUAGES } from "../../i18n";
 import { api, errorMessage, type Settings } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
-import { ImportPanel } from "./ImportDialog";
+import { ExportPanel, ImportPanel } from "./ImportDialog";
 
 export type SettingsTab = "general" | "security" | "account" | "import" | "about";
 
@@ -58,7 +58,14 @@ export function SettingsDialog({
           {tab === "general" && <GeneralTab />}
           {tab === "security" && <SecurityTab />}
           {tab === "account" && <AccountTab onClose={() => onOpenChange(false)} />}
-          {tab === "import" && <ImportPanel onDone={() => onOpenChange(false)} />}
+          {tab === "import" && (
+            <div className="space-y-8">
+              <ImportPanel onDone={() => onOpenChange(false)} />
+              <div className="border-t border-line pt-6">
+                <ExportPanel />
+              </div>
+            </div>
+          )}
           {tab === "about" && <AboutTab />}
         </div>
       </div>

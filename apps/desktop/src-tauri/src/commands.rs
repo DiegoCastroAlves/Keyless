@@ -283,9 +283,15 @@ pub async fn check_breaches(state: State<'_, AppState>) -> AppResult<BreachRepor
 }
 
 #[tauri::command]
-pub async fn import_pick(app: AppHandle, state: State<'_, AppState>, format: ImportFormat) -> AppResult<ImportSummary> {
+pub async fn import_pick(app: AppHandle, state: State<'_, AppState>, format: ImportFormat, password: Option<String>) -> AppResult<ImportSummary> {
     state.touch();
-    import::pick_and_parse(&app, format).await
+    import::pick_and_parse(&app, format, password.map(Zeroizing::new)).await
+}
+
+#[tauri::command]
+pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, password: String) -> AppResult<usize> {
+    state.touch();
+    import::export(&app, Zeroizing::new(password)).await
 }
 
 #[tauri::command]

@@ -147,6 +147,7 @@ pub fn run() {
             commands::import_pick,
             commands::import_commit,
             commands::import_cancel,
+            commands::export_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Keyless");

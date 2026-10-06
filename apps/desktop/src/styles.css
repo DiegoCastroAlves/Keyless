@@ -77,47 +77,49 @@
   color-scheme: dark;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
 
-body {
-  margin: 0;
-  background: var(--app-bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
-  overflow: hidden;
-}
+  body {
+    margin: 0;
+    background: var(--app-bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    overflow: hidden;
+  }
 
-input,
-textarea,
-.selectable {
-  user-select: text;
-}
+  input,
+  textarea,
+  .selectable {
+    user-select: text;
+  }
 
-::selection {
-  background: var(--accent-soft);
-}
+  ::selection {
+    background: var(--accent-soft);
+  }
 
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 
-/* Text fields draw their own focus ring. */
-input:focus-visible,
-textarea:focus-visible {
-  outline: none;
-}
+  /* Text fields draw their own focus ring. */
+  input:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+  }
 
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
 }
 
 @keyframes toast-in {

@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod account;
+pub mod backup;
 pub mod crypto;
 pub mod encoding;
 pub mod error;
