@@ -1,0 +1,219 @@
+import { CircleCheck, Repeat, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+
+import { ItemIcon } from "../../components/common";
+import { Button, Spinner, cx } from "../../components/ui";
+import { api, errorMessage, type BreachReport, type HealthReport, type ItemSummary } from "../../lib/api";
+import { useApp } from "../../lib/store";
+import { toast } from "../../lib/toast";
+
+export function Watchtower() {
+  const { t, i18n } = useTranslation();
+  const items = useApp((s) => s.items);
+  const revision = useApp((s) => s.revision);
+  const [report, setReport] = useState<HealthReport | null>(null);
+  const [breaches, setBreaches] = useState<BreachReport | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    api.passwordHealth().then(setReport).catch((err) => toast.error(errorMessage(err)));
+  }, [revision]);
+
+  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+
+  const checkBreaches = async () => {
+    setChecking(true);
+    try {
+      setBreaches(await api.checkBreaches());
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const reusedIds = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const group of report?.reused ?? []) for (const id of group) map.set(id, group.length - 1);
+    return map;
+  }, [report]);
+
+  if (!report) {
+    return (
+      <section className="flex flex-1 items-center justify-center bg-panel">
+        <Spinner className="size-6 text-accent" />
+      </section>
+    );
+  }
+
+  const problems = new Set([...report.weak, ...reusedIds.keys(), ...(breaches?.breached.map(([id]) => id) ?? [])]);
+  const score = report.checked ? Math.round(((report.checked - problems.size) / report.checked) * 100) : 100;
+
+  return (
+    <section className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-panel">
+      <div className="mx-auto w-full max-w-3xl px-8 py-8">
+        <div className="flex items-center gap-5">
+          <ScoreRing score={score} />
+          <div>
+            <h2 className="text-xl font-semibold tracking-tight">{t("watchtower.title")}</h2>
+            <p className="mt-1 max-w-md text-[13px] leading-relaxed text-muted">{t("watchtower.subtitle")}</p>
+            <p className="mt-1 text-xs text-subtle">{t("watchtower.checked", { count: report.checked })}</p>
+          </div>
+        </div>
+
+        <div className="mt-8 grid grid-cols-3 gap-3">
+          <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("watchtower.weak")} value={report.weak.length} />
+          <StatCard icon={<Repeat className="size-5" />} tone="warning" label={t("watchtower.reused")} value={reusedIds.size} />
+          <StatCard
+            icon={<ShieldX className="size-5" />}
+            tone="danger"
+            label={t("watchtower.breached")}
+            value={breaches ? breaches.breached.length : null}
+            placeholder={t("watchtower.notChecked")}
+          />
+        </div>
+
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-panel-2 p-4">
+          <ShieldCheck className="size-5 shrink-0 text-accent" />
+          <p className="flex-1 text-xs leading-relaxed text-muted">{t("watchtower.breachPrivacy")}</p>
+          <Button size="sm" onClick={checkBreaches} loading={checking}>
+            {checking ? t("watchtower.checkingBreaches") : t("watchtower.checkBreaches")}
+          </Button>
+        </div>
+
+        {problems.size === 0 ? (
+          <div className="mt-10 flex flex-col items-center text-center">
+            <CircleCheck className="size-10 text-success" />
+            <p className="mt-3 text-sm font-medium">{t("watchtower.allGood")}</p>
+          </div>
+        ) : (
+          <div className="mt-8 space-y-8">
+            {breaches && breaches.breached.length > 0 && (
+              <IssueList
+                title={t("watchtower.breached")}
+                hint={t("watchtower.breachedHint")}
+                entries={breaches.breached.map(([id, count]) => ({
+                  item: byId.get(id),
+                  note: t("watchtower.breachedSeen", { count, formatted: count.toLocaleString(i18n.language) }),
+                }))}
+                tone="danger"
+              />
+            )}
+            {report.weak.length > 0 && (
+              <IssueList
+                title={t("watchtower.weak")}
+                hint={t("watchtower.weakHint")}
+                entries={report.weak.map((id) => ({ item: byId.get(id) }))}
+                tone="warning"
+              />
+            )}
+            {reusedIds.size > 0 && (
+              <IssueList
+                title={t("watchtower.reused")}
+                hint={t("watchtower.reusedHint")}
+                entries={[...reusedIds.entries()].map(([id, others]) => ({ item: byId.get(id), note: t("watchtower.sharedWith", { count: others }) }))}
+                tone="warning"
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ScoreRing({ score }: { score: number }) {
+  const color = score >= 90 ? "var(--success)" : score >= 70 ? "var(--accent)" : score >= 40 ? "var(--warning)" : "var(--danger)";
+  const circumference = 2 * Math.PI * 34;
+  return (
+    <div className="relative size-24 shrink-0">
+      <svg viewBox="0 0 80 80" className="size-24 -rotate-90">
+        <circle cx="40" cy="40" r="34" fill="none" stroke="var(--panel-3)" strokeWidth="7" />
+        <circle
+          cx="40"
+          cy="40"
+          r="34"
+          fill="none"
+          stroke={color}
+          strokeWidth="7"
+          strokeLinecap="round"
+          strokeDasharray={`${(score / 100) * circumference} ${circumference}`}
+          style={{ transition: "stroke-dasharray 600ms ease" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center text-2xl font-semibold tabular-nums">{score}</div>
+    </div>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  tone,
+  placeholder,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: number | null;
+  tone: "warning" | "danger";
+  placeholder?: string;
+}) {
+  const active = value !== null && value > 0;
+  return (
+    <div className="rounded-xl border border-line p-4">
+      <div
+        className={cx(
+          "flex size-9 items-center justify-center rounded-lg",
+          !active ? "bg-panel-3 text-subtle" : tone === "danger" ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning",
+        )}
+      >
+        {icon}
+      </div>
+      <div className="mt-3 text-2xl font-semibold tabular-nums">{value ?? "—"}</div>
+      <div className="text-xs text-muted">{value === null ? placeholder : label}</div>
+    </div>
+  );
+}
+
+function IssueList({
+  title,
+  hint,
+  entries,
+  tone,
+}: {
+  title: string;
+  hint: string;
+  entries: { item: ItemSummary | undefined; note?: string }[];
+  tone: "warning" | "danger";
+}) {
+  const setView = useApp((s) => s.setView);
+  const select = useApp((s) => s.select);
+  return (
+    <div>
+      <h3 className={cx("text-sm font-semibold", tone === "danger" ? "text-danger" : "text-warning")}>{title}</h3>
+      <p className="mt-0.5 text-xs text-muted">{hint}</p>
+      <div className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line">
+        {entries
+          .filter((e) => e.item)
+          .map(({ item, note }) => (
+            <button
+              key={item!.id}
+              onClick={() => {
+                setView({ kind: "all" });
+                select(item!.id);
+              }}
+              className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-panel-2"
+            >
+              <ItemIcon title={item!.title} category={item!.category} url={item!.urls[0]} size="sm" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-medium">{item!.title}</div>
+                <div className="truncate text-xs text-muted">{note ?? item!.subtitle}</div>
+              </div>
+            </button>
+          ))}
+      </div>
+    </div>
+  );
+}

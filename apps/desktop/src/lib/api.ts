@@ -1,0 +1,304 @@
+// Typed wrappers around the Rust commands. All secret handling happens on
+// the Rust side; these calls only move what the UI needs to show.
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+import { translateError } from "../i18n";
+
+export type Category =
+  | "login"
+  | "password"
+  | "secure_note"
+  | "credit_card"
+  | "identity"
+  | "bank_account"
+  | "api_credential"
+  | "database"
+  | "server"
+  | "ssh_key"
+  | "software_license"
+  | "wireless_router"
+  | "email_account"
+  | "passport"
+  | "driver_license"
+  | "membership"
+  | "crypto_wallet"
+  | "medical_record"
+  | "document"
+  | "other";
+
+export type FieldKind =
+  | "text"
+  | "concealed"
+  | "email"
+  | "url"
+  | "phone"
+  | "totp"
+  | "date"
+  | "month_year"
+  | "card_number"
+  | "pin"
+  | "multiline";
+
+export type FieldPurpose = "username" | "password" | "other";
+
+export interface AppError {
+  code: string;
+  key: string;
+  params: Record<string, string>;
+  message: string;
+}
+
+export interface AppStatus {
+  state: "no_account" | "locked" | "unlocked";
+  email: string | null;
+  pendingEmail: string | null;
+  hasSecretKey: boolean;
+}
+
+export interface CreatedAccount {
+  secretKey: string;
+  confirmationRequired: boolean;
+}
+
+export interface Strength {
+  score: number;
+  guessesLog10: number;
+  warning: string | null;
+  suggestions: string[];
+}
+
+export interface Settings {
+  auto_lock_minutes: number;
+  clipboard_clear_seconds: number;
+  lock_on_sleep: boolean;
+  theme: "system" | "light" | "dark";
+  language: "system" | "en" | "es";
+}
+
+export interface SyncStatus {
+  state: "" | "idle" | "syncing" | "offline" | "error" | "signed_out";
+  last_synced_at: number | null;
+  message: string | null;
+}
+
+export interface Vault {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+  role: "owner" | "editor" | "viewer";
+  canWrite: boolean;
+  itemCount: number;
+}
+
+export interface VaultMeta {
+  name: string;
+  description: string;
+  icon: string;
+  color: string;
+}
+
+export interface ItemSummary {
+  id: string;
+  vaultId: string;
+  title: string;
+  subtitle: string;
+  category: Category;
+  urls: string[];
+  tags: string[];
+  favorite: boolean;
+  archived: boolean;
+  trashedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ItemUrl {
+  href: string;
+  label?: string;
+}
+
+export interface FieldView {
+  id: string;
+  label: string;
+  kind: FieldKind;
+  purpose: FieldPurpose | null;
+  value: string | null;
+  hasValue: boolean;
+}
+
+export interface SectionView {
+  id: string;
+  title: string;
+  fields: FieldView[];
+}
+
+export interface ItemDetail extends ItemSummary {
+  urlEntries: ItemUrl[];
+  fields: FieldView[];
+  sections: SectionView[];
+  notes: string;
+  passwordHistoryCount: number;
+  canEdit: boolean;
+}
+
+export interface Field {
+  id: string;
+  label: string;
+  kind: FieldKind;
+  value: string;
+  purpose?: FieldPurpose | null;
+}
+
+export interface Section {
+  id: string;
+  title: string;
+  fields: Field[];
+}
+
+export interface ItemDraft {
+  id: string | null;
+  vaultId: string;
+  title: string;
+  category: Category;
+  urls: ItemUrl[];
+  tags: string[];
+  favorite: boolean;
+  fields: Field[];
+  sections: Section[];
+  notes: string;
+}
+
+export interface TotpCode {
+  code: string;
+  period: number;
+  remaining: number;
+}
+
+export interface HistoryEntry {
+  value: string;
+  changedAt: number;
+}
+
+export interface CopyResult {
+  clearAfterSeconds: number;
+}
+
+export type GeneratorOptions =
+  | {
+      kind: "random";
+      length: number;
+      uppercase: boolean;
+      lowercase: boolean;
+      digits: boolean;
+      symbols: boolean;
+      avoid_ambiguous: boolean;
+    }
+  | {
+      kind: "memorable";
+      words: number;
+      separator: string;
+      capitalize: boolean;
+      include_number: boolean;
+    }
+  | { kind: "pin"; length: number };
+
+export interface GeneratedPassword {
+  password: string;
+  entropy_bits: number;
+}
+
+export interface HealthReport {
+  checked: number;
+  weak: string[];
+  reused: string[][];
+}
+
+export interface BreachReport {
+  checked: number;
+  breached: [string, number][];
+}
+
+export interface ImportSummary {
+  vaults: [string, number][];
+  total_items: number;
+  warnings: string[];
+}
+
+export type ImportTarget = { mode: "new_vaults" } | { mode: "vault"; vaultId: string };
+
+export function errorMessage(err: unknown): string {
+  return translateError(err);
+}
+
+export function errorCode(err: unknown): string | null {
+  if (err && typeof err === "object" && "code" in err) {
+    return String((err as AppError).code);
+  }
+  return null;
+}
+
+export const api = {
+  status: () => invoke<AppStatus>("get_status"),
+  createAccount: (email: string, masterPassword: string) =>
+    invoke<CreatedAccount>("create_account", { email, masterPassword }),
+  signIn: (email: string, secretKey: string | null, masterPassword: string) =>
+    invoke<void>("sign_in", { email, secretKey, masterPassword }),
+  unlock: (masterPassword: string) => invoke<void>("unlock", { masterPassword }),
+  reauthenticate: (masterPassword: string) => invoke<void>("reauthenticate", { masterPassword }),
+  lock: () => invoke<void>("lock"),
+  signOut: () => invoke<void>("sign_out"),
+  resendConfirmation: (email: string) => invoke<void>("resend_confirmation", { email }),
+  revealSecretKey: () => invoke<string>("reveal_secret_key"),
+  changeMasterPassword: (current: string, next: string) =>
+    invoke<void>("change_master_password", { current, new: next }),
+  deleteAccount: (masterPassword: string) => invoke<void>("delete_account", { masterPassword }),
+  passwordStrength: (password: string, email?: string) =>
+    invoke<Strength>("password_strength", { password, email: email ?? null }),
+
+  heartbeat: () => invoke<void>("heartbeat"),
+  getSettings: () => invoke<Settings>("get_settings"),
+  updateSettings: (settings: Settings) => invoke<Settings>("update_settings", { settings }),
+  syncStatus: () => invoke<SyncStatus>("get_sync_status"),
+  syncNow: () => invoke<void>("sync_now"),
+
+  listVaults: () => invoke<Vault[]>("list_vaults"),
+  createVault: (meta: VaultMeta) => invoke<string>("create_vault", { meta }),
+  updateVault: (vaultId: string, meta: VaultMeta) => invoke<void>("update_vault", { vaultId, meta }),
+  deleteVault: (vaultId: string) => invoke<void>("delete_vault", { vaultId }),
+
+  listItems: () => invoke<ItemSummary[]>("list_items"),
+  getItem: (itemId: string) => invoke<ItemDetail>("get_item", { itemId }),
+  getItemDraft: (itemId: string) => invoke<ItemDraft>("get_item_draft", { itemId }),
+  saveItem: (draft: ItemDraft) => invoke<ItemSummary>("save_item", { draft }),
+  revealField: (itemId: string, fieldId: string) => invoke<string>("reveal_field", { itemId, fieldId }),
+  getTotp: (itemId: string, fieldId: string) => invoke<TotpCode>("get_totp", { itemId, fieldId }),
+  passwordHistory: (itemId: string) => invoke<HistoryEntry[]>("get_password_history", { itemId }),
+  copyField: (itemId: string, fieldId: string) => invoke<CopyResult>("copy_field", { itemId, fieldId }),
+  copyItemValue: (itemId: string, purpose: "username" | "password" | "totp") =>
+    invoke<CopyResult>("copy_item_value", { itemId, purpose }),
+  copyText: (text: string) => invoke<CopyResult>("copy_text", { text }),
+  openItemUrl: (itemId: string, index: number) => invoke<void>("open_item_url", { itemId, index }),
+  setFavorite: (itemId: string, favorite: boolean) => invoke<void>("set_favorite", { itemId, favorite }),
+  setArchived: (itemId: string, archived: boolean) => invoke<void>("set_archived", { itemId, archived }),
+  trashItem: (itemId: string) => invoke<void>("trash_item", { itemId }),
+  restoreItem: (itemId: string) => invoke<void>("restore_item", { itemId }),
+  deleteItemsPermanently: (itemIds: string[]) => invoke<void>("delete_items_permanently", { itemIds }),
+
+  generatePassword: (options: GeneratorOptions) => invoke<GeneratedPassword>("generate_password", { options }),
+  passwordHealth: () => invoke<HealthReport>("password_health"),
+  checkBreaches: () => invoke<BreachReport>("check_breaches"),
+  importPick: (format: "one_pux" | "csv") => invoke<ImportSummary>("import_pick", { format }),
+  importCommit: (target: ImportTarget) => invoke<number>("import_commit", { target }),
+  importCancel: () => invoke<void>("import_cancel"),
+};
+
+export const events = {
+  onItemsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://items-changed", () => cb()),
+  onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
+  onSyncStatus: (cb: (s: SyncStatus) => void): Promise<UnlistenFn> =>
+    listen<SyncStatus>("keyless://sync-status", (e) => cb(e.payload)),
+};

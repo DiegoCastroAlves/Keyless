@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ring" x1="0.18" y1="0.08" x2="0.82" y2="0.96">
+      <stop offset="0" stop-color="#7AF0DD"/>
+      <stop offset="0.45" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0B5F58"/>
+    </linearGradient>
+    <radialGradient id="core" cx="0.5" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#16524D"/>
+      <stop offset="1" stop-color="#062523"/>
+    </radialGradient>
+    <linearGradient id="hole" gradientUnits="userSpaceOnUse" x1="0" y1="344" x2="0" y2="702">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#D5FBF4"/>
+    </linearGradient>
+  </defs>
+  <circle cx="512" cy="512" r="452" fill="url(#ring)"/>
+  <circle cx="512" cy="512" r="318" fill="url(#core)"/>
+  <circle cx="512" cy="512" r="318" fill="none" stroke="#000" stroke-opacity="0.18" stroke-width="10"/>
+  <g fill="url(#hole)">
+    <circle cx="512" cy="438" r="94"/>
+    <path d="M470 486 H554 L586 676 Q590 702 564 702 H460 Q434 702 438 676 Z"/>
+  </g>
+</svg>

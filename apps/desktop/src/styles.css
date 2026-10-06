@@ -1,0 +1,208 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "Cascadia Code", "Fira Code", Menlo, Consolas, monospace;
+
+  --color-app: var(--app-bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-muted: var(--muted);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-fg: var(--accent-fg);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-success: var(--success);
+  --color-digit: var(--digit);
+  --color-symbol: var(--symbol);
+}
+
+:root {
+  --app-bg: #eef1f4;
+  --panel: #ffffff;
+  --panel-2: #f6f7f9;
+  --panel-3: #eceff3;
+  --border: #e3e7ec;
+  --border-strong: #cfd5dd;
+  --text: #121820;
+  --muted: #5d6877;
+  --subtle: #8c96a3;
+  --accent: #0d9488;
+  --accent-hover: #0f766e;
+  --accent-soft: rgba(13, 148, 136, 0.1);
+  --accent-fg: #ffffff;
+  --danger: #d92d20;
+  --danger-soft: rgba(217, 45, 32, 0.08);
+  --warning: #b54708;
+  --warning-soft: rgba(247, 144, 9, 0.12);
+  --success: #079455;
+  --digit: #2563eb;
+  --symbol: #c2410c;
+  color-scheme: light;
+}
+
+.dark {
+  --app-bg: #0f1216;
+  --panel: #161a20;
+  --panel-2: #1c2128;
+  --panel-3: #232932;
+  --border: #262c35;
+  --border-strong: #353d48;
+  --text: #e7eaee;
+  --muted: #9aa3ae;
+  --subtle: #6b7480;
+  --accent: #2dd4bf;
+  --accent-hover: #5eead4;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --accent-fg: #052e2b;
+  --danger: #f97066;
+  --danger-soft: rgba(249, 112, 102, 0.12);
+  --warning: #fdb022;
+  --warning-soft: rgba(253, 176, 34, 0.12);
+  --success: #47cd89;
+  --digit: #7cb4ff;
+  --symbol: #ff9f6b;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--app-bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  overflow: hidden;
+}
+
+input,
+textarea,
+.selectable {
+  user-select: text;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Text fields draw their own focus ring. */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shake {
+  10%,
+  90% {
+    transform: translateX(-1px);
+  }
+  20%,
+  80% {
+    transform: translateX(2px);
+  }
+  30%,
+  50%,
+  70% {
+    transform: translateX(-4px);
+  }
+  40%,
+  60% {
+    transform: translateX(4px);
+  }
+}
+
+.animate-toast {
+  animation: toast-in 160ms ease-out;
+}
+.animate-fade {
+  animation: fade-in 140ms ease-out;
+}
+.animate-pop {
+  animation: pop-in 140ms ease-out;
+}
+.animate-shake {
+  animation: shake 400ms ease-in-out;
+}
+
+/* Printing the Emergency Kit: hide everything else. */
+@media print {
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    overflow: visible;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute;
+    inset: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
