@@ -1,0 +1,58 @@
+# Maintainer: Diego Castro Alves <diego.castroalves1@gmail.com>
+#
+# Builds Keyless from the release source. The release workflow builds this
+# package for every tag (pkgver is taken from the tag) and attaches it to the
+# GitHub release.
+
+pkgname=keyless
+pkgver=0.1.1
+pkgrel=1
+pkgdesc='Zero-knowledge password manager'
+arch=('x86_64')
+url='https://github.com/DiegoCastroAlves/Keyless'
+license=('LicenseRef-Keyless')
+depends=(
+  'cairo'
+  'dbus'
+  'gcc-libs'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gtk3'
+  'hicolor-icon-theme'
+  'libsoup3'
+  'webkit2gtk-4.1'
+)
+makedepends=('cargo' 'nodejs' 'pnpm')
+options=('!lto' '!debug')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "Keyless-$pkgver"
+  export CARGO_HOME="$srcdir/cargo-home"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
+  cd apps/desktop
+  pnpm install --frozen-lockfile
+}
+
+build() {
+  cd "Keyless-$pkgver/apps/desktop"
+  export CARGO_HOME="$srcdir/cargo-home"
+  # Keep the build directory out of the binary.
+  export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
+  pnpm tauri build --no-bundle -- --locked
+}
+
+package() {
+  cd "Keyless-$pkgver"
+  install -Dm755 target/release/keyless-desktop "$pkgdir/usr/bin/keyless-desktop"
+  install -Dm644 packaging/arch/keyless-desktop.desktop "$pkgdir/usr/share/applications/keyless-desktop.desktop"
+
+  local icons=apps/desktop/src-tauri/icons size
+  for size in 32 64 128; do
+    install -Dm644 "$icons/${size}x${size}.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/keyless-desktop.png"
+  done
+  install -Dm644 "$icons/128x128@2x.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/keyless-desktop.png"
+  install -Dm644 "$icons/icon.png" "$pkgdir/usr/share/icons/hicolor/512x512/apps/keyless-desktop.png"
+}
