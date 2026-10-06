@@ -5,7 +5,7 @@
 # GitHub release.
 
 pkgname=keyless
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc='Zero-knowledge password manager'
 arch=('x86_64')
