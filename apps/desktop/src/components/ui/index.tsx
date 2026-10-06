@@ -129,13 +129,24 @@ export function Kbd({ children }: { children: ReactNode }) {
 
 // ----- Switch -------------------------------------------------------------
 
-export function Switch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+  disabled?: boolean;
+}) {
   return (
     <RSwitch.Root
       checked={checked}
       onCheckedChange={onChange}
       aria-label={label}
-      className="relative h-5 w-9 shrink-0 rounded-full bg-line-strong transition-colors data-[state=checked]:bg-accent"
+      disabled={disabled}
+      className="relative h-5 w-9 shrink-0 rounded-full bg-line-strong transition-colors disabled:opacity-40 data-[state=checked]:bg-accent"
     >
       <RSwitch.Thumb className="block size-4 translate-x-0.5 rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
     </RSwitch.Root>

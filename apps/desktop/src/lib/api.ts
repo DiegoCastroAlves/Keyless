@@ -55,6 +55,10 @@ export interface AppStatus {
   email: string | null;
   pendingEmail: string | null;
   hasSecretKey: boolean;
+  /** The lock screen can unlock with the computer's password. */
+  systemUnlock: boolean;
+  /** This installation supports unlocking with the computer's password. */
+  systemUnlockSupported: boolean;
 }
 
 export interface CreatedAccount {
@@ -94,6 +98,8 @@ export interface Settings {
   language: "system" | "en" | "es";
   browser_integration: boolean;
   check_updates: boolean;
+  /** Changed only through api.setSystemUnlock (needs the master password). */
+  system_unlock: boolean;
 }
 
 /** A newer Keyless release found by the update check. */
@@ -312,6 +318,9 @@ export const api = {
   signIn: (email: string, secretKey: string | null, masterPassword: string) =>
     invoke<void>("sign_in", { email, secretKey, masterPassword }),
   unlock: (masterPassword: string) => invoke<void>("unlock", { masterPassword }),
+  unlockWithSystem: () => invoke<void>("unlock_with_system"),
+  setSystemUnlock: (enabled: boolean, masterPassword: string | null) =>
+    invoke<Settings>("set_system_unlock", { enabled, masterPassword }),
   reauthenticate: (masterPassword: string) => invoke<void>("reauthenticate", { masterPassword }),
   lock: () => invoke<void>("lock"),
   signOut: () => invoke<void>("sign_out"),
@@ -367,7 +376,7 @@ export const api = {
   checkBreaches: () => invoke<BreachReport>("check_breaches"),
   importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
-  exportBackup: (password: string) => invoke<number>("export_backup", { password }),
+  exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
   importCommit: (target: ImportTarget) => invoke<number>("import_commit", { target }),
   importCancel: () => invoke<void>("import_cancel"),
 };

@@ -41,11 +41,15 @@ pub struct Settings {
     pub browser_integration: bool,
     /// Look for new Keyless versions (see `updates`).
     pub check_updates: bool,
+    /// Unlock with the computer's password after the master password was
+    /// entered (see `system_unlock`). Only changed through
+    /// `set_system_unlock`, which asks for the master password.
+    pub system_unlock: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false }
     }
 }
 
@@ -186,6 +190,10 @@ pub struct AppState {
     pub update: Mutex<Option<crate::updates::UpdateInfo>>,
     /// An update is being downloaded or installed.
     pub update_busy: std::sync::atomic::AtomicBool,
+    /// Account keys kept in memory while locked, for system unlock.
+    pub kept_keys: Mutex<Option<crate::system_unlock::KeptKeys>>,
+    /// When the master password was last entered in this run.
+    pub password_at: Mutex<Option<SystemTime>>,
 }
 
 impl AppState {
@@ -195,6 +203,12 @@ impl AppState {
 
     pub fn settings(&self) -> Settings {
         self.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn save_settings(&self, settings: &Settings) -> AppResult<()> {
+        self.store().set_setting("settings", settings)?;
+        *self.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings.clone();
+        Ok(())
     }
 
     pub fn touch(&self) {

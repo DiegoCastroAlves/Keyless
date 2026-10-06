@@ -20,6 +20,7 @@ mod secrets;
 mod state;
 mod store;
 mod sync;
+mod system_unlock;
 mod updates;
 
 use std::{
@@ -130,6 +131,8 @@ pub fn run() {
                 pending_google: tokio::sync::Mutex::new(None),
                 update: Mutex::new(None),
                 update_busy: std::sync::atomic::AtomicBool::new(false),
+                kept_keys: Mutex::new(None),
+                password_at: Mutex::new(None),
             });
 
             lock::start(app.handle().clone());
@@ -162,6 +165,8 @@ pub fn run() {
             commands::create_account_with_google,
             commands::sign_in,
             commands::unlock,
+            commands::unlock_with_system,
+            commands::set_system_unlock,
             commands::reauthenticate,
             commands::lock,
             commands::sign_out,

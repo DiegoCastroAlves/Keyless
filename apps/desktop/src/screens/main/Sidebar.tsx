@@ -75,10 +75,15 @@ function NavItem({
         <span className={cx("flex size-4 items-center justify-center", active ? "text-accent" : "text-muted")}>{icon}</span>
         <span className="flex-1 truncate">{label}</span>
         {count !== undefined && count > 0 && (
-          <span className={cx("text-xs tabular-nums", active ? "text-accent" : "text-subtle", actions && "group-hover:invisible")}>{count}</span>
+          <span className={cx("text-xs tabular-nums", active ? "text-accent" : "text-subtle", actions && "group-hover:invisible group-focus-within:invisible group-has-[[data-state=open]]:invisible")}>{count}</span>
         )}
       </button>
-      {actions && <div className="absolute right-1 top-1/2 hidden -translate-y-1/2 group-hover:block">{actions}</div>}
+      {/* Hidden with opacity, not display: the open menu stays anchored to its button. */}
+      {actions && (
+        <div className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 has-[[data-state=open]]:pointer-events-auto has-[[data-state=open]]:opacity-100">
+          {actions}
+        </div>
+      )}
     </div>
   );
 }

@@ -153,7 +153,16 @@ account has, approximate item sizes (padded), and when items change.
   every key from memory (keys are zeroized on drop).
 - Unlock attempts are throttled (exponential back-off after 5 failures,
   persisted across restarts, one attempt at a time).
-- Showing the Secret Key again requires the master password.
+- Showing the Secret Key, changing the master password, exporting a backup and
+  deleting the account always require the master password.
+- Optional unlock with the computer password (Linux packages, via a polkit
+  action with `auth_self`: the user's own password or fingerprint, never
+  cached, active local session only). After the master password unlocked the
+  vault, locking can keep the account keys in memory, never on disk, so polkit
+  can confirm the user instead. The kept keys are dropped when Keyless quits,
+  when the computer sleeps, on sign out, when the setting is turned off and 24
+  hours after the master password was last entered. Turning it on requires the
+  master password.
 - The local database contains only what the server stores, plus the refresh
   token encrypted with the user key. File permissions are restricted to the
   current user.
@@ -229,6 +238,9 @@ must be running and unlocked, for what it needs.
   Keyless is unlocked can read what Keyless displays.
 - **The web UI's memory cannot be wiped.** Values the user reveals or edits
   stay in the webview's memory until it reuses it.
+- **Unlock with the computer password trades some security for comfort.**
+  When it is on, anyone who knows the computer password can open Keyless
+  while it is running. It is off by default.
 - **Filled passwords belong to the page.** Once a password is filled into a
   site, that site's scripts can read it, as with any password manager. A
   compromised browser can also act as the paired extension while the app is

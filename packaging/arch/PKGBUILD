@@ -21,6 +21,7 @@ depends=(
   'gtk3'
   'hicolor-icon-theme'
   'libsoup3'
+  'polkit'
   'webkit2gtk-4.1'
 )
 makedepends=('cargo' 'nodejs' 'pnpm')
@@ -50,6 +51,8 @@ package() {
   cd "Keyless-$pkgver"
   install -Dm755 "${CARGO_TARGET_DIR:-target}/release/keyless-desktop" "$pkgdir/usr/bin/keyless-desktop"
   install -Dm644 packaging/arch/keyless-desktop.desktop "$pkgdir/usr/share/applications/keyless-desktop.desktop"
+  install -Dm644 packaging/linux/io.github.diegocastroalves.keyless.policy \
+    "$pkgdir/usr/share/polkit-1/actions/io.github.diegocastroalves.keyless.policy"
 
   local icons=apps/desktop/src-tauri/icons size
   for size in 32 64 128; do

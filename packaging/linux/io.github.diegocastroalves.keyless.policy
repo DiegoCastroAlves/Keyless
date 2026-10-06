@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  Lets Keyless ask the user to confirm it is them before unlocking with the
+  computer password (Settings > Security). auth_self: the user's own password
+  (or fingerprint when PAM is set up for it), never cached, and only in an
+  active local session.
+-->
+<policyconfig>
+  <vendor>Keyless</vendor>
+  <vendor_url>https://github.com/DiegoCastroAlves/Keyless</vendor_url>
+  <icon_name>keyless-desktop</icon_name>
+
+  <action id="io.github.diegocastroalves.keyless.unlock">
+    <description>Unlock Keyless</description>
+    <description xml:lang="es">Desbloquear Keyless</description>
+    <message>Authentication is required to unlock Keyless.</message>
+    <message xml:lang="es">Se requiere autenticación para desbloquear Keyless.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

@@ -92,6 +92,8 @@ const en = {
     busy: "Already working on it, please wait.",
     google_failed: "Google sign-in failed: {{detail}}",
     update_failed: "The update could not be installed: {{detail}}",
+    system_unlock_unavailable: "Unlock with your master password.",
+    system_unlock_failed: "Could not ask the system to confirm it's you: {{detail}}",
     update_invalid: "The update was rejected: its signature doesn't match this version of Keyless.",
     update_not_found: "This update isn't available for your installation yet.",
     update_manual: "This copy of Keyless can't update itself. Download the new version from the release page.",
@@ -182,6 +184,7 @@ const en = {
     placeholder: "Master password",
     unlock: "Unlock",
     unlocking: "Unlocking…",
+    systemUnlock: "Unlock with computer password",
     signOutTitle: "Sign out of this device?",
     signOutBody:
       "Your data stays safe in your account. To sign in again you will need your email, Secret Key and master password.",
@@ -492,6 +495,13 @@ const en = {
     hours_one: "{{count}} hour",
     hours_other: "{{count}} hours",
     lockOnSleep: "Lock when the computer sleeps or the screen locks",
+    systemUnlock: "Unlock with your computer password",
+    systemUnlockHint:
+      "After you unlock with your master password, Keyless can also be unlocked with your computer password (or fingerprint, if your system uses one). The master password is still required after Keyless restarts, after the computer sleeps and at least once a day.",
+    systemUnlockUnsupported:
+      "Not available in this installation: it needs the Keyless package for your Linux distribution (not the AppImage). Windows support is coming.",
+    systemUnlockEnable: "Turn on",
+    systemUnlockOn: "You can now unlock Keyless with your computer password.",
     checkUpdates: "Check for updates",
     checkUpdatesHint: "Twice a day, Keyless looks at its public list of releases on GitHub. Nothing is downloaded or installed automatically.",
     clipboard: "Clear copied passwords after",
@@ -553,6 +563,7 @@ const en = {
     exportTitle: "Encrypted backup",
     exportBody:
       "Save a copy of every vault in a file encrypted with a password you choose. Keep it somewhere safe: it can be restored even without this account.",
+    exportMasterPassword: "Your master password",
     exportPassword: "Backup password",
     exportConfirm: "Confirm backup password",
     exportRun: "Export backup…",

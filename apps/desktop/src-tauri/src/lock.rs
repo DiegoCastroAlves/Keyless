@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use tauri::{AppHandle, Manager};
 
-use crate::{auth, state::AppState};
+use crate::{auth, state::AppState, system_unlock::{self, LockReason}};
 
 pub fn start(app: AppHandle) {
     start_idle_watch(app.clone());
@@ -22,10 +22,14 @@ pub fn start(app: AppHandle) {
     windows::start(app);
 }
 
-async fn lock_for_system_event(app: &AppHandle) {
+async fn lock_for_system_event(app: &AppHandle, reason: LockReason) {
     let state = app.state::<AppState>();
+    // Keys kept for system unlock never survive sleep, whatever the setting.
+    if reason == LockReason::Sleep {
+        system_unlock::forget(&state);
+    }
     if state.settings().lock_on_sleep {
-        auth::lock(app).await;
+        auth::lock_for(app, reason).await;
     }
 }
 
@@ -41,16 +45,16 @@ fn start_idle_watch(app: AppHandle) {
             // machine was suspended.
             let slept = now.duration_since(last_tick).unwrap_or_default() > Duration::from_secs(60);
             last_tick = now;
-            if state.session.lock().await.is_none() {
+            if slept {
+                lock_for_system_event(&app, LockReason::Sleep).await;
                 continue;
             }
-            if slept {
-                lock_for_system_event(&app).await;
+            if state.session.lock().await.is_none() {
                 continue;
             }
             let timeout = Duration::from_secs(state.settings().auto_lock_minutes as u64 * 60);
             if state.idle_for() >= timeout {
-                auth::lock(&app).await;
+                auth::lock_for(&app, LockReason::Idle).await;
             }
         }
     });
@@ -61,6 +65,8 @@ mod linux {
     use futures_lite::StreamExt;
     use tauri::AppHandle;
     use zbus::{MatchRule, MessageStream, message::Type};
+
+    use crate::system_unlock::LockReason;
 
     /// Listens for logind's PrepareForSleep / session Lock and for the
     /// desktop screensaver (KDE, GNOME and others implement
@@ -90,14 +96,14 @@ mod linux {
         let mut screensaver = MessageStream::for_match_rule(screensaver, &session, None).await?;
 
         loop {
-            let should_lock = tokio::select! {
-                Some(Ok(msg)) = sleep.next() => msg.body().deserialize::<bool>().unwrap_or(false),
-                Some(Ok(_)) = session_lock.next() => true,
-                Some(Ok(msg)) = screensaver.next() => msg.body().deserialize::<bool>().unwrap_or(false),
+            let reason = tokio::select! {
+                Some(Ok(msg)) = sleep.next() => msg.body().deserialize::<bool>().unwrap_or(false).then_some(LockReason::Sleep),
+                Some(Ok(_)) = session_lock.next() => Some(LockReason::ScreenLock),
+                Some(Ok(msg)) = screensaver.next() => msg.body().deserialize::<bool>().unwrap_or(false).then_some(LockReason::ScreenLock),
                 else => break,
             };
-            if should_lock {
-                super::lock_for_system_event(&app).await;
+            if let Some(reason) = reason {
+                super::lock_for_system_event(&app, reason).await;
             }
         }
         Ok(())
@@ -135,7 +141,7 @@ mod windows {
                 interval.tick().await;
                 let locked = workstation_locked();
                 if locked && !was_locked {
-                    super::lock_for_system_event(&app).await;
+                    super::lock_for_system_event(&app, crate::system_unlock::LockReason::ScreenLock).await;
                 }
                 was_locked = locked;
             }

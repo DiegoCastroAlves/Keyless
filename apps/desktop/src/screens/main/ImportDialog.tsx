@@ -198,6 +198,7 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
 
 export function ExportPanel() {
   const { t } = useTranslation();
+  const [masterPassword, setMasterPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
@@ -209,7 +210,8 @@ export function ExportPanel() {
     setBusy(true);
     setError(null);
     try {
-      const count = await api.exportBackup(password);
+      const count = await api.exportBackup(masterPassword, password);
+      setMasterPassword("");
       setPassword("");
       setConfirm("");
       toast.success(t("importer.exported", { count }));
@@ -227,6 +229,10 @@ export function ExportPanel() {
         <p className="mt-1 text-xs leading-relaxed text-muted">{t("importer.exportBody")}</p>
       </div>
       <div>
+        <Label>{t("importer.exportMasterPassword")}</Label>
+        <PasswordInput value={masterPassword} onChange={(e) => setMasterPassword(e.target.value)} />
+      </div>
+      <div>
         <Label>{t("importer.exportPassword")}</Label>
         <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
         <StrengthMeter strength={strength} />
@@ -236,7 +242,7 @@ export function ExportPanel() {
         <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} invalid={!!confirm && confirm !== password} />
       </div>
       <ErrorText>{error}</ErrorText>
-      <Button type="submit" loading={busy} disabled={!password || password !== confirm || (strength?.score ?? 0) < 3}>
+      <Button type="submit" loading={busy} disabled={!masterPassword || !password || password !== confirm || (strength?.score ?? 0) < 3}>
         {t("importer.exportRun")}
       </Button>
     </form>

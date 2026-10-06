@@ -147,8 +147,11 @@ pub fn cancel(state: &AppState) {
 
 /// Exports every vault the user can read into an encrypted `.keyless` file.
 /// Returns the number of items written, or `Cancelled` if no file was chosen.
-pub async fn export(app: &AppHandle, password: Zeroizing<String>) -> AppResult<usize> {
+pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>) -> AppResult<usize> {
     let state = app.state::<AppState>();
+    // A backup holds every secret in the vault: ask for the master password
+    // even when the vault was unlocked another way.
+    crate::auth::confirm_master_password(&state, master_password).await?;
     // A backup has no Secret Key: its password alone protects it against
     // offline guessing, so it must be strong.
     let normalized = keyless_core::keys::normalize_master_password(&password);

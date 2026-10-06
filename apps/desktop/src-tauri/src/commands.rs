@@ -77,6 +77,16 @@ pub async fn unlock(app: AppHandle, master_password: String) -> AppResult<()> {
 }
 
 #[tauri::command]
+pub async fn unlock_with_system(app: AppHandle) -> AppResult<()> {
+    auth::unlock_with_system(&app).await
+}
+
+#[tauri::command]
+pub async fn set_system_unlock(app: AppHandle, enabled: bool, master_password: Option<String>) -> AppResult<Settings> {
+    auth::set_system_unlock(&app, enabled, master_password.map(Zeroizing::new)).await
+}
+
+#[tauri::command]
 pub async fn reauthenticate(app: AppHandle, master_password: String) -> AppResult<()> {
     auth::reauthenticate(&app, Zeroizing::new(master_password)).await
 }
@@ -183,13 +193,15 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 
 #[tauri::command]
 pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
-    let settings = settings.sanitized();
-    if settings.browser_integration != state.settings().browser_integration {
+    let mut settings = settings.sanitized();
+    let current = state.settings();
+    // Only `set_system_unlock` changes it: turning it on needs the master password.
+    settings.system_unlock = current.system_unlock;
+    if settings.browser_integration != current.browser_integration {
         let enabled = settings.browser_integration;
         std::thread::spawn(move || crate::bridge::install::sync_registration(enabled));
     }
-    state.store().set_setting("settings", &settings)?;
-    *state.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings.clone();
+    state.save_settings(&settings)?;
     Ok(settings)
 }
 
@@ -358,9 +370,9 @@ pub async fn import_pick(app: AppHandle, state: State<'_, AppState>, format: Imp
 }
 
 #[tauri::command]
-pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, password: String) -> AppResult<usize> {
+pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_password: String, password: String) -> AppResult<usize> {
     state.touch();
-    import::export(&app, Zeroizing::new(password)).await
+    import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password)).await
 }
 
 #[tauri::command]

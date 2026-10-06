@@ -1,4 +1,4 @@
-import { Download, Globe, Info, KeyRound, Settings2, ShieldCheck, Trash, User } from "lucide-react";
+import { Download, Fingerprint, Globe, Info, KeyRound, Settings2, ShieldCheck, Trash, User } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -239,6 +239,8 @@ function SecurityTab() {
         )}
       </div>
 
+      <SystemUnlockSection />
+
       <form onSubmit={change} className="space-y-3 border-t border-line pt-6">
         <div className="text-sm font-semibold">{t("settings.changePassword")}</div>
         <div>
@@ -259,6 +261,83 @@ function SecurityTab() {
           {t("settings.changePassword")}
         </Button>
       </form>
+    </div>
+  );
+}
+
+function SystemUnlockSection() {
+  const { t } = useTranslation();
+  const settings = useApp((s) => s.settings);
+  const supported = useApp((s) => s.status?.systemUnlockSupported ?? false);
+  const [prompt, setPrompt] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!settings) return null;
+
+  const saved = (next: Settings) => useApp.setState({ settings: next });
+  const close = () => {
+    setPrompt(false);
+    setPassword("");
+    setError(null);
+  };
+  const turnOff = async () => {
+    try {
+      saved(await api.setSystemUnlock(false, null));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const turnOn = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      saved(await api.setSystemUnlock(true, password));
+      close();
+      toast.success(t("settings.systemUnlockOn"));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border-t border-line pt-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Fingerprint className="size-4 text-accent" /> {t("settings.systemUnlock")}
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted">
+            {supported ? t("settings.systemUnlockHint") : t("settings.systemUnlockUnsupported")}
+          </p>
+        </div>
+        <Switch
+          checked={settings.system_unlock}
+          disabled={!supported && !settings.system_unlock}
+          onChange={(on) => (on ? setPrompt(true) : void turnOff())}
+          label={t("settings.systemUnlock")}
+        />
+      </div>
+      {prompt && !settings.system_unlock && (
+        <form onSubmit={turnOn} className="mt-3 space-y-2">
+          <Label>{t("settings.confirmWithPassword")}</Label>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+            </div>
+            <Button type="submit" variant="primary" className="h-10" loading={busy} disabled={!password}>
+              {t("settings.systemUnlockEnable")}
+            </Button>
+            <Button className="h-10" onClick={close}>
+              {t("common.cancel")}
+            </Button>
+          </div>
+          <ErrorText>{error}</ErrorText>
+        </form>
+      )}
     </div>
   );
 }

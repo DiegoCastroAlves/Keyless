@@ -1,4 +1,4 @@
-import { ArrowRight, LogOut } from "lucide-react";
+import { ArrowRight, Fingerprint, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,6 +13,7 @@ export function LockScreen({ status }: { status: AppStatus }) {
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [systemBusy, setSystemBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const refreshStatus = useApp((s) => s.refreshStatus);
   const { t } = useTranslation();
@@ -39,6 +40,22 @@ export function LockScreen({ status }: { status: AppStatus }) {
       requestAnimationFrame(() => inputRef.current?.focus());
     } finally {
       setBusy(false);
+    }
+  };
+
+  const unlockWithSystem = async () => {
+    setSystemBusy(true);
+    setError(null);
+    try {
+      await api.unlockWithSystem();
+      await refreshStatus();
+    } catch (err) {
+      if (errorCode(err) !== "cancelled") setError(errorMessage(err));
+      // It may have expired: the button then disappears.
+      await refreshStatus();
+      requestAnimationFrame(() => inputRef.current?.focus());
+    } finally {
+      setSystemBusy(false);
     }
   };
 
@@ -91,6 +108,12 @@ export function LockScreen({ status }: { status: AppStatus }) {
           {error ?? (busy ? t("lock.unlocking") : "")}
         </p>
       </form>
+      {status.systemUnlock && (
+        <Button size="lg" className="mt-2 w-full" onClick={unlockWithSystem} loading={systemBusy} disabled={busy}>
+          <Fingerprint className="size-4" />
+          {t("lock.systemUnlock")}
+        </Button>
+      )}
       <div className="mt-6 text-center">
         <button onClick={() => setConfirmSignOut(true)} className="inline-flex items-center gap-1.5 text-[13px] text-subtle hover:text-fg">
           <LogOut className="size-3.5" /> {t("common.signOutDevice")}

@@ -57,6 +57,18 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/polkit-1/actions/io.github.diegocastroalves.keyless.policy": "../../../packaging/linux/io.github.diegocastroalves.keyless.policy"
+        }
+      },
+      "rpm": {
+        "files": {
+          "/usr/share/polkit-1/actions/io.github.diegocastroalves.keyless.policy": "../../../packaging/linux/io.github.diegocastroalves.keyless.policy"
+        }
+      }
     }
   },
   "plugins": {

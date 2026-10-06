@@ -94,6 +94,8 @@ const es: Translations = {
     busy: "Ya se está procesando, espera un momento.",
     google_failed: "No se pudo iniciar sesión con Google: {{detail}}",
     update_failed: "No se pudo instalar la actualización: {{detail}}",
+    system_unlock_unavailable: "Desbloquea con tu contraseña maestra.",
+    system_unlock_failed: "No se pudo pedir al sistema que confirme tu identidad: {{detail}}",
     update_invalid: "Se rechazó la actualización: su firma no corresponde a esta versión de Keyless.",
     update_not_found: "Esta actualización todavía no está disponible para tu instalación.",
     update_manual: "Esta copia de Keyless no puede actualizarse sola. Descarga la nueva versión desde la página de la versión.",
@@ -184,6 +186,7 @@ const es: Translations = {
     placeholder: "Contraseña maestra",
     unlock: "Desbloquear",
     unlocking: "Desbloqueando…",
+    systemUnlock: "Desbloquear con la contraseña del equipo",
     signOutTitle: "¿Cerrar sesión en este dispositivo?",
     signOutBody:
       "Tus datos siguen seguros en tu cuenta. Para volver a iniciar sesión necesitarás tu correo, tu clave secreta y tu contraseña maestra.",
@@ -495,6 +498,13 @@ const es: Translations = {
     hours_one: "{{count}} hora",
     hours_other: "{{count}} horas",
     lockOnSleep: "Bloquear cuando el equipo se suspenda o se bloquee la pantalla",
+    systemUnlock: "Desbloquear con la contraseña del equipo",
+    systemUnlockHint:
+      "Después de desbloquear con tu contraseña maestra, Keyless también puede desbloquearse con la contraseña de tu equipo (o la huella, si tu sistema la usa). La contraseña maestra sigue siendo necesaria cuando Keyless se reinicia, cuando el equipo se suspende y al menos una vez al día.",
+    systemUnlockUnsupported:
+      "No disponible en esta instalación: necesita el paquete de Keyless para tu distribución de Linux (no el AppImage). Pronto llegará a Windows.",
+    systemUnlockEnable: "Activar",
+    systemUnlockOn: "Ahora puedes desbloquear Keyless con la contraseña de tu equipo.",
     checkUpdates: "Buscar actualizaciones",
     checkUpdatesHint: "Dos veces al día, Keyless consulta su lista pública de versiones en GitHub. No se descarga ni se instala nada automáticamente.",
     clipboard: "Borrar contraseñas copiadas después de",
@@ -557,6 +567,7 @@ const es: Translations = {
     exportTitle: "Copia de seguridad cifrada",
     exportBody:
       "Guarda una copia de todas tus bóvedas en un archivo cifrado con una contraseña que tú eliges. Guárdalo en un lugar seguro: se puede restaurar incluso sin esta cuenta.",
+    exportMasterPassword: "Tu contraseña maestra",
     exportPassword: "Contraseña de la copia de seguridad",
     exportConfirm: "Confirmar contraseña de la copia de seguridad",
     exportRun: "Exportar copia de seguridad…",

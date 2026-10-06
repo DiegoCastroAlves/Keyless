@@ -1,5 +1,7 @@
 //! Account flows: create, sign in, unlock, lock, sign out, change password.
 
+use std::time::SystemTime;
+
 use keyless_core::{
     account::{AccountBundle, UnlockedAccount, create_account as create_keys, rewrap_account, unlock_account},
     crypto::context,
@@ -14,9 +16,10 @@ use zeroize::Zeroizing;
 use crate::{
     api::{AuthSession, SignUpOutcome},
     error::{AppError, AppResult, Msg},
-    state::{AppState, Session, SyncStatus, Tokens},
+    state::{AppState, Session, Settings, SyncStatus, Tokens},
     store::LocalAccount,
     sync::{self, EVENT_LOCKED, load_caches},
+    system_unlock::{self, KeptKeys, LockReason},
 };
 
 const PENDING_EMAIL: &str = "pending_email";
@@ -33,6 +36,10 @@ pub struct AppStatus {
     pub pending_email: Option<String>,
     /// Whether this device already has the Secret Key for `pending_email`.
     pub has_secret_key: bool,
+    /// The lock screen can unlock with the computer's password.
+    pub system_unlock: bool,
+    /// This installation supports unlocking with the computer's password.
+    pub system_unlock_supported: bool,
 }
 
 #[derive(Serialize)]
@@ -98,6 +105,8 @@ pub async fn status(state: &AppState) -> AppResult<AppStatus> {
         email: unlocked_email.or(account.map(|a| a.email)),
         pending_email,
         has_secret_key,
+        system_unlock: system_unlock::available(state),
+        system_unlock_supported: system_unlock::supported(),
     })
 }
 
@@ -280,6 +289,7 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
     }
     *state.session.lock().await = Some(session);
     state.record_unlock_result(true);
+    master_password_entered(&state);
     state.touch();
 
     // First sign-in on a device: wait for the data so the UI is not empty.
@@ -345,30 +355,9 @@ pub async fn unlock(app: &AppHandle, master_password: Zeroizing<String>) -> AppR
     let (keys, secret_key) = derive(master_password, secret_key, local.bundle.kdf.clone()).await?;
     match unlock_account(&local.bundle, &keys.kek, &local.user_id) {
         Ok(account) => {
-            let mut session = Session {
-                user_id: local.user_id.clone(),
-                email: local.email.clone(),
-                account,
-                vaults: Default::default(),
-                items: Default::default(),
-                tokens: None,
-                unreadable_items: 0,
-            };
-            load_caches(&mut session, &state.store())?;
-            *state.session.lock().await = Some(session);
+            open_session(app, local.user_id.clone(), local.email.clone(), account).await?;
             state.record_unlock_result(true);
-            state.touch();
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                match sync::sync_now(&app).await {
-                    Ok(()) => {
-                        if let Err(err) = ensure_default_vault(&app).await {
-                            log::warn!("could not create the default vault: {err}");
-                        }
-                    }
-                    Err(err) => log::info!("sync after unlock: {err}"),
-                }
-            });
+            master_password_entered(&state);
             Ok(())
         }
         Err(_) => {
@@ -388,6 +377,109 @@ pub async fn unlock(app: &AppHandle, master_password: Zeroizing<String>) -> AppR
     }
 }
 
+/// Opens a session with freshly unlocked account keys and syncs in the
+/// background.
+async fn open_session(app: &AppHandle, user_id: String, email: String, account: UnlockedAccount) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let mut session = Session {
+        user_id,
+        email,
+        account,
+        vaults: Default::default(),
+        items: Default::default(),
+        tokens: None,
+        unreadable_items: 0,
+    };
+    load_caches(&mut session, &state.store())?;
+    *state.session.lock().await = Some(session);
+    state.touch();
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        match sync::sync_now(&app).await {
+            Ok(()) => {
+                if let Err(err) = ensure_default_vault(&app).await {
+                    log::warn!("could not create the default vault: {err}");
+                }
+            }
+            Err(err) => log::info!("sync after unlock: {err}"),
+        }
+    });
+    Ok(())
+}
+
+fn master_password_entered(state: &AppState) {
+    *state.password_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(SystemTime::now());
+}
+
+/// Unlocks with the keys kept at lock time, once the operating system has
+/// confirmed the user (see `system_unlock`).
+pub async fn unlock_with_system(app: &AppHandle) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let _busy = state.begin_unlock()?;
+    let unavailable = || AppError::Invalid(Msg::new("system_unlock_unavailable"));
+    if !system_unlock::available(&state) {
+        return Err(unavailable());
+    }
+    if !system_unlock::authenticate().await? {
+        return Err(AppError::Cancelled);
+    }
+    // Taken only after the system confirmed the user, and checked again in
+    // case it expired while the dialog was open.
+    let kept = state.kept_keys.lock().unwrap_or_else(|e| e.into_inner()).take().ok_or_else(unavailable)?;
+    if !system_unlock::fresh(kept.password_at, SystemTime::now()) {
+        return Err(unavailable());
+    }
+    let local = state.store().account()?.ok_or(AppError::NoAccount)?;
+    if local.user_id != kept.user_id {
+        return Err(unavailable());
+    }
+    // The master password age keeps counting from when it was typed.
+    *state.password_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(kept.password_at);
+    open_session(app, kept.user_id, kept.email, kept.account).await
+}
+
+/// Turns system unlock on (after checking the master password) or off.
+pub async fn set_system_unlock(app: &AppHandle, enabled: bool, master_password: Option<Zeroizing<String>>) -> AppResult<Settings> {
+    let state = app.state::<AppState>();
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    if enabled {
+        if !system_unlock::supported() {
+            return Err(AppError::Invalid(Msg::new("system_unlock_unavailable")));
+        }
+        confirm_master_password(&state, master_password.ok_or(AppError::WrongPassword)?).await?;
+        master_password_entered(&state);
+    } else {
+        system_unlock::forget(&state);
+    }
+    let mut settings = state.settings();
+    settings.system_unlock = enabled;
+    state.save_settings(&settings)?;
+    Ok(settings)
+}
+
+/// Asks for the master password again before a sensitive action (throttled
+/// like unlocking).
+pub async fn confirm_master_password(state: &AppState, master_password: Zeroizing<String>) -> AppResult<()> {
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    let _busy = state.begin_unlock()?;
+    match verify_master_password(state, master_password).await {
+        Ok(_) => {
+            state.record_unlock_result(true);
+            Ok(())
+        }
+        Err(err) => {
+            if matches!(err, AppError::WrongPassword) {
+                state.record_unlock_result(false);
+            }
+            Err(err)
+        }
+    }
+}
+
 /// Re-authenticates with the server when the stored session expired.
 pub async fn reauthenticate(app: &AppHandle, master_password: Zeroizing<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
@@ -402,8 +494,18 @@ pub async fn reauthenticate(app: &AppHandle, master_password: Zeroizing<String>)
 }
 
 pub async fn lock(app: &AppHandle) {
+    lock_for(app, LockReason::User).await;
+}
+
+pub async fn lock_for(app: &AppHandle, reason: LockReason) {
     let state = app.state::<AppState>();
-    let was_unlocked = state.session.lock().await.take().is_some();
+    let session = state.session.lock().await.take();
+    let was_unlocked = session.is_some();
+    if reason.keeps_keys() {
+        keep_keys(&state, session);
+    } else {
+        system_unlock::forget(&state);
+    }
     state.clipboard.clear_now();
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
     if was_unlocked {
@@ -411,8 +513,25 @@ pub async fn lock(app: &AppHandle) {
     }
 }
 
+/// Keeps the keys of a session that is being locked, when system unlock is
+/// on and the master password was entered recently enough. When the vault
+/// was already locked, whatever was kept stays as it is.
+fn keep_keys(state: &AppState, session: Option<Session>) {
+    let Some(session) = session else { return };
+    let password_at = *state.password_at.lock().unwrap_or_else(|e| e.into_inner());
+    let kept = match password_at {
+        Some(at) if state.settings().system_unlock && system_unlock::supported() && system_unlock::fresh(at, SystemTime::now()) => {
+            Some(KeptKeys { user_id: session.user_id, email: session.email, account: session.account, password_at: at })
+        }
+        _ => None,
+    };
+    *state.kept_keys.lock().unwrap_or_else(|e| e.into_inner()) = kept;
+}
+
 pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     let state = app.state::<AppState>();
+    system_unlock::forget(&state);
+    *state.password_at.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let session = state.session.lock().await.take();
     if let Some(tokens) = session.as_ref().and_then(|s| s.tokens.as_ref()) {
         let _ = state.api.sign_out(&tokens.access).await;
