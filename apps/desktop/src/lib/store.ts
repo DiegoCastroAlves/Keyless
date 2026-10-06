@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import i18n from "../i18n";
 import { categoryLabel } from "./categories";
-import { api, errorMessage, type AppStatus, type Category, type ItemDraft, type ItemSummary, type InstallKind, type Settings, type SyncStatus, type UpdateInfo, type Vault } from "./api";
+import { api, errorMessage, type AppStatus, type ListSort, type Category, type ItemDraft, type ItemSummary, type InstallKind, type Settings, type SyncStatus, type UpdateInfo, type Vault } from "./api";
 
 export type View =
   | { kind: "all" }
@@ -132,7 +132,62 @@ export function viewTitle(view: View, vaults: Vault[]): string {
   }
 }
 
-export function filterItems(items: ItemSummary[], view: View, search: string): ItemSummary[] {
+export interface ListOrder {
+  sort: ListSort;
+  desc: boolean;
+}
+
+const byTitle = (a: ItemSummary, b: ItemSummary) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
+
+function sortKey(item: ItemSummary, sort: ListSort): number {
+  switch (sort) {
+    case "created":
+      return item.createdAt;
+    case "modified":
+      return item.updatedAt;
+    case "frequent":
+      return item.uses;
+    case "recent":
+      return item.lastUsedAt ?? 0;
+    default:
+      return 0;
+  }
+}
+
+export function sortItems(items: ItemSummary[], { sort, desc }: ListOrder): ItemSummary[] {
+  return [...items].sort((a, b) => {
+    if (sort === "title") return desc ? byTitle(b, a) : byTitle(a, b);
+    // Items never used stay at the end, whatever the direction.
+    if (sort === "recent" && (a.lastUsedAt === null) !== (b.lastUsedAt === null)) return a.lastUsedAt === null ? 1 : -1;
+    const diff = sortKey(a, sort) - sortKey(b, sort);
+    if (diff !== 0) return desc ? -diff : diff;
+    return byTitle(a, b);
+  });
+}
+
+function monthLabel(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toLocaleDateString(i18n.language, { month: "long", year: "numeric" });
+}
+
+/** Header of the group an item falls in for this order (none when sorted by use). */
+export function groupLabel(item: ItemSummary, sort: ListSort): string | null {
+  switch (sort) {
+    case "title": {
+      const first = item.title.trim().normalize("NFD").replace(/\p{M}/gu, "").charAt(0).toLocaleUpperCase();
+      return /\p{L}/u.test(first) ? first : "#";
+    }
+    case "created":
+      return monthLabel(item.createdAt);
+    case "modified":
+      return monthLabel(item.updatedAt);
+    case "recent":
+      return item.lastUsedAt ? monthLabel(item.lastUsedAt) : i18n.t("list.neverUsed");
+    default:
+      return null;
+  }
+}
+
+export function filterItems(items: ItemSummary[], view: View, search: string, order: ListOrder = { sort: "title", desc: false }): ItemSummary[] {
   const q = search.trim().toLowerCase();
   const filtered = items.filter((item) => {
     if (view.kind === "trash") {
@@ -167,5 +222,5 @@ export function filterItems(items: ItemSummary[], view: View, search: string): I
       item.tags.some((t) => t.toLowerCase().includes(q))
     );
   });
-  return filtered.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
+  return sortItems(filtered, order);
 }

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 
 import { Logo, Toaster } from "./components/common";
 import { PairRequestDialog } from "./components/PairRequestDialog";
@@ -52,6 +53,12 @@ export function App() {
   useEffect(() => {
     applyLanguage(settings?.language);
   }, [settings?.language]);
+
+  // The tray menu is built in Rust with these translated texts.
+  const { t, i18n } = useTranslation();
+  useEffect(() => {
+    void api.configureTray({ open: t("tray.open"), lock: t("common.lock"), quit: t("tray.quit") });
+  }, [t, i18n.language]);
 
   useEffect(() => {
     const { refreshStatus, loadSettings, loadData, setSyncStatus, setUpdate, setInstall, reset } = useApp.getState();

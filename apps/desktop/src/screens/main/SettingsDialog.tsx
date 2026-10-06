@@ -147,6 +147,29 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
+      <Row title={t("settings.closeToTray")} hint={t("settings.closeToTrayHint")}>
+        <div className="flex justify-end">
+          <Switch checked={settings.close_to_tray} onChange={(close_to_tray) => save({ close_to_tray })} label={t("settings.closeToTray")} />
+        </div>
+      </Row>
+      <Row title={t("settings.startAtLogin")}>
+        <div className="flex justify-end">
+          <Switch checked={settings.start_at_login} onChange={(start_at_login) => save({ start_at_login })} label={t("settings.startAtLogin")} />
+        </div>
+      </Row>
+      {settings.start_at_login && (
+        <Row title={t("settings.startMode")}>
+          <Combobox
+            value={settings.start_minimized ? "tray" : "window"}
+            onChange={(mode) => save({ start_minimized: mode === "tray" })}
+            options={[
+              { value: "window", label: t("settings.startWindow") },
+              { value: "tray", label: t("settings.startTray") },
+            ]}
+            searchPlaceholder={t("common.searchPlaceholder")}
+          />
+        </Row>
+      )}
       <Row title={t("settings.checkUpdates")} hint={t("settings.checkUpdatesHint")}>
         <div className="flex justify-end">
           <Switch checked={settings.check_updates} onChange={(check_updates) => save({ check_updates })} label={t("settings.checkUpdates")} />

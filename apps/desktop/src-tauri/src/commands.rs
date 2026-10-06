@@ -38,6 +38,13 @@ fn copy(app: &AppHandle, state: &AppState, value: Zeroizing<String>) -> AppResul
     Ok(CopyResult { clear_after_seconds: seconds })
 }
 
+/// Counts a use of the item for sorting (local only; failures are ignored).
+pub fn record_use(state: &AppState, item_id: &str) {
+    if let Err(err) = state.store().record_item_use(item_id) {
+        log::warn!("could not record item use: {err}");
+    }
+}
+
 // ----- account ------------------------------------------------------------
 
 #[tauri::command]
@@ -201,6 +208,10 @@ pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> AppRes
         let enabled = settings.browser_integration;
         std::thread::spawn(move || crate::bridge::install::sync_registration(enabled));
     }
+    if settings.start_at_login != current.start_at_login {
+        let enabled = settings.start_at_login;
+        std::thread::spawn(move || crate::autostart::sync(enabled));
+    }
     state.save_settings(&settings)?;
     Ok(settings)
 }
@@ -267,7 +278,9 @@ pub async fn save_item(app: AppHandle, draft: ItemDraft) -> AppResult<ItemSummar
 #[tauri::command]
 pub async fn reveal_field(state: State<'_, AppState>, item_id: String, field_id: String) -> AppResult<String> {
     state.touch();
-    Ok(items::reveal_field(&state, &item_id, &field_id).await?.to_string())
+    let value = items::reveal_field(&state, &item_id, &field_id).await?.to_string();
+    record_use(&state, &item_id);
+    Ok(value)
 }
 
 #[tauri::command]
@@ -285,6 +298,7 @@ pub async fn get_password_history(state: State<'_, AppState>, item_id: String) -
 pub async fn copy_field(app: AppHandle, state: State<'_, AppState>, item_id: String, field_id: String) -> AppResult<CopyResult> {
     state.touch();
     let value = items::copy_value(&state, &item_id, Some(&field_id), None).await?;
+    record_use(&state, &item_id);
     copy(&app, &state, value)
 }
 
@@ -292,6 +306,7 @@ pub async fn copy_field(app: AppHandle, state: State<'_, AppState>, item_id: Str
 pub async fn copy_item_value(app: AppHandle, state: State<'_, AppState>, item_id: String, purpose: String) -> AppResult<CopyResult> {
     state.touch();
     let value = items::copy_value(&state, &item_id, None, Some(&purpose)).await?;
+    record_use(&state, &item_id);
     copy(&app, &state, value)
 }
 
@@ -308,6 +323,7 @@ pub async fn copy_text(app: AppHandle, state: State<'_, AppState>, text: String)
 pub async fn open_item_url(app: AppHandle, state: State<'_, AppState>, item_id: String, index: usize) -> AppResult<()> {
     state.touch();
     let url = items::item_url(&state, &item_id, index).await?;
+    record_use(&state, &item_id);
     app.opener()
         .open_url(url.as_str(), None::<&str>)
         .map_err(|e| AppError::Invalid(Msg::new("open_url_failed").with("detail", e)))
@@ -409,4 +425,16 @@ pub fn open_update_page(app: AppHandle, state: State<'_, AppState>) -> AppResult
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> AppResult<()> {
     updates::install(&app).await
+}
+
+// ----- tray ----------------------------------------------------------------
+
+/// Creates the tray icon (or updates its menu) with texts translated by the UI.
+#[tauri::command]
+pub fn configure_tray(app: AppHandle, labels: crate::tray::TrayLabels) {
+    if let Err(err) = crate::tray::configure(&app, &labels) {
+        log::warn!("tray icon unavailable: {err}");
+        // Without a tray there is no way back to a hidden window.
+        crate::tray::show_main(&app);
+    }
 }

@@ -100,7 +100,17 @@ export interface Settings {
   check_updates: boolean;
   /** Changed only through api.setSystemUnlock (needs the master password). */
   system_unlock: boolean;
+  list_sort: ListSort;
+  /** Newest (or most used, or Z to A) first. */
+  list_sort_desc: boolean;
+  /** Closing the window keeps Keyless running in the tray. */
+  close_to_tray: boolean;
+  start_at_login: boolean;
+  /** When started at login, stay in the tray. */
+  start_minimized: boolean;
 }
+
+export type ListSort = "title" | "created" | "modified" | "frequent" | "recent";
 
 /** A newer Keyless release found by the update check. */
 export interface UpdateInfo {
@@ -162,6 +172,9 @@ export interface ItemSummary {
   trashedAt: number | null;
   createdAt: number;
   updatedAt: number;
+  /** Uses on this device (copied, revealed, opened, filled). Local only. */
+  uses: number;
+  lastUsedAt: number | null;
 }
 
 export interface ItemUrl {
@@ -330,6 +343,7 @@ export const api = {
   accountInfo: () => invoke<AccountInfo>("account_info"),
   cancelAccountDeletion: () => invoke<void>("cancel_account_deletion"),
   versionInfo: () => invoke<VersionInfo>("version_info"),
+  configureTray: (labels: { open: string; lock: string; quit: string }) => invoke<void>("configure_tray", { labels }),
   checkForUpdates: () => invoke<VersionInfo>("check_for_updates"),
   openUpdatePage: () => invoke<void>("open_update_page"),
   installUpdate: () => invoke<void>("install_update"),

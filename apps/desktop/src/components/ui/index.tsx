@@ -277,6 +277,38 @@ export function MenuItem({
   );
 }
 
+export function MenuRadioGroup({
+  value,
+  onValueChange,
+  children,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <DropdownMenu.RadioGroup value={value} onValueChange={onValueChange}>
+      {children}
+    </DropdownMenu.RadioGroup>
+  );
+}
+
+/** A choice that shows a check when selected; the menu stays open. */
+export function MenuRadioItem({ value, children }: { value: string; children: ReactNode }) {
+  return (
+    <DropdownMenu.RadioItem
+      value={value}
+      onSelect={(e) => e.preventDefault()}
+      className="flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-fg outline-none data-[highlighted]:bg-panel-3"
+    >
+      <span className="flex-1">{children}</span>
+      <DropdownMenu.ItemIndicator>
+        <Check className="size-4 text-accent" />
+      </DropdownMenu.ItemIndicator>
+    </DropdownMenu.RadioItem>
+  );
+}
+
 export function MenuSeparator() {
   return <DropdownMenu.Separator className="my-1 h-px bg-line" />;
 }

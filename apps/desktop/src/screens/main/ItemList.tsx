@@ -1,14 +1,26 @@
 import { Command } from "cmdk";
-import { Archive, Copy, KeyRound, Pencil, Plus, RotateCcw, Search, Star, Trash, User } from "lucide-react";
+import { Archive, ArrowDownWideNarrow, Copy, KeyRound, Pencil, Plus, RotateCcw, Search, Star, Trash, User } from "lucide-react";
 import { ContextMenu, Popover } from "radix-ui";
 import { forwardRef, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon } from "../../components/common";
-import { Button, Dialog, Kbd, cx } from "../../components/ui";
-import { api, errorMessage, type Category, type ItemSummary } from "../../lib/api";
+import {
+  Button,
+  Dialog,
+  Kbd,
+  Menu,
+  MenuContent,
+  MenuLabel,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+  cx,
+} from "../../components/ui";
+import { api, errorMessage, type Category, type ItemSummary, type ListSort } from "../../lib/api";
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
-import { filterItems, useApp, viewTitle } from "../../lib/store";
+import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
 export interface ItemListHandle {
@@ -28,7 +40,12 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
   const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const visible = useMemo(() => filterItems(items, view, search), [items, view, search]);
+  const settings = useApp((s) => s.settings);
+  const order: ListOrder = useMemo(
+    () => ({ sort: settings?.list_sort ?? "title", desc: settings?.list_sort_desc ?? false }),
+    [settings?.list_sort, settings?.list_sort_desc],
+  );
+  const visible = useMemo(() => filterItems(items, view, search, order), [items, view, search, order]);
   const title = viewTitle(view, vaults);
   const canCreate = view.kind !== "trash" && view.kind !== "archive";
 
@@ -88,9 +105,12 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
         {canCreate && <NewItemButton onPick={onNewItem} />}
       </div>
 
-      <div className="flex h-10 items-center justify-between px-4">
+      <div className="flex h-10 items-center justify-between gap-2 pl-4 pr-2">
         <span className="truncate text-[13px] font-semibold">{title}</span>
-        <span className="text-xs text-subtle">{t("list.count", { count: visible.length })}</span>
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-subtle">{t("list.count", { count: visible.length })}</span>
+          <SortMenu count={visible.length} order={order} />
+        </div>
       </div>
 
       {view.kind === "trash" && visible.length > 0 && (
@@ -119,7 +139,20 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
         {visible.length === 0 ? (
           <EmptyList query={search} canCreate={canCreate} onNewItem={() => onNewItem("login")} />
         ) : (
-          visible.map((item) => <ItemRow key={item.id} item={item} selected={item.id === selectedId} onSelect={() => select(item.id)} />)
+          visible.map((item, index) => {
+            const label = groupLabel(item, order.sort);
+            const showLabel = label !== null && (index === 0 || groupLabel(visible[index - 1], order.sort) !== label);
+            return (
+              <div key={item.id}>
+                {showLabel && (
+                  <div className="sticky top-0 z-10 bg-panel px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-subtle">
+                    {label}
+                  </div>
+                )}
+                <ItemRow item={item} selected={item.id === selectedId} onSelect={() => select(item.id)} />
+              </div>
+            );
+          })
         )}
       </div>
 
@@ -137,6 +170,59 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
         </div>
       </Dialog>
     </section>
+  );
+}
+
+const SORTS: ListSort[] = ["title", "created", "modified", "frequent", "recent"];
+
+function SortMenu({ count, order }: { count: number; order: ListOrder }) {
+  const { t } = useTranslation();
+  const settings = useApp((s) => s.settings);
+  const setSettings = useApp((s) => s.setSettings);
+  if (!settings) return null;
+  const save = (patch: Partial<typeof settings>) => setSettings({ ...settings, ...patch }).catch((err) => toast.error(errorMessage(err)));
+  const direction = order.sort === "title" ? "title" : order.sort === "frequent" ? "frequent" : "date";
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          className="flex size-7 items-center justify-center rounded-md text-muted hover:bg-panel-3 hover:text-fg data-[state=open]:bg-panel-3 data-[state=open]:text-fg"
+          aria-label={t("list.sortBy", { count })}
+          title={t("list.sortBy", { count })}
+        >
+          <ArrowDownWideNarrow className="size-4" />
+        </button>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuLabel>{t("list.sortBy", { count })}</MenuLabel>
+        <MenuRadioGroup value={order.sort} onValueChange={(value) => save({ list_sort: value as ListSort })}>
+          {SORTS.map((sort) => (
+            <MenuRadioItem key={sort} value={sort}>
+              {t(`list.sort.${sort}`)}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+        <MenuSeparator />
+        <MenuRadioGroup value={order.desc ? "desc" : "asc"} onValueChange={(value) => save({ list_sort_desc: value === "desc" })}>
+          {direction === "title" ? (
+            <>
+              <MenuRadioItem value="asc">{t("list.order.az")}</MenuRadioItem>
+              <MenuRadioItem value="desc">{t("list.order.za")}</MenuRadioItem>
+            </>
+          ) : direction === "frequent" ? (
+            <>
+              <MenuRadioItem value="desc">{t("list.order.mostUsed")}</MenuRadioItem>
+              <MenuRadioItem value="asc">{t("list.order.leastUsed")}</MenuRadioItem>
+            </>
+          ) : (
+            <>
+              <MenuRadioItem value="desc">{t("list.order.newest")}</MenuRadioItem>
+              <MenuRadioItem value="asc">{t("list.order.oldest")}</MenuRadioItem>
+            </>
+          )}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
   );
 }
 

@@ -45,11 +45,21 @@ pub struct Settings {
     /// entered (see `system_unlock`). Only changed through
     /// `set_system_unlock`, which asks for the master password.
     pub system_unlock: bool,
+    /// Item list order: "title", "created", "modified", "frequent" or "recent".
+    pub list_sort: String,
+    /// Newest (or most used, or Z to A) first.
+    pub list_sort_desc: bool,
+    /// Closing the window hides Keyless in the tray instead of quitting.
+    pub close_to_tray: bool,
+    /// Start Keyless when the user logs in.
+    pub start_at_login: bool,
+    /// When started at login, stay in the tray instead of opening the window.
+    pub start_minimized: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true }
     }
 }
 
@@ -62,6 +72,9 @@ impl Settings {
         }
         if !matches!(self.language.as_str(), "system" | "en" | "es") {
             self.language = "system".into();
+        }
+        if !matches!(self.list_sort.as_str(), "title" | "created" | "modified" | "frequent" | "recent") {
+            self.list_sort = "title".into();
         }
         self
     }

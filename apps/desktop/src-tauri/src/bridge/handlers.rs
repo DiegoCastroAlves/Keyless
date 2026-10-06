@@ -50,6 +50,7 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value,
                 crate::error::AppError::Locked => "locked",
                 _ => "not_found",
             })?;
+            crate::commands::record_use(&state, id);
             let seconds = state.settings().clipboard_clear_seconds;
             let generation = state.clipboard.copy(value, true).map_err(|_| "clipboard")?;
             crate::clipboard::schedule_clear(app.clone(), generation, std::time::Duration::from_secs(seconds as u64));
@@ -215,6 +216,7 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>) -> Result<Val
         .and_then(|f| Totp::parse(&f.value).ok())
         .map(|t| t.code_at(now_secs().max(0) as u64).to_string());
 
+    crate::commands::record_use(&state, id);
     Ok(json!({
         "username": details.field_by_purpose(FieldPurpose::Username).map(|f| f.value.clone()).unwrap_or_default(),
         "password": details.field_by_purpose(FieldPurpose::Password).map(|f| f.value.clone()).unwrap_or_default(),

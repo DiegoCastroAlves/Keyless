@@ -9,7 +9,7 @@ use super::{CHROME_EXTENSION_IDS, FIREFOX_EXTENSION_ID, HOST_NAME};
 
 /// The executable browsers should start. For AppImage builds this is the
 /// AppImage file itself, not the temporary mount.
-fn host_executable() -> Option<PathBuf> {
+pub fn host_executable() -> Option<PathBuf> {
     if let Some(appimage) = std::env::var_os("APPIMAGE") {
         return Some(PathBuf::from(appimage));
     }

@@ -12,7 +12,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppResult;
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 pub struct Store {
     conn: Connection,
@@ -149,6 +149,18 @@ impl Store {
                  );",
             )?;
         }
+        if version < 3 {
+            // Version 3: how often and when each item was used, for sorting.
+            // Local only, never synced; items are referenced by their random
+            // ids.
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS item_usage (
+                    item_id TEXT PRIMARY KEY,
+                    uses INTEGER NOT NULL DEFAULT 0,
+                    last_used_at INTEGER NOT NULL
+                 );",
+            )?;
+        }
         self.conn
             .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         Ok(())
@@ -246,7 +258,7 @@ impl Store {
     /// Removes every account-related row (sign out). Settings are kept.
     pub fn wipe_account_data(&self) -> AppResult<()> {
         self.conn.execute_batch(
-            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers;",
+            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage;",
         )?;
         // Reclaim pages so deleted ciphertext does not linger in the file.
         let _ = self.conn.execute_batch("VACUUM;");
@@ -391,6 +403,24 @@ impl Store {
             params![public_key, name],
         )?;
         Ok(())
+    }
+
+    // ----- item usage -----------------------------------------------------
+
+    pub fn record_item_use(&self, item_id: &str) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO item_usage (item_id, uses, last_used_at) VALUES (?1, 1, strftime('%s','now'))
+             ON CONFLICT(item_id) DO UPDATE SET uses = uses + 1, last_used_at = excluded.last_used_at",
+            [item_id],
+        )?;
+        Ok(())
+    }
+
+    /// item id -> (uses, last used at in Unix seconds).
+    pub fn item_usage(&self) -> AppResult<std::collections::HashMap<String, (u32, i64)>> {
+        let mut stmt = self.conn.prepare("SELECT item_id, uses, last_used_at FROM item_usage")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, u32>(1)?, r.get::<_, i64>(2)?))))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     pub fn bridge_peers(&self) -> AppResult<Vec<(String, String, i64)>> {

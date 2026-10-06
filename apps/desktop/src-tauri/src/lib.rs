@@ -5,6 +5,7 @@
 
 mod api;
 mod auth;
+mod autostart;
 mod bridge;
 mod clipboard;
 mod commands;
@@ -21,6 +22,7 @@ mod state;
 mod store;
 mod sync;
 mod system_unlock;
+mod tray;
 mod updates;
 
 use std::{
@@ -112,6 +114,8 @@ pub fn run() {
             let secrets = SecretStore::new(&data_dir);
             let bridge_secret = load_or_create_bridge_key(&secrets)?;
             let browser_integration = settings.browser_integration;
+            let start_at_login = settings.start_at_login;
+            let start_hidden = settings.start_minimized && std::env::args().any(|a| a == autostart::AUTOSTART_ARG);
 
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -140,6 +144,15 @@ pub fn run() {
             bridge::server::start(app.handle().clone());
             updates::start(app.handle().clone());
             std::thread::spawn(move || bridge::install::sync_registration(browser_integration));
+            if start_at_login {
+                // Keeps the login entry pointing at this executable (e.g. a moved AppImage).
+                std::thread::spawn(|| autostart::sync(true));
+            }
+            // The window is created hidden (tauri.conf.json): shown unless
+            // Keyless was started at login to stay in the tray.
+            if !start_hidden {
+                tray::show_main(app.handle());
+            }
 
             // Daily cleanup of items deleted more than 30 days ago.
             let handle = app.handle().clone();
@@ -152,10 +165,20 @@ pub fn run() {
             });
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Destroyed = event {
-                window.app_handle().state::<AppState>().clipboard.clear_now();
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                let app = window.app_handle();
+                if app.state::<AppState>().settings().close_to_tray && tray::available(app) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
             }
+            tauri::WindowEvent::Destroyed if window.label() == "main" => {
+                let app = window.app_handle();
+                app.state::<AppState>().clipboard.clear_now();
+                app.exit(0);
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
@@ -211,6 +234,7 @@ pub fn run() {
             commands::account_info,
             commands::cancel_account_deletion,
             commands::version_info,
+            commands::configure_tray,
             commands::check_for_updates,
             commands::open_update_page,
             commands::install_update,

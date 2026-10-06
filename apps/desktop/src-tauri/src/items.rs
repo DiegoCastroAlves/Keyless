@@ -62,6 +62,10 @@ pub struct ItemSummary {
     pub trashed_at: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Times the item was used on this device (copied, revealed, opened,
+    /// filled). Local only.
+    pub uses: u32,
+    pub last_used_at: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -149,6 +153,8 @@ fn summary(id: &str, item: &CachedItem) -> ItemSummary {
         trashed_at: o.trashed_at,
         created_at: o.created_at,
         updated_at: o.updated_at,
+        uses: 0,
+        last_used_at: None,
     }
 }
 
@@ -312,7 +318,19 @@ pub async fn delete_vault(app: &AppHandle, vault_id: &str) -> AppResult<()> {
 pub async fn list_items(state: &AppState) -> AppResult<Vec<ItemSummary>> {
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;
-    let mut items: Vec<ItemSummary> = session.items.iter().map(|(id, item)| summary(id, item)).collect();
+    let usage = state.store().item_usage().unwrap_or_default();
+    let mut items: Vec<ItemSummary> = session
+        .items
+        .iter()
+        .map(|(id, item)| {
+            let mut summary = summary(id, item);
+            if let Some((uses, last_used_at)) = usage.get(id) {
+                summary.uses = *uses;
+                summary.last_used_at = Some(*last_used_at);
+            }
+            summary
+        })
+        .collect();
     items.sort_by_key(|a| a.title.to_lowercase());
     Ok(items)
 }
