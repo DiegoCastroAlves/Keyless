@@ -96,7 +96,7 @@ mod windows {
             }
         };
         // 2 = ERROR_FILE_NOT_FOUND: nothing to delete.
-        if status != 0 && !(status == 2 && !enabled) {
+        if status != 0 && (enabled || status != 2) {
             log::warn!("autostart registry value: error {status}");
         }
     }

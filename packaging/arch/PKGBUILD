@@ -51,7 +51,9 @@ build() {
 package() {
   cd "Keyless-$pkgver"
   install -Dm755 "${CARGO_TARGET_DIR:-target}/release/keyless-desktop" "$pkgdir/usr/bin/keyless-desktop"
-  install -Dm644 packaging/arch/keyless-desktop.desktop "$pkgdir/usr/share/applications/keyless-desktop.desktop"
+  install -Dm644 packaging/linux/keyless-desktop.desktop "$pkgdir/usr/share/applications/keyless-desktop.desktop"
+  # KDE: the default Quick Access shortcut (Ctrl+Shift+Space).
+  install -Dm644 packaging/linux/keyless-desktop.desktop "$pkgdir/usr/share/kglobalaccel/keyless-desktop.desktop"
   install -Dm644 packaging/linux/io.github.diegocastroalves.keyless.policy \
     "$pkgdir/usr/share/polkit-1/actions/io.github.diegocastroalves.keyless.policy"
 

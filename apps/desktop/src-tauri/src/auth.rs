@@ -18,7 +18,7 @@ use crate::{
     error::{AppError, AppResult, Msg},
     state::{AppState, Session, Settings, SyncStatus, Tokens},
     store::LocalAccount,
-    sync::{self, EVENT_LOCKED, load_caches},
+    sync::{self, EVENT_LOCKED, EVENT_UNLOCKED, load_caches},
     system_unlock::{self, KeptKeys, LockReason},
 };
 
@@ -291,6 +291,7 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
     state.record_unlock_result(true);
     master_password_entered(&state);
     state.touch();
+    let _ = app.emit(EVENT_UNLOCKED, ());
 
     // First sign-in on a device: wait for the data so the UI is not empty.
     if let Err(err) = sync::sync_now(app).await {
@@ -393,6 +394,7 @@ async fn open_session(app: &AppHandle, user_id: String, email: String, account: 
     load_caches(&mut session, &state.store())?;
     *state.session.lock().await = Some(session);
     state.touch();
+    let _ = app.emit(EVENT_UNLOCKED, ());
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         match sync::sync_now(&app).await {

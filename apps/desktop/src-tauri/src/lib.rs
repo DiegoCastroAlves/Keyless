@@ -17,6 +17,7 @@ mod import;
 mod items;
 mod lock;
 mod oauth;
+mod quick_access;
 mod secrets;
 mod state;
 mod store;
@@ -93,19 +94,27 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     disable_webkit_dmabuf_renderer();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
+    let quick_access_requested = args.iter().any(|a| a == quick_access::ARG);
+    let builder = tauri::Builder::default();
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    builder
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Launched again: a shortcut asking for Quick Access, or the app
+            // opened from the menu.
+            if args.iter().any(|a| a == quick_access::ARG) {
+                if let Err(err) = quick_access::show(app) {
+                    log::warn!("could not open Quick Access: {err}");
+                }
+            } else {
+                tray::show_main(app);
             }
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(navigation_guard())
-        .setup(|app| {
+        .setup(move |app| {
             let data_dir = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Store::open(&data_dir.join("keyless.db"))?;
@@ -115,7 +124,10 @@ pub fn run() {
             let bridge_secret = load_or_create_bridge_key(&secrets)?;
             let browser_integration = settings.browser_integration;
             let start_at_login = settings.start_at_login;
-            let start_hidden = settings.start_minimized && std::env::args().any(|a| a == autostart::AUTOSTART_ARG);
+            let start_hidden = quick_access_requested
+                || (settings.start_minimized && std::env::args().any(|a| a == autostart::AUTOSTART_ARG));
+            #[cfg(windows)]
+            let quick_access_shortcut = settings.quick_access_shortcut.clone();
 
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -137,6 +149,9 @@ pub fn run() {
                 update_busy: std::sync::atomic::AtomicBool::new(false),
                 kept_keys: Mutex::new(None),
                 password_at: Mutex::new(None),
+                quick_access_shown: Mutex::new(None),
+                quick_access_ready: std::sync::atomic::AtomicBool::new(false),
+                quick_access_pending: std::sync::atomic::AtomicBool::new(false),
             });
 
             lock::start(app.handle().clone());
@@ -153,6 +168,13 @@ pub fn run() {
             if !start_hidden {
                 tray::show_main(app.handle());
             }
+            if quick_access_requested && let Err(err) = quick_access::show(app.handle()) {
+                log::warn!("could not open Quick Access: {err}");
+            }
+            #[cfg(windows)]
+            if let Err(err) = quick_access::register_shortcut(app.handle(), &quick_access_shortcut) {
+                log::warn!("Quick Access shortcut: {err}");
+            }
 
             // Daily cleanup of items deleted more than 30 days ago.
             let handle = app.handle().clone();
@@ -166,6 +188,13 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            tauri::WindowEvent::Focused(false) if window.label() == quick_access::LABEL => {
+                quick_access::on_blur(window.app_handle());
+            }
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == quick_access::LABEL => {
+                api.prevent_close();
+                quick_access::hide(window.app_handle());
+            }
             tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 let app = window.app_handle();
                 if app.state::<AppState>().settings().close_to_tray && tray::available(app) {
@@ -235,6 +264,11 @@ pub fn run() {
             commands::cancel_account_deletion,
             commands::version_info,
             commands::configure_tray,
+            commands::show_quick_access,
+            commands::hide_quick_access,
+            commands::quick_access_ready,
+            commands::show_item_in_app,
+            commands::set_quick_access_shortcut,
             commands::check_for_updates,
             commands::open_update_page,
             commands::install_update,

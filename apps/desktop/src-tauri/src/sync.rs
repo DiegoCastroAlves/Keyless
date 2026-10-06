@@ -39,6 +39,8 @@ use crate::{
 pub const EVENT_ITEMS_CHANGED: &str = "keyless://items-changed";
 pub const EVENT_SYNC_STATUS: &str = "keyless://sync-status";
 pub const EVENT_LOCKED: &str = "keyless://locked";
+/// The vault was unlocked (in any window).
+pub const EVENT_UNLOCKED: &str = "keyless://unlocked";
 
 const PAGE: usize = 500;
 pub const ORPHANED_ROLE: &str = "orphaned";

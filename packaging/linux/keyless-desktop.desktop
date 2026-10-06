@@ -1,0 +1,22 @@
+[Desktop Entry]
+Type=Application
+Name=Keyless
+GenericName=Password Manager
+GenericName[es]=Gestor de contraseñas
+Comment=Zero-knowledge password manager
+Comment[es]=Gestor de contraseñas de conocimiento cero
+Exec=keyless-desktop
+Icon=keyless-desktop
+StartupWMClass=keyless-desktop
+Terminal=false
+Categories=Utility;Security;
+Keywords=password;passwords;vault;login;2fa;totp;
+Actions=QuickAccess;
+
+# Installed again in share/kglobalaccel, so KDE binds this shortcut by default
+# (System Settings > Shortcuts > Keyless to change it).
+[Desktop Action QuickAccess]
+Name=Quick Access
+Name[es]=Acceso rápido
+Exec=keyless-desktop --quick-access
+X-KDE-Shortcuts=Ctrl+Shift+Space

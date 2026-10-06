@@ -25,6 +25,7 @@ use keyless_core::account::UnlockedAccount;
 use crate::{error::AppResult, state::AppState};
 
 /// polkit action installed by the Linux packages (packaging/linux).
+#[cfg(target_os = "linux")]
 pub const POLKIT_ACTION: &str = "io.github.diegocastroalves.keyless.unlock";
 /// The master password is asked again at least this often.
 pub const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);

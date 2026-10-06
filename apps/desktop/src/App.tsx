@@ -7,22 +7,10 @@ import { TooltipProvider } from "./components/ui";
 import { applyLanguage } from "./i18n";
 import { api, events } from "./lib/api";
 import { useApp } from "./lib/store";
+import { useTheme } from "./lib/theme";
 import { LockScreen } from "./screens/LockScreen";
 import { MainLayout } from "./screens/main/MainLayout";
 import { Onboarding } from "./screens/Onboarding";
-
-function useTheme(theme: string | undefined) {
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const dark = theme === "dark" || ((theme ?? "system") === "system" && media.matches);
-      document.documentElement.classList.toggle("dark", dark);
-    };
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, [theme]);
-}
 
 /** Tells the Rust side the user is active, for the auto-lock timer. */
 function useActivityHeartbeat(enabled: boolean) {
@@ -57,7 +45,7 @@ export function App() {
   // The tray menu is built in Rust with these translated texts.
   const { t, i18n } = useTranslation();
   useEffect(() => {
-    void api.configureTray({ open: t("tray.open"), lock: t("common.lock"), quit: t("tray.quit") });
+    void api.configureTray({ open: t("tray.open"), quickAccess: t("tray.quickAccess"), lock: t("common.lock"), quit: t("tray.quit") });
   }, [t, i18n.language]);
 
   useEffect(() => {
@@ -76,6 +64,15 @@ export function App() {
       events.onItemsChanged(() => void loadData()),
       events.onSyncStatus(setSyncStatus),
       events.onUpdateAvailable(setUpdate),
+      // Unlocked from Quick Access.
+      events.onUnlocked(() => void refreshStatus()),
+      // "Open in Keyless" from Quick Access.
+      events.onSelectItem((id) => {
+        const store = useApp.getState();
+        store.setSearch("");
+        store.setView({ kind: "all" });
+        store.select(id);
+      }),
     ];
     return () => {
       subscriptions.forEach((p) => void p.then((unlisten) => unlisten()));

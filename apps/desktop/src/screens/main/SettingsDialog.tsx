@@ -147,6 +147,7 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
+      <QuickAccessRow />
       <Row title={t("settings.closeToTray")} hint={t("settings.closeToTrayHint")}>
         <div className="flex justify-end">
           <Switch checked={settings.close_to_tray} onChange={(close_to_tray) => save({ close_to_tray })} label={t("settings.closeToTray")} />
@@ -176,6 +177,90 @@ function GeneralTab() {
         </div>
       </Row>
     </div>
+  );
+}
+
+const QUICK_ACCESS_COMMAND = "keyless-desktop --quick-access";
+const isWindows = navigator.userAgent.includes("Windows");
+
+/** "Ctrl+Shift+Space" from a key press, or null for a lone modifier. */
+function shortcutFrom(e: React.KeyboardEvent): string | null {
+  const key = e.code.startsWith("Key")
+    ? e.code.slice(3)
+    : e.code.startsWith("Digit")
+      ? e.code.slice(5)
+      : /^(F\d{1,2}|Space)$/.test(e.code)
+        ? e.code
+        : null;
+  if (!key || !(e.ctrlKey || e.altKey || e.metaKey)) return null;
+  return [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super", key].filter(Boolean).join("+");
+}
+
+function QuickAccessRow() {
+  const { t } = useTranslation();
+  const settings = useApp((s) => s.settings);
+  const [recording, setRecording] = useState(false);
+  if (!settings) return null;
+
+  const saveShortcut = async (shortcut: string) => {
+    setRecording(false);
+    try {
+      useApp.setState({ settings: await api.setQuickAccessShortcut(shortcut) });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const copyCommand = async () => {
+    try {
+      await api.copyText(QUICK_ACCESS_COMMAND);
+      toast.success(t("settings.quickAccessCopied"));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  return (
+    <>
+      <Row title={t("settings.quickAccess")} hint={isWindows ? t("settings.quickAccessHintWindows") : t("settings.quickAccessHintLinux")}>
+        <div className="flex justify-end gap-2">
+          {isWindows && (
+            <button
+              onClick={() => setRecording(true)}
+              onBlur={() => setRecording(false)}
+              onKeyDown={(e) => {
+                if (!recording) return;
+                e.preventDefault();
+                if (e.key === "Escape") setRecording(false);
+                else if (e.key === "Backspace") void saveShortcut("");
+                else {
+                  const shortcut = shortcutFrom(e);
+                  if (shortcut) void saveShortcut(shortcut);
+                }
+              }}
+              className={cx(
+                "h-8 min-w-36 rounded-lg border px-3 text-sm",
+                recording ? "border-accent text-accent" : "border-line bg-panel-2 hover:bg-panel-3",
+              )}
+            >
+              {recording ? t("settings.quickAccessPress") : settings.quick_access_shortcut || t("settings.quickAccessOff")}
+            </button>
+          )}
+          <Button size="sm" className="h-8" onClick={() => void api.showQuickAccess()}>
+            {t("settings.quickAccessTry")}
+          </Button>
+        </div>
+      </Row>
+      {!isWindows && (
+        <div className="-mt-1 mb-2 flex items-center gap-2 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
+          <span className="flex-1">
+            {t("settings.quickAccessCommand")} <code className="selectable font-mono text-fg">{QUICK_ACCESS_COMMAND}</code>
+          </span>
+          <Button size="sm" onClick={copyCommand}>
+            {t("common.copy")}
+          </Button>
+        </div>
+      )}
+    </>
   );
 }
 

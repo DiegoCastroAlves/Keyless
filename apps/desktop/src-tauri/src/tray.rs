@@ -17,6 +17,7 @@ const TRAY_ID: &str = "keyless";
 #[serde(rename_all = "camelCase")]
 pub struct TrayLabels {
     pub open: String,
+    pub quick_access: String,
     pub lock: String,
     pub quit: String,
 }
@@ -60,10 +61,11 @@ pub fn configure(app: &AppHandle, labels: &TrayLabels) -> tauri::Result<()> {
         return Err(tauri::Error::AssetNotFound("tray icon library (AppIndicator)".into()));
     }
     let open = MenuItem::with_id(app, "open", &labels.open, true, None::<&str>)?;
+    let quick_access = MenuItem::with_id(app, "quick-access", &labels.quick_access, true, None::<&str>)?;
     let lock = MenuItem::with_id(app, "lock", &labels.lock, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", &labels.quit, true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &lock, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &quick_access, &lock, &separator, &quit])?;
 
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         return tray.set_menu(Some(menu));
@@ -74,6 +76,9 @@ pub fn configure(app: &AppHandle, labels: &TrayLabels) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main(app),
+            "quick-access" => {
+                let _ = crate::quick_access::show(app);
+            }
             "lock" => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move { auth::lock(&app).await });

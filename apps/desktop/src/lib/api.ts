@@ -108,6 +108,8 @@ export interface Settings {
   start_at_login: boolean;
   /** When started at login, stay in the tray. */
   start_minimized: boolean;
+  /** Registered by the app on Windows; Linux desktops own their shortcuts. */
+  quick_access_shortcut: string;
 }
 
 export type ListSort = "title" | "created" | "modified" | "frequent" | "recent";
@@ -343,7 +345,12 @@ export const api = {
   accountInfo: () => invoke<AccountInfo>("account_info"),
   cancelAccountDeletion: () => invoke<void>("cancel_account_deletion"),
   versionInfo: () => invoke<VersionInfo>("version_info"),
-  configureTray: (labels: { open: string; lock: string; quit: string }) => invoke<void>("configure_tray", { labels }),
+  configureTray: (labels: { open: string; quickAccess: string; lock: string; quit: string }) => invoke<void>("configure_tray", { labels }),
+  showQuickAccess: () => invoke<void>("show_quick_access"),
+  hideQuickAccess: () => invoke<void>("hide_quick_access"),
+  quickAccessReady: () => invoke<void>("quick_access_ready"),
+  showItemInApp: (itemId: string) => invoke<void>("show_item_in_app", { itemId }),
+  setQuickAccessShortcut: (shortcut: string) => invoke<Settings>("set_quick_access_shortcut", { shortcut }),
   checkForUpdates: () => invoke<VersionInfo>("check_for_updates"),
   openUpdatePage: () => invoke<void>("open_update_page"),
   installUpdate: () => invoke<void>("install_update"),
@@ -398,6 +405,9 @@ export const api = {
 export const events = {
   onItemsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://items-changed", () => cb()),
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
+  onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
+  onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
+  onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),
   onSyncStatus: (cb: (s: SyncStatus) => void): Promise<UnlistenFn> =>
     listen<SyncStatus>("keyless://sync-status", (e) => cb(e.payload)),
   onUpdateAvailable: (cb: (u: UpdateInfo) => void): Promise<UnlistenFn> =>

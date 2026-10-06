@@ -55,11 +55,14 @@ pub struct Settings {
     pub start_at_login: bool,
     /// When started at login, stay in the tray instead of opening the window.
     pub start_minimized: bool,
+    /// Quick Access shortcut registered by the app (Windows; Linux desktops
+    /// own their shortcuts). Empty turns it off.
+    pub quick_access_shortcut: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into() }
     }
 }
 
@@ -207,6 +210,12 @@ pub struct AppState {
     pub kept_keys: Mutex<Option<crate::system_unlock::KeptKeys>>,
     /// When the master password was last entered in this run.
     pub password_at: Mutex<Option<SystemTime>>,
+    /// When Quick Access was last shown.
+    pub quick_access_shown: Mutex<Option<Instant>>,
+    /// The Quick Access page has loaded.
+    pub quick_access_ready: std::sync::atomic::AtomicBool,
+    /// Quick Access was asked for before its page loaded.
+    pub quick_access_pending: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {

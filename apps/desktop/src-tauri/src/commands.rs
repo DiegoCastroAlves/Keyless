@@ -438,3 +438,38 @@ pub fn configure_tray(app: AppHandle, labels: crate::tray::TrayLabels) {
         crate::tray::show_main(&app);
     }
 }
+
+// ----- Quick Access --------------------------------------------------------
+
+#[tauri::command]
+pub fn show_quick_access(app: AppHandle) -> AppResult<()> {
+    crate::quick_access::show(&app).map_err(|e| AppError::Server(e.to_string()))
+}
+
+#[tauri::command]
+pub fn quick_access_ready(app: AppHandle) -> AppResult<()> {
+    crate::quick_access::ready(&app).map_err(|e| AppError::Server(e.to_string()))
+}
+
+#[tauri::command]
+pub fn hide_quick_access(app: AppHandle) {
+    crate::quick_access::hide(&app);
+}
+
+#[tauri::command]
+pub fn show_item_in_app(app: AppHandle, item_id: String) {
+    crate::quick_access::show_item(&app, &item_id);
+}
+
+/// Changes the shortcut the app registers itself (Windows).
+#[tauri::command]
+pub fn set_quick_access_shortcut(app: AppHandle, state: State<'_, AppState>, shortcut: String) -> AppResult<Settings> {
+    #[cfg(windows)]
+    crate::quick_access::register_shortcut(&app, &shortcut)?;
+    #[cfg(not(windows))]
+    let _ = &app;
+    let mut settings = state.settings();
+    settings.quick_access_shortcut = shortcut.trim().to_string();
+    state.save_settings(&settings)?;
+    Ok(settings)
+}
