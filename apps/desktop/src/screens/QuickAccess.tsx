@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronLeft, Fingerprint, Search } from "lucide-react";
+import { ArrowRight, ChevronLeft, Eye, EyeOff, Fingerprint, Search } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -311,6 +311,7 @@ export function QuickAccess() {
 function QuickUnlock({ status, onUnlocked }: { status: AppStatus; onUnlocked: () => Promise<void> }) {
   const { t } = useTranslation();
   const [password, setPassword] = useState("");
+  const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -341,15 +342,26 @@ function QuickUnlock({ status, onUnlocked }: { status: AppStatus; onUnlocked: ()
           if (password && !busy) void unlock(false);
         }}
       >
-        <input
-          type="password"
-          autoFocus
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder={t("lock.placeholder")}
-          disabled={busy}
-          className="h-10 w-full rounded-lg border border-line bg-panel-2 px-3 text-sm outline-none focus:border-accent"
-        />
+        <div className="relative">
+          <input
+            type={visible ? "text" : "password"}
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onFocus={(e) => e.currentTarget.select()}
+            placeholder={t("lock.placeholder")}
+            disabled={busy}
+            className="h-10 w-full rounded-lg border border-line bg-panel-2 pl-3 pr-10 text-sm outline-none focus:border-accent"
+          />
+          <button
+            type="button"
+            onClick={() => setVisible((v) => !v)}
+            aria-label={visible ? t("common.hide") : t("common.show")}
+            className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted hover:text-fg"
+          >
+            {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
+        </div>
       </form>
       {status.systemUnlock && (
         <button

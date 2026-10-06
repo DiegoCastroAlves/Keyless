@@ -1,4 +1,4 @@
-import { ArrowRight, Fingerprint, LogOut } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Fingerprint, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,7 @@ export function LockScreen({ status }: { status: AppStatus }) {
   const [shake, setShake] = useState(0);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const [systemBusy, setSystemBusy] = useState(false);
+  const [visible, setVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const refreshStatus = useApp((s) => s.refreshStatus);
   const { t } = useTranslation();
@@ -33,11 +34,12 @@ export function LockScreen({ status }: { status: AppStatus }) {
       await refreshStatus();
     } catch (err) {
       setError(errorMessage(err));
-      if (errorCode(err) === "wrong_password") {
-        setShake((s) => s + 1);
-        setPassword("");
-      }
-      requestAnimationFrame(() => inputRef.current?.focus());
+      if (errorCode(err) === "wrong_password") setShake((s) => s + 1);
+      // Keep what was typed, selected: fix it or type over it.
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
     } finally {
       setBusy(false);
     }
@@ -76,7 +78,7 @@ export function LockScreen({ status }: { status: AppStatus }) {
         <div key={shake} className={cx("relative", shake > 0 && "animate-shake")}>
           <input
             ref={inputRef}
-            type="password"
+            type={visible ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder={t("lock.placeholder")}
@@ -84,10 +86,22 @@ export function LockScreen({ status }: { status: AppStatus }) {
             spellCheck={false}
             disabled={busy}
             className={cx(
-              "h-12 w-full rounded-xl border bg-panel pl-4 pr-14 text-[15px] shadow-sm outline-none transition-colors placeholder:text-subtle focus:ring-4",
+              "h-12 w-full rounded-xl border bg-panel pl-4 pr-24 text-[15px] shadow-sm outline-none transition-colors placeholder:text-subtle focus:ring-4",
               error ? "border-danger focus:ring-danger-soft" : "border-line focus:border-accent focus:ring-accent-soft",
             )}
           />
+          <button
+            type="button"
+            onClick={() => {
+              setVisible((v) => !v);
+              inputRef.current?.focus();
+            }}
+            aria-label={visible ? t("common.hide") : t("common.show")}
+            title={visible ? t("common.hide") : t("common.show")}
+            className="absolute right-12 top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg text-muted transition-colors hover:text-fg"
+          >
+            {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </button>
           <button
             type="submit"
             aria-label={t("lock.unlock")}
