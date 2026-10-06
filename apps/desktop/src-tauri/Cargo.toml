@@ -10,7 +10,7 @@ name = "keyless_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = "2"
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
 aes-gcm = "0.11.1"
@@ -49,7 +49,7 @@ zxcvbn = "3.1.1"
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-ksni = { version = "0.3", default-features = false, features = ["tokio"] }
+ksni = { version = "0.3", default-features = false, features = ["async-io"] }
 zbus = "5"
 
 [target.'cfg(windows)'.dependencies]
