@@ -35,7 +35,17 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 
 Download the installer for your system from the
 [releases page](https://github.com/DiegoCastroAlves/Keyless/releases):
-`.exe` for Windows, `.deb`/`.rpm`/`.AppImage` for Linux.
+
+| System | File | How to install |
+| --- | --- | --- |
+| Windows | `Keyless_*_x64-setup.exe` | Run it. |
+| Arch Linux, CachyOS, Manjaro | `keyless-*-x86_64.pkg.tar.zst` | `sudo pacman -U keyless-*-x86_64.pkg.tar.zst` |
+| Debian, Ubuntu, Mint | `Keyless_*_amd64.deb` | `sudo apt install ./Keyless_*_amd64.deb` |
+| Fedora, openSUSE | `Keyless-*.x86_64.rpm` | `sudo dnf install ./Keyless-*.x86_64.rpm` |
+| Any Linux | `Keyless_*_amd64.AppImage` | Mark it as executable and run it. |
+
+The packages add Keyless to the applications menu; the AppImage is a single
+file that runs without installing.
 
 ### Browser extension
 
@@ -62,6 +72,7 @@ the Keyless button inside a login field, or press `Ctrl+Shift+L`.
 | `apps/desktop` | Desktop app: Tauri (Rust, `src-tauri/`) and React UI (`src/`). |
 | `apps/extension` | Browser extension (Manifest V3) for Chromium browsers and Firefox. |
 | `supabase/migrations` | Database schema, Row Level Security and RPCs. |
+| `packaging/arch` | Arch Linux package (`PKGBUILD`), built for every release. |
 | `docs/SECURITY.md` | Security design and threat model. |
 
 ## Development

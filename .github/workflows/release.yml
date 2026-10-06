@@ -58,7 +58,7 @@ jobs:
             Beta build. Keyless has not had an independent security audit yet.
 
             - Windows: download the `.exe` installer (Windows may warn that the publisher is unknown: the installer is not code-signed yet).
-            - Linux: `.deb` (Debian/Ubuntu), `.rpm` (Fedora/openSUSE) or `.AppImage` (any distribution).
+            - Linux: `.pkg.tar.zst` (Arch, CachyOS, Manjaro: `sudo pacman -U keyless-*.pkg.tar.zst`), `.deb` (Debian/Ubuntu), `.rpm` (Fedora/openSUSE) or `.AppImage` (any distribution).
             - Browser extension: `keyless-chrome-*.zip` (Chrome, Edge, Brave, Vivaldi, Opera) and `keyless-firefox-*.zip`. See the README for how to install them.
           releaseDraft: true
           prerelease: true
@@ -99,3 +99,38 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" keyless-*.zip --clobber --repo "$GITHUB_REPOSITORY"
+
+  arch:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm --needed git rust nodejs pnpm webkit2gtk-4.1 gtk3 libsoup3 hicolor-icon-theme github-cli
+
+      - uses: actions/checkout@v4
+
+      - name: Build the Arch Linux package
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          useradd -m builder
+          mkdir /tmp/arch
+          cp packaging/arch/PKGBUILD /tmp/arch/
+          sed -i "s/^pkgver=.*/pkgver=$version/" /tmp/arch/PKGBUILD
+          # makepkg uses this local copy of the tagged source instead of downloading it.
+          git archive --format=tar.gz --prefix="Keyless-$version/" -o "/tmp/arch/keyless-$version.tar.gz" HEAD
+          chown -R builder /tmp/arch
+          cd /tmp/arch
+          sudo -u builder makepkg --noconfirm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: /tmp/arch/keyless-*.pkg.tar.zst
+
+      - name: Attach to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" /tmp/arch/keyless-*.pkg.tar.zst --clobber --repo "$GITHUB_REPOSITORY"
