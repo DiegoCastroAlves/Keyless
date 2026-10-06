@@ -128,6 +128,50 @@ pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroi
     Ok(CreatedAccount { secret_key: display.to_string(), confirmation_required })
 }
 
+/// Creates the account for an email proven with Google (see `oauth`). The
+/// Google session is used once, to set the secret derived from the new master
+/// password and Secret Key; the account then signs in with that secret like
+/// any other.
+pub async fn create_account_with_google(app: &AppHandle, master_password: Zeroizing<String>) -> AppResult<CreatedAccount> {
+    let state = app.state::<AppState>();
+    let mut slot = state.pending_google.lock().await;
+    let email = slot
+        .as_ref()
+        .map(|p| p.email.clone())
+        .ok_or_else(|| AppError::Auth(Msg::new("google_session_expired")))?;
+    let email = normalize_email(&email)?;
+    validate_new_master_password(&master_password, &email)?;
+    if state.store().account()?.is_some() {
+        return Err(AppError::Invalid(Msg::new("device_has_account")));
+    }
+    let Some(pending) = slot.take() else {
+        return Err(AppError::Auth(Msg::new("google_session_expired")));
+    };
+    drop(slot);
+
+    let mut google = pending.session;
+    if google.expires_at - 60 <= crate::api::now_secs() {
+        google = state
+            .api
+            .refresh(&google.refresh_token)
+            .await
+            .map_err(|_| AppError::Auth(Msg::new("google_session_expired")))?;
+    }
+
+    let kdf = KdfParams::recommended();
+    let (keys, secret_key) = derive(master_password, SecretKey::generate()?, kdf.clone()).await?;
+    let display = secret_key.to_display();
+    state.api.update_auth_secret(&google.access_token, &keys.auth_secret).await?;
+    // Only keep the Secret Key once the server accepted the new secret.
+    state.secrets.save_secret_key(&email, &secret_key)?;
+    state.store().set_setting(PENDING_EMAIL, &email)?;
+    let _ = state.api.sign_out(&google.access_token).await;
+
+    let auth = state.api.sign_in(&email, &keys.auth_secret).await?;
+    complete_sign_in(app, &email, kdf, keys, auth).await?;
+    Ok(CreatedAccount { secret_key: display.to_string(), confirmation_required: false })
+}
+
 pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, master_password: Zeroizing<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
     let _busy = state.begin_unlock()?;

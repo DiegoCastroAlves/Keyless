@@ -37,6 +37,15 @@ pub enum SignUpOutcome {
     ConfirmationRequired,
 }
 
+/// Result of exchanging the code from a provider sign-in (e.g. Google).
+pub enum CodeExchange {
+    /// A session that only proves the provider identity, with the email.
+    Session(AuthSession, String),
+    /// The account is already set up: the server refused the session and
+    /// returned the account email.
+    AccountExists(String),
+}
+
 #[derive(Deserialize)]
 struct RawSession {
     access_token: String,
@@ -49,6 +58,8 @@ struct RawSession {
 #[derive(Deserialize)]
 struct RawUser {
     id: String,
+    #[serde(default)]
+    email: Option<String>,
 }
 
 impl RawSession {
@@ -215,6 +226,52 @@ impl Api {
             .json(&json!({ "email": email, "password": auth_secret }));
         let raw: RawSession = self.send(req).await?;
         Ok(raw.into_session())
+    }
+
+    /// Provider sign-in page (OAuth 2.0 authorization code flow with PKCE).
+    pub fn authorize_url(&self, provider: &str, redirect_to: &str, code_challenge: &str) -> Url {
+        self.url(
+            "auth/v1/authorize",
+            &[
+                ("provider", provider),
+                ("redirect_to", redirect_to),
+                ("code_challenge", code_challenge),
+                ("code_challenge_method", "s256"),
+                ("prompt", "select_account"),
+            ],
+        )
+    }
+
+    pub async fn exchange_code(&self, auth_code: &str, code_verifier: &str) -> AppResult<CodeExchange> {
+        let resp = self
+            .request(Method::POST, self.url("auth/v1/token", &[("grant_type", "pkce")]), None)
+            .json(&json!({ "auth_code": auth_code, "code_verifier": code_verifier }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body: Value = resp.json().await.unwrap_or(Value::Null);
+        if status.is_success() {
+            let raw: RawSession = serde_json::from_value(body)?;
+            let email = raw.user.email.clone().unwrap_or_default();
+            return Ok(CodeExchange::Session(raw.into_session(), email));
+        }
+        // Refused by the access token hook (see the google_sign_in migration).
+        let message = ["msg", "message", "error_description"]
+            .iter()
+            .find_map(|key| body.get(*key).and_then(Value::as_str))
+            .unwrap_or("");
+        if let Some(email) = message.strip_prefix("keyless_account_exists:") {
+            return Ok(CodeExchange::AccountExists(email.trim().to_string()));
+        }
+        Err(map_error(status, &body))
+    }
+
+    /// Whether the signed-in account already has Keyless keys.
+    pub async fn account_exists(&self, token: &str) -> AppResult<bool> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/keyless_account_exists", &[]), Some(token))
+            .json(&json!({}));
+        self.send(req).await
     }
 
     pub async fn refresh(&self, refresh_token: &str) -> AppResult<AuthSession> {

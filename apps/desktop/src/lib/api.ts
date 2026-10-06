@@ -62,6 +62,23 @@ export interface CreatedAccount {
   confirmationRequired: boolean;
 }
 
+/** "Continue with Google": whether the Google account already has Keyless. */
+export interface GoogleResult {
+  kind: "new" | "existing";
+  email: string;
+}
+
+/** Texts of the page the browser shows when Google sends the user back. */
+export interface BrowserPage {
+  doneTitle: string;
+  doneBody: string;
+  errorTitle: string;
+}
+
+export function isCancelled(err: unknown): boolean {
+  return !!err && typeof err === "object" && "code" in err && (err as { code: string }).code === "cancelled";
+}
+
 export interface Strength {
   score: number;
   guessesLog10: number;
@@ -265,6 +282,10 @@ export const api = {
   status: () => invoke<AppStatus>("get_status"),
   createAccount: (email: string, masterPassword: string) =>
     invoke<CreatedAccount>("create_account", { email, masterPassword }),
+  signInWithGoogle: (page: BrowserPage) => invoke<GoogleResult>("sign_in_with_google", { page }),
+  cancelGoogleSignIn: () => invoke<void>("cancel_google_sign_in"),
+  createAccountWithGoogle: (masterPassword: string) =>
+    invoke<CreatedAccount>("create_account_with_google", { masterPassword }),
   signIn: (email: string, secretKey: string | null, masterPassword: string) =>
     invoke<void>("sign_in", { email, secretKey, masterPassword }),
   unlock: (masterPassword: string) => invoke<void>("unlock", { masterPassword }),

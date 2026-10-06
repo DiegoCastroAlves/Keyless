@@ -92,6 +92,9 @@ const es: Translations = {
     item_integrity: "Este elemento no superó una comprobación de integridad y no se abrió.",
     item_too_large: "Este elemento es demasiado grande. Acorta las notas o quita algunos campos.",
     busy: "Ya se está procesando, espera un momento.",
+    google_failed: "No se pudo iniciar sesión con Google: {{detail}}",
+    google_timeout: "El inicio de sesión con Google tardó demasiado. Inténtalo de nuevo.",
+    google_session_expired: "Tu inicio de sesión con Google expiró. Continúa con Google de nuevo.",
   },
   welcome: {
     title: "Te damos la bienvenida a Keyless",
@@ -101,6 +104,19 @@ const es: Translations = {
     zeroKnowledge: "Cifrado de conocimiento cero",
     twoSecrets: "Contraseña maestra + clave secreta",
     synced: "Sincronizado entre dispositivos",
+    google: "Continuar con Google",
+    or: "o",
+  },
+  google: {
+    waitingTitle: "Continúa en tu navegador",
+    waitingBody: "Inicia sesión con Google en la ventana del navegador que se abrió. Keyless continuará solo cuando termines.",
+    createTitle: "Elige tu contraseña maestra",
+    createSubtitle:
+      "Google confirma quién eres. Tu bóveda está protegida por tu contraseña maestra y una clave secreta que solo tienen tus dispositivos: ni Google ni el servidor de Keyless pueden abrirla.",
+    account: "Cuenta de Google",
+    browserDoneTitle: "Sesión iniciada",
+    browserDoneBody: "Puedes cerrar esta pestaña y volver a Keyless.",
+    browserErrorTitle: "No se completó el inicio de sesión con Google",
   },
   create: {
     title: "Crea tu cuenta",
@@ -139,6 +155,8 @@ const es: Translations = {
     resend: "Reenviar correo",
     resent: "Correo de confirmación enviado",
     secretKeyHint: "Está en tu Kit de emergencia o en Keyless en otro dispositivo.",
+    googleNotice:
+      "<strong>{{email}}</strong> ya tiene una cuenta de Keyless. Ingresa tu clave secreta y tu contraseña maestra para abrirla en este dispositivo.",
     submit: "Iniciar sesión",
   },
   lock: {

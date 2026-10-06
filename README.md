@@ -18,6 +18,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Password generator (random, memorable, PIN)
 - Multiple vaults, favorites, tags, archive, Recently Deleted (30 days)
 - Sync across devices, offline first, conflicts never lose data
+- Continue with Google to create or find your account (the master password
+  and Secret Key still protect the vault)
 - Watchtower: weak, reused and breached passwords (Have I Been Pwned,
   k-anonymity)
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)

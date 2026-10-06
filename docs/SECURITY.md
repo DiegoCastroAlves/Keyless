@@ -94,13 +94,34 @@ codes) would give a session without either, so they are refused twice:
 
 - a Supabase Auth *Custom Access Token* hook
   (`public.keyless_access_token_hook`) rejects every authentication method
-  except `password` and `token_refresh` (it must be enabled in the Supabase
-  dashboard, Authentication > Hooks);
+  except `password` and `token_refresh`, and Google as described below (it
+  must be enabled in the Supabase dashboard, Authentication > Hooks);
 - every Row Level Security policy and RPC also requires a `password` entry in
   the session's `amr` claim.
 
 Even with a stolen session, an attacker cannot read anything, and the
 integrity checks above stop them from destroying data.
+
+### Continue with Google
+
+Google only identifies the account; it never replaces the master password or
+the Secret Key, and Google never sees either.
+
+- The app runs the OAuth 2.0 authorization code flow with PKCE in the system
+  browser, with a loopback redirect (`http://127.0.0.1:<port>/auth/callback`,
+  RFC 8252). The code is useless without the verifier, which never leaves the
+  app.
+- A Google session can read nothing: it has no `password` entry in `amr`.
+- The hook issues Google sessions only to accounts that are not set up yet.
+  The app uses that session once, to set the auth secret derived from the new
+  master password and Secret Key, and then signs in with it like any other
+  account. Setting up the account (creating its profile) ends every session
+  that did not prove the password.
+- For an account that is already set up, the hook refuses the Google session
+  and returns only the account's email, to the app that completed the Google
+  sign-in. The user then signs in with the Secret Key and master password.
+  So whoever controls the Google account can never obtain a session that
+  could change the auth secret of an existing Keyless account.
 
 Libraries: RustCrypto `chacha20poly1305`, `argon2`, `hkdf`, `sha2`, `hmac`
 and `x25519-dalek`; randomness from the operating system via `getrandom`.

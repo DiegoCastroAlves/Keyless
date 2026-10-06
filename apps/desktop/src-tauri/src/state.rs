@@ -176,6 +176,10 @@ pub struct AppState {
     pub unlock_busy: std::sync::atomic::AtomicBool,
     pub bridge: crate::bridge::Bridge,
     pub pending_import: Mutex<Option<ImportResult>>,
+    /// Cancels the running "Continue with Google" browser step.
+    pub google_cancel: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Google session waiting for the new account's master password.
+    pub pending_google: tokio::sync::Mutex<Option<crate::oauth::PendingGoogle>>,
 }
 
 impl AppState {

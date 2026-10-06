@@ -90,6 +90,9 @@ const en = {
     item_integrity: "This item failed an integrity check and was not opened.",
     item_too_large: "This item is too large. Shorten the notes or remove some fields.",
     busy: "Already working on it, please wait.",
+    google_failed: "Google sign-in failed: {{detail}}",
+    google_timeout: "Google sign-in took too long. Try again.",
+    google_session_expired: "Your Google sign-in expired. Continue with Google again.",
   },
   welcome: {
     title: "Welcome to Keyless",
@@ -99,6 +102,19 @@ const en = {
     zeroKnowledge: "Zero-knowledge encryption",
     twoSecrets: "Master password + Secret Key",
     synced: "Synced across devices",
+    google: "Continue with Google",
+    or: "or",
+  },
+  google: {
+    waitingTitle: "Continue in your browser",
+    waitingBody: "Sign in with Google in the browser window that opened. Keyless continues on its own when you're done.",
+    createTitle: "Choose your master password",
+    createSubtitle:
+      "Google confirms who you are. Your vault is protected by your master password and a Secret Key that only your devices have: not even Google or the Keyless server can open it.",
+    account: "Google account",
+    browserDoneTitle: "You're signed in",
+    browserDoneBody: "You can close this tab and go back to Keyless.",
+    browserErrorTitle: "Google sign-in didn't finish",
   },
   create: {
     title: "Create your account",
@@ -137,6 +153,8 @@ const en = {
     resend: "Resend email",
     resent: "Confirmation email sent",
     secretKeyHint: "Find it in your Emergency Kit or in Keyless on another device.",
+    googleNotice:
+      "<strong>{{email}}</strong> already has a Keyless account. Enter your Secret Key and master password to open it on this device.",
     submit: "Sign in",
   },
   lock: {

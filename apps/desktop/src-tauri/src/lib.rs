@@ -15,6 +15,7 @@ mod health;
 mod import;
 mod items;
 mod lock;
+mod oauth;
 mod secrets;
 mod state;
 mod store;
@@ -110,6 +111,8 @@ pub fn run() {
                 unlock_busy: std::sync::atomic::AtomicBool::new(false),
                 bridge: bridge::Bridge::new(bridge_secret),
                 pending_import: Mutex::new(None),
+                google_cancel: Mutex::new(None),
+                pending_google: tokio::sync::Mutex::new(None),
             });
 
             lock::start(app.handle().clone());
@@ -136,6 +139,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::create_account,
+            commands::sign_in_with_google,
+            commands::cancel_google_sign_in,
+            commands::create_account_with_google,
             commands::sign_in,
             commands::unlock,
             commands::reauthenticate,
