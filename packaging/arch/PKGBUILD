@@ -41,6 +41,8 @@ build() {
   export CARGO_HOME="$srcdir/cargo-home"
   # Keep the build directory out of the binary.
   export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$srcdir=/build"
+  # Tells the app to update itself with pacman.
+  export KEYLESS_PACKAGE=pacman
   pnpm tauri build --no-bundle -- --locked
 }
 

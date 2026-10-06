@@ -31,6 +31,7 @@ import { CATEGORIES, categoryLabel } from "../../lib/categories";
 import { relativeTime } from "../../lib/format";
 import { useApp, type View } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 
 function sameView(a: View, b: View): boolean {
   if (a.kind !== b.kind) return false;
@@ -315,17 +316,21 @@ export function Sidebar({
 function UpdateBadge() {
   const update = useApp((s) => s.update);
   const enabled = useApp((s) => s.settings?.check_updates ?? true);
+  const action = useUpdateAction();
   const { t } = useTranslation();
   if (!update || !enabled) return null;
   return (
-    <button
-      onClick={() => void api.openUpdatePage().catch((err) => toast.error(errorMessage(err)))}
-      title={t("update.tooltip", { version: update.version })}
-      className="mr-3 flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent hover:opacity-80"
-    >
-      <CircleArrowUp className="size-3" />
-      {t("update.available")}
-    </button>
+    <>
+      <button
+        onClick={action.start}
+        title={t("update.tooltip", { version: update.version })}
+        className="mr-3 flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent hover:opacity-80"
+      >
+        <CircleArrowUp className="size-3" />
+        {t("update.available")}
+      </button>
+      <UpdateDialog open={action.open} onOpenChange={action.setOpen} />
+    </>
   );
 }
 

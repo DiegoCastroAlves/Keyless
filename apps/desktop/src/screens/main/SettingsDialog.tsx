@@ -9,6 +9,7 @@ import { LANGUAGES } from "../../i18n";
 import { api, errorMessage, type AccountInfo, type BridgePeer, type Settings } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 import { ExportPanel, ImportPanel } from "./ImportDialog";
 
 export type SettingsTab = "general" | "security" | "browser" | "account" | "import" | "about";
@@ -396,6 +397,7 @@ function AboutTab() {
   const setUpdate = useApp((s) => s.setUpdate);
   const [current, setCurrent] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
+  const action = useUpdateAction();
 
   useEffect(() => {
     void api.versionInfo().then((info) => setCurrent(info.current));
@@ -428,9 +430,10 @@ function AboutTab() {
       {update && (
         <div className="flex items-center justify-between gap-3 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2.5">
           <span className="text-[13px]">{t("update.newVersion", { version: update.version })}</span>
-          <Button size="sm" variant="primary" onClick={() => void api.openUpdatePage().catch((err) => toast.error(errorMessage(err)))}>
-            {t("update.download")}
+          <Button size="sm" variant="primary" onClick={action.start}>
+            {t("update.updateNow")}
           </Button>
+          <UpdateDialog open={action.open} onOpenChange={action.setOpen} />
         </div>
       )}
       <p className="text-muted">{t("settings.aboutBody")}</p>

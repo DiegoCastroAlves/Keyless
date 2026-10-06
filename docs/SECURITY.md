@@ -169,6 +169,21 @@ account has, approximate item sizes (padded), and when items change.
   bundled UI, no plugin APIs exposed to the web UI (file dialogs and links are
   opened from Rust).
 
+## Updates
+
+- The app looks at the public list of releases on GitHub twice a day (this
+  can be turned off) and offers to update. Nothing is installed without the
+  user's click.
+- The release workflow signs every installer with a minisign (Ed25519) key
+  that only exists in a GitHub Actions secret and offline with the
+  maintainer. Each signature is bound to its version.
+- Before installing, the app verifies the signature with the public key built
+  into it and checks that the signed version is the announced one, so a
+  modified file or an older release (downgrade) is rejected even if GitHub or
+  the network is compromised. Windows, AppImage, `.deb` and `.rpm` installs use
+  `tauri-plugin-updater` (`requireSignedVersion`); the Arch package is verified
+  the same way by Keyless itself and installed with `pkexec pacman -U`.
+
 ## The browser extension
 
 The extension never stores vault data or keys. It asks the desktop app, which

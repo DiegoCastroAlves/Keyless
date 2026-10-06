@@ -184,6 +184,8 @@ pub struct AppState {
     pub pending_google: tokio::sync::Mutex<Option<crate::oauth::PendingGoogle>>,
     /// Newer Keyless version found by the update check.
     pub update: Mutex<Option<crate::updates::UpdateInfo>>,
+    /// An update is being downloaded or installed.
+    pub update_busy: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {

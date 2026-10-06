@@ -95,7 +95,12 @@ pnpm build            # dist/chrome and dist/firefox
 ```
 
 Releases: push a tag like `v0.1.0` and GitHub Actions builds the Windows and
-Linux installers and the browser extension into a draft release.
+Linux installers, the Arch package and the browser extension, signs the
+installers for in-app updates (`latest.json`) and publishes the release.
+Signing needs the `TAURI_SIGNING_PRIVATE_KEY` and
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` repository secrets; the matching public
+key is in `apps/desktop/src-tauri/tauri.conf.json`. Without them the release
+stays a draft.
 
 ## Credits
 

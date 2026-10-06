@@ -102,9 +102,20 @@ export interface UpdateInfo {
   url: string;
 }
 
+/** How this copy updates: in the app ("bundle", "pacman") or from the release page ("manual"). */
+export type InstallKind = "bundle" | "pacman" | "manual";
+
 export interface VersionInfo {
   current: string;
   update: UpdateInfo | null;
+  install: InstallKind;
+  /** The system asks for the administrator password to install updates. */
+  needsPassword: boolean;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
 }
 
 export interface SyncStatus {
@@ -312,6 +323,7 @@ export const api = {
   versionInfo: () => invoke<VersionInfo>("version_info"),
   checkForUpdates: () => invoke<VersionInfo>("check_for_updates"),
   openUpdatePage: () => invoke<void>("open_update_page"),
+  installUpdate: () => invoke<void>("install_update"),
   bridgePairRespond: (requestId: string, approve: boolean) => invoke<void>("bridge_pair_respond", { requestId, approve }),
   listBridgePeers: () => invoke<BridgePeer[]>("list_bridge_peers"),
   removeBridgePeer: (publicKey: string) => invoke<void>("remove_bridge_peer", { publicKey }),
@@ -367,6 +379,8 @@ export const events = {
     listen<SyncStatus>("keyless://sync-status", (e) => cb(e.payload)),
   onUpdateAvailable: (cb: (u: UpdateInfo) => void): Promise<UnlistenFn> =>
     listen<UpdateInfo>("keyless://update-available", (e) => cb(e.payload)),
+  onUpdateProgress: (cb: (p: UpdateProgress) => void): Promise<UnlistenFn> =>
+    listen<UpdateProgress>("keyless://update-progress", (e) => cb(e.payload)),
   onPairRequest: (cb: (r: PairRequest) => void): Promise<UnlistenFn> =>
     listen<PairRequest>("keyless://pair-request", (e) => cb(e.payload)),
 };

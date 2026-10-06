@@ -393,3 +393,8 @@ pub fn open_update_page(app: AppHandle, state: State<'_, AppState>) -> AppResult
         .open_url(url, None::<&str>)
         .map_err(|e| AppError::Invalid(Msg::new("open_url_failed").with("detail", e)))
 }
+
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> AppResult<()> {
+    updates::install(&app).await
+}

@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import i18n from "../i18n";
 import { categoryLabel } from "./categories";
-import { api, errorMessage, type AppStatus, type Category, type ItemDraft, type ItemSummary, type Settings, type SyncStatus, type UpdateInfo, type Vault } from "./api";
+import { api, errorMessage, type AppStatus, type Category, type ItemDraft, type ItemSummary, type InstallKind, type Settings, type SyncStatus, type UpdateInfo, type Vault } from "./api";
 
 export type View =
   | { kind: "all" }
@@ -25,6 +25,8 @@ interface AppStore {
   syncStatus: SyncStatus | null;
   /** Newer Keyless version, when the update check found one. */
   update: UpdateInfo | null;
+  /** How this copy installs updates. */
+  install: { kind: InstallKind; needsPassword: boolean } | null;
   vaults: Vault[];
   items: ItemSummary[];
   view: View;
@@ -40,6 +42,7 @@ interface AppStore {
   setSettings: (settings: Settings) => Promise<void>;
   setSyncStatus: (s: SyncStatus) => void;
   setUpdate: (update: UpdateInfo | null) => void;
+  setInstall: (install: { kind: InstallKind; needsPassword: boolean }) => void;
   setView: (view: View) => void;
   setSearch: (search: string) => void;
   select: (id: string | null) => void;
@@ -54,6 +57,7 @@ export const useApp = create<AppStore>((set, get) => ({
   settings: null,
   syncStatus: null,
   update: null,
+  install: null,
   vaults: [],
   items: [],
   view: { kind: "all" },
@@ -89,6 +93,7 @@ export const useApp = create<AppStore>((set, get) => ({
   },
   setSyncStatus: (syncStatus) => set({ syncStatus }),
   setUpdate: (update) => set({ update }),
+  setInstall: (install) => set({ install }),
   setView: (view) => set({ view, selectedId: null, editing: null }),
   setSearch: (search) => set({ search }),
   select: (selectedId) => set({ selectedId }),

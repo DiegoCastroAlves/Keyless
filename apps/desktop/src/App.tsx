@@ -54,10 +54,13 @@ export function App() {
   }, [settings?.language]);
 
   useEffect(() => {
-    const { refreshStatus, loadSettings, loadData, setSyncStatus, setUpdate, reset } = useApp.getState();
+    const { refreshStatus, loadSettings, loadData, setSyncStatus, setUpdate, setInstall, reset } = useApp.getState();
     void refreshStatus();
     void loadSettings();
-    void api.versionInfo().then((info) => setUpdate(info.update));
+    void api.versionInfo().then((info) => {
+      setUpdate(info.update);
+      setInstall({ kind: info.install, needsPassword: info.needsPassword });
+    });
     const subscriptions = [
       events.onLocked(() => {
         reset();

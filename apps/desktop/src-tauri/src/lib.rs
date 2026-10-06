@@ -100,6 +100,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(navigation_guard())
         .setup(|app| {
             let data_dir = app.path().app_local_data_dir()?;
@@ -128,6 +129,7 @@ pub fn run() {
                 google_cancel: Mutex::new(None),
                 pending_google: tokio::sync::Mutex::new(None),
                 update: Mutex::new(None),
+                update_busy: std::sync::atomic::AtomicBool::new(false),
             });
 
             lock::start(app.handle().clone());
@@ -206,6 +208,7 @@ pub fn run() {
             commands::version_info,
             commands::check_for_updates,
             commands::open_update_page,
+            commands::install_update,
             commands::bridge_pair_respond,
             commands::list_bridge_peers,
             commands::remove_bridge_peer,

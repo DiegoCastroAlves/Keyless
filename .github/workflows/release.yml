@@ -140,7 +140,43 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     steps:
-      # Published only once every file is attached: the app's update notice
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      - name: Install the Tauri CLI
+        working-directory: apps/desktop
+        run: pnpm install --frozen-lockfile
+
+      # The only step that uses the signing key. Each signature is bound to the
+      # version, which the app checks (no downgrades). Without the key this
+      # fails and the release stays a draft.
+      - name: Sign the installers and write the update manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dir="$RUNNER_TEMP/release"
+          mkdir -p "$dir"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
+            --pattern '*_x64-setup.exe' --pattern '*.AppImage' --pattern '*.deb' --pattern '*.rpm' --pattern '*.pkg.tar.zst'
+          for file in "$dir"/*; do
+            apps/desktop/node_modules/.bin/tauri signer sign --app-version "$version" "$file" > /dev/null
+          done
+          python3 .github/scripts/update-manifest.py "$version" "$GITHUB_REPOSITORY" "$dir"
+          gh release upload "$GITHUB_REF_NAME" "$dir/latest.json" --clobber --repo "$GITHUB_REPOSITORY"
+
+      # Published only once every file and the manifest are attached: the app
       # reads the public release list.
       - name: Publish the release
         env:
