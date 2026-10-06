@@ -1,0 +1,26 @@
+# Rust
+/target/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local tooling (never commit)
+.claude/settings.local.json
+.mcp.json
+.env
+.env.*
+
+# Signing keys and secrets
+*.key
+*.pem
+*.p12
+*.pfx
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

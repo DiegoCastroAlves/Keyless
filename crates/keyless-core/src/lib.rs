@@ -1,0 +1,21 @@
+//! Keyless core: cryptography, data model and import logic shared by every
+//! Keyless client.
+//!
+//! Everything that touches secrets lives here so it can be reviewed and tested
+//! in one place. The server only ever sees the ciphertexts produced by this
+//! crate. See `docs/SECURITY.md` for the full design.
+
+#![forbid(unsafe_code)]
+
+pub mod account;
+pub mod crypto;
+pub mod encoding;
+pub mod error;
+pub mod generator;
+pub mod import;
+pub mod item;
+pub mod keys;
+pub mod totp;
+pub mod vault;
+
+pub use error::{Error, Result};
