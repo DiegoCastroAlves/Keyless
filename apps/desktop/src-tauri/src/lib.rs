@@ -67,6 +67,17 @@ fn load_or_create_bridge_key(secrets: &SecretStore) -> Result<x25519_dalek::Stat
     Ok(x25519_dalek::StaticSecret::from(*bytes))
 }
 
+/// WebKitGTK's DMA-BUF renderer crashes on some drivers, notably NVIDIA under
+/// Wayland ("Error 71 (Protocol error) dispatching to Wayland display"). The
+/// UI is simple enough not to need it. A value set by the user wins.
+#[cfg(target_os = "linux")]
+fn disable_webkit_dmabuf_renderer() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // SAFETY: runs at startup, before any other thread is spawned.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+}
+
 pub fn run() {
     // Started by a browser for the extension: relay messages, no window.
     let args: Vec<String> = std::env::args().collect();
@@ -75,6 +86,8 @@ pub fn run() {
         return;
     }
     hardening::apply();
+    #[cfg(target_os = "linux")]
+    disable_webkit_dmabuf_renderer();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
