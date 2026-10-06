@@ -87,7 +87,7 @@ export function ItemDetail() {
         <ItemIcon title={item.title} category={item.category} url={item.urls[0]} size="lg" />
         <div className="min-w-0 flex-1 pt-1">
           <h2 className="selectable truncate text-xl font-semibold tracking-tight">{item.title}</h2>
-          <div className="mt-1 flex items-center gap-1.5 text-[13px] text-muted">
+          <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted">
             <span>{categoryLabel(item.category)}</span>
             {vault && (
               <>
@@ -104,8 +104,8 @@ export function ItemDetail() {
               <Button size="sm" onClick={() => run(() => api.restoreItem(item.id), t("item.restored"))}>
                 <RotateCcw className="size-3.5" /> {t("common.restore")}
               </Button>
-              <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)}>
-                {t("item.deletePermanently")}
+              <Button size="sm" variant="danger" onClick={() => setConfirmDelete(true)} title={t("item.deletePermanently")}>
+                <Trash className="size-3.5" /> {t("common.delete")}
               </Button>
             </>
           ) : (

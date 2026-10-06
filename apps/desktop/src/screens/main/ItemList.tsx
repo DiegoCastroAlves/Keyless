@@ -94,9 +94,9 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
       </div>
 
       {view.kind === "trash" && visible.length > 0 && (
-        <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
-          <span>{t("list.trashHint")}</span>
-          <button onClick={() => setEmptyTrashOpen(true)} className="shrink-0 font-medium text-danger hover:underline">
+        <div className="mx-3 mb-2 space-y-1 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
+          <p>{t("list.trashHint")}</p>
+          <button onClick={() => setEmptyTrashOpen(true)} className="font-medium text-danger hover:underline">
             {t("list.emptyTrash")}
           </button>
         </div>
@@ -163,16 +163,19 @@ function EmptyList({ query, canCreate, onNewItem }: { query: string; canCreate: 
   );
 }
 
-const ItemRowButton = forwardRef<HTMLButtonElement, { item: ItemSummary; selected: boolean; onSelect: () => void }>(function ItemRowButton(
-  { item, selected, onSelect, ...props },
-  ref,
-) {
+const ItemRowButton = forwardRef<
+  HTMLButtonElement,
+  { item: ItemSummary; selected: boolean; onSelect: () => void; onContextMenu?: React.MouseEventHandler<HTMLButtonElement> }
+>(function ItemRowButton({ item, selected, onSelect, onContextMenu, ...props }, ref) {
   return (
     <button
       ref={ref}
       data-id={item.id}
       onClick={onSelect}
-      onContextMenu={onSelect}
+      onContextMenu={(e) => {
+        onSelect();
+        onContextMenu?.(e);
+      }}
       className={cx(
         "group mb-0.5 flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors",
         selected ? "bg-accent-soft" : "hover:bg-panel-2",
