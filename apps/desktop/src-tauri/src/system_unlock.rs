@@ -24,7 +24,10 @@ use keyless_core::account::UnlockedAccount;
 
 use crate::{error::AppResult, state::AppState};
 
-/// polkit action installed by the Linux packages (packaging/linux).
+/// polkit policy file installed by the Linux packages (packaging/linux).
+#[cfg(target_os = "linux")]
+const POLKIT_POLICY_FILE: &str = "io.github.diegocastroalves.keyless.policy";
+/// The action it defines.
 #[cfg(target_os = "linux")]
 pub const POLKIT_ACTION: &str = "io.github.diegocastroalves.keyless.unlock";
 /// The master password is asked again at least this often.
@@ -70,7 +73,7 @@ pub fn supported() -> bool {
     {
         ["/usr/share/polkit-1/actions", "/etc/polkit-1/actions"]
             .iter()
-            .any(|dir| std::path::Path::new(dir).join(format!("{POLKIT_ACTION}.policy")).is_file())
+            .any(|dir| std::path::Path::new(dir).join(POLKIT_POLICY_FILE).is_file())
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -158,6 +161,20 @@ mod tests {
             Ok(authorized) => println!("polkit answered: authorized = {authorized}"),
             Err(err) => println!("polkit answered with an error: {err:?}"),
         }
+    }
+
+    /// The file the packages install is the one `supported` looks for, and it
+    /// defines the action `authenticate` asks for.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn checks_for_the_installed_policy() {
+        let packaged = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../packaging/linux").join(POLKIT_POLICY_FILE);
+        let policy = std::fs::read_to_string(&packaged).expect("policy file in packaging/linux");
+        assert!(policy.contains(&format!("<action id=\"{POLKIT_ACTION}\">")));
+        let config = include_str!("../tauri.conf.json");
+        assert!(config.contains(&format!("/usr/share/polkit-1/actions/{POLKIT_POLICY_FILE}")));
+        let pkgbuild = include_str!("../../../../packaging/arch/PKGBUILD");
+        assert!(pkgbuild.contains(&format!("/usr/share/polkit-1/actions/{POLKIT_POLICY_FILE}")));
     }
 
     #[test]

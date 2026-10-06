@@ -61,14 +61,12 @@
     },
     "linux": {
       "deb": {
-        "depends": ["libayatana-appindicator3-1"],
         "files": {
           "/usr/share/polkit-1/actions/io.github.diegocastroalves.keyless.policy": "../../../packaging/linux/io.github.diegocastroalves.keyless.policy",
           "/usr/share/kglobalaccel/keyless-desktop.desktop": "../../../packaging/linux/keyless-desktop.desktop"
         }
       },
       "rpm": {
-        "depends": ["libayatana-appindicator-gtk3"],
         "files": {
           "/usr/share/polkit-1/actions/io.github.diegocastroalves.keyless.policy": "../../../packaging/linux/io.github.diegocastroalves.keyless.policy",
           "/usr/share/kglobalaccel/keyless-desktop.desktop": "../../../packaging/linux/keyless-desktop.desktop"
