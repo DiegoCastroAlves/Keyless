@@ -146,6 +146,11 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
+      <Row title={t("settings.checkUpdates")} hint={t("settings.checkUpdatesHint")}>
+        <div className="flex justify-end">
+          <Switch checked={settings.check_updates} onChange={(check_updates) => save({ check_updates })} label={t("settings.checkUpdates")} />
+        </div>
+      </Row>
     </div>
   );
 }
@@ -387,10 +392,47 @@ function AccountTab({ onClose }: { onClose: () => void }) {
 
 function AboutTab() {
   const { t } = useTranslation();
+  const update = useApp((s) => s.update);
+  const setUpdate = useApp((s) => s.setUpdate);
+  const [current, setCurrent] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  useEffect(() => {
+    void api.versionInfo().then((info) => setCurrent(info.current));
+  }, []);
+
+  const check = async () => {
+    setChecking(true);
+    try {
+      const info = await api.checkForUpdates();
+      setUpdate(info.update);
+      if (!info.update) toast.success(t("update.upToDate"));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setChecking(false);
+    }
+  };
+
   return (
     <div className="space-y-4 text-sm leading-relaxed">
       <div className="text-lg font-semibold">Keyless</div>
-      <div className="text-xs text-muted">{t("settings.version", { version: "0.1.0" })}</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-xs text-muted">{current && t("settings.version", { version: current })}</div>
+        {!update && (
+          <Button size="sm" onClick={check} loading={checking}>
+            {t("update.check")}
+          </Button>
+        )}
+      </div>
+      {update && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-accent/30 bg-accent-soft px-3 py-2.5">
+          <span className="text-[13px]">{t("update.newVersion", { version: update.version })}</span>
+          <Button size="sm" variant="primary" onClick={() => void api.openUpdatePage().catch((err) => toast.error(errorMessage(err)))}>
+            {t("update.download")}
+          </Button>
+        </div>
+      )}
       <p className="text-muted">{t("settings.aboutBody")}</p>
       <p className="rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning">{t("settings.beta")}</p>
     </div>

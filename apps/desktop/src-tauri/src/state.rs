@@ -39,11 +39,13 @@ pub struct Settings {
     pub language: String,
     /// Register the native messaging host so the browser extension works.
     pub browser_integration: bool,
+    /// Look for new Keyless versions (see `updates`).
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true }
     }
 }
 
@@ -180,6 +182,8 @@ pub struct AppState {
     pub google_cancel: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Google session waiting for the new account's master password.
     pub pending_google: tokio::sync::Mutex<Option<crate::oauth::PendingGoogle>>,
+    /// Newer Keyless version found by the update check.
+    pub update: Mutex<Option<crate::updates::UpdateInfo>>,
 }
 
 impl AppState {

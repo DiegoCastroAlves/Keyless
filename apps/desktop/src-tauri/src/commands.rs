@@ -22,7 +22,7 @@ use crate::{
     items::{self, HistoryEntry, ItemDetailView, ItemDraft, ItemSummary, TotpCode, VaultDto},
     oauth,
     state::{AppState, Settings, SyncStatus},
-    sync,
+    sync, updates,
 };
 
 #[derive(Serialize)]
@@ -372,4 +372,24 @@ pub async fn import_commit(app: AppHandle, state: State<'_, AppState>, target: I
 #[tauri::command]
 pub fn import_cancel(state: State<'_, AppState>) {
     import::cancel(&state);
+}
+
+// ----- updates -------------------------------------------------------------
+
+#[tauri::command]
+pub fn version_info(state: State<'_, AppState>) -> updates::VersionInfo {
+    updates::version_info(&state)
+}
+
+#[tauri::command]
+pub async fn check_for_updates(app: AppHandle) -> AppResult<updates::VersionInfo> {
+    updates::check_now(&app).await
+}
+
+#[tauri::command]
+pub fn open_update_page(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    let url = updates::update_url(&state).ok_or(AppError::NotFound)?;
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| AppError::Invalid(Msg::new("open_url_failed").with("detail", e)))
 }

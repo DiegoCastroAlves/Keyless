@@ -54,9 +54,10 @@ export function App() {
   }, [settings?.language]);
 
   useEffect(() => {
-    const { refreshStatus, loadSettings, loadData, setSyncStatus, reset } = useApp.getState();
+    const { refreshStatus, loadSettings, loadData, setSyncStatus, setUpdate, reset } = useApp.getState();
     void refreshStatus();
     void loadSettings();
+    void api.versionInfo().then((info) => setUpdate(info.update));
     const subscriptions = [
       events.onLocked(() => {
         reset();
@@ -64,6 +65,7 @@ export function App() {
       }),
       events.onItemsChanged(() => void loadData()),
       events.onSyncStatus(setSyncStatus),
+      events.onUpdateAvailable(setUpdate),
     ];
     return () => {
       subscriptions.forEach((p) => void p.then((unlisten) => unlisten()));

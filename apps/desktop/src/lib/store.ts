@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 import i18n from "../i18n";
 import { categoryLabel } from "./categories";
-import { api, errorMessage, type AppStatus, type Category, type ItemDraft, type ItemSummary, type Settings, type SyncStatus, type Vault } from "./api";
+import { api, errorMessage, type AppStatus, type Category, type ItemDraft, type ItemSummary, type Settings, type SyncStatus, type UpdateInfo, type Vault } from "./api";
 
 export type View =
   | { kind: "all" }
@@ -23,6 +23,8 @@ interface AppStore {
   status: AppStatus | null;
   settings: Settings | null;
   syncStatus: SyncStatus | null;
+  /** Newer Keyless version, when the update check found one. */
+  update: UpdateInfo | null;
   vaults: Vault[];
   items: ItemSummary[];
   view: View;
@@ -37,6 +39,7 @@ interface AppStore {
   loadSettings: () => Promise<void>;
   setSettings: (settings: Settings) => Promise<void>;
   setSyncStatus: (s: SyncStatus) => void;
+  setUpdate: (update: UpdateInfo | null) => void;
   setView: (view: View) => void;
   setSearch: (search: string) => void;
   select: (id: string | null) => void;
@@ -50,6 +53,7 @@ export const useApp = create<AppStore>((set, get) => ({
   status: null,
   settings: null,
   syncStatus: null,
+  update: null,
   vaults: [],
   items: [],
   view: { kind: "all" },
@@ -84,6 +88,7 @@ export const useApp = create<AppStore>((set, get) => ({
     set({ settings: await api.updateSettings(settings) });
   },
   setSyncStatus: (syncStatus) => set({ syncStatus }),
+  setUpdate: (update) => set({ update }),
   setView: (view) => set({ view, selectedId: null, editing: null }),
   setSearch: (search) => set({ search }),
   select: (selectedId) => set({ selectedId }),

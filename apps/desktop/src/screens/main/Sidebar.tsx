@@ -1,6 +1,7 @@
 import {
   Archive,
   ChevronDown,
+  CircleArrowUp,
   Cloud,
   CloudOff,
   Download,
@@ -283,13 +284,16 @@ export function Sidebar({
         </div>
       </nav>
 
-      <button
-        onClick={syncNow}
-        className="flex items-center gap-2 border-t border-line px-5 py-2.5 text-left text-xs text-muted hover:text-fg"
-        title={t("sync.syncNow")}
-      >
-        <SyncIndicator />
-      </button>
+      <div className="flex items-center border-t border-line">
+        <button
+          onClick={syncNow}
+          className="flex min-w-0 flex-1 items-center gap-2 px-5 py-2.5 text-left text-xs text-muted hover:text-fg"
+          title={t("sync.syncNow")}
+        >
+          <SyncIndicator />
+        </button>
+        <UpdateBadge />
+      </div>
 
       <Dialog
         open={!!deleting}
@@ -305,6 +309,23 @@ export function Sidebar({
         </div>
       </Dialog>
     </aside>
+  );
+}
+
+function UpdateBadge() {
+  const update = useApp((s) => s.update);
+  const enabled = useApp((s) => s.settings?.check_updates ?? true);
+  const { t } = useTranslation();
+  if (!update || !enabled) return null;
+  return (
+    <button
+      onClick={() => void api.openUpdatePage().catch((err) => toast.error(errorMessage(err)))}
+      title={t("update.tooltip", { version: update.version })}
+      className="mr-3 flex shrink-0 items-center gap-1 rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-medium text-accent hover:opacity-80"
+    >
+      <CircleArrowUp className="size-3" />
+      {t("update.available")}
+    </button>
   );
 }
 

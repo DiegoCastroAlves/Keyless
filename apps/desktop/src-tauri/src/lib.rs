@@ -20,6 +20,7 @@ mod secrets;
 mod state;
 mod store;
 mod sync;
+mod updates;
 
 use std::{
     sync::Mutex,
@@ -126,11 +127,13 @@ pub fn run() {
                 pending_import: Mutex::new(None),
                 google_cancel: Mutex::new(None),
                 pending_google: tokio::sync::Mutex::new(None),
+                update: Mutex::new(None),
             });
 
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
             bridge::server::start(app.handle().clone());
+            updates::start(app.handle().clone());
             std::thread::spawn(move || bridge::install::sync_registration(browser_integration));
 
             // Daily cleanup of items deleted more than 30 days ago.
@@ -200,6 +203,9 @@ pub fn run() {
             commands::copy_secret_key,
             commands::account_info,
             commands::cancel_account_deletion,
+            commands::version_info,
+            commands::check_for_updates,
+            commands::open_update_page,
             commands::bridge_pair_respond,
             commands::list_bridge_peers,
             commands::remove_bridge_peer,

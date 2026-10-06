@@ -105,6 +105,14 @@ const en = {
     google: "Continue with Google",
     or: "or",
   },
+  update: {
+    available: "Update available",
+    tooltip: "Keyless {{version}} is available. Click to download it.",
+    newVersion: "Keyless {{version}} is available.",
+    download: "Download",
+    check: "Check for updates",
+    upToDate: "You're using the latest version.",
+  },
   google: {
     waitingTitle: "Continue in your browser",
     waitingBody: "Sign in with Google in the browser window that opened. Keyless continues on its own when you're done.",
@@ -472,6 +480,8 @@ const en = {
     hours_one: "{{count}} hour",
     hours_other: "{{count}} hours",
     lockOnSleep: "Lock when the computer sleeps or the screen locks",
+    checkUpdates: "Check for updates",
+    checkUpdatesHint: "Twice a day, Keyless looks at its public list of releases on GitHub. Nothing is downloaded or installed automatically.",
     clipboard: "Clear copied passwords after",
     seconds_one: "{{count}} second",
     seconds_other: "{{count}} seconds",

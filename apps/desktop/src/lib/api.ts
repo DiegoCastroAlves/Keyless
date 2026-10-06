@@ -93,6 +93,18 @@ export interface Settings {
   theme: "system" | "light" | "dark";
   language: "system" | "en" | "es";
   browser_integration: boolean;
+  check_updates: boolean;
+}
+
+/** A newer Keyless release found by the update check. */
+export interface UpdateInfo {
+  version: string;
+  url: string;
+}
+
+export interface VersionInfo {
+  current: string;
+  update: UpdateInfo | null;
 }
 
 export interface SyncStatus {
@@ -297,6 +309,9 @@ export const api = {
   copySecretKey: () => invoke<CopyResult>("copy_secret_key"),
   accountInfo: () => invoke<AccountInfo>("account_info"),
   cancelAccountDeletion: () => invoke<void>("cancel_account_deletion"),
+  versionInfo: () => invoke<VersionInfo>("version_info"),
+  checkForUpdates: () => invoke<VersionInfo>("check_for_updates"),
+  openUpdatePage: () => invoke<void>("open_update_page"),
   bridgePairRespond: (requestId: string, approve: boolean) => invoke<void>("bridge_pair_respond", { requestId, approve }),
   listBridgePeers: () => invoke<BridgePeer[]>("list_bridge_peers"),
   removeBridgePeer: (publicKey: string) => invoke<void>("remove_bridge_peer", { publicKey }),
@@ -350,6 +365,8 @@ export const events = {
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
   onSyncStatus: (cb: (s: SyncStatus) => void): Promise<UnlistenFn> =>
     listen<SyncStatus>("keyless://sync-status", (e) => cb(e.payload)),
+  onUpdateAvailable: (cb: (u: UpdateInfo) => void): Promise<UnlistenFn> =>
+    listen<UpdateInfo>("keyless://update-available", (e) => cb(e.payload)),
   onPairRequest: (cb: (r: PairRequest) => void): Promise<UnlistenFn> =>
     listen<PairRequest>("keyless://pair-request", (e) => cb(e.payload)),
 };

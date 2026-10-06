@@ -107,6 +107,14 @@ const es: Translations = {
     google: "Continuar con Google",
     or: "o",
   },
+  update: {
+    available: "Actualización disponible",
+    tooltip: "Keyless {{version}} está disponible. Haz clic para descargarla.",
+    newVersion: "Keyless {{version}} está disponible.",
+    download: "Descargar",
+    check: "Buscar actualizaciones",
+    upToDate: "Estás usando la versión más reciente.",
+  },
   google: {
     waitingTitle: "Continúa en tu navegador",
     waitingBody: "Inicia sesión con Google en la ventana del navegador que se abrió. Keyless continuará solo cuando termines.",
@@ -475,6 +483,8 @@ const es: Translations = {
     hours_one: "{{count}} hora",
     hours_other: "{{count}} horas",
     lockOnSleep: "Bloquear cuando el equipo se suspenda o se bloquee la pantalla",
+    checkUpdates: "Buscar actualizaciones",
+    checkUpdatesHint: "Dos veces al día, Keyless consulta su lista pública de versiones en GitHub. No se descarga ni se instala nada automáticamente.",
     clipboard: "Borrar contraseñas copiadas después de",
     seconds_one: "{{count}} segundo",
     seconds_other: "{{count}} segundos",
