@@ -27,8 +27,6 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   online check can run by itself once a day
 - File attachments in items, encrypted on the device in chunks (250 MiB per
   account)
-- Optional two-step verification for the account (authenticator app codes
-  when signing in on a new device, with recovery codes)
 - Share links: a copy of an item that someone without Keyless opens in the
   browser, for up to 30 days or a single view; the key is only in the link
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)

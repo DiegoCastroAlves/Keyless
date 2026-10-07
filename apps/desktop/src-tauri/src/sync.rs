@@ -116,23 +116,6 @@ pub fn load_caches(session: &mut Session, store: &Store) -> AppResult<()> {
 }
 
 /// Returns `(user_id, access_token)`, refreshing the session if needed.
-/// Uses `auth` as the server session from now on, here and on disk (its
-/// refresh token encrypted with the account's key).
-fn keep_session(state: &AppState, session: &mut crate::state::Session, auth: crate::api::AuthSession) -> AppResult<()> {
-    let enc = session.account.user_key().seal(auth.refresh_token.as_bytes(), &session.session_context())?;
-    state.store().set_enc_session(&session.user_id, Some(&enc))?;
-    session.tokens = Some(Tokens::from(auth));
-    Ok(())
-}
-
-/// Replaces the server session with one the server just issued (e.g. after
-/// the second step of two-step verification).
-pub async fn adopt_session(state: &AppState, auth: crate::api::AuthSession) -> AppResult<()> {
-    let mut guard = state.session.lock().await;
-    let session = guard.as_mut().ok_or(AppError::Locked)?;
-    keep_session(state, session, auth)
-}
-
 pub async fn ensure_token(state: &AppState) -> AppResult<(String, Zeroizing<String>)> {
     let refresh = {
         let guard = state.session.lock().await;
@@ -159,8 +142,13 @@ pub async fn ensure_token(state: &AppState) -> AppResult<(String, Zeroizing<Stri
     let session = guard.as_mut().ok_or(AppError::Locked)?;
     match refreshed {
         Ok(auth) => {
+            let enc = session
+                .account
+                .user_key()
+                .seal(auth.refresh_token.as_bytes(), &session.session_context())?;
+            state.store().set_enc_session(&session.user_id, Some(&enc))?;
             let access = auth.access_token.clone();
-            keep_session(state, session, auth)?;
+            session.tokens = Some(Tokens::from(auth));
             Ok((session.user_id.clone(), access))
         }
         Err(AppError::Auth(_)) => {

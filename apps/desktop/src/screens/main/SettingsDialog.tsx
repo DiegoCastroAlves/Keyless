@@ -10,7 +10,6 @@ import { LANGUAGES } from "../../i18n";
 import { api, errorMessage, type AccountInfo, type BridgePeer, type Settings } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
-import { TwoStepSettings } from "./TwoStepSettings";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 import { ExportPanel, ImportPanel, PlainExportPanel } from "./ImportDialog";
 
@@ -649,7 +648,6 @@ function AccountTab({ onClose }: { onClose: () => void }) {
           {t("common.signOutDevice")}
         </Button>
       </div>
-      <TwoStepSettings />
       <div className="rounded-xl border border-danger/30 bg-danger-soft p-4">
         <div className="text-sm font-semibold text-danger">{t("settings.deleteAccount")}</div>
         <p className="mt-1 text-xs leading-relaxed text-muted">{t("settings.deleteAccountBody")}</p>

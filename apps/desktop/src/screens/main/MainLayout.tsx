@@ -3,9 +3,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput } from "../../components/common";
-import { MfaStep } from "../../components/MfaStep";
 import { Button, Dialog, ErrorText } from "../../components/ui";
-import { api, errorKey, errorMessage, type AccountInfo, type Category, type Vault } from "../../lib/api";
+import { api, errorMessage, type AccountInfo, type Category, type Vault } from "../../lib/api";
 import { categoryInfo, templateFields } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -158,15 +157,6 @@ function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mfa, setMfa] = useState(false);
-
-  const signedIn = async () => {
-    setPassword("");
-    setMfa(false);
-    onOpenChange(false);
-    useApp.getState().setSyncStatus(await api.syncStatus());
-    await useApp.getState().loadData();
-  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -174,10 +164,12 @@ function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
     setError(null);
     try {
       await api.reauthenticate(password);
-      await signedIn();
+      setPassword("");
+      onOpenChange(false);
+      useApp.getState().setSyncStatus(await api.syncStatus());
+      await useApp.getState().loadData();
     } catch (err) {
-      if (errorKey(err) === "mfa_required") setMfa(true);
-      else setError(errorMessage(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -185,9 +177,6 @@ function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={t("sync.reauthTitle")} description={t("sync.reauthBody")}>
-      {mfa ? (
-        <MfaStep onDone={signedIn} onCancel={() => setMfa(false)} />
-      ) : (
       <form onSubmit={submit} className="space-y-3">
         <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("common.masterPassword")} autoFocus />
         <ErrorText>{error}</ErrorText>
@@ -200,7 +189,6 @@ function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
           </Button>
         </div>
       </form>
-      )}
     </Dialog>
   );
 }

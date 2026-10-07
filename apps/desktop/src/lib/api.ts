@@ -269,19 +269,6 @@ export interface ItemDetail extends ItemSummary {
   canEdit: boolean;
 }
 
-/** Two-step verification of the account. */
-export interface MfaStatus {
-  enabled: boolean;
-  recoveryCodesLeft: number;
-}
-
-export interface MfaEnrollment {
-  factorId: string;
-  /** The QR code to scan, an SVG data URL. */
-  qrCode: string;
-  secret: string;
-}
-
 /** A share link just created: shown once, never stored. */
 export interface CreatedShare {
   id: string;
@@ -469,12 +456,6 @@ export function errorMessage(err: unknown): string {
   return translateError(err);
 }
 
-/** The translation key of an error ("mfa_required", ...). */
-export function errorKey(err: unknown): string | null {
-  if (err && typeof err === "object" && "key" in err) return String((err as { key: unknown }).key);
-  return null;
-}
-
 export function errorCode(err: unknown): string | null {
   if (err && typeof err === "object" && "code" in err) {
     return String((err as AppError).code);
@@ -497,14 +478,6 @@ export const api = {
   setSystemUnlock: (enabled: boolean, masterPassword: string | null) =>
     invoke<Settings>("set_system_unlock", { enabled, masterPassword }),
   reauthenticate: (masterPassword: string) => invoke<void>("reauthenticate", { masterPassword }),
-  /** Returns whether a recovery code was used (two-step verification is then off). */
-  mfaFinishSignIn: (code: string | null, recoveryCode: string | null) => invoke<boolean>("mfa_finish_sign_in", { code, recoveryCode }),
-  mfaCancelSignIn: () => invoke<void>("mfa_cancel_sign_in"),
-  mfaStatus: () => invoke<MfaStatus>("mfa_status"),
-  mfaEnroll: () => invoke<MfaEnrollment>("mfa_enroll"),
-  mfaActivate: (factorId: string, code: string) => invoke<string[]>("mfa_activate", { factorId, code }),
-  mfaRegenerate: () => invoke<string[]>("mfa_regenerate"),
-  mfaDisable: (masterPassword: string) => invoke<void>("mfa_disable", { masterPassword }),
   lock: () => invoke<void>("lock"),
   signOut: () => invoke<void>("sign_out"),
   resendConfirmation: (email: string) => invoke<void>("resend_confirmation", { email }),

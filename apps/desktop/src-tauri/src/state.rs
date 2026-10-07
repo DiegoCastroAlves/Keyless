@@ -234,8 +234,6 @@ pub struct AppState {
     pub ssh: crate::ssh_agent::SshState,
     /// Watchtower's last online check.
     pub watchtower: crate::health::WatchtowerState,
-    /// A sign-in waiting for its second step (two-step verification).
-    pub pending_mfa: tokio::sync::Mutex<Option<crate::mfa::Pending>>,
 }
 
 impl AppState {

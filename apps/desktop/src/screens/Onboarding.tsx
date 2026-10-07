@@ -3,10 +3,9 @@ import { useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
 import { AuthShell, Logo, PasswordInput, StrengthMeter, useStrength } from "../components/common";
-import { MfaStep } from "../components/MfaStep";
 import { EmergencyKit } from "../components/EmergencyKit";
 import { Button, ErrorText, Input, Label } from "../components/ui";
-import { api, errorKey, errorMessage, isCancelled, type AppStatus, type GoogleResult } from "../lib/api";
+import { api, errorMessage, isCancelled, type AppStatus, type GoogleResult } from "../lib/api";
 import { useApp } from "../lib/store";
 import { toast } from "../lib/toast";
 
@@ -305,7 +304,6 @@ function SignIn({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resending, setResending] = useState(false);
-  const [mfa, setMfa] = useState(false);
   const refreshStatus = useApp((s) => s.refreshStatus);
   const { t } = useTranslation();
 
@@ -320,9 +318,7 @@ function SignIn({
       setPassword("");
       await refreshStatus();
     } catch (err) {
-      // Two-step verification: the code comes next.
-      if (errorKey(err) === "mfa_required") setMfa(true);
-      else setError(errorMessage(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -339,21 +335,6 @@ function SignIn({
       setResending(false);
     }
   };
-
-  if (mfa) {
-    return (
-      <AuthShell>
-        <MfaStep
-          onDone={async () => {
-            setPassword("");
-            setMfa(false);
-            await refreshStatus();
-          }}
-          onCancel={() => setMfa(false)}
-        />
-      </AuthShell>
-    );
-  }
 
   return (
     <AuthShell>
