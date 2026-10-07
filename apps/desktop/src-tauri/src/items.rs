@@ -80,6 +80,16 @@ pub struct FieldView {
     pub has_value: bool,
 }
 
+/// A passkey kept in the item, without its key.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasskeyView {
+    pub credential_id: String,
+    pub rp_id: String,
+    pub user_name: String,
+    pub created_at: i64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SectionView {
@@ -97,6 +107,7 @@ pub struct ItemDetailView {
     pub fields: Vec<FieldView>,
     pub sections: Vec<SectionView>,
     pub notes: String,
+    pub passkeys: Vec<PasskeyView>,
     pub password_history_count: usize,
     pub can_edit: bool,
 }
@@ -352,6 +363,16 @@ pub async fn get_item(state: &AppState, item_id: &str) -> AppResult<ItemDetailVi
             .map(|s| SectionView { id: s.id.clone(), title: s.title.clone(), fields: s.fields.iter().map(field_view).collect() })
             .collect(),
         notes: details.notes.clone(),
+        passkeys: details
+            .passkeys
+            .iter()
+            .map(|p| PasskeyView {
+                credential_id: p.credential_id.clone(),
+                rp_id: p.rp_id.clone(),
+                user_name: if p.user_name.is_empty() { p.user_display_name.clone() } else { p.user_name.clone() },
+                created_at: p.created_at,
+            })
+            .collect(),
         password_history_count: details.password_history.len(),
         can_edit,
     })
@@ -377,6 +398,20 @@ pub async fn get_item_draft(state: &AppState, item_id: &str) -> AppResult<ItemDr
         sections: details.sections.clone(),
         notes: details.notes.clone(),
     })
+}
+
+/// Deletes one of the item's passkeys (the site keeps its public key, but
+/// it can no longer be used from Keyless).
+pub async fn delete_passkey(app: &AppHandle, item_id: &str, credential_id: &str) -> AppResult<ItemSummary> {
+    let state = app.state::<AppState>();
+    let draft = get_item_draft(&state, item_id).await?;
+    let mut passkeys = {
+        let mut guard = state.session.lock().await;
+        let session = unlocked(&mut guard)?;
+        load_details(&state, session, item_id)?.1.passkeys.clone()
+    };
+    passkeys.retain(|p| p.credential_id != credential_id);
+    save_item_with(app, draft, Some(passkeys)).await
 }
 
 pub async fn reveal_field(state: &AppState, item_id: &str, field_id: &str) -> AppResult<Zeroizing<String>> {
@@ -552,7 +587,13 @@ fn tombstone_local(state: &AppState, session: &mut Session, local: &LocalItem) -
     Ok(())
 }
 
-pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemSummary> {
+pub async fn save_item(app: &AppHandle, draft: ItemDraft) -> AppResult<ItemSummary> {
+    save_item_with(app, draft, None).await
+}
+
+/// Saves a draft; `passkeys` replaces the item's passkeys, which are kept
+/// as they were otherwise (the editor never sees them).
+pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Option<Vec<keyless_core::passkey::Passkey>>) -> AppResult<ItemSummary> {
     let state = app.state::<AppState>();
     validate_draft(&draft)?;
     let now = now_secs();
@@ -599,6 +640,12 @@ pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemS
 
         let mut created_at = now;
         let mut archived = false;
+        if let Some((_, old_details, _)) = &existing {
+            details.passkeys = old_details.passkeys.clone();
+        }
+        if let Some(passkeys) = passkeys {
+            details.passkeys = passkeys;
+        }
         if let Some((_, old_details, old_overview)) = &existing {
             created_at = old_overview.created_at;
             archived = old_overview.archived;

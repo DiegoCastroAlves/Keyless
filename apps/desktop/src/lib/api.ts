@@ -244,11 +244,19 @@ export interface SectionView {
   fields: FieldView[];
 }
 
+export interface PasskeyView {
+  credentialId: string;
+  rpId: string;
+  userName: string;
+  createdAt: number;
+}
+
 export interface ItemDetail extends ItemSummary {
   urlEntries: ItemUrl[];
   fields: FieldView[];
   sections: SectionView[];
   notes: string;
+  passkeys: PasskeyView[];
   passwordHistoryCount: number;
   canEdit: boolean;
 }
@@ -487,6 +495,7 @@ export const api = {
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
   exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
+  deletePasskey: (itemId: string, credentialId: string) => invoke<ItemSummary>("delete_passkey", { itemId, credentialId }),
   sshRequest: () => invoke<SshRequest | null>("ssh_request"),
   sshRequestReady: () => invoke<void>("ssh_request_ready"),
   /** Resolves to whether more requests wait. */

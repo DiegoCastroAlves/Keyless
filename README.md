@@ -35,6 +35,9 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   with an end-to-end encrypted, paired connection to the desktop app. Its
   settings let you hide it on chosen sites, never save on others, and turn
   off the browser's own password manager
+- Passkeys: sites can save passkeys in Keyless and sign in with them from the
+  browser extension, approved in a Keyless window; the browser's own way
+  (security key, phone) stays one click away
 - SSH agent (Linux): SSH and git sign with keys kept in Keyless, each use
   approved in Keyless; keys can be generated or imported (OpenSSH or RSA PEM,
   with a passphrase)

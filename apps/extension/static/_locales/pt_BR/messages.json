@@ -341,5 +341,64 @@
         "content": "$1"
       }
     }
+  },
+  "pkCreateTitle": {
+    "message": "Salvar uma chave de acesso para $SITE$?",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkCreateHint": {
+    "message": "Para $USER$. O Keyless guarda junto com seus logins e entra com ela neste site.",
+    "placeholders": {
+      "user": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkNewLogin": {
+    "message": "Novo login"
+  },
+  "pkSave": {
+    "message": "Salvar chave de acesso"
+  },
+  "pkGetTitle": {
+    "message": "Entrar em $SITE$ com uma chave de acesso",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkGetHint": {
+    "message": "Escolha a conta."
+  },
+  "pkNone": {
+    "message": "Nenhuma chave de acesso salva para este site."
+  },
+  "pkOtherDevice": {
+    "message": "Usar outro dispositivo"
+  },
+  "pkLocked": {
+    "message": "O Keyless está bloqueado"
+  },
+  "pkLockedHint": {
+    "message": "Desbloqueie para usar uma chave de acesso em $SITE$.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkExists": {
+    "message": "Você já tem uma chave de acesso para esta conta."
+  },
+  "pkFailed": {
+    "message": "O Keyless não conseguiu. Tente de novo ou use outro dispositivo."
+  },
+  "setPasskeys": {
+    "message": "Salvar e usar chaves de acesso com o Keyless"
   }
 }

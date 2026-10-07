@@ -663,6 +663,180 @@ async function applyBrowserManager(): Promise<void> {
 
 chrome.permissions.onAdded.addListener(() => void applyBrowserManager().catch(() => undefined));
 
+// ----- Passkeys -----------------------------------------------------------------
+//
+// A site's passkey request (webauthn-page.ts, relayed by webauthn.ts) waits
+// here while the user decides in a Keyless window (passkey.html): a separate
+// browser window the page can neither cover nor script. The page's origin
+// comes from the browser; the app checks it against the relying party.
+// "Use another device" hands the request back to the browser's own WebAuthn,
+// which also happens silently when Keyless cannot help (not connected, turned
+// off, hidden on the site, or no passkey to sign in with).
+
+interface PasskeyRequest {
+  id: string;
+  tabId: number;
+  origin: string;
+  host: string;
+  request: any;
+  port: chrome.runtime.Port;
+  windowId: number | null;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const passkeyRequests = new Map<string, PasskeyRequest>();
+
+function finishPasskey(entry: PasskeyRequest, answer: unknown) {
+  if (!passkeyRequests.delete(entry.id)) return;
+  clearTimeout(entry.timer);
+  try {
+    entry.port.postMessage(answer);
+  } catch {
+    // The page went away.
+  }
+  if (entry.windowId !== null) void chrome.windows.remove(entry.windowId).catch(() => undefined);
+}
+
+/** A page where passkeys may be used: https, or the local computer. */
+function passkeyOrigin(url: string | undefined): { origin: string; host: string } | null {
+  try {
+    const parsed = new URL(url ?? "");
+    if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && parsed.hostname === "localhost")) return null;
+    return { origin: parsed.origin, host: parsed.hostname };
+  } catch {
+    return null;
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "keyless-webauthn") return;
+  const sender = port.sender;
+  // Only the page itself (no frames), on a page where passkeys may be used.
+  const page = passkeyOrigin(sender?.url);
+  if (sender?.id !== chrome.runtime.id || sender.frameId !== 0 || sender.tab?.id === undefined || !page) {
+    port.postMessage({ fallback: true });
+    return;
+  }
+  const tabId = sender.tab.id;
+  port.onMessage.addListener((request) => void startPasskey(port, tabId, page, request));
+});
+
+async function startPasskey(port: chrome.runtime.Port, tabId: number, page: { origin: string; host: string }, request: any) {
+  const fallback = () => port.postMessage({ fallback: true });
+  if (request?.kind !== "create" && request?.kind !== "get") return fallback();
+  const settings = await loadSettings();
+  const site = siteKey(page.origin);
+  if (!settings.passkeys || (site && settings.hidden.includes(site))) return fallback();
+  const current = await quickStatus();
+  if (current.state !== "ready" && current.state !== "locked") return fallback();
+  // Signing in without a passkey for the site: the browser's own way.
+  if (request.kind === "get" && current.state === "ready") {
+    const found = await call<unknown[]>("passkey_list", { origin: page.origin, rpId: request.rpId, allowCredentials: request.allowCredentials }).catch(() => []);
+    if (found.length === 0) return fallback();
+  }
+
+  // One request per tab, like the browser.
+  for (const other of passkeyRequests.values()) {
+    if (other.tabId === tabId) finishPasskey(other, { ok: false, error: "cancelled" });
+  }
+  const id = crypto.randomUUID();
+  const ms = Math.min(Math.max(Number(request.timeout) || 300_000, 30_000), 600_000);
+  const entry: PasskeyRequest = {
+    id,
+    tabId,
+    origin: page.origin,
+    host: page.host,
+    request,
+    port,
+    windowId: null,
+    timer: setTimeout(() => finishPasskey(entry, { ok: false, error: "cancelled" }), ms),
+  };
+  passkeyRequests.set(id, entry);
+  port.onDisconnect.addListener(() => finishPasskey(entry, null));
+  const window = await chrome.windows
+    .create({ url: chrome.runtime.getURL(`passkey.html#${id}`), type: "popup", width: 440, height: 560, focused: true })
+    .catch(() => null);
+  if (!window?.id) return finishPasskey(entry, { fallback: true });
+  entry.windowId = window.id;
+}
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  // Closing the Keyless window cancels.
+  for (const entry of passkeyRequests.values()) {
+    if (entry.windowId === windowId) {
+      entry.windowId = null;
+      finishPasskey(entry, { ok: false, error: "cancelled" });
+    }
+  }
+});
+
+/** What the Keyless window shows. */
+async function passkeyView(entry: PasskeyRequest) {
+  const locked = (await quickStatus()).state !== "ready";
+  const base = { kind: entry.request.kind, host: entry.host, rpId: entry.request.rpId ?? entry.host, locked };
+  if (locked) return base;
+  if (entry.request.kind === "create") {
+    const logins = await call<Login[]>("match", { url: entry.origin }).catch(() => []);
+    return { ...base, rpName: entry.request.rpName, userName: entry.request.userName || entry.request.userDisplayName, logins };
+  }
+  const passkeys = await call<unknown[]>("passkey_list", {
+    origin: entry.origin,
+    rpId: entry.request.rpId,
+    allowCredentials: entry.request.allowCredentials,
+  }).catch(() => []);
+  return { ...base, passkeys };
+}
+
+async function handlePasskeyWindow(message: any): Promise<Reply> {
+  const entry = passkeyRequests.get(String(message.id ?? ""));
+  if (!entry) return { ok: false, error: "expired" };
+  switch (message.type) {
+    case "passkey_view":
+      return { ok: true, data: await passkeyView(entry) };
+    case "passkey_unlock":
+      await requestUnlock();
+      return { ok: true, data: await passkeyView(entry) };
+    case "passkey_fallback":
+      finishPasskey(entry, { fallback: true });
+      return { ok: true };
+    case "passkey_cancel":
+      finishPasskey(entry, { ok: false, error: "cancelled" });
+      return { ok: true };
+    case "passkey_choose": {
+      const r = entry.request;
+      try {
+        const credential =
+          r.kind === "create"
+            ? await call("passkey_create", {
+                origin: entry.origin,
+                rpId: r.rpId,
+                rpName: r.rpName,
+                userId: r.userId,
+                userName: r.userName,
+                userDisplayName: r.userDisplayName,
+                challenge: r.challenge,
+                algorithms: r.algorithms,
+                excludeCredentials: r.excludeCredentials,
+                itemId: typeof message.itemId === "string" ? message.itemId : "",
+              })
+            : await call("passkey_get", { origin: entry.origin, rpId: r.rpId, challenge: r.challenge, credentialId: String(message.credentialId ?? "") });
+        finishPasskey(entry, { ok: true, credential });
+        if (r.kind === "create") await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
+        return { ok: true };
+      } catch (err) {
+        const code = err instanceof BridgeError ? err.message : "error";
+        // Already there, or a site Keyless refuses: the page is told.
+        if (code === "exists" || code === "rp_id_mismatch" || code === "unsupported" || code === "insecure_page") {
+          finishPasskey(entry, { ok: false, error: code === "exists" ? "exists" : code === "unsupported" ? "unsupported" : "security" });
+        }
+        return { ok: false, error: code };
+      }
+    }
+    default:
+      return { ok: false, error: "bad_request" };
+  }
+}
+
 // ----- Message routing ----------------------------------------------------------
 
 type Reply = { ok: true; data?: unknown } | { ok: false; error: string };
@@ -887,7 +1061,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // the URL of the web page.
   const page = sender.url?.startsWith(EXTENSION_BASE) ? new URL(sender.url).pathname : null;
   const handler =
-    page === "/popup.html" ? handlePopup(message) : page === "/inline.html" ? handleInline(message, sender) : page === null ? handleContent(message, sender) : null;
+    page === "/popup.html"
+      ? handlePopup(message)
+      : page === "/inline.html"
+        ? handleInline(message, sender)
+        : page === "/passkey.html"
+          ? handlePasskeyWindow(message)
+          : page === null
+            ? handleContent(message, sender)
+            : null;
   if (!handler) return false;
   handler
     .then(sendResponse)

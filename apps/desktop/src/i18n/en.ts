@@ -341,6 +341,10 @@ const en = {
     restored: "Version restored",
   },
   item: {
+    passkey: "Passkey",
+    passkeyCreated: "Saved {{date}}",
+    passkeyDeleteConfirm: "Delete this passkey? The site will ask for another way to sign in.",
+    passkeyDeleted: "Passkey deleted",
     copyUsername: "Copy username",
     copyPassword: "Copy password",
     copyCode: "Copy one-time password",

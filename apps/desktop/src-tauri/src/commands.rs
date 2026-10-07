@@ -470,6 +470,12 @@ pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_pa
     import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password)).await
 }
 
+#[tauri::command]
+pub async fn delete_passkey(app: AppHandle, state: State<'_, AppState>, item_id: String, credential_id: String) -> AppResult<ItemSummary> {
+    state.touch();
+    items::delete_passkey(&app, &item_id, &credential_id).await
+}
+
 /// A new Ed25519 key for an SSH key item.
 #[tauri::command]
 pub fn ssh_generate_key(state: State<'_, AppState>, comment: String) -> AppResult<crate::ssh_keys::SshKeyFields> {

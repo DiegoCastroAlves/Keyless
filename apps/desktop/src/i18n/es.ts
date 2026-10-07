@@ -344,6 +344,10 @@ const es: Translations = {
     restored: "Versión restaurada",
   },
   item: {
+    passkey: "Llave de acceso",
+    passkeyCreated: "Guardada el {{date}}",
+    passkeyDeleteConfirm: "¿Borrar esta llave de acceso? El sitio pedirá otra forma de iniciar sesión.",
+    passkeyDeleted: "Llave de acceso borrada",
     copyUsername: "Copiar nombre de usuario",
     copyPassword: "Copiar contraseña",
     copyCode: "Copiar contraseña de un solo uso",

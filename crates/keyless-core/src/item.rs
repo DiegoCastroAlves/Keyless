@@ -186,6 +186,9 @@ pub struct ItemDetails {
     /// Same as [`ItemOverview::content_id`].
     #[serde(default)]
     pub content_id: String,
+    /// Passkeys for the item's website (see `passkey`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub passkeys: Vec<crate::passkey::Passkey>,
 }
 
 impl ItemDetails {

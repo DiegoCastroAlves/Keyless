@@ -344,6 +344,10 @@ const ptBR: Translations = {
     restored: "Versão restaurada",
   },
   item: {
+    passkey: "Chave de acesso",
+    passkeyCreated: "Salva em {{date}}",
+    passkeyDeleteConfirm: "Apagar esta chave de acesso? O site vai pedir outra forma de entrar.",
+    passkeyDeleted: "Chave de acesso apagada",
     copyUsername: "Copiar nome de usuário",
     copyPassword: "Copiar senha",
     copyCode: "Copiar código de verificação",

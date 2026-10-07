@@ -16,6 +16,8 @@ export interface Settings {
   autoSubmit: boolean;
   /** Copy the one-time password after filling a login that has one. */
   copyTotp: boolean;
+  /** Offer to create and use passkeys with Keyless. */
+  passkeys: boolean;
   /** Sites (host names) where saving logins is never offered. */
   neverSave: string[];
   /** Sites where Keyless stays out of the page: no button, menus, card or
@@ -29,12 +31,13 @@ export const DEFAULT_SETTINGS: Settings = {
   autoOpen: true,
   autoSubmit: true,
   copyTotp: true,
+  passkeys: true,
   neverSave: [],
   hidden: [],
 };
 
 const KEY = "settings";
-const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp"] as const;
+const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp", "passkeys"] as const;
 const MAX_SITES = 500;
 
 /** "https://www.Example.com/login" -> "example.com"; null for other pages. */

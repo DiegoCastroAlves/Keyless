@@ -285,6 +285,7 @@ pub fn run() {
             commands::export_backup,
             commands::export_plain,
             commands::ssh_generate_key,
+            commands::delete_passkey,
             commands::ssh_import_key,
             commands::ssh_request,
             commands::ssh_request_ready,

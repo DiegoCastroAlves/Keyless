@@ -22,8 +22,14 @@ const base = {
   // Asked only if the user turns off the browser's own password manager.
   optional_permissions: ["privacy"],
   host_permissions: ["http://*/*", "https://*/*"],
-  // Also in frames inside pages, for login forms there (see src/content.ts).
-  content_scripts: [{ matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: true }],
+  content_scripts: [
+    // Also in frames inside pages, for login forms there (see src/content.ts).
+    { matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: true },
+    // Passkeys: the page's WebAuthn calls (webauthn-page.ts, in the page's
+    // world) relayed to Keyless (webauthn.ts). Secure pages only.
+    { matches: ["https://*/*", "http://localhost/*"], js: ["webauthn-page.js"], run_at: "document_start", world: "MAIN" },
+    { matches: ["https://*/*", "http://localhost/*"], js: ["webauthn.js"], run_at: "document_start" },
+  ],
   // The Keyless menus shown inside pages (see src/inline.ts).
   web_accessible_resources: [{ resources: ["inline.html"], matches: ["http://*/*", "https://*/*"] }],
   commands: {
@@ -53,7 +59,15 @@ for (const [name, manifest] of Object.entries(targets)) {
   rmSync(outdir, { recursive: true, force: true });
   mkdirSync(outdir, { recursive: true });
   await build({
-    entryPoints: { background: "src/background.ts", content: "src/content.ts", popup: "src/popup.ts", inline: "src/inline.ts" },
+    entryPoints: {
+      background: "src/background.ts",
+      content: "src/content.ts",
+      popup: "src/popup.ts",
+      inline: "src/inline.ts",
+      passkey: "src/passkey.ts",
+      webauthn: "src/webauthn.ts",
+      "webauthn-page": "src/webauthn-page.ts",
+    },
     define: { __FAVICONS__: String(name === "chrome") },
     bundle: true,
     format: "iife",

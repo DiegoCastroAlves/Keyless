@@ -1,11 +1,11 @@
-import { Archive, ArrowRightLeft, Copy, Ellipsis, ExternalLink, Eye, EyeOff, History, Pencil, RotateCcw, Star, Trash } from "lucide-react";
+import { Archive, ArrowRightLeft, Copy, Ellipsis, ExternalLink, Eye, EyeOff, Fingerprint, History, Pencil, RotateCcw, Star, Trash } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon, PasswordText } from "../../components/common";
 import { Button, Dialog, IconButton, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip, cx } from "../../components/ui";
 import { fieldLabel } from "../../i18n";
-import { api, errorMessage, type FieldView, type HistoryEntry, type ItemDetail as Detail, type TotpCode, type UrlFill } from "../../lib/api";
+import { api, errorMessage, type FieldView, type HistoryEntry, type ItemDetail as Detail, type PasskeyView, type TotpCode, type UrlFill } from "../../lib/api";
 import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useApp } from "../../lib/store";
@@ -192,6 +192,14 @@ export function ItemDetail() {
             <FieldCard>
               {item.urlEntries.map((u, index) => (
                 <WebsiteRow key={`${u.href}-${index}`} itemId={item.id} index={index} href={u.href} label={u.label} fill={u.fill} />
+              ))}
+            </FieldCard>
+          )}
+
+          {(item.passkeys ?? []).length > 0 && (
+            <FieldCard>
+              {item.passkeys.map((passkey) => (
+                <PasskeyRow key={passkey.credentialId} itemId={item.id} passkey={passkey} canEdit={item.canEdit} onDeleted={() => void loadData()} />
               ))}
             </FieldCard>
           )}
@@ -407,6 +415,52 @@ function TotpValue({ itemId, fieldId }: { itemId: string; fieldId: string }) {
       </span>
       <span className="text-xs tabular-nums text-subtle">{remaining}s</span>
     </span>
+  );
+}
+
+/** A passkey kept in the item: the site and account, and a way to delete it. */
+function PasskeyRow({ itemId, passkey, canEdit, onDeleted }: { itemId: string; passkey: PasskeyView; canEdit: boolean; onDeleted: () => void }) {
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
+  const remove = async () => {
+    try {
+      await api.deletePasskey(itemId, passkey.credentialId);
+      toast.success(t("item.passkeyDeleted"));
+      onDeleted();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <div className="group px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <Fingerprint className="size-5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-subtle">{t("item.passkey")}</div>
+          <div className="mt-0.5 truncate text-[15px]">
+            {passkey.rpId}
+            {passkey.userName && <span className="text-muted"> · {passkey.userName}</span>}
+          </div>
+          {passkey.createdAt > 0 && <div className="text-xs text-subtle">{t("item.passkeyCreated", { date: formatDate(passkey.createdAt) })}</div>}
+        </div>
+        {canEdit && !confirming && (
+          <IconButton label={t("common.delete")} onClick={() => setConfirming(true)} className="opacity-0 group-hover:opacity-100 focus:opacity-100">
+            <Trash className="size-4" />
+          </IconButton>
+        )}
+      </div>
+      {confirming && (
+        <div className="mt-2 flex items-center gap-2 pl-8">
+          <span className="flex-1 text-xs text-muted">{t("item.passkeyDeleteConfirm")}</span>
+          <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button size="sm" variant="danger" onClick={remove}>
+            {t("common.delete")}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 

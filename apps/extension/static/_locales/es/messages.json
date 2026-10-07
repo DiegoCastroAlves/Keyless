@@ -341,5 +341,64 @@
         "content": "$1"
       }
     }
+  },
+  "pkCreateTitle": {
+    "message": "¿Guardar una llave de acceso para $SITE$?",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkCreateHint": {
+    "message": "Para $USER$. Keyless la guarda con tus inicios de sesión y la usa para entrar en este sitio.",
+    "placeholders": {
+      "user": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkNewLogin": {
+    "message": "Nuevo inicio de sesión"
+  },
+  "pkSave": {
+    "message": "Guardar llave de acceso"
+  },
+  "pkGetTitle": {
+    "message": "Iniciar sesión en $SITE$ con una llave de acceso",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkGetHint": {
+    "message": "Elige la cuenta."
+  },
+  "pkNone": {
+    "message": "No hay llaves de acceso guardadas para este sitio."
+  },
+  "pkOtherDevice": {
+    "message": "Usar otro dispositivo"
+  },
+  "pkLocked": {
+    "message": "Keyless está bloqueado"
+  },
+  "pkLockedHint": {
+    "message": "Desbloquéalo para usar una llave de acceso en $SITE$.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkExists": {
+    "message": "Ya tienes una llave de acceso para esta cuenta."
+  },
+  "pkFailed": {
+    "message": "Keyless no pudo hacerlo. Inténtalo de nuevo o usa otro dispositivo."
+  },
+  "setPasskeys": {
+    "message": "Guardar y usar llaves de acceso con Keyless"
   }
 }

@@ -341,5 +341,64 @@
         "content": "$1"
       }
     }
+  },
+  "pkCreateTitle": {
+    "message": "Save a passkey for $SITE$?",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkCreateHint": {
+    "message": "For $USER$. Keyless keeps it with your logins and signs in with it on this site.",
+    "placeholders": {
+      "user": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkNewLogin": {
+    "message": "New login"
+  },
+  "pkSave": {
+    "message": "Save passkey"
+  },
+  "pkGetTitle": {
+    "message": "Sign in to $SITE$ with a passkey",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkGetHint": {
+    "message": "Choose the account."
+  },
+  "pkNone": {
+    "message": "No passkey saved for this site."
+  },
+  "pkOtherDevice": {
+    "message": "Use another device"
+  },
+  "pkLocked": {
+    "message": "Keyless is locked"
+  },
+  "pkLockedHint": {
+    "message": "Unlock it to use a passkey on $SITE$.",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pkExists": {
+    "message": "You already have a passkey for this account."
+  },
+  "pkFailed": {
+    "message": "Keyless couldn't do it. Try again or use another device."
+  },
+  "setPasskeys": {
+    "message": "Save and use passkeys with Keyless"
   }
 }

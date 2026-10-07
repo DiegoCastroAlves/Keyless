@@ -313,6 +313,22 @@ must be running, for what it needs.
   four digits; the full card goes to the page only after the user picks it,
   and only on secure pages (`https`, or the local computer). Identities fill
   address forms the same way.
+- **Passkeys.** A script in the page's own world replaces
+  `navigator.credentials.create/get` and only relays the request; the
+  extension takes the page's origin from the browser (the page itself only,
+  https or localhost; frames are left to the browser), and the app checks the
+  relying party id against it: the page's host or a parent domain, never a
+  public suffix (Public Suffix List, private entries included), an IP
+  address or a single label. The user decides in a separate Keyless browser
+  window, which the page can neither cover nor script, and can hand the
+  request back to the browser ("another device"). Keys are ES256, created
+  and used in the app, stored in the item like any other secret; responses
+  use "none" attestation, a counter that stays 0 and the backup flags of a
+  synced passkey. User verification is reported because Keyless is unlocked
+  and the user chose in its window. Not supported yet: passkeys offered in
+  the page's fields (conditional mediation), frames, and WebAuthn
+  extensions. Keyless versions before passkeys drop them when they edit the
+  item.
 - **Pinned app key.** If the app answers with a different key than the one
   pinned at pairing, the extension refuses to talk to it until the user pairs
   again.
