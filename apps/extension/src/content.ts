@@ -137,7 +137,7 @@ iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0;
    paints an opaque background behind the menu. */
 @media (prefers-color-scheme: dark) { iframe { color-scheme: dark; } }
 iframe.open { visibility: visible; pointer-events: auto; }
-iframe.card { top: 0; left: 24px; }
+iframe.card { top: 0; left: 50%; transform: translateX(-50%); }
 `;
 
 const host = document.createElement("keyless-autofill");
