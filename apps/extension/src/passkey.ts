@@ -31,6 +31,8 @@ interface View {
   userName?: string;
   logins?: Login[];
   passkeys?: PasskeyEntry[];
+  /** The site already has a passkey of this account in Keyless. */
+  exists?: boolean;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
@@ -70,9 +72,9 @@ function shell(title: string, sub: string, ...content: Node[]) {
   );
 }
 
-function footer(primary?: HTMLButtonElement) {
+function footer(primary?: HTMLButtonElement, exists = false) {
   const other = button(t("pkOtherDevice"), "link", () => void act("passkey_fallback"));
-  const cancel = button(t("cancel"), "secondary", () => void act("passkey_cancel"));
+  const cancel = button(t("cancel"), "secondary", () => void act("passkey_cancel", { exists }));
   return el("div", { className: "passkey-foot" }, other, el("span", { className: "grow" }), cancel, ...(primary ? [primary] : []));
 }
 
@@ -85,6 +87,9 @@ function render(view: View | null, waiting = false, error?: string) {
   const errorNode = error ? [el("p", { className: "error", textContent: error })] : [];
   if (view.locked) {
     return shell(t("pkLocked"), t("pkLockedHint", view.rpId), ...errorNode, footer(button(t("unlockApp"), "primary", () => void act("passkey_unlock"))));
+  }
+  if (view.kind === "create" && view.exists) {
+    return shell(t("pkCreateTitle", view.rpId), t("pkExists"), ...errorNode, footer(undefined, true));
   }
   if (view.kind === "create") {
     const list = el("div", { className: "choices" });

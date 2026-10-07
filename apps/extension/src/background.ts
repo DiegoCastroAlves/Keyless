@@ -777,7 +777,12 @@ async function passkeyView(entry: PasskeyRequest) {
   if (locked) return base;
   if (entry.request.kind === "create") {
     const logins = await call<Login[]>("match", { url: entry.origin }).catch(() => []);
-    return { ...base, rpName: entry.request.rpName, userName: entry.request.userName || entry.request.userDisplayName, logins };
+    // The site lists the passkeys it already has for this account.
+    const excluded = entry.request.excludeCredentials as string[];
+    const exists =
+      excluded.length > 0 &&
+      (await call<unknown[]>("passkey_list", { origin: entry.origin, rpId: entry.request.rpId, allowCredentials: excluded }).catch(() => [])).length > 0;
+    return { ...base, rpName: entry.request.rpName, userName: entry.request.userName || entry.request.userDisplayName, logins, exists };
   }
   const passkeys = await call<unknown[]>("passkey_list", {
     origin: entry.origin,
@@ -800,7 +805,8 @@ async function handlePasskeyWindow(message: any): Promise<Reply> {
       finishPasskey(entry, { fallback: true });
       return { ok: true };
     case "passkey_cancel":
-      finishPasskey(entry, { ok: false, error: "cancelled" });
+      // The account already had a passkey: the site is told so.
+      finishPasskey(entry, { ok: false, error: message.exists === true ? "exists" : "cancelled" });
       return { ok: true };
     case "passkey_choose": {
       const r = entry.request;
