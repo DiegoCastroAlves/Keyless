@@ -162,7 +162,11 @@ account has, approximate item sizes (padded), and when items change.
   deleting the account always require the master password.
 - An unencrypted export (CSV or JSON, for moving to another password manager)
   also requires the master password and an explicit confirmation after a
-  warning; the file is written readable only by the current user.
+  warning; the file is written readable only by the current user. In the
+  CSV, a cell a spreadsheet would run as a formula (a website chooses the
+  title and user name of a login created with its passkey) starts with `'`,
+  which Keyless's own import removes; passwords and notes are kept as they
+  are.
 - Optional unlock with the computer password (Linux packages, via a polkit
   action with `auth_self`: the user's own password or fingerprint, never
   cached, active local session only) or Windows Hello (the system's user

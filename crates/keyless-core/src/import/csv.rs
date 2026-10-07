@@ -85,17 +85,19 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
             }
         };
         let get = |col: Option<usize>| col.and_then(|i| record.get(i)).unwrap_or("").trim().to_string();
+        // Cells Keyless's own export kept from running as formulas.
+        let cell = |col: Option<usize>| crate::export::from_spreadsheet(get(col));
 
         let urls: Vec<String> = if url_list {
-            get(cols.url).split(',').map(str::trim).filter(|u| !u.is_empty()).map(String::from).collect()
+            cell(cols.url).split(',').map(str::trim).filter(|u| !u.is_empty()).map(String::from).collect()
         } else {
-            Some(get(cols.url)).filter(|u| !u.is_empty()).into_iter().collect()
+            Some(cell(cols.url)).filter(|u| !u.is_empty()).into_iter().collect()
         };
         let url = urls.first().cloned().unwrap_or_default();
-        let username = get(cols.username);
+        let username = cell(cols.username);
         // Spaces can be part of a password.
         let password = cols.password.and_then(|i| record.get(i)).unwrap_or("").to_string();
-        let extra: Vec<(String, String)> = get(cols.fields)
+        let extra: Vec<(String, String)> = cell(cols.fields)
             .lines()
             .filter_map(|line| line.split_once(':'))
             .map(|(label, value)| (label.trim().to_string(), value.trim().to_string()))
@@ -104,7 +106,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         let notes = get(cols.notes);
         let totp = get(cols.totp);
         let kind = get(cols.kind).to_ascii_lowercase();
-        let mut title = get(cols.title);
+        let mut title = cell(cols.title);
         if title.is_empty() {
             title = host_of(&url).unwrap_or_else(|| "Untitled".into());
         }
@@ -163,7 +165,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         }
 
         let favorite = matches!(get(cols.favorite).to_ascii_lowercase().as_str(), "1" | "true" | "yes");
-        let tags = get(cols.tags)
+        let tags = cell(cols.tags)
             .split([',', ';'])
             .map(str::trim)
             .filter(|t| !t.is_empty())
