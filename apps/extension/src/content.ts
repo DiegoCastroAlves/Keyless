@@ -85,17 +85,59 @@ function visible(el: HTMLElement): boolean {
   return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
 }
 
-/** A field the user can actually see: not tiny, not transparent, not moved
- * out of the page, and not covered where it is on screen. Pages hide
+/** clip-path values that leave nothing of an element to see. */
+const CLIPPED_AWAY = /^(inset\((50|100)%\)|circle\(0(px)?( at .*)?\)|polygon\((0(px)? 0(px)?,? ?){3,}0(px)? 0(px)?\))$/;
+
+/** A field the user can actually see: not tiny, not transparent or clipped
+ * away, not moved out of the page or out of a box that hides what
+ * overflows it, and not covered where it is on screen. Pages hide
  * "honeypot" fields to collect what a password manager fills into them. */
 function viewable(el: HTMLElement): boolean {
   const rect = el.getBoundingClientRect();
   if (rect.width < 10 || rect.height < 10) return false;
-  if (rect.right + scrollX < 0 || rect.bottom + scrollY < 0) return false;
+  // Outside the page, where no scrolling brings it.
+  const root = document.documentElement;
+  if (rect.right + scrollX <= 0 || rect.bottom + scrollY <= 0) return false;
+  if (rect.left + scrollX >= root.scrollWidth || rect.top + scrollY >= root.scrollHeight) return false;
+  if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })) return false;
+  let opacity = 1;
+  // Whether a box that hides its overflow still clips the field on each
+  // axis: not once a scrolling box is passed (the user can scroll to it),
+  // and not the boxes an absolutely positioned field escapes.
+  let clipX = true;
+  let clipY = true;
+  /** Positioned out of the boxes up to its containing block, which are
+   * skipped. */
+  let escaping: "" | "absolute" | "fixed" = "";
   for (let node: Element | null = el; node; node = node.parentElement) {
     const style = getComputedStyle(node);
-    if (style.display === "none" || style.visibility !== "visible" || Number(style.opacity) < 0.1) return false;
+    if (style.display === "none" || style.visibility !== "visible") return false;
+    opacity *= Number(style.opacity);
+    if (opacity < 0.1 || CLIPPED_AWAY.test(style.clipPath)) return false;
+    if (escaping) {
+      const holdsFixed =
+        style.transform !== "none" || style.perspective !== "none" || style.filter !== "none" || /paint|layout|strict|content/.test(style.contain);
+      if (holdsFixed || (escaping === "absolute" && style.position !== "static")) escaping = "";
+      else continue;
+    }
+    if (node !== el && node !== root && node !== document.body && style.display !== "contents") {
+      const box = node.getBoundingClientRect();
+      if (clipX && /hidden|clip/.test(style.overflowX) && (rect.right <= box.left || rect.left >= box.right)) return false;
+      if (clipY && /hidden|clip/.test(style.overflowY) && (rect.bottom <= box.top || rect.top >= box.bottom)) return false;
+      if (/auto|scroll/.test(style.overflowX)) clipX = false;
+      if (/auto|scroll/.test(style.overflowY)) clipY = false;
+    }
+    if (style.position === "absolute" || style.position === "fixed") escaping = style.position;
   }
+  const fixed = escaping === "fixed";
+  // The window: a fixed field off screen, or a page that cannot be scrolled
+  // to where the field is.
+  const view = getComputedStyle(root).overflow !== "visible" ? getComputedStyle(root) : document.body ? getComputedStyle(document.body) : null;
+  const offX = rect.right <= 0 || rect.left >= innerWidth;
+  const offY = rect.bottom <= 0 || rect.top >= innerHeight;
+  if (fixed && (offX || offY)) return false;
+  if (view && clipX && /hidden|clip/.test(view.overflowX) && offX) return false;
+  if (view && clipY && /hidden|clip/.test(view.overflowY) && offY) return false;
   const x = rect.left + rect.width / 2;
   const y = rect.top + rect.height / 2;
   if (x >= 0 && y >= 0 && x < innerWidth && y < innerHeight) {
@@ -418,6 +460,9 @@ iframe.save { top: 0; right: 12px; }
 const host = document.createElement(`keyless-${token.slice(0, 10)}`);
 /** The top layer puts the menus above everything the page draws. */
 const topLayer = typeof host.showPopover === "function";
+/** What the page had in the top layer when the menus were last put above
+ * it: anything else the page shows may be above them. */
+let below = new Set<Element>();
 if (topLayer) host.popover = "manual";
 const root = host.attachShadow({ mode: "closed" });
 root.innerHTML = `<style>${STYLE}</style>`;
@@ -504,15 +549,83 @@ function raise() {
   } catch {
     // Not connected, or the page made it impossible: the menus refuse clicks.
   }
+  below = pageTopLayer();
   // Chrome stops updating the menus' view of their visibility after this:
   // they start watching it again.
   for (const frame of [menu, card, saveFrame]) if (frame?.open) frame.post({ type: "recheck" });
 }
 
+/** The page's own shadow root of `el`, also a closed one where the browser
+ * lets extensions see it. */
+function shadowOf(el: Element): ShadowRoot | null {
+  if (el === host) return null;
+  try {
+    const dom = (globalThis as { chrome?: { dom?: { openOrClosedShadowRoot?: (el: HTMLElement) => ShadowRoot | null } } }).chrome?.dom;
+    if (dom?.openOrClosedShadowRoot) return el instanceof HTMLElement ? dom.openOrClosedShadowRoot(el) : el.shadowRoot;
+    const firefox = (el as Element & { openOrClosedShadowRoot?: () => ShadowRoot | null }).openOrClosedShadowRoot;
+    return firefox ? firefox.call(el) : el.shadowRoot;
+  } catch {
+    return el.shadowRoot;
+  }
+}
+
+/** What the page has in the top layer (dialogs, popovers, full screen),
+ * also inside its shadow roots, which are watched from then on. */
+function pageTopLayer(): Set<Element> {
+  const found = new Set<Element>();
+  if (!topLayer) return found;
+  const visit = (root: Document | ShadowRoot) => {
+    try {
+      for (const el of root.querySelectorAll(":popover-open, :modal, :fullscreen")) if (el !== host) found.add(el);
+    } catch {
+      // A selector the browser does not know.
+    }
+    for (const el of root.querySelectorAll("*")) {
+      const shadow = shadowOf(el);
+      if (!shadow) continue;
+      watchTopLayer(shadow);
+      visit(shadow);
+    }
+  };
+  visit(document);
+  return found;
+}
+
 /** The page has something of its own in the top layer (a dialog, a popover),
  * which may be above the menus. */
 function outranked(): boolean {
-  return Array.from(document.querySelectorAll(":popover-open, :modal")).some((el) => el !== host);
+  return pageTopLayer().size > 0;
+}
+
+/** The page may have put something over the menus, even something clicks go
+ * through (which only Chrome notices on its own): the menus refuse clicks,
+ * are put back on top, and wait to have been seen a moment again. */
+function covered() {
+  if (![menu, card, saveFrame].some((f) => f?.open)) return;
+  for (const frame of [menu, card, saveFrame]) {
+    if (!frame?.open) continue;
+    lastSafe.set(frame, false);
+    frame.post({ type: "safety", safe: false });
+  }
+  // Once the page's element is shown: this runs while it is being opened.
+  setTimeout(raise, 0);
+}
+
+const watchedRoots = new WeakSet<Document | ShadowRoot>();
+function watchTopLayer(root: Document | ShadowRoot) {
+  if (watchedRoots.has(root)) return;
+  watchedRoots.add(root);
+  root.addEventListener(
+    "beforetoggle",
+    (event) => {
+      if (event.target !== host && (event as ToggleEvent).newState === "open") covered();
+    },
+    true,
+  );
+}
+if (topLayer) {
+  watchTopLayer(document);
+  document.addEventListener("fullscreenchange", covered, true);
 }
 
 /** Undoes what the page does to the menus' element. */
@@ -584,6 +697,12 @@ function uncovered(frame: Frame): boolean {
 const lastSafe = new Map<Frame, boolean>();
 /** Tells the open menus whether they can be trusted to be seen. */
 function reportSafety() {
+  if (topLayer && [menu, card, saveFrame].some((f) => f?.open)) {
+    const now = pageTopLayer();
+    if ([...now].some((el) => !below.has(el))) return covered();
+    // Closed since: shown again, they are new.
+    below = now;
+  }
   const style = untouched();
   for (const frame of [menu, card, saveFrame]) {
     if (!frame?.open || frame.height === 0) continue;
@@ -638,7 +757,10 @@ class Frame {
   show(options: { activate?: boolean; field?: FieldInfo } = {}) {
     mount();
     // Above whatever the page put in the top layer since.
-    if (!this.open && outranked()) raise();
+    if (!this.open) {
+      if (outranked()) raise();
+      else below = new Set();
+    }
     this.open = true;
     const details = { activate: options.activate ?? false, field: options.field ?? null };
     this.details = { activate: false, field: details.field };

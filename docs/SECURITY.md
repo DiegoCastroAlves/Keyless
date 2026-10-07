@@ -262,7 +262,11 @@ must be running, for what it needs.
   clicks until they have been on screen, unmoved and fully visible, for half
   a second: Chromium reports whether anything covers them or makes them
   see-through (IntersectionObserver v2), and the content script checks the
-  styles applied to them and what sits over them. The list opens by itself
+  styles applied to them and what sits over them. Whenever the page shows a
+  dialog, popover or full-screen element of its own (also inside its shadow
+  roots), which could sit above the menus even with clicks passing through
+  it, the menus refuse clicks, are put back on top and wait again; this is
+  what protects Firefox, which lacks IntersectionObserver v2. The list opens by itself
   only in a field the user clicked or reached with Tab, never in card or
   address forms.
 - **Login forms in frames.** Frames inside a page get no Keyless button or
@@ -272,10 +276,11 @@ must be running, for what it needs.
   from another site than the page is filled only after the user confirms a
   warning naming both sites (the shortcut skips it). Sandboxed frames are
   never filled, and a frame that navigated meanwhile refuses the fill.
-- **Only visible fields are filled.** A field that is tiny, transparent,
-  moved off the page or covered by something else ("honeypot" fields that
-  collect what a password manager fills) is skipped, and each value goes
-  into one field only.
+- **Only visible fields are filled.** A field that is tiny, transparent
+  (counting its parents' opacity), clipped away, moved off the page or out
+  of a box that hides its overflow, or covered by something else ("honeypot"
+  fields that collect what a password manager fills) is skipped, and each
+  value goes into one field only.
 - **Pages get only their own logins.** The background script reports the page
   URL from the browser (not from the page), and the app returns credentials
   only if that URL matches the item's website (same registrable domain, using
