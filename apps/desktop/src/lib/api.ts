@@ -231,6 +231,20 @@ export interface ItemDetail extends ItemSummary {
   canEdit: boolean;
 }
 
+/** An earlier version of an item (see the item history). */
+export interface ItemVersion {
+  revision: number;
+  updatedAt: number;
+  title: string;
+  urlEntries: ItemUrl[];
+  fields: FieldView[];
+  sections: SectionView[];
+  notes: string;
+  /** What the following version changed: field labels, or ":title",
+   * ":websites", ":notes", ":tags". */
+  changed: string[];
+}
+
 export interface Field {
   id: string;
   label: string;
@@ -424,6 +438,10 @@ export const api = {
 
   generatePassword: (options: GeneratorOptions) => invoke<GeneratedPassword>("generate_password", { options }),
   rememberGenerated: (password: string) => invoke<void>("remember_generated", { password }),
+  itemVersions: (itemId: string) => invoke<ItemVersion[]>("item_versions", { itemId }),
+  revealVersionField: (itemId: string, revision: number, fieldId: string) =>
+    invoke<string>("reveal_version_field", { itemId, revision, fieldId }),
+  restoreItemVersion: (itemId: string, revision: number) => invoke<ItemSummary>("restore_item_version", { itemId, revision }),
   generatorHistory: () => invoke<GeneratedEntry[]>("generator_history"),
   /** One entry, or the whole history without an id. */
   deleteGenerated: (id?: string) => invoke<void>("delete_generated", { id: id ?? null }),

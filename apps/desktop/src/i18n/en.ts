@@ -317,6 +317,17 @@ const en = {
     trashHint: "Items are permanently deleted after 30 days.",
     chooseCategory: "What do you want to save?",
   },
+  itemHistory: {
+    title: "Item history",
+    note: "Earlier versions of this item, kept encrypted on the server: the newest 30, for a year.",
+    loading: "Loading…",
+    empty: "No earlier versions yet. Each time the item is saved, the previous version is kept here.",
+    laterChanged: "Then changed: {{list}}",
+    changed: { title: "title", websites: "websites", notes: "notes", tags: "tags" },
+    restore: "Restore this version",
+    restoreConfirm: "Restore this version? What the item has now stays in its history.",
+    restored: "Version restored",
+  },
   item: {
     copyUsername: "Copy username",
     copyPassword: "Copy password",

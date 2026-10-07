@@ -17,7 +17,7 @@ use crate::{
     auth::{self, AppStatus, CreatedAccount},
     clipboard,
     error::{AppError, AppResult, Msg},
-    generator_history,
+    generator_history, item_versions,
     health::{self, BreachReport, HealthReport, Strength},
     import::{self, ImportFormat, ImportTarget},
     items::{self, HistoryEntry, ItemDetailView, ItemDraft, ItemSummary, TotpCode, VaultDto},
@@ -297,6 +297,27 @@ pub async fn get_item_draft(state: State<'_, AppState>, item_id: String) -> AppR
 pub async fn save_item(app: AppHandle, draft: ItemDraft) -> AppResult<ItemSummary> {
     let saved = items::save_item(&app, draft).await?;
     // The icon for a new site.
+    crate::site_icons::refresh(&app);
+    Ok(saved)
+}
+
+/// Earlier versions of an item, from the server.
+#[tauri::command]
+pub async fn item_versions(state: State<'_, AppState>, item_id: String) -> AppResult<Vec<item_versions::ItemVersionView>> {
+    state.touch();
+    item_versions::list(&state, &item_id).await
+}
+
+#[tauri::command]
+pub async fn reveal_version_field(state: State<'_, AppState>, item_id: String, revision: i64, field_id: String) -> AppResult<String> {
+    state.touch();
+    Ok(item_versions::reveal(&state, &item_id, revision, &field_id).await?.to_string())
+}
+
+#[tauri::command]
+pub async fn restore_item_version(app: AppHandle, state: State<'_, AppState>, item_id: String, revision: i64) -> AppResult<ItemSummary> {
+    state.touch();
+    let saved = item_versions::restore(&app, &item_id, revision).await?;
     crate::site_icons::refresh(&app);
     Ok(saved)
 }

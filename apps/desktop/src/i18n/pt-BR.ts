@@ -320,6 +320,17 @@ const ptBR: Translations = {
     trashHint: "Os itens são excluídos permanentemente após 30 dias.",
     chooseCategory: "O que você quer salvar?",
   },
+  itemHistory: {
+    title: "Histórico do item",
+    note: "Versões anteriores deste item, guardadas criptografadas no servidor: as 30 mais recentes, por um ano.",
+    loading: "Carregando…",
+    empty: "Ainda não há versões anteriores. Cada vez que o item é salvo, a versão anterior fica aqui.",
+    laterChanged: "Depois mudou: {{list}}",
+    changed: { title: "título", websites: "sites", notes: "notas", tags: "tags" },
+    restore: "Restaurar esta versão",
+    restoreConfirm: "Restaurar esta versão? O que o item tem agora fica no histórico.",
+    restored: "Versão restaurada",
+  },
   item: {
     copyUsername: "Copiar nome de usuário",
     copyPassword: "Copiar senha",

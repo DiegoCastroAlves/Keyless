@@ -134,6 +134,13 @@ pub struct RemoteMembership {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct RemoteItemVersion {
+    pub revision: i64,
+    pub enc_overview: String,
+    pub enc_details: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct RemoteItem {
     pub id: String,
     pub vault_id: String,
@@ -418,6 +425,25 @@ impl Api {
             Some(token),
         );
         self.send(req).await
+    }
+
+    /// Earlier versions of an item, newest first (see `item_versions`).
+    pub async fn item_versions(&self, token: &str, id: &str) -> AppResult<Vec<RemoteItemVersion>> {
+        let filter = format!("eq.{id}");
+        let req = self.request(
+            Method::GET,
+            self.url(
+                "rest/v1/item_versions",
+                &[("select", "revision,enc_overview,enc_details"), ("item_id", &filter), ("order", "revision.desc"), ("limit", "50")],
+            ),
+            Some(token),
+        );
+        match self.send(req).await {
+            // A server set up before item history existed (PostgREST: no
+            // such table): no versions yet.
+            Err(AppError::Server(detail)) if detail.contains("PGRST205") => Ok(Vec::new()),
+            other => other,
+        }
     }
 
     pub async fn item(&self, token: &str, id: &str) -> AppResult<Option<RemoteItem>> {

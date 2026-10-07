@@ -1,4 +1,4 @@
-import { Archive, ArrowRightLeft, Copy, Ellipsis, ExternalLink, Eye, EyeOff, Pencil, RotateCcw, Star, Trash } from "lucide-react";
+import { Archive, ArrowRightLeft, Copy, Ellipsis, ExternalLink, Eye, EyeOff, History, Pencil, RotateCcw, Star, Trash } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +10,7 @@ import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { ItemVersionsDialog } from "./ItemVersions";
 import { MoveItemsDialog } from "./MoveDialog";
 
 export function ItemDetail() {
@@ -24,6 +25,7 @@ export function ItemDetail() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,6 +143,9 @@ export function ItemDetail() {
                   <MenuItem icon={<ArrowRightLeft className="size-4" />} disabled={!item.canEdit} onSelect={() => setMoveOpen(true)}>
                     {t("move.toVaultAction")}
                   </MenuItem>
+                  <MenuItem icon={<History className="size-4" />} onSelect={() => setVersionsOpen(true)}>
+                    {t("itemHistory.title")}
+                  </MenuItem>
                   <MenuSeparator />
                   <MenuItem
                     icon={<Trash className="size-4" />}
@@ -158,6 +163,7 @@ export function ItemDetail() {
       </header>
 
       <MoveItemsDialog open={moveOpen} onOpenChange={setMoveOpen} itemIds={[item.id]} fromVaultId={item.vaultId} />
+      <ItemVersionsDialog itemId={item.id} canEdit={item.canEdit} open={versionsOpen} onOpenChange={setVersionsOpen} onRestored={() => void loadData()} />
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-5">

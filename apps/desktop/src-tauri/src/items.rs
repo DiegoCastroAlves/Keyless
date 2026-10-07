@@ -158,7 +158,7 @@ fn summary(id: &str, item: &CachedItem) -> ItemSummary {
     }
 }
 
-fn field_view(field: &Field) -> FieldView {
+pub(crate) fn field_view(field: &Field) -> FieldView {
     let secret = field.kind.is_secret() || field.purpose == Some(FieldPurpose::Password);
     FieldView {
         id: field.id.clone(),

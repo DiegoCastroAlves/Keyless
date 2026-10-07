@@ -15,6 +15,7 @@ mod generator_history;
 mod hardening;
 mod health;
 mod import;
+mod item_versions;
 mod items;
 mod lock;
 mod oauth;
@@ -262,6 +263,9 @@ pub fn run() {
             commands::restore_item,
             commands::delete_items_permanently,
             commands::generate_password,
+            commands::item_versions,
+            commands::reveal_version_field,
+            commands::restore_item_version,
             commands::remember_generated,
             commands::generator_history,
             commands::delete_generated,

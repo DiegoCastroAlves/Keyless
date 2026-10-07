@@ -133,6 +133,11 @@ and `x25519-dalek`; randomness from the operating system via `getrandom`.
 - `vaults`, `vault_members`: wrapped vault keys and encrypted vault metadata.
 - `items`: encrypted overview and details, a revision counter and a sync
   sequence number. Deleted items keep only their id and deletion time.
+- `item_versions`: the encrypted overview and details each write replaced,
+  copied by a trigger (clients can only read them): the newest 30 per item,
+  for a year. The client opens and checks them like any item (same vault and
+  item, same write, older than the current version), and restoring one saves
+  its content as a new version, so rollback protection is unchanged.
 
 Row Level Security limits every table to the rows of vaults the user belongs
 to. Server-managed columns (`seq`, `revision`, timestamps) are set by

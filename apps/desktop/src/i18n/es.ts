@@ -320,6 +320,17 @@ const es: Translations = {
     trashHint: "Los elementos se eliminan de forma permanente después de 30 días.",
     chooseCategory: "¿Qué quieres guardar?",
   },
+  itemHistory: {
+    title: "Historial del elemento",
+    note: "Versiones anteriores de este elemento, guardadas cifradas en el servidor: las 30 más recientes, durante un año.",
+    loading: "Cargando…",
+    empty: "Todavía no hay versiones anteriores. Cada vez que se guarda el elemento, la versión anterior queda aquí.",
+    laterChanged: "Después cambió: {{list}}",
+    changed: { title: "título", websites: "sitios web", notes: "notas", tags: "etiquetas" },
+    restore: "Restaurar esta versión",
+    restoreConfirm: "¿Restaurar esta versión? Lo que el elemento tiene ahora queda en su historial.",
+    restored: "Versión restaurada",
+  },
   item: {
     copyUsername: "Copiar nombre de usuario",
     copyPassword: "Copiar contraseña",
