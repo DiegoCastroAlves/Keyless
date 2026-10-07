@@ -34,7 +34,7 @@ fn card_number(details: &ItemDetails) -> Option<String> {
 }
 
 /// "MM/YYYY", "MM/YY", "YYYY-MM" or "MMYY" -> (month, four-digit year).
-fn parse_expiry(text: &str) -> Option<(u32, u32)> {
+pub(crate) fn parse_expiry(text: &str) -> Option<(u32, u32)> {
     let parts: Vec<&str> = text.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).collect();
     let (month, year) = match parts.as_slice() {
         [a, b] if a.len() == 4 => (b.parse().ok()?, a.parse().ok()?),

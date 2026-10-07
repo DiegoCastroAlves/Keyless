@@ -1,4 +1,4 @@
-import { CircleCheck, Repeat, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
+import { CalendarClock, CircleCheck, Globe, KeyRound, LockOpen, Repeat, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -47,8 +47,22 @@ export function Watchtower() {
     );
   }
 
-  const problems = new Set([...report.weak, ...reusedIds.keys(), ...(breaches?.breached.map(([id]) => id) ?? [])]);
-  const score = report.checked ? Math.round(((report.checked - problems.size) / report.checked) * 100) : 100;
+  const problems = new Set([
+    ...report.weak,
+    ...reusedIds.keys(),
+    ...report.unsecured,
+    ...(breaches?.breached.map(([id]) => id) ?? []),
+    ...(breaches?.compromised.map((issue) => issue.id) ?? []),
+  ]);
+  const score = report.checked ? Math.max(0, Math.round(((report.checked - problems.size) / report.checked) * 100)) : 100;
+  const day = (value: number | string) =>
+    new Date(typeof value === "number" ? value * 1000 : `${value}T00:00:00Z`).toLocaleDateString(i18n.language, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: typeof value === "number" ? undefined : "UTC",
+    });
+  const anything = problems.size > 0 || report.expiring.length > 0 || (breaches?.twoFactor.length ?? 0) > 0;
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-panel">
@@ -63,13 +77,28 @@ export function Watchtower() {
         </div>
 
         <div className="mt-8 grid grid-cols-3 gap-3">
-          <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("watchtower.weak")} value={report.weak.length} />
-          <StatCard icon={<Repeat className="size-5" />} tone="warning" label={t("watchtower.reused")} value={reusedIds.size} />
           <StatCard
             icon={<ShieldX className="size-5" />}
             tone="danger"
             label={t("watchtower.breached")}
             value={breaches ? breaches.breached.length : null}
+            placeholder={t("watchtower.notChecked")}
+          />
+          <StatCard
+            icon={<Globe className="size-5" />}
+            tone="danger"
+            label={t("watchtower.compromised")}
+            value={breaches ? breaches.compromised.length : null}
+            placeholder={t("watchtower.notChecked")}
+          />
+          <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("watchtower.weak")} value={report.weak.length} />
+          <StatCard icon={<Repeat className="size-5" />} tone="warning" label={t("watchtower.reused")} value={reusedIds.size} />
+          <StatCard icon={<LockOpen className="size-5" />} tone="warning" label={t("watchtower.unsecured")} value={report.unsecured.length} />
+          <StatCard
+            icon={<KeyRound className="size-5" />}
+            tone="info"
+            label={t("watchtower.twoFactor")}
+            value={breaches ? breaches.twoFactor.length : null}
             placeholder={t("watchtower.notChecked")}
           />
         </div>
@@ -82,7 +111,7 @@ export function Watchtower() {
           </Button>
         </div>
 
-        {problems.size === 0 ? (
+        {!anything ? (
           <div className="mt-10 flex flex-col items-center text-center">
             <CircleCheck className="size-10 text-success" />
             <p className="mt-3 text-sm font-medium">{t("watchtower.allGood")}</p>
@@ -96,6 +125,17 @@ export function Watchtower() {
                 entries={breaches.breached.map(([id, count]) => ({
                   item: byId.get(id),
                   note: t("watchtower.breachedSeen", { count, formatted: count.toLocaleString(i18n.language) }),
+                }))}
+                tone="danger"
+              />
+            )}
+            {breaches && breaches.compromised.length > 0 && (
+              <IssueList
+                title={t("watchtower.compromised")}
+                hint={t("watchtower.compromisedHint")}
+                entries={breaches.compromised.map((issue) => ({
+                  item: byId.get(issue.id),
+                  note: t("watchtower.compromisedNote", { site: issue.site, date: issue.date ? day(issue.date) : "" }),
                 }))}
                 tone="danger"
               />
@@ -114,6 +154,34 @@ export function Watchtower() {
                 hint={t("watchtower.reusedHint")}
                 entries={[...reusedIds.entries()].map(([id, others]) => ({ item: byId.get(id), note: t("watchtower.sharedWith", { count: others }) }))}
                 tone="warning"
+              />
+            )}
+            {report.unsecured.length > 0 && (
+              <IssueList
+                title={t("watchtower.unsecured")}
+                hint={t("watchtower.unsecuredHint")}
+                entries={report.unsecured.map((id) => ({ item: byId.get(id) }))}
+                tone="warning"
+              />
+            )}
+            {report.expiring.length > 0 && (
+              <IssueList
+                title={t("watchtower.expiring")}
+                hint={t("watchtower.expiringHint")}
+                entries={report.expiring.map((e) => ({
+                  item: byId.get(e.id),
+                  note: t(e.expired ? "watchtower.expiredOn" : "watchtower.expiresOn", { date: day(e.expiresAt) }),
+                }))}
+                tone="warning"
+                icon={<CalendarClock className="size-4" />}
+              />
+            )}
+            {breaches && breaches.twoFactor.length > 0 && (
+              <IssueList
+                title={t("watchtower.twoFactor")}
+                hint={t("watchtower.twoFactorHint")}
+                entries={breaches.twoFactor.map((issue) => ({ item: byId.get(issue.id), note: t("watchtower.twoFactorNote", { site: issue.site }) }))}
+                tone="info"
               />
             )}
           </div>
@@ -157,7 +225,7 @@ function StatCard({
   icon: ReactNode;
   label: string;
   value: number | null;
-  tone: "warning" | "danger";
+  tone: "warning" | "danger" | "info";
   placeholder?: string;
 }) {
   const active = value !== null && value > 0;
@@ -166,7 +234,13 @@ function StatCard({
       <div
         className={cx(
           "flex size-9 items-center justify-center rounded-lg",
-          !active ? "bg-panel-3 text-subtle" : tone === "danger" ? "bg-danger-soft text-danger" : "bg-warning-soft text-warning",
+          !active
+            ? "bg-panel-3 text-subtle"
+            : tone === "danger"
+              ? "bg-danger-soft text-danger"
+              : tone === "info"
+                ? "bg-accent-soft text-accent"
+                : "bg-warning-soft text-warning",
         )}
       >
         {icon}
@@ -182,17 +256,27 @@ function IssueList({
   hint,
   entries,
   tone,
+  icon,
 }: {
   title: string;
   hint: string;
   entries: { item: ItemSummary | undefined; note?: string }[];
-  tone: "warning" | "danger";
+  tone: "warning" | "danger" | "info";
+  icon?: ReactNode;
 }) {
   const setView = useApp((s) => s.setView);
   const select = useApp((s) => s.select);
   return (
     <div>
-      <h3 className={cx("text-sm font-semibold", tone === "danger" ? "text-danger" : "text-warning")}>{title}</h3>
+      <h3
+        className={cx(
+          "flex items-center gap-1.5 text-sm font-semibold",
+          tone === "danger" ? "text-danger" : tone === "info" ? "text-accent" : "text-warning",
+        )}
+      >
+        {icon}
+        {title}
+      </h3>
       <p className="mt-0.5 text-xs text-muted">{hint}</p>
       <div className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line">
         {entries

@@ -315,11 +315,25 @@ export interface HealthReport {
   checked: number;
   weak: string[];
   reused: string[][];
+  /** Items with a website on plain http. */
+  unsecured: string[];
+  expiring: { id: string; expiresAt: number; expired: boolean }[];
+}
+
+export interface SiteIssue {
+  id: string;
+  site: string;
+  /** Breach date (YYYY-MM-DD), for breached websites. */
+  date?: string;
 }
 
 export interface BreachReport {
   checked: number;
   breached: [string, number][];
+  /** Websites breached after the item's password was set. */
+  compromised: SiteIssue[];
+  /** Websites offering one-time codes the item does not have. */
+  twoFactor: SiteIssue[];
 }
 
 export interface ImportSummary {

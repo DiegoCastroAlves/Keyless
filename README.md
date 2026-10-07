@@ -21,7 +21,9 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Continue with Google to create or find your account (the master password
   and Secret Key still protect the vault)
 - Watchtower: weak, reused and breached passwords (Have I Been Pwned,
-  k-anonymity)
+  k-anonymity), websites breached since the password was set, websites
+  offering two-factor codes the item lacks, websites without HTTPS, and cards
+  or documents about to expire
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)
 - Encrypted backups (`.keyless`) with a separate backup password
 - Auto-lock on inactivity, sleep and screen lock; clipboard auto-clear that
