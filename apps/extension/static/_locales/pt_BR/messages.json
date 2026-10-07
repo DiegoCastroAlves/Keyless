@@ -243,5 +243,84 @@
   },
   "chooseLoginToUpdate": {
     "message": "Escolha o login que vai ser atualizado."
+  },
+  "settings": {
+    "message": "Configurações"
+  },
+  "back": {
+    "message": "Voltar"
+  },
+  "onSite": {
+    "message": "Em $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "siteShow": {
+    "message": "Mostrar o Keyless nos campos deste site"
+  },
+  "siteSave": {
+    "message": "Oferecer para salvar logins neste site"
+  },
+  "inPages": {
+    "message": "Nas páginas"
+  },
+  "setOfferSave": {
+    "message": "Oferecer para salvar logins"
+  },
+  "setSignInCard": {
+    "message": "Mostrar o cartão de login nas páginas de entrada"
+  },
+  "setAutoOpen": {
+    "message": "Abrir a lista ao clicar em um campo de login"
+  },
+  "setAutoSubmit": {
+    "message": "\"Entrar\" no cartão também envia o formulário"
+  },
+  "setCopyTotp": {
+    "message": "Copiar a senha de uso único depois de preencher"
+  },
+  "browserSection": {
+    "message": "Navegador"
+  },
+  "browserManager": {
+    "message": "O gerenciador de senhas do navegador"
+  },
+  "browserManagerOn": {
+    "message": "Ligado: o navegador também oferece salvar e preencher senhas, endereços e cartões, além do Keyless."
+  },
+  "browserManagerOff": {
+    "message": "Desligado: só o Keyless salva e preenche senhas."
+  },
+  "browserManagerOther": {
+    "message": "Controlado por outra extensão ou pela sua organização."
+  },
+  "turnOff": {
+    "message": "Desligar"
+  },
+  "turnOn": {
+    "message": "Ligar de novo"
+  },
+  "hiddenSites": {
+    "message": "Sites onde o Keyless fica oculto"
+  },
+  "neverSaveSites": {
+    "message": "Sites onde o Keyless nunca oferece salvar"
+  },
+  "noSites": {
+    "message": "Nenhum."
+  },
+  "remove": {
+    "message": "Remover"
+  },
+  "neverForSite": {
+    "message": "Nunca em $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
   }
 }

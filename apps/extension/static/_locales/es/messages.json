@@ -243,5 +243,84 @@
   },
   "chooseLoginToUpdate": {
     "message": "Elige el inicio de sesión que quieres actualizar."
+  },
+  "settings": {
+    "message": "Ajustes"
+  },
+  "back": {
+    "message": "Volver"
+  },
+  "onSite": {
+    "message": "En $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "siteShow": {
+    "message": "Mostrar Keyless en los campos de este sitio"
+  },
+  "siteSave": {
+    "message": "Ofrecer guardar inicios de sesión en este sitio"
+  },
+  "inPages": {
+    "message": "En las páginas web"
+  },
+  "setOfferSave": {
+    "message": "Ofrecer guardar inicios de sesión"
+  },
+  "setSignInCard": {
+    "message": "Mostrar la tarjeta de inicio de sesión en las páginas de acceso"
+  },
+  "setAutoOpen": {
+    "message": "Abrir la lista al hacer clic en un campo de acceso"
+  },
+  "setAutoSubmit": {
+    "message": "\"Iniciar sesión\" en la tarjeta también envía el formulario"
+  },
+  "setCopyTotp": {
+    "message": "Copiar la contraseña de un solo uso después de rellenar"
+  },
+  "browserSection": {
+    "message": "Navegador"
+  },
+  "browserManager": {
+    "message": "El gestor de contraseñas del navegador"
+  },
+  "browserManagerOn": {
+    "message": "Activado: el navegador también ofrece guardar y rellenar contraseñas, direcciones y tarjetas, además de Keyless."
+  },
+  "browserManagerOff": {
+    "message": "Desactivado: solo Keyless guarda y rellena contraseñas."
+  },
+  "browserManagerOther": {
+    "message": "Lo controla otra extensión o tu organización."
+  },
+  "turnOff": {
+    "message": "Desactivar"
+  },
+  "turnOn": {
+    "message": "Volver a activar"
+  },
+  "hiddenSites": {
+    "message": "Sitios donde Keyless está oculto"
+  },
+  "neverSaveSites": {
+    "message": "Sitios donde Keyless nunca ofrece guardar"
+  },
+  "noSites": {
+    "message": "Ninguno."
+  },
+  "remove": {
+    "message": "Quitar"
+  },
+  "neverForSite": {
+    "message": "Nunca en $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
   }
 }

@@ -273,8 +273,14 @@ must be running, for what it needs.
 - **Pinned app key.** If the app answers with a different key than the one
   pinned at pairing, the extension refuses to talk to it until the user pairs
   again.
-- **Copying** from the popup is done by the app, so the clipboard is kept out
-  of history and cleared automatically.
+- **Copying** from the popup, and of the one-time password after filling a
+  login, is done by the app, so the clipboard is kept out of history and
+  cleared automatically.
+- **Extension settings** (sites where Keyless is hidden or never offers to
+  save, and the like) stay in the extension's own storage in that browser,
+  which content scripts cannot read; pages only learn what applies to them.
+  Turning off the browser's own password manager needs the optional
+  `privacy` permission, asked only when the user chooses to.
 - Turning off "Browser integration" in Settings removes the host manifests,
   so browsers can no longer start the bridge.
 

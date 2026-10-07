@@ -23,6 +23,12 @@ export interface PageState {
   /** Saved credit cards and identities (for payment and address forms). */
   cards?: number;
   identities?: number;
+  /** The user asked Keyless to stay out of this site. */
+  hidden?: boolean;
+  /** Show the sign-in card on login forms. */
+  card?: boolean;
+  /** Open the list when the user clicks a login field. */
+  autoOpen?: boolean;
 }
 
 export type FormKind = "card" | "identity";
@@ -102,3 +108,7 @@ export interface Credentials {
   password: string;
   totp: string | null;
 }
+
+/** The browser's own password manager: on, off, controlled by someone else,
+ * or unknown until the "privacy" permission is granted. */
+export type BrowserManager = "on" | "off" | "other" | "unknown";

@@ -582,6 +582,18 @@ button {
   font-size: 12px;
 }
 
+.link.never {
+  display: block;
+  margin: 8px 0 -4px -6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.link.never:hover {
+  color: var(--text);
+}
+
 .done {
   margin: 6px 2px 2px;
   color: var(--accent);

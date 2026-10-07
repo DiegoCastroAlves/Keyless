@@ -27,8 +27,11 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Auto-lock on inactivity, sleep and screen lock; clipboard auto-clear that
   stays out of clipboard history
 - Browser extension for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: fills
-  logins on the matching site, with an end-to-end encrypted, paired connection
-  to the desktop app
+  logins, cards and addresses on the matching site, offers to save new and
+  changed logins, suggests strong passwords, and copies one-time passwords,
+  with an end-to-end encrypted, paired connection to the desktop app. Its
+  settings let you hide it on chosen sites, never save on others, and turn
+  off the browser's own password manager
 - English, Spanish and Brazilian Portuguese (follows the system language by default)
 
 ## Install

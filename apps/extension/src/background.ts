@@ -17,7 +17,8 @@
 // user itself (the system's password prompt or its own small window).
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
-import type { Credentials, FormItems, InlineState, Login, PageState, SaveCandidate, SaveState, Status, Vault } from "./types";
+import { loadSettings, siteKey, updateSettings } from "./settings";
+import type { BrowserManager, Credentials, FormItems, InlineState, Login, PageState, SaveCandidate, SaveState, Status, Vault } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
@@ -320,12 +321,16 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
 /** Fills a login into the top frame of a tab. The content script checks that
  * the page is still on the origin the credentials were checked against. */
 async function fillTab(tabId: number, url: string, id: string, options: { submit?: boolean; anySite?: boolean } = {}): Promise<void> {
+  const settings = await loadSettings();
   const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
   await chrome.tabs.sendMessage(
     tabId,
-    { type: "keyless-fill", ...credentials, origin: new URL(url).origin, submit: Boolean(options.submit) },
+    { type: "keyless-fill", ...credentials, origin: new URL(url).origin, submit: Boolean(options.submit) && settings.autoSubmit },
     { frameId: 0 },
   );
+  // Ready to paste on the next step of the sign-in. Copied by the app, which
+  // clears the clipboard after a while.
+  if (settings.copyTotp && credentials.totp) await call("copy", { id, field: "totp" }).catch(() => undefined);
 }
 
 // ----- Menus inside pages -------------------------------------------------------
@@ -550,6 +555,43 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void chrome.storage.session.remove([captureKey(tabId), usernameKey(tabId), suggestionKey(tabId)]).catch(() => undefined);
 });
 
+// ----- The browser's own password manager ------------------------------------------
+//
+// It offers to save and fill passwords, addresses and cards too, on top of the
+// Keyless menus. The user can turn it off from the popup; this needs the
+// optional "privacy" permission.
+
+type BrowserSetting = chrome.types.ChromeSetting<boolean>;
+
+function browserSettings(): BrowserSetting[] {
+  const services = chrome.privacy?.services;
+  if (!services) return [];
+  // Firefox has only the first one.
+  return [services.passwordSavingEnabled, services.autofillAddressEnabled, services.autofillCreditCardEnabled].filter(
+    (s): s is BrowserSetting => Boolean(s),
+  );
+}
+
+async function browserManagerState(): Promise<BrowserManager> {
+  if (!(await chrome.permissions.contains({ permissions: ["privacy"] }))) return "unknown";
+  const details = await Promise.all(browserSettings().map((s) => s.get({})));
+  if (details.some((d) => d.levelOfControl === "controlled_by_other_extensions" || d.levelOfControl === "not_controllable")) return "other";
+  return details.some((d) => d.value) ? "on" : "off";
+}
+
+async function applyBrowserManager(): Promise<void> {
+  const wanted = await sessionGet<boolean>("browserManagerWanted");
+  if (wanted === undefined || !(await chrome.permissions.contains({ permissions: ["privacy"] }))) return;
+  await chrome.storage.session.remove("browserManagerWanted");
+  for (const setting of browserSettings()) {
+    // Turning it back on hands the setting back to the browser.
+    if (wanted) await setting.clear({});
+    else await setting.set({ value: false });
+  }
+}
+
+chrome.permissions.onAdded.addListener(() => void applyBrowserManager().catch(() => undefined));
+
 // ----- Message routing ----------------------------------------------------------
 
 type Reply = { ok: true; data?: unknown } | { ok: false; error: string };
@@ -590,6 +632,20 @@ async function handlePopup(message: any): Promise<Reply> {
     }
     case "copy":
       return { ok: true, data: await call("copy", { id: String(message.id), field: String(message.field) }) };
+    case "settings": {
+      const tab = await activeTab();
+      return { ok: true, data: { settings: await loadSettings(), site: siteKey(isWebPage(tab?.url) ? tab.url : null) } };
+    }
+    case "set_settings":
+      return { ok: true, data: await updateSettings(message.settings) };
+    case "browser_manager":
+      return { ok: true, data: await browserManagerState() };
+    case "set_browser_manager":
+      // Applied now if the "privacy" permission is there, otherwise once the
+      // user grants it (the popup asks).
+      await chrome.storage.session.set({ browserManagerWanted: message.enabled === true });
+      await applyBrowserManager();
+      return { ok: true };
     default:
       return { ok: false, error: "bad_request" };
   }
@@ -645,6 +701,16 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
     case "dismiss_save":
       await setCapture(tab.id, null);
       return { ok: true };
+    case "never_save": {
+      // Never offered again on this site (removable in the popup's settings).
+      const capture = await getCapture(tab.id);
+      const site = siteKey(capture?.url);
+      if (!capture || !site || !sameSite(capture, tab.url)) return { ok: false, error: "expired" };
+      const settings = await loadSettings();
+      await updateSettings({ neverSave: [...settings.neverSave, site] });
+      await setCapture(tab.id, null);
+      return { ok: true };
+    }
     case "suggest": {
       // Generated by the app; kept here so only what was shown gets filled.
       const maxLength = Number(message.maxLength) || 0;
@@ -693,6 +759,9 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       await requestUnlock();
       return { ok: true };
     case "capture": {
+      const settings = await loadSettings();
+      const site = siteKey(sender.url);
+      if (!settings.offerSave || !site || settings.neverSave.includes(site) || settings.hidden.includes(site)) return { ok: true };
       const text = (value: unknown) => (typeof value === "string" ? value : "");
       await onCapture(sender.tab.id, sender.url, text(message.username).trim(), text(message.password), text(message.current), message.generated === true);
       return { ok: true };
@@ -707,7 +776,11 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       return { ok: true, data: await savePending(sender.tab.id, sender.url, message.loginForm === true) };
     case "page_state": {
       const current = await quickStatus();
-      const data: PageState = { state: current.state, count: 0 };
+      const settings = await loadSettings();
+      const site = siteKey(sender.url);
+      const hidden = site !== null && settings.hidden.includes(site);
+      const data: PageState = { state: current.state, count: 0, hidden, card: settings.signInCard && !hidden, autoOpen: settings.autoOpen };
+      if (hidden) return { ok: true, data };
       if (current.state === "ready") {
         data.count = (await call<Login[]>("match", { url: sender.url })).length;
         const items = await getFormItems().catch(() => null);

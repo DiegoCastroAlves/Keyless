@@ -744,7 +744,7 @@ function closeMenu(refocus = false) {
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
   if (field !== current || document.activeElement !== field || menu?.open || !userWentTo(field)) return;
-  if (!fieldKind(field) || !offers(state, field)) return;
+  if (!fieldKind(field) || !offers(state, field) || state?.autoOpen === false || state?.hidden) return;
   openMenu();
 }
 
@@ -792,7 +792,7 @@ async function scan() {
   if (card?.open && !hasLoginForm()) card.hide();
   if (cardDismissed || card?.open || !hasLoginForm()) return;
   const state = await getPageState();
-  if (cardDismissed || card?.open || state?.state !== "ready" || state.count === 0) return;
+  if (cardDismissed || card?.open || state?.state !== "ready" || state.count === 0 || state.card === false) return;
   card ??= new Frame("card");
   card.show();
 }
@@ -820,12 +820,16 @@ document.addEventListener(
   (e) => {
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || !visible(target) || !(fieldKind(target) || formKindOf(target))) return;
-    mount();
     if (current !== target) closeMenu();
     current = target;
-    button.style.display = "flex";
-    place();
-    void getPageState().then((state) => current === target && renderButton(kindFor(state)));
+    void getPageState().then((state) => {
+      // Shown once Keyless knows the site, unless the user hid it there.
+      if (current !== target || state?.hidden) return;
+      mount();
+      button.style.display = "flex";
+      renderButton(kindFor(state));
+      place();
+    });
     // Not when the page focuses a field by itself: the card is there for that.
     if (!filling && !refocusing) void autoOpen(target);
   },

@@ -580,6 +580,12 @@ function renderSave() {
   action.addEventListener("click", () => void doSave());
   footer.append(action);
   box.append(footer);
+  const never = el("button", { type: "button", className: "link never", textContent: t("neverForSite", s.host) });
+  never.addEventListener("click", async () => {
+    await send({ type: "never_save" });
+    toParent("close");
+  });
+  box.append(never);
   app.replaceChildren(box);
 }
 

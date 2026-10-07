@@ -243,5 +243,84 @@
   },
   "chooseLoginToUpdate": {
     "message": "Choose the login to update."
+  },
+  "settings": {
+    "message": "Settings"
+  },
+  "back": {
+    "message": "Back"
+  },
+  "onSite": {
+    "message": "On $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "siteShow": {
+    "message": "Show Keyless in this site's fields"
+  },
+  "siteSave": {
+    "message": "Offer to save logins on this site"
+  },
+  "inPages": {
+    "message": "In web pages"
+  },
+  "setOfferSave": {
+    "message": "Offer to save logins"
+  },
+  "setSignInCard": {
+    "message": "Show the sign-in card on login pages"
+  },
+  "setAutoOpen": {
+    "message": "Open the list when you click a login field"
+  },
+  "setAutoSubmit": {
+    "message": "\"Sign in\" on the card also submits the form"
+  },
+  "setCopyTotp": {
+    "message": "Copy the one-time password after filling a login"
+  },
+  "browserSection": {
+    "message": "Browser"
+  },
+  "browserManager": {
+    "message": "The browser's own password manager"
+  },
+  "browserManagerOn": {
+    "message": "On: the browser also offers to save and fill passwords, addresses and cards, on top of Keyless."
+  },
+  "browserManagerOff": {
+    "message": "Off: Keyless is the only one saving and filling passwords."
+  },
+  "browserManagerOther": {
+    "message": "Controlled by another extension or by your organization."
+  },
+  "turnOff": {
+    "message": "Turn off"
+  },
+  "turnOn": {
+    "message": "Turn back on"
+  },
+  "hiddenSites": {
+    "message": "Sites where Keyless is hidden"
+  },
+  "neverSaveSites": {
+    "message": "Sites where Keyless never offers to save"
+  },
+  "noSites": {
+    "message": "None."
+  },
+  "remove": {
+    "message": "Remove"
+  },
+  "neverForSite": {
+    "message": "Never for $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
   }
 }

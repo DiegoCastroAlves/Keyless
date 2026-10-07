@@ -19,6 +19,8 @@ const base = {
   icons: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/icon-16.png", 32: "icons/icon-32.png" } },
   permissions: ["nativeMessaging", "tabs", "storage"],
+  // Asked only if the user turns off the browser's own password manager.
+  optional_permissions: ["privacy"],
   host_permissions: ["http://*/*", "https://*/*"],
   content_scripts: [{ matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: false }],
   // The Keyless menus shown inside pages (see src/inline.ts).
