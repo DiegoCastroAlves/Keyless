@@ -245,6 +245,7 @@ const en = {
     unlock: "Unlock",
     unlocking: "Unlocking…",
     systemUnlock: "Unlock with computer password",
+    systemUnlockHello: "Unlock with Windows Hello",
     signOutTitle: "Sign out of this device?",
     signOutBody:
       "Your data stays safe in your account. To sign in again you will need your email, Secret Key and master password.",
@@ -645,7 +646,11 @@ const en = {
     systemUnlockHint:
       "After you unlock with your master password, Keyless can also be unlocked with your computer password (or fingerprint, if your system uses one). The master password is still required after Keyless restarts, after the computer sleeps and at least once a day.",
     systemUnlockUnsupported:
-      "Not available in this installation: it needs the Keyless package for your Linux distribution (not the AppImage). Windows support is coming.",
+      "Not available here: on Linux it needs the Keyless package for your distribution (not the AppImage); on Windows, set up Windows Hello first.",
+    systemUnlockHello: "Unlock with Windows Hello",
+    systemUnlockHelloHint:
+      "After you unlock with your master password, Keyless can also be unlocked with Windows Hello (face, fingerprint or PIN). The master password is still required after Keyless restarts, after the computer sleeps and at least once a day.",
+    systemUnlockHelloOn: "You can now unlock Keyless with Windows Hello.",
     systemUnlockEnable: "Turn on",
     systemUnlockOn: "You can now unlock Keyless with your computer password.",
     quickAccess: "Quick Access",

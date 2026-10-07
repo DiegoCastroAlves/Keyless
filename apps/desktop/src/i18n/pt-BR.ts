@@ -247,6 +247,7 @@ const ptBR: Translations = {
     unlock: "Desbloquear",
     unlocking: "Desbloqueando…",
     systemUnlock: "Desbloquear com a senha do computador",
+    systemUnlockHello: "Desbloquear com o Windows Hello",
     signOutTitle: "Sair deste dispositivo?",
     signOutBody:
       "Seus dados continuam seguros na sua conta. Para entrar novamente, você vai precisar do seu e-mail, da sua Chave Secreta e da sua senha mestra.",
@@ -648,7 +649,11 @@ const ptBR: Translations = {
     systemUnlockHint:
       "Depois que você desbloquear com a senha mestra, o Keyless também poderá ser desbloqueado com a senha do computador (ou com a impressão digital, se o seu sistema usar uma). A senha mestra continua sendo exigida depois que o Keyless reinicia, depois que o computador entra em suspensão e pelo menos uma vez por dia.",
     systemUnlockUnsupported:
-      "Indisponível nesta instalação: é preciso usar o pacote do Keyless para a sua distribuição Linux (não o AppImage). O suporte ao Windows está a caminho.",
+      "Indisponível aqui: no Linux é preciso o pacote do Keyless para a sua distribuição (não o AppImage); no Windows, configure antes o Windows Hello.",
+    systemUnlockHello: "Desbloquear com o Windows Hello",
+    systemUnlockHelloHint:
+      "Depois de desbloquear com a senha mestra, você também pode desbloquear o Keyless com o Windows Hello (rosto, digital ou PIN). A senha mestra é pedida de novo quando o Keyless reinicia, depois que o computador suspende e pelo menos uma vez por dia.",
+    systemUnlockHelloOn: "Agora você pode desbloquear o Keyless com o Windows Hello.",
     systemUnlockEnable: "Ativar",
     systemUnlockOn: "Agora você pode desbloquear o Keyless com a senha do computador.",
     quickAccess: "Acesso Rápido",

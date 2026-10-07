@@ -59,6 +59,8 @@ export interface AppStatus {
   systemUnlock: boolean;
   /** This installation supports unlocking with the computer's password. */
   systemUnlockSupported: boolean;
+  /** How: the computer password (Linux) or Windows Hello. */
+  systemUnlockMethod: "computer_password" | "windows_hello";
 }
 
 export interface CreatedAccount {

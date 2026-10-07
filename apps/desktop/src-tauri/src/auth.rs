@@ -40,6 +40,8 @@ pub struct AppStatus {
     pub system_unlock: bool,
     /// This installation supports unlocking with the computer's password.
     pub system_unlock_supported: bool,
+    /// "computer_password" (Linux, polkit) or "windows_hello".
+    pub system_unlock_method: &'static str,
 }
 
 #[derive(Serialize)]
@@ -107,6 +109,7 @@ pub async fn status(state: &AppState) -> AppResult<AppStatus> {
         has_secret_key,
         system_unlock: system_unlock::available(state),
         system_unlock_supported: system_unlock::supported(),
+        system_unlock_method: system_unlock::method(),
     })
 }
 
@@ -428,7 +431,7 @@ pub async fn unlock_with_system(app: &AppHandle) -> AppResult<()> {
     if !system_unlock::available(&state) {
         return Err(unavailable());
     }
-    if !system_unlock::authenticate().await? {
+    if !system_unlock::authenticate(app).await? {
         return Err(AppError::Cancelled);
     }
     // Taken only after the system confirmed the user, and checked again in

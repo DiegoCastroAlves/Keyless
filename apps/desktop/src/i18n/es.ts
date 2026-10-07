@@ -247,6 +247,7 @@ const es: Translations = {
     unlock: "Desbloquear",
     unlocking: "Desbloqueando…",
     systemUnlock: "Desbloquear con la contraseña del equipo",
+    systemUnlockHello: "Desbloquear con Windows Hello",
     signOutTitle: "¿Cerrar sesión en este dispositivo?",
     signOutBody:
       "Tus datos siguen seguros en tu cuenta. Para volver a iniciar sesión necesitarás tu correo, tu clave secreta y tu contraseña maestra.",
@@ -648,7 +649,11 @@ const es: Translations = {
     systemUnlockHint:
       "Después de desbloquear con tu contraseña maestra, Keyless también puede desbloquearse con la contraseña de tu equipo (o la huella, si tu sistema la usa). La contraseña maestra sigue siendo necesaria cuando Keyless se reinicia, cuando el equipo se suspende y al menos una vez al día.",
     systemUnlockUnsupported:
-      "No disponible en esta instalación: necesita el paquete de Keyless para tu distribución de Linux (no el AppImage). Pronto llegará a Windows.",
+      "No disponible aquí: en Linux necesita el paquete de Keyless para tu distribución (no el AppImage); en Windows, configura antes Windows Hello.",
+    systemUnlockHello: "Desbloquear con Windows Hello",
+    systemUnlockHelloHint:
+      "Después de desbloquear con tu contraseña maestra, también puedes desbloquear Keyless con Windows Hello (rostro, huella o PIN). La contraseña maestra se pide de nuevo al reiniciar Keyless, después de suspender el equipo y al menos una vez al día.",
+    systemUnlockHelloOn: "Ya puedes desbloquear Keyless con Windows Hello.",
     systemUnlockEnable: "Activar",
     systemUnlockOn: "Ahora puedes desbloquear Keyless con la contraseña de tu equipo.",
     quickAccess: "Acceso rápido",

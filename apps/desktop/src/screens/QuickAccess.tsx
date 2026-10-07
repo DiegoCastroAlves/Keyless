@@ -387,7 +387,7 @@ function QuickUnlock({
           disabled={busy}
           className="mt-2 flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-accent hover:bg-panel-3 disabled:opacity-50"
         >
-          <Fingerprint className="size-4" /> {t("lock.systemUnlock")}
+          <Fingerprint className="size-4" /> {status.systemUnlockMethod === "windows_hello" ? t("lock.systemUnlockHello") : t("lock.systemUnlock")}
         </button>
       )}
       <p className="mt-2 min-h-5 text-center text-xs text-danger">{error}</p>

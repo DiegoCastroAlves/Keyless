@@ -165,7 +165,8 @@ account has, approximate item sizes (padded), and when items change.
   warning; the file is written readable only by the current user.
 - Optional unlock with the computer password (Linux packages, via a polkit
   action with `auth_self`: the user's own password or fingerprint, never
-  cached, active local session only). After the master password unlocked the
+  cached, active local session only) or Windows Hello (the system's user
+  consent prompt: face, fingerprint or PIN). After the master password unlocked the
   vault, locking can keep the account keys in memory, never on disk, so polkit
   can confirm the user instead. The kept keys are dropped when Keyless quits,
   when the computer sleeps, on sign out, when the setting is turned off and 24

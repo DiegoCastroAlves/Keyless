@@ -146,7 +146,7 @@ export function LockScreen({ status }: { status: AppStatus }) {
       {status.systemUnlock && (
         <Button size="lg" className="mt-2 w-full" onClick={unlockWithSystem} loading={systemBusy} disabled={busy}>
           <Fingerprint className="size-4" />
-          {t("lock.systemUnlock")}
+          {status.systemUnlockMethod === "windows_hello" ? t("lock.systemUnlockHello") : t("lock.systemUnlock")}
         </Button>
       )}
       <div className="mt-6 text-center">

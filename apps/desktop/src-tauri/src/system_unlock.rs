@@ -6,7 +6,8 @@
 //! only needs the operating system to confirm the user. On Linux that is a
 //! polkit action with `auth_self`: the user's own password (or fingerprint,
 //! when the system is set up for it), never cached, and only in the active
-//! local session.
+//! local session. On Windows it is Windows Hello (face, fingerprint or PIN),
+//! through the system's user consent prompt.
 //!
 //! The kept keys are dropped, so the master password is needed again:
 //! - when Keyless quits or the computer restarts (they only live in memory);
@@ -21,6 +22,8 @@
 use std::time::{Duration, SystemTime};
 
 use keyless_core::account::UnlockedAccount;
+
+use tauri::AppHandle;
 
 use crate::{error::AppResult, state::AppState};
 
@@ -75,10 +78,20 @@ pub fn supported() -> bool {
             .iter()
             .any(|dir| std::path::Path::new(dir).join(POLKIT_POLICY_FILE).is_file())
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        hello::supported()
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
     {
         false
     }
+}
+
+/// How the system confirms the user here, for the UI: "computer_password"
+/// (polkit) or "windows_hello".
+pub fn method() -> &'static str {
+    if cfg!(windows) { "windows_hello" } else { "computer_password" }
 }
 
 /// Drops the kept keys (they are wiped from memory on drop).
@@ -97,14 +110,74 @@ pub fn available(state: &AppState) -> bool {
 
 /// Asks the operating system to confirm the user. `Ok(false)` when the user
 /// cancelled or failed to authenticate.
-pub async fn authenticate() -> AppResult<bool> {
+pub async fn authenticate(app: &AppHandle) -> AppResult<bool> {
     #[cfg(target_os = "linux")]
     {
+        let _ = app;
         linux::authenticate().await
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
     {
+        hello::authenticate(app).await
+    }
+    #[cfg(not(any(target_os = "linux", windows)))]
+    {
+        let _ = app;
         Err(crate::error::AppError::Invalid(crate::error::Msg::new("system_unlock_unavailable")))
+    }
+}
+
+#[cfg(windows)]
+mod hello {
+    use std::sync::OnceLock;
+
+    use tauri::{AppHandle, Manager};
+    use windows::{
+        Security::Credentials::UI::{UserConsentVerificationResult, UserConsentVerifier, UserConsentVerifierAvailability},
+        Win32::{Foundation::HWND, System::WinRT::IUserConsentVerifierInterop},
+        core::{HSTRING, factory},
+    };
+    use windows_future::IAsyncOperation;
+
+    use crate::error::{AppError, AppResult, Msg};
+
+    /// Windows Hello is set up for this user (checked once: asking takes a
+    /// moment).
+    pub fn supported() -> bool {
+        static AVAILABLE: OnceLock<bool> = OnceLock::new();
+        *AVAILABLE.get_or_init(|| {
+            UserConsentVerifier::CheckAvailabilityAsync()
+                .and_then(|operation| operation.join())
+                .is_ok_and(|availability| availability == UserConsentVerifierAvailability::Available)
+        })
+    }
+
+    /// The Windows Hello prompt, in front of Keyless's window (the unlock
+    /// prompt for the browser, or the main window).
+    pub async fn authenticate(app: &AppHandle) -> AppResult<bool> {
+        let window = [crate::unlock_prompt::LABEL, "main"]
+            .iter()
+            .filter_map(|label| app.get_webview_window(label))
+            .find(|w| w.is_visible().unwrap_or(false))
+            .and_then(|w| w.hwnd().ok())
+            .map(|hwnd| hwnd.0 as isize);
+        let failed = |e: windows::core::Error| AppError::Invalid(Msg::new("system_unlock_failed").with("detail", e.message()));
+        let result = tokio::task::spawn_blocking(move || -> windows::core::Result<UserConsentVerificationResult> {
+            let message = HSTRING::from("Keyless");
+            let operation: IAsyncOperation<UserConsentVerificationResult> = match window {
+                // SAFETY: a window handle of this process, alive while the
+                // prompt is shown (the caller waits for it).
+                Some(hwnd) => unsafe {
+                    factory::<UserConsentVerifier, IUserConsentVerifierInterop>()?.RequestVerificationForWindowAsync(HWND(hwnd as _), &message)?
+                },
+                None => UserConsentVerifier::RequestVerificationAsync(&message)?,
+            };
+            operation.join()
+        })
+        .await
+        .map_err(|_| AppError::Invalid(Msg::new("system_unlock_failed")))?
+        .map_err(failed)?;
+        Ok(result == UserConsentVerificationResult::Verified)
     }
 }
 

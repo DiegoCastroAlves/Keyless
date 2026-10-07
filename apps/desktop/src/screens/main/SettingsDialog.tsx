@@ -409,6 +409,7 @@ function SystemUnlockSection() {
   const { t } = useTranslation();
   const settings = useApp((s) => s.settings);
   const supported = useApp((s) => s.status?.systemUnlockSupported ?? false);
+  const hello = useApp((s) => s.status?.systemUnlockMethod === "windows_hello");
   const [prompt, setPrompt] = useState(false);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -435,7 +436,7 @@ function SystemUnlockSection() {
     try {
       saved(await api.setSystemUnlock(true, password));
       close();
-      toast.success(t("settings.systemUnlockOn"));
+      toast.success(hello ? t("settings.systemUnlockHelloOn") : t("settings.systemUnlockOn"));
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -448,17 +449,17 @@ function SystemUnlockSection() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <Fingerprint className="size-4 text-accent" /> {t("settings.systemUnlock")}
+            <Fingerprint className="size-4 text-accent" /> {hello ? t("settings.systemUnlockHello") : t("settings.systemUnlock")}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            {supported ? t("settings.systemUnlockHint") : t("settings.systemUnlockUnsupported")}
+            {supported ? (hello ? t("settings.systemUnlockHelloHint") : t("settings.systemUnlockHint")) : t("settings.systemUnlockUnsupported")}
           </p>
         </div>
         <Switch
           checked={settings.system_unlock}
           disabled={!supported && !settings.system_unlock}
           onChange={(on) => (on ? setPrompt(true) : void turnOff())}
-          label={t("settings.systemUnlock")}
+          label={hello ? t("settings.systemUnlockHello") : t("settings.systemUnlock")}
         />
       </div>
       {prompt && !settings.system_unlock && (
