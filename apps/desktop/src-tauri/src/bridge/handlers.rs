@@ -54,6 +54,15 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             find(app, Query::Text(query)).await
         }
+        "sites" => {
+            // Each host's registrable domain (Public Suffix List), so the
+            // extension can tell whether two pages are the same site.
+            let hosts = args.get("hosts").and_then(Value::as_array).ok_or("bad_request")?;
+            if hosts.len() > 64 {
+                return Err("bad_request");
+            }
+            Ok(hosts.iter().map(|host| Value::String(host.as_str().map(|h| site_of(&h.to_ascii_lowercase())).unwrap_or_default())).collect())
+        }
         "vaults" => super::logins::vaults(app).await,
         "form_items" => super::forms::list(app).await,
         "form_details" => {
@@ -391,6 +400,11 @@ mod tests {
         // Different sites under a public suffix must not match.
         assert_eq!(match_score(&page("https://alice.github.io"), &url("https://bob.github.io")), 0);
         assert_eq!(match_score(&page("https://foo.co.uk"), &url("https://bar.co.uk")), 0);
+        // The sites the extension compares pages by.
+        assert_eq!(site_of("accounts.google.com"), "google.com");
+        assert_eq!(site_of("alice.github.io"), "alice.github.io");
+        assert_ne!(site_of("victim.vercel.app"), site_of("attacker.vercel.app"));
+        assert_eq!(site_of("[::1]"), "[::1]");
         // Addresses by number are whole hosts, not domains.
         assert_eq!(match_score(&page("http://192.168.1.1"), &url("http://10.0.1.1")), 0);
         assert_eq!(match_score(&page("http://192.168.1.1/admin"), &url("http://192.168.1.1")), 2);

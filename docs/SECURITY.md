@@ -309,7 +309,9 @@ must be running, for what it needs.
   can); card codes, PINs and one-time codes are left out. They wait in the
   browser's session storage, which is kept in memory, for at most 5 minutes.
   The "Save login?" prompt appears only once signing in worked (the form went
-  away, or the next page has no login form) and only on the same site. The
+  away, or the next page has no login form) and only on the same site (as
+  the app works it out with the Public Suffix List, like frames from another
+  site: alice.github.io and bob.github.io are different sites). The
   app compares them with the saved logins; nothing is saved until the user
   chooses to in the prompt, an extension page the web page cannot drive, and
   the prompt itself never receives the password. Only a login saved for that

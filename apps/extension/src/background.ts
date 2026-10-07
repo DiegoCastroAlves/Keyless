@@ -389,7 +389,7 @@ async function tabLogins(tab: chrome.tabs.Tab & { url: string; id: number }): Pr
     for (const login of await call<Login[]>("match", { url: frame.url })) {
       if (seen.has(login.id)) continue;
       seen.add(login.id);
-      const other = frame.frameId !== 0 && siteOf(frame.url) !== siteOf(tab.url);
+      const other = frame.frameId !== 0 && !(await sameSites(frame.url, tab.url));
       result.push({ login: other ? { ...login, frame: new URL(frame.url).hostname } : login, frame });
     }
   }
@@ -500,16 +500,56 @@ async function setCapture(tabId: number, capture: Capture | null): Promise<void>
   else await chrome.storage.session.remove(captureKey(tabId));
 }
 
-/** Rough "same site" for pairing the two steps of a sign-in. */
-function siteOf(url: string): string {
+/** Rough site of a URL, without the Public Suffix List: for titles, and
+ * when the app cannot tell (see `sitesOf`). */
+function roughSite(url: string): string {
   const labels = new URL(url).hostname.split(".");
   const short = labels.length > 2 && labels[labels.length - 1].length === 2 && labels[labels.length - 2].length <= 3;
   return labels.slice(short ? -3 : -2).join(".");
 }
 
+/** Sites the app worked out, by host. */
+const siteCache = new Map<string, string>();
+
+/** Each URL's site (registrable domain) as the app works it out from the
+ * Public Suffix List, so alice.github.io and bob.github.io are different
+ * sites. "" when unknown, which matches nothing. */
+async function sitesOf(...urls: (string | undefined)[]): Promise<string[]> {
+  const hosts = urls.map((url) => {
+    try {
+      return url ? new URL(url).hostname : "";
+    } catch {
+      return "";
+    }
+  });
+  const missing = [...new Set(hosts.filter((host) => host && !siteCache.has(host)))];
+  if (missing.length > 0) {
+    try {
+      const found = await call<unknown[]>("sites", { hosts: missing });
+      if (siteCache.size > 500) siteCache.clear();
+      missing.forEach((host, i) => typeof found[i] === "string" && found[i] && siteCache.set(host, found[i] as string));
+    } catch {
+      // An app from before this: the rough way, as it always was.
+      return urls.map((url) => {
+        try {
+          return url ? roughSite(url) : "";
+        } catch {
+          return "";
+        }
+      });
+    }
+  }
+  return hosts.map((host) => siteCache.get(host) ?? "");
+}
+
+async function sameSites(a: string | undefined, b: string | undefined): Promise<boolean> {
+  const [first, second] = await sitesOf(a, b);
+  return first !== "" && first === second;
+}
+
 /** "accounts.google.com" -> "Google" (the app suggests the same). */
 function suggestedTitle(url: string): string {
-  const name = siteOf(url).split(".")[0];
+  const name = roughSite(url).split(".")[0];
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
@@ -535,7 +575,7 @@ async function onCapture(tabId: number, url: string, username: string, password:
   }
   if (!username) {
     const first = await sessionGet<{ url: string; username: string; at: number }>(usernameKey(tabId));
-    if (first && Date.now() - first.at < USERNAME_TTL_MS && siteOf(first.url) === siteOf(url)) username = first.username;
+    if (first && Date.now() - first.at < USERNAME_TTL_MS && (await sameSites(first.url, url))) username = first.username;
   }
   const previous = await getCapture(tabId);
   const capture: Capture = {
@@ -564,18 +604,19 @@ async function onCapture(tabId: number, url: string, username: string, password:
 
 /** The page the prompt would show on belongs to the site the login was
  * typed in. */
-function sameSite(capture: Capture, url: string | undefined): boolean {
+async function sameSite(capture: Capture, url: string | undefined): Promise<boolean> {
   try {
-    return url !== undefined && new URL(url).protocol === new URL(capture.url).protocol && siteOf(url) === siteOf(capture.url);
+    if (url === undefined || new URL(url).protocol !== new URL(capture.url).protocol) return false;
   } catch {
     return false;
   }
+  return sameSites(url, capture.url);
 }
 
 /** Signing in worked: shows the prompt on the page. */
 async function captureDone(tabId: number, url: string): Promise<void> {
   const capture = await getCapture(tabId);
-  if (!capture || capture.ready || !sameSite(capture, url)) return;
+  if (!capture || capture.ready || !(await sameSite(capture, url))) return;
   capture.ready = true;
   await setCapture(tabId, capture);
   chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
@@ -584,7 +625,7 @@ async function captureDone(tabId: number, url: string): Promise<void> {
 /** A page loaded in the tab: whether it shows the prompt. */
 async function savePending(tabId: number, url: string, loginForm: boolean): Promise<boolean> {
   const capture = await getCapture(tabId);
-  if (!capture || !sameSite(capture, url)) return false;
+  if (!capture || !(await sameSite(capture, url))) return false;
   if (capture.deferred) return capture.url !== url;
   if (!capture.ready) {
     // Back on a login form: signing in failed (the user tries again).
@@ -597,7 +638,7 @@ async function savePending(tabId: number, url: string, loginForm: boolean): Prom
 
 async function saveState(tabId: number, url: string | undefined): Promise<SaveState | null> {
   const capture = await getCapture(tabId);
-  if (!capture || !capture.ready || !sameSite(capture, url)) return null;
+  if (!capture || !capture.ready || !(await sameSite(capture, url))) return null;
   const locked = (await quickStatus()).state !== "ready";
   if (!locked && !capture.check) {
     capture.check = await checkCapture(capture);
@@ -885,7 +926,7 @@ async function handlePopup(message: any): Promise<Reply> {
       if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
       const id = String(message.id);
       const frame = message.anySite ? null : await fillTarget({ ...tab, id: tab.id, url: tab.url }, id);
-      if (frame && frame.frameId !== 0 && siteOf(frame.url) !== siteOf(tab.url) && message.frameConfirmed !== true) {
+      if (frame && frame.frameId !== 0 && message.frameConfirmed !== true && !(await sameSites(frame.url, tab.url))) {
         // A sign-in form from another site inside this page.
         return { ok: false, error: "cross_site_frame" };
       }
@@ -935,7 +976,7 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       return { ok: true, data: await saveState(tab.id, tab.url) };
     case "save": {
       const capture = await getCapture(tab.id);
-      if (!capture || !capture.ready || !sameSite(capture, tab.url)) return { ok: false, error: "expired" };
+      if (!capture || !capture.ready || !(await sameSite(capture, tab.url))) return { ok: false, error: "expired" };
       const username = typeof message.username === "string" ? message.username.trim() : capture.username;
       if (message.mode === "update") {
         // Only a login the prompt offered: one saved for this site.
@@ -967,7 +1008,7 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       // Never offered again on this site (removable in the popup's settings).
       const capture = await getCapture(tab.id);
       const site = siteKey(capture?.url);
-      if (!capture || !site || !sameSite(capture, tab.url)) return { ok: false, error: "expired" };
+      if (!capture || !site || !(await sameSite(capture, tab.url))) return { ok: false, error: "expired" };
       const settings = await loadSettings();
       await updateSettings({ neverSave: [...settings.neverSave, site] });
       await setCapture(tab.id, null);
