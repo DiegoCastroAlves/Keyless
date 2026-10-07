@@ -10,7 +10,7 @@
 // gets credentials only to type them into the page once the user picked one,
 // and reports what the user typed when a login form is submitted.
 
-import type { Credentials, FieldInfo, PageState, Status } from "./types";
+import type { Credentials, FieldInfo, FormKind, PageState, Status } from "./types";
 
 const t = (key: string) => chrome.i18n.getMessage(key) || key;
 
@@ -105,8 +105,172 @@ function isNewPassword(input: HTMLInputElement): boolean {
   return passwords.length === 2 || (passwords.length >= 3 && passwords.indexOf(input) > 0);
 }
 
+// ----- Payment and address forms --------------------------------------------------
+
+type FormControl = HTMLInputElement | HTMLSelectElement;
+
+const AUTOCOMPLETE_PARTS: Record<string, [FormKind, string]> = {
+  "cc-number": ["card", "number"],
+  "cc-name": ["card", "holder"],
+  "cc-csc": ["card", "code"],
+  "cc-exp": ["card", "exp"],
+  "cc-exp-month": ["card", "expMonth"],
+  "cc-exp-year": ["card", "expYear"],
+  "cc-type": ["card", "brand"],
+  "given-name": ["identity", "firstName"],
+  "family-name": ["identity", "lastName"],
+  name: ["identity", "name"],
+  tel: ["identity", "phone"],
+  "tel-national": ["identity", "phone"],
+  "street-address": ["identity", "street"],
+  "address-line1": ["identity", "street"],
+  "address-line2": ["identity", "line2"],
+  "address-level2": ["identity", "city"],
+  "address-level1": ["identity", "state"],
+  "postal-code": ["identity", "zip"],
+  country: ["identity", "country"],
+  "country-name": ["identity", "country"],
+  organization: ["identity", "company"],
+  bday: ["identity", "birthDate"],
+};
+
+const CARD_HINTS: [string, RegExp][] = [
+  ["number", /card.?num|cc.?num|cardnumber|n[uú]mero.?(do|de)?.?cart[aã]o|n[uú]mero.?(de)?.?tarjeta/i],
+  ["holder", /card.?holder|holder.?name|name.?on.?card|cc.?name|titular|nome.?(no|do|impresso)?.?cart[aã]o|nombre.?(en|del)?.?tarjeta/i],
+  ["code", /cvv|cvc|csc|security.?code|card.?code|c[oó]digo.?(de)?.?seguran|c[oó]d.?seg/i],
+  ["expMonth", /exp.*(month|m[eê]s)|(month|m[eê]s).*(exp|valid)/i],
+  ["expYear", /exp.*(year|ano|a[ñn]o)|(year|ano|a[ñn]o).*(exp|valid)/i],
+  ["exp", /expir|exp.?date|valid|validade|vencim|mm.?\/?.?(yy|aa)/i],
+];
+
+const IDENTITY_HINTS: [string, RegExp][] = [
+  ["firstName", /first.?name|given.?name|fname|primeiro.?nome/i],
+  ["lastName", /last.?name|surname|family.?name|lname|sobrenome|apellido/i],
+  ["zip", /zip|postal|\bcep\b|c[oó]digo.?postal/i],
+  ["city", /city|cidade|ciudad|munic[ií]pio|localidad/i],
+  ["state", /\bstate\b|province|estado|provincia|\buf\b|region/i],
+  ["country", /country|pa[ií]s/i],
+  ["line2", /address.?(line)?.?2|complemento|apartment|apto/i],
+  ["street", /address|street|endere[cç]o|logradouro|\brua\b|direcci[oó]n|calle/i],
+  ["phone", /phone|telefone|celular|tel[eé]fono|mobile/i],
+  ["company", /company|empresa|organi[sz]ation/i],
+];
+
+const MONTHS = [
+  ["jan", "january", "janeiro", "enero"],
+  ["feb", "february", "fevereiro", "febrero", "fev"],
+  ["mar", "march", "março", "marzo"],
+  ["apr", "april", "abril", "abr"],
+  ["may", "maio", "mayo", "mai"],
+  ["jun", "june", "junho", "junio"],
+  ["jul", "july", "julho", "julio"],
+  ["aug", "august", "agosto", "ago"],
+  ["sep", "september", "setembro", "septiembre", "set"],
+  ["oct", "october", "outubro", "octubre", "out"],
+  ["nov", "november", "novembro", "noviembre"],
+  ["dec", "december", "dezembro", "diciembre", "dez", "dic"],
+];
+
+function labelText(control: FormControl): string {
+  return control.labels ? Array.from(control.labels, (label) => label.textContent ?? "").join(" ") : "";
+}
+
+/** What a field of a payment or address form asks for. */
+function partOf(control: FormControl): [FormKind, string] | null {
+  const tokens = (control.autocomplete || "").toLowerCase().split(/\s+/).filter(Boolean);
+  const explicit = AUTOCOMPLETE_PARTS[tokens[tokens.length - 1] ?? ""];
+  if (explicit) return explicit;
+  if (control instanceof HTMLInputElement && !["text", "tel", "number", "month", "date", ""].includes(control.type)) return null;
+  const hints = `${control.name} ${control.id} ${control.getAttribute("placeholder") ?? ""} ${control.getAttribute("aria-label") ?? ""} ${labelText(control)}`;
+  for (const [part, pattern] of CARD_HINTS) if (pattern.test(hints)) return ["card", part];
+  for (const [part, pattern] of IDENTITY_HINTS) if (pattern.test(hints)) return ["identity", part];
+  return null;
+}
+
+/** The form's fields of this kind, with what each asks for. */
+function formParts(anchor: Element | null, kind: FormKind): Map<FormControl, string> {
+  const scope: ParentNode = (anchor as FormControl | null)?.form ?? document;
+  const parts = new Map<FormControl, string>();
+  for (const control of scope.querySelectorAll<FormControl>("input, select")) {
+    if (control.disabled || !visible(control)) continue;
+    if (control instanceof HTMLInputElement && fieldKind(control)) {
+      // Login fields stay login fields; an address form's email is filled too.
+      const email = control.type === "email" || (control.autocomplete || "").toLowerCase().includes("email");
+      if (kind === "identity" && email) parts.set(control, "email");
+      continue;
+    }
+    const part = partOf(control);
+    if (part?.[0] === kind) parts.set(control, part[1]);
+  }
+  return parts;
+}
+
+/** A payment or address form field. A hint in its name alone is not
+ * enough: the form must ask for at least two such things. */
+function formKindOf(control: FormControl): FormKind | null {
+  const part = partOf(control);
+  if (!part) return null;
+  return formParts(control, part[0]).size >= 2 ? part[0] : null;
+}
+
 function fieldInfo(input: HTMLInputElement): FieldInfo {
-  return { newPassword: isNewPassword(input), maxLength: input.maxLength > 0 ? input.maxLength : null };
+  return {
+    newPassword: isNewPassword(input),
+    maxLength: input.maxLength > 0 ? input.maxLength : null,
+    form: fieldKind(input) ? null : formKindOf(input),
+  };
+}
+
+function valuesFor(kind: FormKind, part: string, data: Record<string, unknown>, control: FormControl): string[] {
+  const text = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : "");
+  if (kind === "identity") return text(part) ? [text(part)] : [];
+  const month = Number(data.expMonth) || 0;
+  const year = Number(data.expYear) || 0;
+  const mm = String(month).padStart(2, "0");
+  const yyyy = String(year);
+  switch (part) {
+    case "expMonth":
+      return month ? [mm, String(month), ...MONTHS[month - 1]] : [];
+    case "expYear":
+      return year ? [yyyy, yyyy.slice(2)] : [];
+    case "exp": {
+      if (!month || !year) return [];
+      if (control instanceof HTMLInputElement && control.type === "month") return [`${yyyy}-${mm}`];
+      const hint = `${control.getAttribute("placeholder") ?? ""} ${control.name} ${control.id}`;
+      const long = /yyyy|aaaa/i.test(hint) || (control instanceof HTMLInputElement && control.maxLength >= 7);
+      return [long ? `${mm}/${yyyy}` : `${mm}/${yyyy.slice(2)}`];
+    }
+    default:
+      return text(part) ? [text(part)] : [];
+  }
+}
+
+function setControl(control: FormControl, values: string[]) {
+  if (control instanceof HTMLSelectElement) {
+    const wanted = values.map((v) => v.toLowerCase().trim()).filter(Boolean);
+    const options = Array.from(control.options);
+    const normalize = (s: string) => s.toLowerCase().trim();
+    const option =
+      options.find((o) => wanted.includes(normalize(o.value)) || wanted.includes(normalize(o.text))) ??
+      options.find((o) => wanted.some((w) => w.length > 2 && normalize(o.text).startsWith(w)));
+    if (!option) return;
+    control.value = option.value;
+    control.dispatchEvent(new Event("input", { bubbles: true }));
+    control.dispatchEvent(new Event("change", { bubbles: true }));
+  } else if (values[0]) {
+    setValue(control, values[0]);
+  }
+}
+
+/** Fills a card or an identity into the form around the focused field. */
+function fillForm(kind: FormKind, data: Record<string, unknown>) {
+  filling = true;
+  try {
+    for (const [control, part] of formParts(current, kind)) setControl(control, valuesFor(kind, part, data, control));
+  } finally {
+    filling = false;
+  }
+  closeMenu();
 }
 
 /** True when the page shows a form to sign in (not just any email field,
@@ -189,10 +353,18 @@ const CHEVRON = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" str
 type ButtonKind = "locked" | "logins" | "plain";
 let buttonKind: ButtonKind | null = null;
 
+/** Something for the menu to offer in this field. */
+function offers(state: PageState | null, field: HTMLInputElement | null): boolean {
+  if (state?.state !== "ready" || !field) return false;
+  const form = fieldKind(field) ? null : formKindOf(field);
+  if (form === "card") return (state.cards ?? 0) > 0;
+  if (form === "identity") return (state.identities ?? 0) > 0;
+  return state.count > 0 || isNewPassword(field);
+}
+
 function kindFor(state: PageState | null, field: HTMLInputElement | null = current): ButtonKind {
   if (state?.state === "locked") return "locked";
-  const offers = state?.state === "ready" && (state.count > 0 || (field !== null && isNewPassword(field)));
-  return offers ? "logins" : "plain";
+  return offers(state, field) ? "logins" : "plain";
 }
 
 /** Locked: a padlock, and a click unlocks. With logins for the page: an
@@ -358,7 +530,7 @@ function closeMenu(refocus = false) {
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
   if (field !== current || document.activeElement !== field || menu?.open) return;
-  if (state?.state === "ready" && (state.count > 0 || isNewPassword(field))) openMenu();
+  if (offers(state, field)) openMenu();
 }
 
 /** The padlock button: Keyless asks for the password itself (the system's
@@ -424,7 +596,7 @@ document.addEventListener(
   "focusin",
   (e) => {
     const target = e.target;
-    if (!(target instanceof HTMLInputElement) || !fieldKind(target) || !visible(target)) return;
+    if (!(target instanceof HTMLInputElement) || !visible(target) || !(fieldKind(target) || formKindOf(target))) return;
     mount();
     if (current !== target) closeMenu();
     current = target;
@@ -618,6 +790,10 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   }
   if (message?.type === "keyless-save") {
     showSavePrompt();
+    return;
+  }
+  if (message?.type === "keyless-fill-form" && (message.kind === "card" || message.kind === "identity")) {
+    if (message.origin === location.origin) fillForm(message.kind, message[message.kind] ?? {});
     return;
   }
   if (message?.type === "keyless-fill-new" && typeof message.password === "string") {

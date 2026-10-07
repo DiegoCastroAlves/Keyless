@@ -222,5 +222,20 @@
   },
   "savedLogins": {
     "message": "Logins salvos"
+  },
+  "cards": {
+    "message": "Cartões de crédito"
+  },
+  "identities": {
+    "message": "Identidades"
+  },
+  "noCards": {
+    "message": "Nenhum cartão de crédito salvo no Keyless."
+  },
+  "noIdentities": {
+    "message": "Nenhuma identidade salva no Keyless."
+  },
+  "insecurePage": {
+    "message": "O Keyless só preenche cartões em páginas seguras (https)."
   }
 }

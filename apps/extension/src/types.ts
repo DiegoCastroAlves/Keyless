@@ -20,13 +20,41 @@ export interface Status {
 export interface PageState {
   state: Status["state"];
   count: number;
+  /** Saved credit cards and identities (for payment and address forms). */
+  cards?: number;
+  identities?: number;
 }
+
+export type FormKind = "card" | "identity";
 
 /** The field a Keyless menu was opened for. */
 export interface FieldInfo {
   /** A password being chosen (sign-up, change password): suggest one. */
   newPassword: boolean;
   maxLength: number | null;
+  /** A payment or address form field. */
+  form?: FormKind | null;
+}
+
+export interface CardSummary {
+  id: string;
+  title: string;
+  holder: string;
+  last4: string;
+  brand: string;
+}
+
+export interface IdentitySummary {
+  id: string;
+  title: string;
+  name: string;
+  email: string;
+  city: string;
+}
+
+export interface FormItems {
+  cards: CardSummary[];
+  identities: IdentitySummary[];
 }
 
 export interface SaveCandidate {

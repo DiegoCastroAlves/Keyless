@@ -8,7 +8,7 @@
 // (addressed to the extension origin, so the page never sees it).
 
 import { avatar, hostOf } from "./avatar";
-import type { FieldInfo, InlineState, Login, SaveState } from "./types";
+import type { FieldInfo, FormItems, InlineState, Login, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
 const mode: "menu" | "card" | "save" = location.hash === "#card" ? "card" : location.hash === "#save" ? "save" : "menu";
@@ -266,8 +266,59 @@ function generatorView(): HTMLElement {
   );
 }
 
+// ----- Cards and identities (payment and address forms) --------------------------
+
+let formItems: FormItems | null = null;
+
+async function loadFormItems() {
+  const reply = await send<FormItems>({ type: "form_items" });
+  formItems = reply.ok ? (reply.data ?? null) : null;
+}
+
+const ICON_CARD = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19M6.5 15h3"/></svg>`;
+const ICON_PERSON = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>`;
+
+function formRow(id: string, glyph: string, title: string, sub: string): HTMLButtonElement {
+  const row = el(
+    "button",
+    { className: "row", type: "button" },
+    el("span", { className: "glyph" }, svg(glyph)),
+    el("span", { className: "text" }, el("span", { className: "title", textContent: title }), el("span", { className: "sub", textContent: sub })),
+  );
+  row.addEventListener("click", async () => {
+    const reply = await send({ type: "fill_form", id });
+    if (reply.ok) return; // The content script fills and closes this menu.
+    showError(reply.error === "insecure_page" ? t("insecurePage") : t("fillFailed"));
+  });
+  return row;
+}
+
+function formView(box: HTMLElement) {
+  if (field.form === "card") {
+    const cards = formItems?.cards ?? [];
+    box.append(el("div", { className: "head", textContent: t("cards") }));
+    if (cards.length === 0) box.append(el("p", { className: "note", textContent: t("noCards") }));
+    for (const card of cards) {
+      const brand = card.brand ? `${card.brand.charAt(0).toUpperCase()}${card.brand.slice(1)} ` : "";
+      box.append(formRow(card.id, ICON_CARD, card.title, `${brand}•••• ${card.last4}${card.holder ? ` · ${card.holder}` : ""}`));
+    }
+  } else {
+    const identities = formItems?.identities ?? [];
+    box.append(el("div", { className: "head", textContent: t("identities") }));
+    if (identities.length === 0) box.append(el("p", { className: "note", textContent: t("noIdentities") }));
+    for (const person of identities) {
+      box.append(formRow(person.id, ICON_PERSON, person.title, [person.name, person.email || person.city].filter(Boolean).join(" · ")));
+    }
+  }
+}
+
 function renderMenu() {
   const box = el("div", { className: "box menu" });
+  if (field.form && state?.state === "ready") {
+    formView(box);
+    app.replaceChildren(box);
+    return;
+  }
   if (!state || state.state === "ready") {
     const logins = state?.logins ?? [];
     if (field.newPassword) {
@@ -506,6 +557,7 @@ async function refresh(force = false) {
   const reply = await send<InlineState>({ type: "state" });
   state = reply.ok && reply.data ? reply.data : { state: "error", url: null, host: null, logins: [] };
   if (mode === "menu" && field.newPassword && state.state === "ready" && suggestion === null) await newSuggestion();
+  if (mode === "menu" && field.form && state.state === "ready") await loadFormItems();
   // Avoid redrawing (and losing the keyboard focus) when nothing changed.
   const key = JSON.stringify(state);
   if (!force && key === lastRendered && app.childElementCount > 0) return;

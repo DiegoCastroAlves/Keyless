@@ -55,6 +55,11 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             find(app, Query::Text(query)).await
         }
         "vaults" => super::logins::vaults(app).await,
+        "form_items" => super::forms::list(app).await,
+        "form_details" => {
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            super::forms::details(app, &id).await
+        }
         "check_login" => {
             let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
             let username = args.get("username").and_then(Value::as_str).unwrap_or("").to_string();

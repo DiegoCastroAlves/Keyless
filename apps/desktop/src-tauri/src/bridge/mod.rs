@@ -15,6 +15,7 @@
 //!   read nor forge requests.
 
 pub mod crypto;
+pub mod forms;
 pub mod handlers;
 pub mod host;
 pub mod install;

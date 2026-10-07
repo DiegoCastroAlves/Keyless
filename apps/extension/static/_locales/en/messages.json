@@ -222,5 +222,20 @@
   },
   "savedLogins": {
     "message": "Saved logins"
+  },
+  "cards": {
+    "message": "Credit cards"
+  },
+  "identities": {
+    "message": "Identities"
+  },
+  "noCards": {
+    "message": "No credit cards saved in Keyless."
+  },
+  "noIdentities": {
+    "message": "No identities saved in Keyless."
+  },
+  "insecurePage": {
+    "message": "Keyless fills cards only on secure (https) pages."
   }
 }

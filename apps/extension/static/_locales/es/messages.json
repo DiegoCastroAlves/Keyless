@@ -222,5 +222,20 @@
   },
   "savedLogins": {
     "message": "Inicios de sesión guardados"
+  },
+  "cards": {
+    "message": "Tarjetas de crédito"
+  },
+  "identities": {
+    "message": "Identidades"
+  },
+  "noCards": {
+    "message": "No hay tarjetas de crédito guardadas en Keyless."
+  },
+  "noIdentities": {
+    "message": "No hay identidades guardadas en Keyless."
+  },
+  "insecurePage": {
+    "message": "Keyless solo rellena tarjetas en páginas seguras (https)."
   }
 }

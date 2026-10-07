@@ -17,7 +17,7 @@
 // user itself (the system's password prompt or its own small window).
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
-import type { Credentials, InlineState, Login, PageState, SaveCandidate, SaveState, Status, Vault } from "./types";
+import type { Credentials, FormItems, InlineState, Login, PageState, SaveCandidate, SaveState, Status, Vault } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
@@ -210,6 +210,7 @@ let iconLocked: boolean | null = null;
 async function showState(state: Status["state"]): Promise<void> {
   if (shownState === state) return;
   shownState = state;
+  formItems = null;
   const locked = state !== "ready";
   if (iconLocked !== locked) {
     iconLocked = locked;
@@ -347,6 +348,27 @@ async function inlineState(url: string | null): Promise<InlineState> {
   const current = await quickStatus();
   if (current.state !== "ready" || !url) return { state: current.state, url, host, logins: [] };
   return { state: "ready", url, host, logins: await call<Login[]>("match", { url }) };
+}
+
+// ----- Cards and identities ---------------------------------------------------------
+
+/** Kept a minute: asked on every page with a form. */
+const FORM_ITEMS_TTL_MS = 60_000;
+let formItems: { at: number; value: Promise<FormItems> } | null = null;
+
+function getFormItems(): Promise<FormItems> {
+  if (!formItems || Date.now() - formItems.at > FORM_ITEMS_TTL_MS) {
+    const value = call<FormItems>("form_items");
+    value.catch(() => (formItems = null));
+    formItems = { at: Date.now(), value };
+  }
+  return formItems.value;
+}
+
+/** Cards are filled only where the connection is encrypted. */
+function isSecurePage(url: string): boolean {
+  const { protocol, hostname } = new URL(url);
+  return protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 }
 
 // ----- Saving logins --------------------------------------------------------------
@@ -557,7 +579,17 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
         await call("save_login", { url: capture.url, title: String(message.title ?? ""), username, password: capture.password, vaultId });
       }
       await setCapture(tab.id, null);
+      formItems = null;
       await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
+      return { ok: true };
+    }
+    case "form_items":
+      return { ok: true, data: await getFormItems() };
+    case "fill_form": {
+      if (!url) return { ok: false, error: "no_tab" };
+      const data = await call<{ kind: string }>("form_details", { id: String(message.id ?? "") });
+      if (data.kind === "card" && !isSecurePage(url)) return { ok: false, error: "insecure_page" };
+      await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-form", ...data, origin: new URL(url).origin }, { frameId: 0 });
       return { ok: true };
     }
     case "dismiss_save":
@@ -613,9 +645,13 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
     }
     case "page_state": {
       const current = await quickStatus();
-      let count = 0;
-      if (current.state === "ready") count = (await call<Login[]>("match", { url: sender.url })).length;
-      const data: PageState = { state: current.state, count };
+      const data: PageState = { state: current.state, count: 0 };
+      if (current.state === "ready") {
+        data.count = (await call<Login[]>("match", { url: sender.url })).length;
+        const items = await getFormItems().catch(() => null);
+        data.cards = items?.cards.length ?? 0;
+        data.identities = items?.identities.length ?? 0;
+      }
       return { ok: true, data };
     }
     default:

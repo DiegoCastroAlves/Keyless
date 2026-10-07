@@ -587,3 +587,17 @@ button {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* ----- Cards and identities ----- */
+
+.glyph {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--accent);
+}
