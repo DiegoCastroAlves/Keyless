@@ -481,7 +481,7 @@ pub async fn import_pick(app: AppHandle, state: State<'_, AppState>, format: Imp
 }
 
 #[tauri::command]
-pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_password: String, password: String) -> AppResult<usize> {
+pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_password: String, password: String) -> AppResult<import::ExportOutcome> {
     state.touch();
     import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password)).await
 }
@@ -603,13 +603,13 @@ pub fn ssh_agent_info() -> Option<String> {
 
 /// An unencrypted export (CSV or JSON), after the master password.
 #[tauri::command]
-pub async fn export_plain(app: AppHandle, state: State<'_, AppState>, master_password: String, format: import::PlainFormat) -> AppResult<usize> {
+pub async fn export_plain(app: AppHandle, state: State<'_, AppState>, master_password: String, format: import::PlainFormat) -> AppResult<import::ExportOutcome> {
     state.touch();
     import::export_plain(&app, Zeroizing::new(master_password), format).await
 }
 
 #[tauri::command]
-pub async fn import_commit(app: AppHandle, state: State<'_, AppState>, target: ImportTarget) -> AppResult<usize> {
+pub async fn import_commit(app: AppHandle, state: State<'_, AppState>, target: ImportTarget) -> AppResult<import::ImportOutcome> {
     state.touch();
     import::commit(&app, target).await
 }

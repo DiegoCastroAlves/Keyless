@@ -438,7 +438,33 @@ export interface LastCheck {
 export interface ImportSummary {
   vaults: [string, number][];
   total_items: number;
-  warnings: string[];
+  /** Attached files, and their bytes. */
+  files: number;
+  file_bytes: number;
+  /** `code` names a translation (importer.warn_<code>); `n` is its count. */
+  warnings: { code: string; n: number }[];
+}
+
+/** What an import added. */
+export interface ImportOutcome {
+  items: number;
+  files: number;
+  /** Attached files that could not be added. */
+  filesFailed: number;
+}
+
+/** What an export wrote. */
+export interface ExportOutcome {
+  items: number;
+  files: number;
+  /** Attached files that could not be downloaded. */
+  filesMissing: number;
+}
+
+/** Bytes of attached files an import or export has done. */
+export interface FilesProgress {
+  done: number;
+  total: number;
 }
 
 export type ImportTarget = { mode: "new_vaults" } | { mode: "vault"; vaultId: string };
@@ -565,7 +591,7 @@ export const api = {
   lastBreaches: () => invoke<LastCheck | null>("last_breaches"),
   importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
-  exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
+  exportBackup: (masterPassword: string, password: string) => invoke<ExportOutcome>("export_backup", { masterPassword, password }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
   deletePasskey: (itemId: string, credentialId: string) => invoke<ItemSummary>("delete_passkey", { itemId, credentialId }),
   /** Asks for files to attach; throws "cancelled" if none was chosen. */
@@ -590,8 +616,8 @@ export const api = {
   sshImportKey: (privateKey: string, passphrase: string | null, comment: string) =>
     invoke<SshKeyFields>("ssh_import_key", { privateKey, passphrase, comment }),
   /** An unencrypted export, after the master password. */
-  exportPlain: (masterPassword: string, format: "csv" | "json") => invoke<number>("export_plain", { masterPassword, format }),
-  importCommit: (target: ImportTarget) => invoke<number>("import_commit", { target }),
+  exportPlain: (masterPassword: string, format: "csv" | "json" | "zip") => invoke<ExportOutcome>("export_plain", { masterPassword, format }),
+  importCommit: (target: ImportTarget) => invoke<ImportOutcome>("import_commit", { target }),
   importCancel: () => invoke<void>("import_cancel"),
 };
 
@@ -602,6 +628,8 @@ export const events = {
   onAttachmentProgress: (cb: (progress: AttachmentProgress) => void): Promise<UnlistenFn> =>
     listen<AttachmentProgress>("keyless://attachment-progress", (e) => cb(e.payload)),
   onWatchtowerUpdated: (cb: () => void): Promise<UnlistenFn> => listen("keyless://watchtower-updated", () => cb()),
+  onFilesProgress: (cb: (progress: FilesProgress) => void): Promise<UnlistenFn> =>
+    listen<FilesProgress>("keyless://files-progress", (e) => cb(e.payload)),
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
   onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),

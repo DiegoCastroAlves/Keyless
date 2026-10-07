@@ -185,7 +185,7 @@ pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String]) -> AppR
     let gone = || attachments.iter().map(|(a, _)| Gone::of(&vault_id, a)).collect::<Vec<_>>();
 
     for (attachment, path) in &attachments {
-        if let Err(err) = upload(app, item_id, &vault_id, attachment, path.clone()).await {
+        if let Err(err) = upload(app, item_id, &vault_id, attachment, Source::File(path.clone())).await {
             // Whatever reached the server goes.
             forget(app, gone());
             return Err(err);
@@ -209,15 +209,40 @@ pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String]) -> AppR
     }
 }
 
-async fn upload(app: &AppHandle, item_id: &str, vault_id: &str, attachment: &Attachment, path: PathBuf) -> AppResult<()> {
+/// Where the contents of a file being uploaded come from.
+pub enum Source {
+    File(PathBuf),
+    /// The file's chunks, of the attachment's chunk sizes and in order (read
+    /// from an import file elsewhere).
+    Chunks(tokio::sync::mpsc::Receiver<Zeroizing<Vec<u8>>>),
+}
+
+/// Encrypts and uploads a file as `attachment`'s chunks in `vault_id`.
+pub async fn upload(app: &AppHandle, item_id: &str, vault_id: &str, attachment: &Attachment, source: Source) -> AppResult<()> {
     let state = app.state::<AppState>();
     let key = attachment.key()?;
     let changed = || AppError::Invalid(Msg::new("file_changed"));
-    let mut file = tokio::fs::File::open(&path).await.map_err(|e| AppError::Invalid(Msg::new("file_unreadable").with("detail", e)))?;
+    enum Reader {
+        File(tokio::fs::File),
+        Chunks(tokio::sync::mpsc::Receiver<Zeroizing<Vec<u8>>>),
+    }
+    let mut reader = match source {
+        Source::File(path) => Reader::File(
+            tokio::fs::File::open(&path).await.map_err(|e| AppError::Invalid(Msg::new("file_unreadable").with("detail", e)))?,
+        ),
+        Source::Chunks(chunks) => Reader::Chunks(chunks),
+    };
     progress(app, item_id, attachment, "upload", 0);
     for index in 0..attachment.chunks() {
-        let mut chunk = Zeroizing::new(vec![0u8; attachment.chunk_len(index)]);
-        file.read_exact(&mut chunk).await.map_err(|_| changed())?;
+        let len = attachment.chunk_len(index);
+        let chunk = match &mut reader {
+            Reader::File(file) => {
+                let mut chunk = Zeroizing::new(vec![0u8; len]);
+                file.read_exact(&mut chunk).await.map_err(|_| changed())?;
+                chunk
+            }
+            Reader::Chunks(chunks) => chunks.recv().await.filter(|c| c.len() == len).ok_or_else(changed)?,
+        };
         let sealed = attachment.seal_chunk(&key, index, &chunk)?;
         drop(chunk);
         // The session may need refreshing during a long upload.
@@ -228,8 +253,11 @@ async fn upload(app: &AppHandle, item_id: &str, vault_id: &str, attachment: &Att
         progress(app, item_id, attachment, "upload", index + 1);
     }
     // The file must not have grown while it was read.
-    let mut more = [0u8; 1];
-    if file.read(&mut more).await.map_err(|_| changed())? != 0 {
+    let more = match &mut reader {
+        Reader::File(file) => file.read(&mut [0u8; 1]).await.map_err(|_| changed())? != 0,
+        Reader::Chunks(chunks) => chunks.recv().await.is_some(),
+    };
+    if more {
         return Err(changed());
     }
     Ok(())

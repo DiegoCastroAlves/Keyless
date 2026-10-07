@@ -1,18 +1,24 @@
 //! 1Password `.1pux` import.
 //!
 //! A 1PUX file is an (unencrypted) zip archive whose `export.data` entry is a
-//! JSON document: `accounts[].vaults[].items[]`. Attachments live in `files/`
-//! and are not imported yet.
+//! JSON document: `accounts[].vaults[].items[]`. Attached files live in
+//! `files/<documentId>__<fileName>`; a document item names its file in
+//! `details.documentAttributes`, other items in fields of type `file`. They
+//! are read from the archive when the import is confirmed.
 
-use std::io::{Read, Seek};
+use std::{
+    collections::HashMap,
+    io::{Read, Seek},
+};
 
 use serde::Deserialize;
 use serde_json::Value;
 use zeroize::Zeroizing;
 
-use super::{ImportResult, ImportedItem, ImportedVault};
+use super::{ImportResult, ImportWarning, ImportedFile, ImportedItem, ImportedVault};
 use crate::{
     Error, Result,
+    attachment::clean_name,
     item::{
         Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, UrlMatch,
         PasswordHistoryEntry, Section, new_field_id,
@@ -61,36 +67,84 @@ pub fn parse_1pux<R: Read + Seek>(reader: R) -> Result<ImportResult> {
     if json.len() as u64 > MAX_EXPORT_DATA_BYTES {
         return Err(Error::Import("export is too large".into()));
     }
-    parse_export_data(&json)
+    // The attached files, with their sizes.
+    let mut files = HashMap::new();
+    for index in 0..archive.len() {
+        if let Ok(file) = archive.by_index_raw(index)
+            && file.is_file()
+            && file.name().starts_with("files/")
+        {
+            files.insert(file.name().to_string(), file.size());
+        }
+    }
+    parse_export_data(&json, &files)
 }
 
-pub fn parse_export_data(json: &[u8]) -> Result<ImportResult> {
+/// Parses `export.data`; `files` are the archive's entries under `files/`
+/// and their sizes.
+pub fn parse_export_data(json: &[u8], files: &HashMap<String, u64>) -> Result<ImportResult> {
     let export: Export = serde_json::from_slice(json).map_err(|e| Error::Import(format!("invalid export.data: {e}")))?;
     let mut result = ImportResult { vaults: Vec::new(), warnings: Vec::new() };
-    let mut attachments = 0usize;
+    let mut finder = FileFinder { entries: files, missing: 0 };
+    let mut skipped = 0;
 
     for account in export.accounts {
         for vault in account.vaults {
             let mut items = Vec::new();
             for raw in &vault.items {
-                match convert_item(raw, &mut attachments) {
+                match convert_item(raw, &mut finder) {
                     Some(item) => items.push(item),
-                    None => result.warnings.push("An item could not be read and was skipped.".into()),
+                    None => skipped += 1,
                 }
             }
             let name = if vault.attrs.name.trim().is_empty() { "Imported".to_string() } else { vault.attrs.name.clone() };
             result.vaults.push(ImportedVault { name, items });
         }
     }
-    if attachments > 0 {
-        result.warnings.push(format!(
-            "{attachments} attachment(s) were not imported. Keep the original files until attachments are supported."
-        ));
+    if skipped > 0 {
+        result.warnings.push(ImportWarning::new("item_skipped", skipped));
+    }
+    if finder.missing > 0 {
+        result.warnings.push(ImportWarning::new("files_missing", finder.missing));
     }
     Ok(result)
 }
 
-fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
+/// Finds the files items refer to in the archive.
+struct FileFinder<'a> {
+    entries: &'a HashMap<String, u64>,
+    /// Files referred to but not in the archive.
+    missing: usize,
+}
+
+impl FileFinder<'_> {
+    /// The file `raw` (`{fileName, documentId, …}`) names: the entry
+    /// `files/<documentId>__<fileName>`, or else one named after the
+    /// document alone.
+    fn find(&mut self, raw: &Value) -> Option<ImportedFile> {
+        let found = self.lookup(raw);
+        if found.is_none() {
+            self.missing += 1;
+        }
+        found
+    }
+
+    fn lookup(&self, raw: &Value) -> Option<ImportedFile> {
+        let name = raw.get("fileName").and_then(Value::as_str).unwrap_or("");
+        let id = raw.get("documentId").and_then(Value::as_str).filter(|id| !id.is_empty() && !id.contains(['/', '\\']))?;
+        let prefix = format!("files/{id}");
+        let (entry, size) = self.entries.get_key_value(&format!("{prefix}__{name}")).or_else(|| {
+            self.entries
+                .iter()
+                .filter(|(entry, _)| entry.strip_prefix(&prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with('_')))
+                .min_by_key(|(entry, _)| entry.len())
+        })?;
+        let name = if name.is_empty() { entry.split_once("__").map(|(_, n)| n).unwrap_or("file") } else { name };
+        Some(ImportedFile { name: clean_name(name), size: *size, entry: entry.clone(), sealed: None })
+    }
+}
+
+fn convert_item(raw: &Value, finder: &mut FileFinder) -> Option<ImportedItem> {
     let state = raw.get("state").and_then(Value::as_str).unwrap_or("active");
     if state == "deleted" {
         return None;
@@ -100,6 +154,7 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
     let category = map_category(raw.get("categoryUuid").and_then(Value::as_str).unwrap_or(""));
 
     let mut details = ItemDetails::default();
+    let mut files = Vec::new();
 
     // Login fields: only the designated username/password are meaningful.
     if let Some(login_fields) = details_raw.get("loginFields").and_then(Value::as_array) {
@@ -144,7 +199,9 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
             let title = section.get("title").and_then(Value::as_str).unwrap_or("").trim().to_string();
             let mut fields = Vec::new();
             for f in section.get("fields").and_then(Value::as_array).into_iter().flatten() {
-                if let Some(field) = convert_field(f, attachments) {
+                if let Some(file) = f.get("value").and_then(|v| v.get("file")) {
+                    files.extend(finder.find(file));
+                } else if let Some(field) = convert_field(f) {
                     fields.push(field);
                 }
             }
@@ -171,8 +228,8 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
             }
         }
     }
-    if details_raw.get("documentAttributes").is_some() {
-        *attachments += 1;
+    if let Some(document) = details_raw.get("documentAttributes") {
+        files.extend(finder.find(document));
     }
 
     let mut urls = Vec::new();
@@ -222,10 +279,10 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
         updated_at: raw.get("updatedAt").and_then(Value::as_i64).unwrap_or(0),
         ..Default::default()
     };
-    Some(ImportedItem { overview, details })
+    Some(ImportedItem { overview, details, files })
 }
 
-fn convert_field(raw: &Value, attachments: &mut usize) -> Option<Field> {
+fn convert_field(raw: &Value) -> Option<Field> {
     let label = raw.get("title").and_then(Value::as_str).unwrap_or("").to_string();
     let value_obj = raw.get("value")?.as_object()?;
     let (kind_name, value) = value_obj.iter().next()?;
@@ -253,11 +310,7 @@ fn convert_field(raw: &Value, attachments: &mut usize) -> Option<Field> {
             FieldKind::Concealed,
             value.get("privateKey").and_then(Value::as_str).unwrap_or("").to_string(),
         ),
-        "file" => {
-            *attachments += 1;
-            return None;
-        }
-        "reference" => return None,
+        "file" | "reference" => return None,
         // creditCardType, menu, gender, and anything newer: keep as text.
         _ => (FieldKind::Text, as_text(value)),
     };
@@ -393,12 +446,13 @@ mod tests {
 
     #[test]
     fn parses_sample_export() {
-        let result = parse_export_data(SAMPLE.as_bytes()).unwrap();
+        let result = parse_export_data(SAMPLE.as_bytes(), &HashMap::new()).unwrap();
         assert_eq!(result.vaults.len(), 1);
         let vault = &result.vaults[0];
         assert_eq!(vault.name, "Personal");
         assert_eq!(vault.items.len(), 3);
-        assert_eq!(result.warnings.len(), 2); // skipped item + attachment
+        // The item without details, and the scan not in the archive.
+        assert_eq!(result.warnings, vec![ImportWarning::new("item_skipped", 1), ImportWarning::new("files_missing", 1)]);
 
         let login = &vault.items[0];
         assert_eq!(login.overview.title, "Example");
@@ -439,6 +493,59 @@ mod tests {
         buf.set_position(0);
         let result = parse_1pux(buf).unwrap();
         assert_eq!(result.summary().total_items, 3);
+    }
+
+    #[test]
+    fn imports_attached_files() {
+        let data = r#"{"accounts": [{"vaults": [{"attrs": {"name": "Personal"}, "items": [
+            {"uuid": "doc", "categoryUuid": "006", "overview": {"title": "Passport scan"},
+             "details": {"documentAttributes": {"fileName": "passport.pdf", "documentId": "d1", "decryptedSize": 5}}},
+            {"uuid": "login", "categoryUuid": "001", "overview": {"title": "Bank"},
+             "details": {"sections": [{"title": "", "fields": [
+               {"title": "contract", "id": "c", "value": {"file": {"fileName": "contract.txt", "documentId": "d2", "decryptedSize": 3}}},
+               {"title": "gone", "id": "g", "value": {"file": {"fileName": "gone.txt", "documentId": "d3", "decryptedSize": 1}}},
+               {"title": "escape", "id": "e", "value": {"file": {"fileName": "x", "documentId": "../export.data"}}}
+             ]}]}}
+        ]}]}]}"#;
+        let mut buf = Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("export.data", options).unwrap();
+            zip.write_all(data.as_bytes()).unwrap();
+            zip.add_directory("files/", options).unwrap();
+            zip.start_file("files/d1__passport.pdf", options).unwrap();
+            zip.write_all(b"%PDF!").unwrap();
+            // Named after the document alone.
+            zip.start_file("files/d2", options).unwrap();
+            zip.write_all(b"abc").unwrap();
+            zip.finish().unwrap();
+        }
+        buf.set_position(0);
+        let result = parse_1pux(buf.clone()).unwrap();
+        assert_eq!(result.warnings, vec![ImportWarning::new("files_missing", 2)]);
+        let items = &result.vaults[0].items;
+        assert_eq!(items[0].overview.category, Category::Document);
+        assert_eq!(items[0].files.len(), 1);
+        assert_eq!((items[0].files[0].name.as_str(), items[0].files[0].size), ("passport.pdf", 5));
+        assert_eq!((items[1].files[0].name.as_str(), items[1].files[0].entry.as_str()), ("contract.txt", "files/d2"));
+        assert!(items[1].details.all_fields().all(|f| f.label != "contract"));
+        let summary = result.summary();
+        assert_eq!((summary.files, summary.file_bytes), (2, 8));
+
+        let mut archive = crate::import::ImportArchive::open(buf).unwrap();
+        let mut read = Vec::new();
+        archive.read_file(&items[0].files[0], |chunk| {
+            read.extend_from_slice(&chunk);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(read, b"%PDF!");
+        // A file that is not what the export said is refused.
+        let mut wrong = ImportedFile { name: "x".into(), size: 4, entry: "files/d2".into(), sealed: None };
+        assert!(archive.read_file(&wrong, |_| Ok(())).is_err());
+        wrong.size = 2;
+        assert!(archive.read_file(&wrong, |_| Ok(())).is_err());
     }
 
     #[test]

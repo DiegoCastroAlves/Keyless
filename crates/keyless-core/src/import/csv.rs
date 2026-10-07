@@ -3,7 +3,7 @@
 
 use std::io::Read;
 
-use super::{ImportResult, ImportedItem, ImportedVault};
+use super::{ImportResult, ImportWarning, ImportedItem, ImportedVault};
 use crate::{
     Error, Result,
     item::{Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, new_field_id},
@@ -74,13 +74,13 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
     let mut warnings = Vec::new();
     for (index, record) in rdr.records().enumerate() {
         if index >= MAX_ROWS {
-            warnings.push(format!("Only the first {MAX_ROWS} rows were imported."));
+            warnings.push(ImportWarning::new("rows_limited", MAX_ROWS));
             break;
         }
         let record = match record {
             Ok(r) => r,
             Err(_) => {
-                warnings.push(format!("Row {} could not be read and was skipped.", index + 2));
+                warnings.push(ImportWarning::new("row_skipped", index + 2));
                 continue;
             }
         };
@@ -183,6 +183,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 ..Default::default()
             },
             details,
+            files: Vec::new(),
         });
     }
 

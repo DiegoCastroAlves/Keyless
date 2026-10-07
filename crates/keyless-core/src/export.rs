@@ -6,6 +6,9 @@
 //!   written as notes with their fields in the `fields` column, so nothing is
 //!   lost.
 //! - JSON with every item as Keyless stores it.
+//! - A zip archive with that JSON (`keyless-export.json`) and the attached
+//!   files in `attachments/<attachment id>/<name>`, as Bitwarden lays them
+//!   out; each attachment in the JSON names its file.
 //!
 //! Both hold every secret in plain text: the app asks for the master password
 //! and warns before writing one.
@@ -15,10 +18,17 @@
 //! leading `'`, which Keyless removes again on import. Passwords, one-time
 //! password secrets and notes are written as they are.
 
+use std::{
+    collections::HashMap,
+    io::{Seek, Write},
+};
+
 use serde::Serialize;
+use zip::{CompressionMethod, write::SimpleFileOptions};
 
 use crate::{
     Error, Result,
+    attachment::{Attachment, clean_name},
     backup::BackupData,
     item::{Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview},
 };
@@ -108,18 +118,97 @@ struct JsonExport<'a> {
 }
 
 pub fn to_json(data: &BackupData) -> Result<Vec<u8>> {
+    json_with_files(data, &HashMap::new())
+}
+
+/// The JSON export; attachments in `files` (by id) name their file in the
+/// archive.
+fn json_with_files(data: &BackupData, files: &HashMap<String, String>) -> Result<Vec<u8>> {
     let mut value = serde_json::to_value(JsonExport { format: "keyless-export", version: 1, data })?;
-    // Attached files are not in the export, so neither are their keys.
-    for vault in value["vaults"].as_array_mut().into_iter().flatten() {
-        for item in vault["items"].as_array_mut().into_iter().flatten() {
-            for attachment in item["details"]["attachments"].as_array_mut().into_iter().flatten() {
+    // The files are not encrypted in an export, so their keys mean nothing.
+    // (`get_mut`, not indexing: indexing adds the key when it is missing.)
+    for vault in value.get_mut("vaults").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
+        for item in vault.get_mut("items").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
+            let attachments = item.get_mut("details").and_then(|d| d.get_mut("attachments")).and_then(serde_json::Value::as_array_mut);
+            for attachment in attachments.into_iter().flatten() {
                 if let Some(entry) = attachment.as_object_mut() {
                     entry.remove("key");
+                    let path = entry.get("id").and_then(|id| id.as_str()).and_then(|id| files.get(id));
+                    if let Some(path) = path.cloned() {
+                        entry.insert("file".into(), path.into());
+                    }
                 }
             }
         }
     }
     serde_json::to_vec_pretty(&value).map_err(Error::from)
+}
+
+/// Writes the zip export: the attached files first, as they are downloaded
+/// and decrypted, then the JSON.
+pub struct ExportZip<W: Write + Seek> {
+    zip: zip::ZipWriter<W>,
+    /// The path of each attachment's file written whole, by attachment id.
+    written: HashMap<String, String>,
+    /// The file being written: attachment id and path.
+    current: Option<(String, String)>,
+}
+
+impl<W: Write + Seek> ExportZip<W> {
+    pub fn new(out: W) -> Self {
+        Self { zip: zip::ZipWriter::new(out), written: HashMap::new(), current: None }
+    }
+
+    fn fail(e: impl std::fmt::Display) -> Error {
+        Error::Import(format!("could not write the export: {e}"))
+    }
+
+    /// Starts `attachment`'s file; its contents follow, then
+    /// [`ExportZip::end_file`] or [`ExportZip::abort_file`].
+    pub fn start_file(&mut self, attachment: &Attachment) -> Result<()> {
+        // The folder is named after the attachment only when its id is what
+        // Keyless makes (another vault member could have chosen any text).
+        let folder = match uuid::Uuid::parse_str(&attachment.id) {
+            Ok(id) => id.hyphenated().to_string(),
+            Err(_) => uuid::Uuid::new_v4().to_string(),
+        };
+        let path = format!("attachments/{folder}/{}", clean_name(&attachment.name));
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .large_file(attachment.size >= u32::MAX as u64);
+        self.zip.start_file(path.as_str(), options).map_err(Self::fail)?;
+        self.current = Some((attachment.id.clone(), path));
+        Ok(())
+    }
+
+    pub fn write(&mut self, plaintext: &[u8]) -> Result<()> {
+        self.zip.write_all(plaintext).map_err(Self::fail)
+    }
+
+    /// The file started last is complete.
+    pub fn end_file(&mut self) {
+        if let Some((id, path)) = self.current.take() {
+            self.written.insert(id, path);
+        }
+    }
+
+    /// Leaves out the file being written (it could not be read whole), if
+    /// one is (the zip writer would otherwise drop the one before).
+    pub fn abort_file(&mut self) -> Result<()> {
+        match self.current.take() {
+            Some(_) => self.zip.abort_file().map_err(Self::fail),
+            None => Ok(()),
+        }
+    }
+
+    /// Writes the JSON and ends the archive.
+    pub fn finish(mut self, data: &BackupData) -> Result<W> {
+        let json = zeroize::Zeroizing::new(json_with_files(data, &self.written)?);
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        self.zip.start_file("keyless-export.json", options).map_err(Self::fail)?;
+        self.zip.write_all(&json).map_err(Self::fail)?;
+        self.zip.finish().map_err(Self::fail)
+    }
 }
 
 #[cfg(test)]
@@ -237,5 +326,55 @@ mod tests {
         let attachment = &json["vaults"][0]["items"][0]["details"]["attachments"][0];
         assert_eq!(attachment["name"], "scan.pdf");
         assert!(attachment.get("key").is_none());
+        assert!(attachment.get("file").is_none());
+        // Items without attachments do not get an empty list.
+        assert!(json["vaults"][0]["items"][1]["details"].get("attachments").is_none());
+    }
+
+    #[test]
+    fn zip_has_the_files() {
+        use std::io::{Cursor, Read};
+
+        let mut data = sample();
+        let scan = Attachment::new("../scan.pdf", 4, 1).unwrap();
+        let mut forged = Attachment::new("notes.txt", 2, 1).unwrap();
+        forged.id = "../../outside".into();
+        let lost = Attachment::new("lost.txt", 1, 1).unwrap();
+        data.vaults[0].items[0].details.attachments = vec![scan.clone(), forged.clone(), lost.clone()];
+
+        let mut export = ExportZip::new(Cursor::new(Vec::new()));
+        export.start_file(&scan).unwrap();
+        export.write(b"%PDF").unwrap();
+        export.end_file();
+        export.start_file(&forged).unwrap();
+        export.write(b"hi").unwrap();
+        export.end_file();
+        export.start_file(&lost).unwrap();
+        export.write(b"?").unwrap();
+        export.abort_file().unwrap();
+        // Nothing to abort: the files before stay.
+        export.abort_file().unwrap();
+        let file = export.finish(&data).unwrap().into_inner();
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(file)).unwrap();
+        let names: Vec<String> = archive.file_names().map(String::from).collect();
+        assert_eq!(names.len(), 3);
+        assert!(names.iter().all(|n| !n.contains("..")), "{names:?}");
+        let scan_path = format!("attachments/{}/scan.pdf", scan.id);
+        let mut contents = String::new();
+        archive.by_name(&scan_path).unwrap().read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "%PDF");
+
+        let mut json = String::new();
+        archive.by_name("keyless-export.json").unwrap().read_to_string(&mut json).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let listed = json["vaults"][0]["items"][0]["details"]["attachments"].as_array().unwrap();
+        assert_eq!(listed[0]["file"], scan_path.as_str());
+        let forged_path = listed[1]["file"].as_str().unwrap();
+        assert!(forged_path.starts_with("attachments/") && forged_path.ends_with("/notes.txt") && !forged_path.contains(".."));
+        assert!(names.iter().any(|n| n == forged_path));
+        // The file that could not be read is listed without one.
+        assert!(listed[2].get("file").is_none());
+        assert!(listed.iter().all(|a| a.get("key").is_none()));
     }
 }

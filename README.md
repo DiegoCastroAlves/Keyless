@@ -29,9 +29,11 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   account)
 - Share links: a copy of an item that someone without Keyless opens in the
   browser, for up to 30 days or a single view; the key is only in the link
-- Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)
-- Encrypted backups (`.keyless`) with a separate backup password, and an
-  unencrypted CSV or JSON export for moving elsewhere
+- Import from 1Password (`.1pux`, with its attached files), Chrome, Edge,
+  Firefox, Bitwarden (CSV)
+- Encrypted backups (`.keyless`, with the attached files) with a separate
+  backup password, and an unencrypted CSV, JSON or ZIP (JSON and files)
+  export for moving elsewhere
 - Auto-lock on inactivity, sleep and screen lock; clipboard auto-clear that
   stays out of clipboard history
 - Browser extension for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: fills

@@ -1,23 +1,38 @@
-//! Importing from 1Password (.1pux) and CSV exports.
+//! Importing from 1Password (.1pux), CSV exports and Keyless backups, and
+//! writing backups and unencrypted exports.
 //!
-//! The file is chosen in a native dialog opened from Rust, so the UI never
+//! Files are chosen in native dialogs opened from Rust, so the UI never
 //! supplies file paths. Parsed items are held in memory (wiped on lock)
-//! until the user confirms.
+//! until the user confirms; their attached files stay in the import file
+//! until then, and each is uploaded as a new attachment (a new id and key).
+//! Backups and zip exports download every attached file the user can read.
 
-use std::io::Read;
+use std::{
+    collections::HashSet,
+    fs::File,
+    io::{BufReader, BufWriter, Read, Seek, Write},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 use keyless_core::{
-    backup::{BackupData, BackupItem, BackupVault, MAX_BACKUP_BYTES, decrypt_backup, export_backup},
-    import::{ImportResult, ImportSummary, csv::parse_csv, onepux::parse_1pux},
+    attachment::{Attachment, CHUNK_OVERHEAD, CHUNK_SIZE},
+    backup::{BackupData, BackupItem, BackupVault, BackupWriter, open_backup},
+    export::ExportZip,
+    import::{ImportArchive, ImportResult, ImportSummary, ImportedFile, csv::parse_csv, onepux::parse_1pux},
     vault::VaultMeta,
 };
-use serde::Deserialize;
-use tauri::{AppHandle, Manager};
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
 
 use crate::{
     api::now_secs,
+    attachments::{self, Gone, Source},
     auth::MIN_MASTER_PASSWORD_CHARS,
     error::{AppError, AppResult, Msg},
     items,
@@ -25,7 +40,10 @@ use crate::{
     sync,
 };
 
-const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
+/// CSV files larger than this are refused.
+const MAX_CSV_BYTES: u64 = 512 * 1024 * 1024;
+/// Progress of the attached files of an import or export.
+pub const EVENT_PROGRESS: &str = "keyless://files-progress";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -47,6 +65,52 @@ pub enum ImportTarget {
     },
 }
 
+/// An import waiting for the user to confirm it.
+pub struct PendingImport {
+    result: ImportResult,
+    /// The file it came from, which holds its attached files.
+    file: Option<PathBuf>,
+}
+
+/// Bytes of attached files done, out of `total`.
+#[derive(Clone, Serialize)]
+struct FilesProgress {
+    done: u64,
+    total: u64,
+}
+
+#[derive(Clone)]
+struct Progress {
+    app: AppHandle,
+    total: u64,
+    done: Arc<AtomicU64>,
+}
+
+impl Progress {
+    fn new(app: &AppHandle, total: u64) -> Self {
+        Self { app: app.clone(), total, done: Arc::new(AtomicU64::new(0)) }
+    }
+
+    fn done(&self) -> u64 {
+        self.done.load(Ordering::Relaxed)
+    }
+
+    fn add(&self, bytes: u64) {
+        let done = self.done.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        self.emit(done);
+    }
+
+    /// Counts the whole file that started at `start` as done (it failed).
+    fn skip_file(&self, start: u64, size: u64) {
+        let done = self.done.fetch_max(start + size, Ordering::Relaxed).max(start + size);
+        self.emit(done);
+    }
+
+    fn emit(&self, done: u64) {
+        let _ = self.app.emit(EVENT_PROGRESS, FilesProgress { done: done.min(self.total), total: self.total });
+    }
+}
+
 pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Option<Zeroizing<String>>) -> AppResult<ImportSummary> {
     let state = app.state::<AppState>();
     if state.session.lock().await.is_none() {
@@ -64,32 +128,28 @@ pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Opt
         .ok_or(AppError::Cancelled)?;
     let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unreadable")))?;
 
-    let result = tauri::async_runtime::spawn_blocking(move || -> AppResult<ImportResult> {
-        let file = std::fs::File::open(&path).map_err(|e| AppError::Invalid(Msg::new("file_unreadable").with("detail", e)))?;
-        let size = file.metadata().map(|m| m.len()).unwrap_or(0);
-        if size > MAX_FILE_BYTES {
-            return Err(AppError::Invalid(Msg::new("file_too_large")));
-        }
+    let pending = tauri::async_runtime::spawn_blocking(move || -> AppResult<PendingImport> {
+        let unreadable = |e: std::io::Error| AppError::Invalid(Msg::new("file_unreadable").with("detail", e));
+        let file = File::open(&path).map_err(unreadable)?;
         match format {
-            ImportFormat::OnePux => Ok(parse_1pux(file)?),
+            ImportFormat::OnePux => Ok(PendingImport { result: parse_1pux(BufReader::new(file))?, file: Some(path) }),
             ImportFormat::Csv => {
+                if file.metadata().map(|m| m.len()).unwrap_or(0) > MAX_CSV_BYTES {
+                    return Err(AppError::Invalid(Msg::new("file_too_large")));
+                }
                 let mut contents = Zeroizing::new(Vec::new());
-                file.take(MAX_FILE_BYTES).read_to_end(&mut contents).map_err(|e| AppError::Invalid(Msg::new("file_unreadable").with("detail", e)))?;
+                file.take(MAX_CSV_BYTES).read_to_end(&mut contents).map_err(unreadable)?;
                 let name = path
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .map(|s| format!("Imported ({s})"))
                     .unwrap_or_else(|| "Imported".into());
-                Ok(parse_csv(contents.as_slice(), &name)?)
+                Ok(PendingImport { result: parse_csv(contents.as_slice(), &name)?, file: None })
             }
             ImportFormat::KeylessBackup => {
                 let password = password.ok_or_else(|| AppError::Invalid(Msg::new("backup_password_required")))?;
-                let mut contents = Zeroizing::new(Vec::new());
-                file.take(MAX_BACKUP_BYTES as u64 + 1)
-                    .read_to_end(&mut contents)
-                    .map_err(|e| AppError::Invalid(Msg::new("file_unreadable").with("detail", e)))?;
-                match decrypt_backup(&password, &contents) {
-                    Ok(data) => Ok(data.into_import()),
+                match open_backup(&password, BufReader::new(file)) {
+                    Ok(backup) => Ok(PendingImport { result: backup.into_import(), file: Some(path) }),
                     Err(keyless_core::Error::Decryption) => Err(AppError::Invalid(Msg::new("backup_wrong_password"))),
                     Err(err) => Err(err.into()),
                 }
@@ -99,25 +159,41 @@ pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Opt
     .await
     .map_err(|e| AppError::Store(e.to_string()))??;
 
-    let summary = result.summary();
+    let summary = pending.result.summary();
     if summary.total_items == 0 {
         return Err(AppError::Invalid(Msg::new("import_empty")));
     }
-    *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = Some(result);
+    *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = Some(pending);
     Ok(summary)
 }
 
-pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<usize> {
+/// What an import added.
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportOutcome {
+    items: usize,
+    files: usize,
+    /// Attached files that could not be added (no room, damaged, offline).
+    files_failed: usize,
+}
+
+pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<ImportOutcome> {
     let state = app.state::<AppState>();
-    let pending = state
+    let PendingImport { result, file } = state
         .pending_import
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take()
         .ok_or_else(|| AppError::Invalid(Msg::new("import_no_file")))?;
 
-    let mut total = 0;
-    for vault in pending.vaults {
+    let progress = Progress::new(app, result.summary().file_bytes);
+    // Room for the files: the server checks a whole chunk ahead.
+    let mut space = match progress.total {
+        0 => None,
+        _ => attachments::space(&state).await.ok().flatten(),
+    };
+    let mut outcome = ImportOutcome::default();
+    for vault in result.vaults {
         if vault.items.is_empty() {
             continue;
         }
@@ -134,19 +210,99 @@ pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<usize> {
                 return Err(AppError::Invalid(Msg::new("vault_read_only")));
             }
         }
-        let batch = vault.items.into_iter().map(|i| (i.overview, i.details)).collect();
-        total += items::insert_imported(&state, &vault_id, batch).await?;
+
+        let mut batch = Vec::with_capacity(vault.items.len());
+        let mut uploaded = Vec::new();
+        for item in vault.items {
+            let mut details = item.details;
+            for imported in item.files {
+                let start = progress.done();
+                let size = imported.size;
+                let needed = size + imported_chunks(size) * CHUNK_OVERHEAD as u64;
+                let room = space.as_ref().is_none_or(|s| s.used + needed + (CHUNK_SIZE + CHUNK_OVERHEAD) as u64 <= s.quota);
+                let added = match &file {
+                    Some(path) if room => upload_imported(app, &vault_id, path, imported, &progress).await,
+                    Some(_) => Err(AppError::Invalid(Msg::new("attachment_space_full"))),
+                    None => Err(AppError::Invalid(Msg::new("file_unreadable"))),
+                };
+                match added {
+                    Ok(attachment) => {
+                        if let Some(space) = space.as_mut() {
+                            space.used += needed;
+                        }
+                        uploaded.push(Gone::of(&vault_id, &attachment));
+                        details.attachments.push(attachment);
+                        outcome.files += 1;
+                    }
+                    Err(AppError::Locked) => {
+                        attachments::forget(app, uploaded);
+                        return Err(AppError::Locked);
+                    }
+                    Err(err) => {
+                        log::warn!("import: an attached file was not added: {err}");
+                        outcome.files_failed += 1;
+                        progress.skip_file(start, size);
+                    }
+                }
+            }
+            batch.push((item.overview, details));
+        }
+        match items::insert_imported(&state, &vault_id, batch).await {
+            Ok(count) => outcome.items += count,
+            Err(err) => {
+                attachments::forget(app, uploaded);
+                return Err(err);
+            }
+        }
     }
     sync::spawn_sync(app);
-    Ok(total)
+    Ok(outcome)
+}
+
+fn imported_chunks(size: u64) -> u64 {
+    size.div_ceil(CHUNK_SIZE as u64).max(1)
+}
+
+/// Uploads `file`, read from the import file at `path`, as a new attachment
+/// in `vault_id`. Whatever reached the server goes if it fails.
+async fn upload_imported(app: &AppHandle, vault_id: &str, path: &Path, file: ImportedFile, progress: &Progress) -> AppResult<Attachment> {
+    let attachment = Attachment::new(&file.name, file.size, now_secs())?;
+    let (sender, receiver) = tokio::sync::mpsc::channel(2);
+    let path = path.to_path_buf();
+    let reporter = progress.clone();
+    let reader = tauri::async_runtime::spawn_blocking(move || -> keyless_core::Result<()> {
+        let source = File::open(&path).map_err(|e| keyless_core::Error::Import(e.to_string()))?;
+        let mut archive = ImportArchive::open(BufReader::new(source))?;
+        archive.read_file(&file, |chunk| {
+            let len = chunk.len() as u64;
+            // Fails once the upload stopped.
+            sender.blocking_send(chunk).map_err(|_| keyless_core::Error::Import("the upload stopped".into()))?;
+            reporter.add(len);
+            Ok(())
+        })
+    });
+    let uploaded = attachments::upload(app, "", vault_id, &attachment, Source::Chunks(receiver)).await;
+    let read = reader.await.map_err(|e| AppError::Store(e.to_string()))?;
+    match (uploaded, read) {
+        (Ok(()), Ok(())) => Ok(attachment),
+        (uploaded, read) => {
+            attachments::forget(app, vec![Gone::of(vault_id, &attachment)]);
+            // The reader knows best what went wrong with the file.
+            Err(match read {
+                Err(err) => AppError::from(err),
+                Ok(()) => uploaded.err().unwrap_or_else(|| AppError::Invalid(Msg::new("attachment_damaged"))),
+            })
+        }
+    }
 }
 
 pub fn cancel(state: &AppState) {
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
-/// Everything the user can read, except Recently Deleted, by vault.
-async fn collect(state: &AppState) -> AppResult<BackupData> {
+/// Everything the user can read, except Recently Deleted, by vault; with
+/// each vault's id.
+async fn collect(state: &AppState) -> AppResult<(BackupData, Vec<String>)> {
     let guard = state.session.lock().await;
     let session = guard.as_ref().ok_or(AppError::Locked)?;
     let store = state.store();
@@ -166,7 +322,105 @@ async fn collect(state: &AppState) -> AppResult<BackupData> {
             target.items.push(BackupItem { overview: cached.overview.clone(), details });
         }
     }
-    Ok(BackupData { exported_at: now_secs(), vaults: vaults.into_iter().map(|(_, v)| v).collect() })
+    let (ids, vaults) = vaults.into_iter().unzip();
+    Ok((BackupData { exported_at: now_secs(), vaults }, ids))
+}
+
+/// Where downloaded attached files go.
+trait FileSink {
+    fn start(&mut self, attachment: &Attachment) -> keyless_core::Result<()>;
+    /// A chunk, as the server keeps it and decrypted.
+    fn chunk(&mut self, sealed: &[u8], plaintext: &[u8]) -> keyless_core::Result<()>;
+    fn end(&mut self);
+    fn abort(&mut self) -> keyless_core::Result<()>;
+}
+
+impl<W: Write + Seek> FileSink for BackupWriter<W> {
+    fn start(&mut self, attachment: &Attachment) -> keyless_core::Result<()> {
+        self.start_file(attachment)
+    }
+    fn chunk(&mut self, sealed: &[u8], _: &[u8]) -> keyless_core::Result<()> {
+        self.write_chunk(sealed)
+    }
+    fn end(&mut self) {
+        self.end_file();
+    }
+    fn abort(&mut self) -> keyless_core::Result<()> {
+        self.abort_file()
+    }
+}
+
+impl<W: Write + Seek> FileSink for ExportZip<W> {
+    fn start(&mut self, attachment: &Attachment) -> keyless_core::Result<()> {
+        self.start_file(attachment)
+    }
+    fn chunk(&mut self, _: &[u8], plaintext: &[u8]) -> keyless_core::Result<()> {
+        self.write(plaintext)
+    }
+    fn end(&mut self) {
+        self.end_file();
+    }
+    fn abort(&mut self) -> keyless_core::Result<()> {
+        self.abort_file()
+    }
+}
+
+/// Downloads the attached files of `data`'s items (its vaults are
+/// `vault_ids`) into `sink`, each file once, checking every chunk. Returns
+/// the attachments that could not be downloaded whole.
+async fn download_files(app: &AppHandle, data: &BackupData, vault_ids: &[String], sink: &mut impl FileSink) -> AppResult<HashSet<String>> {
+    let state = app.state::<AppState>();
+    let mut seen = HashSet::new();
+    let mut files = Vec::new();
+    for (vault, vault_id) in data.vaults.iter().zip(vault_ids) {
+        for attachment in vault.items.iter().flat_map(|i| &i.details.attachments) {
+            // Conflict copies of an item list the same file.
+            if seen.insert(attachment.id.clone()) {
+                files.push((vault_id, attachment));
+            }
+        }
+    }
+    let progress = Progress::new(app, files.iter().map(|(_, a)| a.size).sum());
+    let mut failed = HashSet::new();
+    for (vault_id, attachment) in files {
+        let start = progress.done();
+        let downloaded = async {
+            let key = attachment.key()?;
+            sink.start(attachment)?;
+            for index in 0..attachment.chunks() {
+                let (_, token) = sync::ensure_token(&state).await?;
+                let sealed = state.api.download_attachment(&token, &attachment.object_name(vault_id, index)).await?;
+                let plaintext = attachment.open_chunk(&key, index, &sealed)?;
+                sink.chunk(&sealed, &plaintext)?;
+                // A transfer the user started counts as activity for auto-lock.
+                state.touch();
+                progress.add(plaintext.len() as u64);
+            }
+            Ok::<(), AppError>(())
+        }
+        .await;
+        match downloaded {
+            Ok(()) => sink.end(),
+            Err(AppError::Locked) => return Err(AppError::Locked),
+            Err(err) => {
+                log::warn!("export: an attached file was left out: {err}");
+                sink.abort()?;
+                failed.insert(attachment.id.clone());
+                progress.skip_file(start, attachment.size);
+            }
+        }
+    }
+    Ok(failed)
+}
+
+/// What an export wrote.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportOutcome {
+    items: usize,
+    files: usize,
+    /// Attached files that could not be downloaded (offline, damaged).
+    files_missing: usize,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -174,20 +428,23 @@ async fn collect(state: &AppState) -> AppResult<BackupData> {
 pub enum PlainFormat {
     Csv,
     Json,
+    /// The JSON and the attached files, in a zip archive.
+    Zip,
 }
 
 /// Exports every vault the user can read into a file that is NOT encrypted,
 /// for moving to another password manager. Needs the master password; the
-/// UI warns first. Returns the number of items written.
-pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, format: PlainFormat) -> AppResult<usize> {
+/// UI warns first.
+pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, format: PlainFormat) -> AppResult<ExportOutcome> {
     let state = app.state::<AppState>();
     crate::auth::confirm_master_password(&state, master_password).await?;
-    let data = collect(&state).await?;
-    let count = data.vaults.iter().map(|v| v.items.len()).sum();
+    let (data, vault_ids) = collect(&state).await?;
+    let items = data.vaults.iter().map(|v| v.items.len()).sum();
 
     let (filter, extension) = match format {
         PlainFormat::Csv => ("CSV", "csv"),
         PlainFormat::Json => ("JSON", "json"),
+        PlainFormat::Zip => ("ZIP", "zip"),
     };
     let dialog = app
         .dialog()
@@ -201,21 +458,34 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
         .ok_or(AppError::Cancelled)?;
     let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unwritable")))?;
 
-    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
-        let contents = Zeroizing::new(match format {
-            PlainFormat::Csv => keyless_core::export::to_csv(&data)?,
-            PlainFormat::Json => keyless_core::export::to_json(&data)?,
-        });
-        write_private(&path, &contents)
-    })
-    .await
-    .map_err(|e| AppError::Store(e.to_string()))??;
-    Ok(count)
+    if !matches!(format, PlainFormat::Zip) {
+        tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+            let contents = Zeroizing::new(match format {
+                PlainFormat::Json => keyless_core::export::to_json(&data)?,
+                _ => keyless_core::export::to_csv(&data)?,
+            });
+            write_private(&path, &contents)
+        })
+        .await
+        .map_err(|e| AppError::Store(e.to_string()))??;
+        return Ok(ExportOutcome { items, files: 0, files_missing: 0 });
+    }
+
+    let part = part_of(&path);
+    let written = async {
+        let mut export = ExportZip::new(BufWriter::new(create_private(&part)?));
+        let failed = download_files(app, &data, &vault_ids, &mut export).await?;
+        let files = unique_files(&data) - failed.len();
+        finish_off_thread(move || export.finish(&data)).await?;
+        Ok(ExportOutcome { items, files, files_missing: failed.len() })
+    }
+    .await;
+    complete(written, &part, &path)
 }
 
-/// Exports every vault the user can read into an encrypted `.keyless` file.
-/// Returns the number of items written, or `Cancelled` if no file was chosen.
-pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>) -> AppResult<usize> {
+/// Exports every vault the user can read, with the attached files, into an
+/// encrypted `.keyless` file. Fails with `Cancelled` if no file was chosen.
+pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>) -> AppResult<ExportOutcome> {
     let state = app.state::<AppState>();
     // A backup holds every secret in the vault: ask for the master password
     // even when the vault was unlocked another way.
@@ -230,8 +500,8 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
         return Err(AppError::Invalid(Msg::new("password_weak")));
     }
 
-    let data = collect(&state).await?;
-    let count = data.vaults.iter().map(|v| v.items.len()).sum();
+    let (mut data, vault_ids) = collect(&state).await?;
+    let items = data.vaults.iter().map(|v| v.items.len()).sum();
 
     let dialog = app
         .dialog()
@@ -245,17 +515,61 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
         .ok_or(AppError::Cancelled)?;
     let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unwritable")))?;
 
-    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
-        let contents = export_backup(&password, &data)?;
-        write_private(&path, contents.as_bytes())
-    })
-    .await
-    .map_err(|e| AppError::Store(e.to_string()))??;
-    Ok(count)
+    let part = part_of(&path);
+    let written = async {
+        let mut backup = BackupWriter::new(BufWriter::new(create_private(&part)?));
+        let failed = download_files(app, &data, &vault_ids, &mut backup).await?;
+        // The backup lists only the files it holds.
+        for item in data.vaults.iter_mut().flat_map(|v| &mut v.items) {
+            item.details.attachments.retain(|a| !failed.contains(&a.id));
+        }
+        let files = unique_files(&data);
+        // Deriving the key takes a while.
+        finish_off_thread(move || backup.finish(&password, &data)).await?;
+        Ok(ExportOutcome { items, files, files_missing: failed.len() })
+    }
+    .await;
+    complete(written, &part, &path)
 }
 
-fn write_private(path: &std::path::Path, contents: &[u8]) -> AppResult<()> {
-    use std::io::Write;
+fn unique_files(data: &BackupData) -> usize {
+    data.vaults.iter().flat_map(|v| &v.items).flat_map(|i| &i.details.attachments).map(|a| &a.id).collect::<HashSet<_>>().len()
+}
+
+/// Ends an archive away from the async threads and flushes it to disk.
+async fn finish_off_thread(finish: impl FnOnce() -> keyless_core::Result<BufWriter<File>> + Send + 'static) -> AppResult<()> {
+    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+        let unwritable = |e: std::io::Error| AppError::Invalid(Msg::new("file_unwritable").with("detail", e));
+        let file = finish()?.into_inner().map_err(|e| unwritable(e.into_error()))?;
+        file.sync_all().map_err(unwritable)
+    })
+    .await
+    .map_err(|e| AppError::Store(e.to_string()))?
+}
+
+/// The hidden file next to `path` a file is written into; it takes its name
+/// only once complete (see [`complete`]).
+fn part_of(path: &Path) -> PathBuf {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "export".into());
+    path.with_file_name(format!(".{name}.keyless-part"))
+}
+
+/// Gives the written `part` its name, or removes it if writing failed.
+fn complete<T>(written: AppResult<T>, part: &Path, path: &Path) -> AppResult<T> {
+    match written {
+        Ok(value) => {
+            std::fs::rename(part, path).map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = std::fs::remove_file(part);
+            Err(err)
+        }
+    }
+}
+
+/// A new file only this user can read.
+fn create_private(path: &Path) -> AppResult<File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -263,9 +577,11 @@ fn write_private(path: &std::path::Path, contents: &[u8]) -> AppResult<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut file = options
-        .open(path)
-        .map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))?;
+    options.open(path).map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))
+}
+
+fn write_private(path: &Path, contents: &[u8]) -> AppResult<()> {
+    let mut file = create_private(path)?;
     file.write_all(contents)
         .and_then(|_| file.sync_all())
         .map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))

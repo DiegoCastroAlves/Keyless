@@ -1,12 +1,49 @@
 import { DatabaseBackup, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput, StrengthMeter, useStrength } from "../../components/common";
 import { Button, Combobox, Dialog, ErrorText, Label, cx } from "../../components/ui";
-import { api, errorCode, errorMessage, type ImportSummary } from "../../lib/api";
+import { api, errorCode, errorMessage, events, type ExportOutcome, type ImportSummary } from "../../lib/api";
+import { formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+
+/** How far the attached files of an import or export are while `active`,
+ * in percent; null until the first file starts. */
+function useFilesProgress(active: boolean): number | null {
+  const [percent, setPercent] = useState<number | null>(null);
+  useEffect(() => {
+    setPercent(null);
+    if (!active) return;
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void events
+      .onFilesProgress((p) => setPercent(p.total > 0 ? Math.floor((p.done / p.total) * 100) : null))
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else stop = unlisten;
+      });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [active]);
+  return percent;
+}
+
+function FilesProgressLine({ percent }: { percent: number | null }) {
+  const { t } = useTranslation();
+  if (percent === null) return null;
+  return <p className="text-xs text-muted">{t("importer.filesProgress", { percent })}</p>;
+}
+
+/** Tells what an export wrote, and which attached files it could not. */
+function exportedToast(outcome: ExportOutcome, t: (key: string, options?: Record<string, unknown>) => string) {
+  const files = outcome.files > 0 ? ` · ${t("importer.filesIncluded", { count: outcome.files })}` : "";
+  toast.success(t("importer.exported", { count: outcome.items }) + files);
+  if (outcome.filesMissing > 0) toast.error(t("importer.filesMissing", { count: outcome.filesMissing }));
+}
 
 export function ImportPanel({ onDone }: { onDone: () => void }) {
   const { t } = useTranslation();
@@ -19,6 +56,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   const [backupPrompt, setBackupPrompt] = useState(false);
   const [backupPassword, setBackupPassword] = useState("");
   const [source, setSource] = useState<"one_pux" | "csv" | "keyless_backup">("one_pux");
+  const percent = useFilesProgress(busy === "commit");
 
   const pick = async (format: "one_pux" | "csv" | "keyless_backup", password?: string) => {
     setBusy("pick");
@@ -39,8 +77,10 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   const commit = async () => {
     setBusy("commit");
     try {
-      const count = await api.importCommit(mode === "new_vaults" ? { mode: "new_vaults" } : { mode: "vault", vaultId });
-      toast.success(t("importer.done", { count }));
+      const outcome = await api.importCommit(mode === "new_vaults" ? { mode: "new_vaults" } : { mode: "vault", vaultId });
+      const files = outcome.files > 0 ? ` · ${t("importer.filesAdded", { count: outcome.files })}` : "";
+      toast.success(t("importer.done", { count: outcome.items }) + files);
+      if (outcome.filesFailed > 0) toast.error(t("importer.filesFailed", { count: outcome.filesFailed }));
       setSummary(null);
       await useApp.getState().loadData();
       onDone();
@@ -108,6 +148,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           {summary.vaults.map(([name, count]) => (
             <li key={name}>{t("importer.vaultLine", { name, count })}</li>
           ))}
+          {summary.files > 0 && <li>{t("importer.filesLine", { count: summary.files, size: formatBytes(summary.file_bytes) })}</li>}
         </ul>
       </div>
       {summary.warnings.length > 0 && (
@@ -117,7 +158,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           </div>
           <ul className="list-disc space-y-0.5 pl-5">
             {summary.warnings.map((w, i) => (
-              <li key={i}>{w}</li>
+              <li key={i}>{t(`importer.warn_${w.code}`, { count: w.n })}</li>
             ))}
           </ul>
         </div>
@@ -146,6 +187,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
         </div>
       </div>
       {source !== "keyless_backup" && <p className="text-xs text-warning">{t("importer.deleteExport")}</p>}
+      <FilesProgressLine percent={percent} />
       <div className="flex justify-end gap-2">
         <Button
           onClick={() => {
@@ -204,17 +246,18 @@ export function ExportPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const strength = useStrength(password);
+  const percent = useFilesProgress(busy);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const count = await api.exportBackup(masterPassword, password);
+      const outcome = await api.exportBackup(masterPassword, password);
       setMasterPassword("");
       setPassword("");
       setConfirm("");
-      toast.success(t("importer.exported", { count }));
+      exportedToast(outcome, t);
     } catch (err) {
       if (errorCode(err) !== "cancelled") setError(errorMessage(err));
     } finally {
@@ -242,6 +285,7 @@ export function ExportPanel() {
         <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} invalid={!!confirm && confirm !== password} />
       </div>
       <ErrorText>{error}</ErrorText>
+      <FilesProgressLine percent={percent} />
       <Button type="submit" loading={busy} disabled={!masterPassword || !password || password !== confirm || (strength?.score ?? 0) < 3}>
         {t("importer.exportRun")}
       </Button>
@@ -254,21 +298,22 @@ export function ExportPanel() {
  * the warning and the explicit confirmation. */
 export function PlainExportPanel() {
   const { t } = useTranslation();
-  const [format, setFormat] = useState<"csv" | "json">("csv");
+  const [format, setFormat] = useState<"csv" | "json" | "zip">("csv");
   const [masterPassword, setMasterPassword] = useState("");
   const [understood, setUnderstood] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const percent = useFilesProgress(busy && format === "zip");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const count = await api.exportPlain(masterPassword, format);
+      const outcome = await api.exportPlain(masterPassword, format);
       setMasterPassword("");
       setUnderstood(false);
-      toast.success(t("importer.exported", { count }));
+      exportedToast(outcome, t);
       toast.show(t("importer.plainDelete"));
     } catch (err) {
       if (errorCode(err) !== "cancelled") setError(errorMessage(err));
@@ -285,7 +330,7 @@ export function PlainExportPanel() {
         <p className="text-xs leading-relaxed text-fg">{t("importer.plainWarning")}</p>
       </div>
       <div className="flex gap-2">
-        {(["csv", "json"] as const).map((value) => (
+        {(["csv", "json", "zip"] as const).map((value) => (
           <button
             key={value}
             type="button"
@@ -309,6 +354,7 @@ export function PlainExportPanel() {
         <span>{t("importer.plainUnderstood")}</span>
       </label>
       <ErrorText>{error}</ErrorText>
+      <FilesProgressLine percent={percent} />
       <Button type="submit" variant="danger" loading={busy} disabled={!masterPassword || !understood}>
         {t("importer.plainRun")}
       </Button>

@@ -148,8 +148,10 @@ and `x25519-dalek`; randomness from the operating system via `getrandom`.
   own, and nothing replaces an object. Each account may keep 250 MiB, a
   limit enforced by the policies. A saved file is written under its final
   name only once every chunk checked out. Attachments are not part of the
-  item history (removing one deletes it for good), nor of exports and
-  backups (the JSON export lists them without their keys).
+  item history (removing one deletes it for good). Backups keep each file's
+  chunks as the server has them (their keys are inside the backup's
+  encrypted item list), and a restored or imported file is encrypted again
+  as a new attachment, with a new id and key.
 
 - `shares`: share links. A snapshot of an item (title, websites, notes and
   the fields with a value; no one-time password secrets, passkeys,
@@ -183,9 +185,17 @@ attachments a vault has and their sizes (not their names or contents).
   persisted across restarts, one attempt at a time).
 - Showing the Secret Key, changing the master password, exporting a backup and
   deleting the account always require the master password.
-- An unencrypted export (CSV or JSON, for moving to another password manager)
-  also requires the master password and an explicit confirmation after a
-  warning; the file is written readable only by the current user. In the
+- A backup (`.keyless`) is a zip archive: the items, encrypted with a key
+  derived with Argon2id from the backup password, and each attached file's
+  encrypted chunks, which only that list's keys open (so files cannot be
+  swapped or altered). The archive shows how many files there are and
+  their sizes. Backups and exports are written to a hidden file that takes
+  its name once complete.
+- An unencrypted export (CSV, JSON, or a ZIP with the JSON and the attached
+  files, for moving to another password manager) also requires the master
+  password and an explicit confirmation after a warning; the file is
+  written readable only by the current user. Folders in the ZIP are named
+  after attachment ids only when they are ids Keyless makes. In the
   CSV, a cell a spreadsheet would run as a formula (a website chooses the
   title and user name of a login created with its passkey) starts with `'`,
   which Keyless's own import removes; passwords and notes are kept as they
@@ -442,8 +452,9 @@ must be running, for what it needs.
 - **A malicious server can withhold data** or refuse to store it, and it can
   serve stale data for items a device has never seen before. It cannot read,
   forge, roll back or delete data on a device. Keep an encrypted backup.
-- **Attachments live only on the server.** They are not in backups or
-  exports, and an account deleted for good leaves its attachment objects
+- **Attachments need the network.** Backups and exports leave out (and
+  report) files they cannot download, and an account deleted for good
+  leaves its attachment objects
   behind until an administrator removes them (Storage objects can only be
   deleted through the Storage API, not by the daily purge).
 

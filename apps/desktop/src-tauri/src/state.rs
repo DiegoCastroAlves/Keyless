@@ -9,7 +9,6 @@ use std::{
 use keyless_core::{
     account::UnlockedAccount,
     crypto::context,
-    import::ImportResult,
     item::ItemOverview,
     vault::{VaultKey, VaultMeta},
 };
@@ -203,7 +202,7 @@ pub struct AppState {
     pub unlock_throttle: Mutex<UnlockThrottle>,
     pub unlock_busy: std::sync::atomic::AtomicBool,
     pub bridge: crate::bridge::Bridge,
-    pub pending_import: Mutex<Option<ImportResult>>,
+    pub pending_import: Mutex<Option<crate::import::PendingImport>>,
     /// Cancels the running "Continue with Google" browser step.
     pub google_cancel: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Google session waiting for the new account's master password.
