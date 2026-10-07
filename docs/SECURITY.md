@@ -350,7 +350,9 @@ must be running, for what it needs.
   not ask for the master password again. Not supported yet: passkeys offered in
   the page's fields (conditional mediation), frames, and WebAuthn
   extensions. Keyless versions before passkeys drop them when they edit the
-  item.
+  item, and the same goes for per-website fill rules; versions since then
+  keep whatever a later version added to an item (wiped from memory like
+  the rest) when they edit it.
 - **Pinned app key.** If the app answers with a different key than the one
   pinned at pairing, the extension refuses to talk to it until the user pairs
   again.

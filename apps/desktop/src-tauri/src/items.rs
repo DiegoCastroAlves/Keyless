@@ -641,8 +641,11 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
         let mut created_at = now;
         let mut archived = false;
         let watchtower_ignored = existing.as_ref().map(|(_, _, o)| o.watchtower_ignored.clone()).unwrap_or_default();
+        // What a later version added to the item stays.
+        let unknown = existing.as_ref().map(|(_, _, o)| o.unknown.clone()).unwrap_or_default();
         if let Some((_, old_details, _)) = &existing {
             details.passkeys = old_details.passkeys.clone();
+            details.unknown = old_details.unknown.clone();
         }
         if let Some(passkeys) = passkeys {
             details.passkeys = passkeys;
@@ -675,7 +678,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
                 .urls
                 .iter()
                 .filter(|u| !u.href.trim().is_empty())
-                .map(|u| ItemUrl { href: normalize_url(&u.href), label: u.label.trim().to_string(), fill: u.fill })
+                .map(|u| ItemUrl { href: normalize_url(&u.href), label: u.label.trim().to_string(), fill: u.fill, unknown: u.unknown.clone() })
                 .collect(),
             tags,
             favorite: draft.favorite,
@@ -684,6 +687,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
             created_at,
             updated_at: now,
             watchtower_ignored,
+            unknown,
             ..Default::default()
         };
 

@@ -185,7 +185,7 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
                     "exact" | "host" => UrlMatch::Host,
                     _ => UrlMatch::Domain,
                 };
-                urls.push(ItemUrl { href: href.into(), label: u.get("label").and_then(Value::as_str).unwrap_or("").into(), fill });
+                urls.push(ItemUrl { href: href.into(), label: u.get("label").and_then(Value::as_str).unwrap_or("").into(), fill, ..Default::default() });
             }
         }
     }

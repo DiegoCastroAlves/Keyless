@@ -8,10 +8,33 @@
 //!   an item is opened or filled.
 //!
 //! All fields use `#[serde(default)]` so older clients can read items written
-//! by newer ones.
+//! by newer ones, and fields this version does not know are kept as they are
+//! ([`Unknown`]) so editing an item here does not drop them.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use zeroize::{Zeroize, ZeroizeOnDrop};
+
+/// Fields written by a later Keyless version, kept as they were.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Unknown(pub Map<String, Value>);
+
+impl Zeroize for Unknown {
+    fn zeroize(&mut self) {
+        // They may be secrets: wiped like the fields this version knows.
+        fn wipe(value: &mut Value) {
+            match value {
+                Value::String(text) => text.zeroize(),
+                Value::Array(list) => list.iter_mut().for_each(wipe),
+                Value::Object(map) => map.values_mut().for_each(wipe),
+                _ => {}
+            }
+        }
+        self.0.values_mut().for_each(wipe);
+        self.0.clear();
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -48,6 +71,8 @@ pub struct ItemUrl {
     /// Where the login may be filled, like 1Password's "autofill behavior".
     #[serde(default, skip_serializing_if = "UrlMatch::is_default")]
     pub fill: UrlMatch,
+    #[serde(flatten)]
+    pub unknown: Unknown,
 }
 
 /// Which pages an item's website covers.
@@ -107,6 +132,8 @@ pub struct ItemOverview {
     /// "two_factor").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub watchtower_ignored: Vec<String>,
+    #[serde(flatten)]
+    pub unknown: Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
@@ -194,6 +221,8 @@ pub struct ItemDetails {
     /// Passkeys for the item's website (see `passkey`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub passkeys: Vec<crate::passkey::Passkey>,
+    #[serde(flatten)]
+    pub unknown: Unknown,
 }
 
 impl ItemDetails {
@@ -266,6 +295,28 @@ mod tests {
         let field: Field = serde_json::from_str(r#"{"id":"a","kind":"hologram","purpose":"thing"}"#).unwrap();
         assert_eq!(field.kind, FieldKind::Text);
         assert_eq!(field.purpose, Some(FieldPurpose::Other));
+    }
+
+    #[test]
+    fn fields_of_later_versions_are_kept() {
+        let json = r#"{"title":"x","urls":[{"href":"https://a.example","fill":"host","pattern":"/login"}],"future_flag":true,"version":3}"#;
+        let overview: ItemOverview = serde_json::from_str(json).unwrap();
+        assert_eq!(overview.version, 3);
+        assert_eq!(overview.urls[0].fill, UrlMatch::Host);
+        assert_eq!(overview.unknown.0.keys().collect::<Vec<_>>(), ["future_flag"]);
+        assert_eq!(overview.urls[0].unknown.0["pattern"], "/login");
+        let again: Value = serde_json::to_value(&overview).unwrap();
+        assert_eq!(again["future_flag"], true);
+        assert_eq!(again["urls"][0]["pattern"], "/login");
+
+        let json = r#"{"notes":"n","attachments":[{"id":"f1","key":"secret"}]}"#;
+        let mut details: ItemDetails = serde_json::from_str(json).unwrap();
+        assert_eq!(details.notes, "n");
+        assert_eq!(serde_json::to_value(&details).unwrap()["attachments"][0]["key"], "secret");
+        details.zeroize();
+        assert!(details.unknown.0.is_empty());
+        // Nothing extra is written for items without such fields.
+        assert!(!serde_json::to_string(&ItemDetails::default()).unwrap().contains("unknown"));
     }
 
     #[test]
