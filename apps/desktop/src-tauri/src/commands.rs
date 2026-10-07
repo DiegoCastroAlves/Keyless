@@ -380,6 +380,12 @@ pub async fn open_item_url(app: AppHandle, state: State<'_, AppState>, item_id: 
 }
 
 #[tauri::command]
+pub async fn set_watchtower_ignored(app: AppHandle, state: State<'_, AppState>, item_id: String, alert: String, ignored: bool) -> AppResult<()> {
+    state.touch();
+    items::set_watchtower_ignored(&app, &item_id, &alert, ignored).await
+}
+
+#[tauri::command]
 pub async fn set_favorite(app: AppHandle, state: State<'_, AppState>, item_id: String, favorite: bool) -> AppResult<()> {
     state.touch();
     items::set_favorite(&app, &item_id, favorite).await

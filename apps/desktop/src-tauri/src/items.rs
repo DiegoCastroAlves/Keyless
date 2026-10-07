@@ -640,6 +640,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
 
         let mut created_at = now;
         let mut archived = false;
+        let watchtower_ignored = existing.as_ref().map(|(_, _, o)| o.watchtower_ignored.clone()).unwrap_or_default();
         if let Some((_, old_details, _)) = &existing {
             details.passkeys = old_details.passkeys.clone();
         }
@@ -682,6 +683,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
             trashed_at: None,
             created_at,
             updated_at: now,
+            watchtower_ignored,
             ..Default::default()
         };
 
@@ -731,6 +733,21 @@ async fn update_overview(app: &AppHandle, item_id: &str, change: impl FnOnce(&mu
     }
     sync::spawn_sync(app);
     Ok(())
+}
+
+/// Ignores (or watches again) a Watchtower alert for the item.
+pub async fn set_watchtower_ignored(app: &AppHandle, item_id: &str, alert: &str, ignored: bool) -> AppResult<()> {
+    const ALERTS: [&str; 7] = ["weak", "reused", "breached", "compromised", "unsecured", "expiring", "two_factor"];
+    if !ALERTS.contains(&alert) {
+        return Err(AppError::Invalid(Msg::new("invalid_request")));
+    }
+    update_overview(app, item_id, |o| {
+        o.watchtower_ignored.retain(|a| a != alert);
+        if ignored {
+            o.watchtower_ignored.push(alert.to_string());
+        }
+    })
+    .await
 }
 
 pub async fn set_favorite(app: &AppHandle, item_id: &str, favorite: bool) -> AppResult<()> {

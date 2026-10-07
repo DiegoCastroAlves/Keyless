@@ -64,6 +64,8 @@ pub struct HealthReport {
     /// Items with a website on plain `http`.
     pub unsecured: Vec<String>,
     pub expiring: Vec<Expiry>,
+    /// Alerts the user ignored: (item id, alert).
+    pub ignored: Vec<(String, String)>,
 }
 
 #[derive(Serialize)]
@@ -109,6 +111,8 @@ pub fn strength(password: &str, user_inputs: &[&str]) -> Strength {
 /// An active item, as the checks need it.
 struct Entry {
     id: String,
+    /// Alerts the user ignored for this item.
+    ignored: Vec<String>,
     category: Category,
     urls: Vec<ItemUrl>,
     created_at: i64,
@@ -116,6 +120,10 @@ struct Entry {
 }
 
 impl Entry {
+    fn ignores(&self, alert: &str) -> bool {
+        self.ignored.iter().any(|a| a == alert)
+    }
+
     fn password(&self) -> Option<&str> {
         self.details.field_by_purpose(FieldPurpose::Password).map(|f| f.value.as_str()).filter(|p| !p.is_empty())
     }
@@ -151,7 +159,14 @@ async fn entries(state: &AppState) -> AppResult<Vec<Entry>> {
             continue;
         };
         let Ok(details) = vault.key.open_details(&local.vault_id, id, enc) else { continue };
-        out.push(Entry { id: id.clone(), category: o.category, urls: o.urls.clone(), created_at: o.created_at, details });
+        out.push(Entry {
+            id: id.clone(),
+            ignored: o.watchtower_ignored.clone(),
+            category: o.category,
+            urls: o.urls.clone(),
+            created_at: o.created_at,
+            details,
+        });
     }
     Ok(out)
 }
@@ -162,18 +177,23 @@ pub async fn report(state: &AppState) -> AppResult<HealthReport> {
     let mut report = HealthReport::default();
     let mut by_password: HashMap<&str, Vec<String>> = HashMap::new();
     for entry in &entries {
+        // Every ignored alert is listed, so it can be watched again.
+        report.ignored.extend(entry.ignored.iter().map(|alert| (entry.id.clone(), alert.clone())));
+        let skip = |alert: &str| entry.ignores(alert);
         if let Some(password) = entry.password() {
             report.checked += 1;
-            if strength(password, &[]).score < 3 {
+            if strength(password, &[]).score < 3 && !skip("weak") {
                 report.weak.push(entry.id.clone());
             }
+            // Grouped even when ignored: the other items still share it.
             by_password.entry(password).or_default().push(entry.id.clone());
         }
-        if entry.urls.iter().any(|u| unsecured(&u.href)) {
+        if entry.urls.iter().any(|u| unsecured(&u.href)) && !skip("unsecured") {
             report.unsecured.push(entry.id.clone());
         }
         if let Some(expires_at) = expiry(&entry.details)
             && expires_at - now < EXPIRING_SOON
+            && !skip("expiring")
         {
             report.expiring.push(Expiry { id: entry.id.clone(), expires_at, expired: expires_at < now });
         }
@@ -273,7 +293,8 @@ async fn get_list(client: &reqwest::Client, url: &str) -> AppResult<Vec<u8>> {
 pub async fn breaches(state: &AppState) -> AppResult<BreachReport> {
     let entries = entries(state).await?;
     let client = client()?;
-    let breached = breached_passwords(&client, &entries).await?;
+    let mut breached = breached_passwords(&client, &entries).await?;
+    breached.retain(|(id, _)| !entries.iter().any(|e| &e.id == id && e.ignores("breached")));
     // Lists that cannot be loaded leave their section empty: the password
     // check above is the important one.
     let compromised = match breached_sites(&client).await {
@@ -370,7 +391,7 @@ fn sites_from_breaches(list: Vec<Breach>) -> HashMap<String, String> {
 
 fn compromised(entries: &[Entry], sites: &HashMap<String, String>) -> Vec<SiteIssue> {
     let mut issues = Vec::new();
-    for entry in entries.iter().filter(|e| e.password().is_some()) {
+    for entry in entries.iter().filter(|e| e.password().is_some() && !e.ignores("compromised")) {
         for site in entry.sites() {
             let Some(date) = sites.get(&site) else { continue };
             // The breach happened (or ended) after this password was set.
@@ -408,7 +429,7 @@ fn sites_from_directory(list: &Value) -> HashSet<String> {
 fn missing_two_factor(entries: &[Entry], sites: &HashSet<String>) -> Vec<SiteIssue> {
     entries
         .iter()
-        .filter(|e| matches!(e.category, Category::Login | Category::Password) && e.password().is_some() && !e.has_totp())
+        .filter(|e| matches!(e.category, Category::Login | Category::Password) && e.password().is_some() && !e.has_totp() && !e.ignores("two_factor"))
         .filter_map(|e| e.sites().into_iter().find(|s| sites.contains(s)).map(|site| SiteIssue { id: e.id.clone(), site, date: None }))
         .collect()
 }
@@ -470,6 +491,7 @@ mod tests {
         }
         Entry {
             id: id.into(),
+            ignored: Vec::new(),
             category: Category::Login,
             urls: vec![ItemUrl { href: url.into(), ..Default::default() }],
             created_at,

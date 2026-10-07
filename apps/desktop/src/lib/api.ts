@@ -350,7 +350,11 @@ export interface HealthReport {
   /** Items with a website on plain http. */
   unsecured: string[];
   expiring: { id: string; expiresAt: number; expired: boolean }[];
+  /** Alerts the user ignored: [item id, alert]. */
+  ignored: [string, WatchtowerAlert][];
 }
+
+export type WatchtowerAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor";
 
 export interface SiteIssue {
   id: string;
@@ -477,6 +481,8 @@ export const api = {
   copyText: (text: string) => invoke<CopyResult>("copy_text", { text }),
   openItemUrl: (itemId: string, index: number) => invoke<void>("open_item_url", { itemId, index }),
   setFavorite: (itemId: string, favorite: boolean) => invoke<void>("set_favorite", { itemId, favorite }),
+  setWatchtowerIgnored: (itemId: string, alert: WatchtowerAlert, ignored: boolean) =>
+    invoke<void>("set_watchtower_ignored", { itemId, alert, ignored }),
   setArchived: (itemId: string, archived: boolean) => invoke<void>("set_archived", { itemId, archived }),
   trashItem: (itemId: string) => invoke<void>("trash_item", { itemId }),
   restoreItem: (itemId: string) => invoke<void>("restore_item", { itemId }),

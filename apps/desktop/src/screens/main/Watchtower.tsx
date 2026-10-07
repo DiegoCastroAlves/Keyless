@@ -1,10 +1,10 @@
-import { CalendarClock, CircleCheck, Globe, KeyRound, LockOpen, Repeat, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
+import { BellOff, BellRing, CalendarClock, CircleCheck, Globe, KeyRound, LockOpen, Repeat, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon } from "../../components/common";
-import { Button, Spinner, cx } from "../../components/ui";
-import { api, errorMessage, type BreachReport, type HealthReport, type ItemSummary } from "../../lib/api";
+import { Button, IconButton, Spinner, Tooltip, cx } from "../../components/ui";
+import { api, errorMessage, type BreachReport, type HealthReport, type ItemSummary, type WatchtowerAlert } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
@@ -34,8 +34,9 @@ export function Watchtower() {
   };
 
   const reusedIds = useMemo(() => {
+    const ignored = new Set(report?.ignored.filter(([, alert]) => alert === "reused").map(([id]) => id));
     const map = new Map<string, number>();
-    for (const group of report?.reused ?? []) for (const id of group) map.set(id, group.length - 1);
+    for (const group of report?.reused ?? []) for (const id of group) if (!ignored.has(id)) map.set(id, group.length - 1);
     return map;
   }, [report]);
 
@@ -47,12 +48,21 @@ export function Watchtower() {
     );
   }
 
+  // The online results are from the last check: alerts ignored since are
+  // left out here.
+  const ignoredSet = new Set(report.ignored.map(([id, alert]) => `${id}:${alert}`));
+  const online = breaches && {
+    ...breaches,
+    breached: breaches.breached.filter(([id]) => !ignoredSet.has(`${id}:breached`)),
+    compromised: breaches.compromised.filter((issue) => !ignoredSet.has(`${issue.id}:compromised`)),
+    twoFactor: breaches.twoFactor.filter((issue) => !ignoredSet.has(`${issue.id}:two_factor`)),
+  };
   const problems = new Set([
     ...report.weak,
     ...reusedIds.keys(),
     ...report.unsecured,
-    ...(breaches?.breached.map(([id]) => id) ?? []),
-    ...(breaches?.compromised.map((issue) => issue.id) ?? []),
+    ...(online?.breached.map(([id]) => id) ?? []),
+    ...(online?.compromised.map((issue) => issue.id) ?? []),
   ]);
   const score = report.checked ? Math.max(0, Math.round(((report.checked - problems.size) / report.checked) * 100)) : 100;
   const day = (value: number | string) =>
@@ -62,7 +72,7 @@ export function Watchtower() {
       day: "numeric",
       timeZone: typeof value === "number" ? undefined : "UTC",
     });
-  const anything = problems.size > 0 || report.expiring.length > 0 || (breaches?.twoFactor.length ?? 0) > 0;
+  const anything = problems.size > 0 || report.expiring.length > 0 || (online?.twoFactor.length ?? 0) > 0;
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-panel">
@@ -81,14 +91,14 @@ export function Watchtower() {
             icon={<ShieldX className="size-5" />}
             tone="danger"
             label={t("watchtower.breached")}
-            value={breaches ? breaches.breached.length : null}
+            value={online ? online.breached.length : null}
             placeholder={t("watchtower.notChecked")}
           />
           <StatCard
             icon={<Globe className="size-5" />}
             tone="danger"
             label={t("watchtower.compromised")}
-            value={breaches ? breaches.compromised.length : null}
+            value={online ? online.compromised.length : null}
             placeholder={t("watchtower.notChecked")}
           />
           <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("watchtower.weak")} value={report.weak.length} />
@@ -98,7 +108,7 @@ export function Watchtower() {
             icon={<KeyRound className="size-5" />}
             tone="info"
             label={t("watchtower.twoFactor")}
-            value={breaches ? breaches.twoFactor.length : null}
+            value={online ? online.twoFactor.length : null}
             placeholder={t("watchtower.notChecked")}
           />
         </div>
@@ -118,22 +128,24 @@ export function Watchtower() {
           </div>
         ) : (
           <div className="mt-8 space-y-8">
-            {breaches && breaches.breached.length > 0 && (
+            {online && online.breached.length > 0 && (
               <IssueList
+                alert="breached"
                 title={t("watchtower.breached")}
                 hint={t("watchtower.breachedHint")}
-                entries={breaches.breached.map(([id, count]) => ({
+                entries={online.breached.map(([id, count]) => ({
                   item: byId.get(id),
                   note: t("watchtower.breachedSeen", { count, formatted: count.toLocaleString(i18n.language) }),
                 }))}
                 tone="danger"
               />
             )}
-            {breaches && breaches.compromised.length > 0 && (
+            {online && online.compromised.length > 0 && (
               <IssueList
+                alert="compromised"
                 title={t("watchtower.compromised")}
                 hint={t("watchtower.compromisedHint")}
-                entries={breaches.compromised.map((issue) => ({
+                entries={online.compromised.map((issue) => ({
                   item: byId.get(issue.id),
                   note: t("watchtower.compromisedNote", { site: issue.site, date: issue.date ? day(issue.date) : "" }),
                 }))}
@@ -142,6 +154,7 @@ export function Watchtower() {
             )}
             {report.weak.length > 0 && (
               <IssueList
+                alert="weak"
                 title={t("watchtower.weak")}
                 hint={t("watchtower.weakHint")}
                 entries={report.weak.map((id) => ({ item: byId.get(id) }))}
@@ -150,6 +163,7 @@ export function Watchtower() {
             )}
             {reusedIds.size > 0 && (
               <IssueList
+                alert="reused"
                 title={t("watchtower.reused")}
                 hint={t("watchtower.reusedHint")}
                 entries={[...reusedIds.entries()].map(([id, others]) => ({ item: byId.get(id), note: t("watchtower.sharedWith", { count: others }) }))}
@@ -158,6 +172,7 @@ export function Watchtower() {
             )}
             {report.unsecured.length > 0 && (
               <IssueList
+                alert="unsecured"
                 title={t("watchtower.unsecured")}
                 hint={t("watchtower.unsecuredHint")}
                 entries={report.unsecured.map((id) => ({ item: byId.get(id) }))}
@@ -166,6 +181,7 @@ export function Watchtower() {
             )}
             {report.expiring.length > 0 && (
               <IssueList
+                alert="expiring"
                 title={t("watchtower.expiring")}
                 hint={t("watchtower.expiringHint")}
                 entries={report.expiring.map((e) => ({
@@ -176,18 +192,59 @@ export function Watchtower() {
                 icon={<CalendarClock className="size-4" />}
               />
             )}
-            {breaches && breaches.twoFactor.length > 0 && (
+            {online && online.twoFactor.length > 0 && (
               <IssueList
+                alert="two_factor"
                 title={t("watchtower.twoFactor")}
                 hint={t("watchtower.twoFactorHint")}
-                entries={breaches.twoFactor.map((issue) => ({ item: byId.get(issue.id), note: t("watchtower.twoFactorNote", { site: issue.site }) }))}
+                entries={online.twoFactor.map((issue) => ({ item: byId.get(issue.id), note: t("watchtower.twoFactorNote", { site: issue.site }) }))}
                 tone="info"
               />
             )}
           </div>
         )}
+        {report.ignored.length > 0 && <IgnoredList ignored={report.ignored} byId={byId} />}
       </div>
     </section>
+  );
+}
+
+/** Alerts the user chose to ignore, which can be watched again. */
+function IgnoredList({ ignored, byId }: { ignored: [string, WatchtowerAlert][]; byId: Map<string, ItemSummary> }) {
+  const { t } = useTranslation();
+  const loadData = useApp((s) => s.loadData);
+  const [open, setOpen] = useState(false);
+  const watch = async (id: string, alert: WatchtowerAlert) => {
+    try {
+      await api.setWatchtowerIgnored(id, alert, false);
+      await loadData();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <div className="mt-10">
+      <button className="text-xs font-medium text-muted hover:text-fg" onClick={() => setOpen(!open)}>
+        {t("watchtower.ignoredCount", { count: ignored.length })}
+      </button>
+      {open && (
+        <div className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line">
+          {ignored
+            .filter(([id]) => byId.has(id))
+            .map(([id, alert]) => (
+              <div key={`${id}-${alert}`} className="flex items-center gap-3 px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium">{byId.get(id)!.title}</div>
+                  <div className="truncate text-xs text-muted">{t(`watchtower.alert.${alert}`)}</div>
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => watch(id, alert)}>
+                  <BellRing className="size-4" /> {t("watchtower.watchAgain")}
+                </Button>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -252,20 +309,32 @@ function StatCard({
 }
 
 function IssueList({
+  alert,
   title,
   hint,
   entries,
   tone,
   icon,
 }: {
+  alert: WatchtowerAlert;
   title: string;
   hint: string;
   entries: { item: ItemSummary | undefined; note?: string }[];
   tone: "warning" | "danger" | "info";
   icon?: ReactNode;
 }) {
+  const { t } = useTranslation();
   const setView = useApp((s) => s.setView);
   const select = useApp((s) => s.select);
+  const loadData = useApp((s) => s.loadData);
+  const ignore = async (id: string) => {
+    try {
+      await api.setWatchtowerIgnored(id, alert, true);
+      await loadData();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
   return (
     <div>
       <h3
@@ -282,20 +351,30 @@ function IssueList({
         {entries
           .filter((e) => e.item)
           .map(({ item, note }) => (
-            <button
-              key={item!.id}
-              onClick={() => {
-                setView({ kind: "all" });
-                select(item!.id);
-              }}
-              className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-panel-2"
-            >
-              <ItemIcon title={item!.title} category={item!.category} url={item!.urls[0]} size="sm" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-medium">{item!.title}</div>
-                <div className="truncate text-xs text-muted">{note ?? item!.subtitle}</div>
-              </div>
-            </button>
+            <div key={item!.id} className="group flex items-center hover:bg-panel-2">
+              <button
+                onClick={() => {
+                  setView({ kind: "all" });
+                  select(item!.id);
+                }}
+                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left"
+              >
+                <ItemIcon title={item!.title} category={item!.category} url={item!.urls[0]} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-medium">{item!.title}</div>
+                  <div className="truncate text-xs text-muted">{note ?? item!.subtitle}</div>
+                </div>
+              </button>
+              <Tooltip content={t("watchtower.ignore")}>
+                <IconButton
+                  label={t("watchtower.ignore")}
+                  onClick={() => void ignore(item!.id)}
+                  className="mr-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                >
+                  <BellOff className="size-4" />
+                </IconButton>
+              </Tooltip>
+            </div>
           ))}
       </div>
     </div>
