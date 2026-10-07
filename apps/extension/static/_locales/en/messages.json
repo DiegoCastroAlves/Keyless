@@ -159,5 +159,8 @@
   },
   "waitingUnlock": {
     "message": "Unlock Keyless in the window that opened…"
+  },
+  "showLogins": {
+    "message": "Show logins"
   }
 }

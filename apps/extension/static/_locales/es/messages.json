@@ -159,5 +159,8 @@
   },
   "waitingUnlock": {
     "message": "Desbloquea Keyless en la ventana que se abrió…"
+  },
+  "showLogins": {
+    "message": "Mostrar inicios de sesión"
   }
 }

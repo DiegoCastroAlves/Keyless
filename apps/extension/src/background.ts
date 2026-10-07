@@ -8,7 +8,8 @@
 //   into that tab and ask Keyless to unlock. They must present the token their content
 //   script registered, so a page cannot embed them on its own;
 // - content scripts (web page process): may only register that token and
-//   ask how many logins match their page. Credentials never go to them
+//   ask how many logins match their page, and ask Keyless to unlock (a click
+//   on the Keyless button in a field). Credentials never go to them
 //   unless the user picked a login in the popup or a Keyless menu.
 // The app re-checks every URL before returning credentials. The master
 // password never goes through the extension: to unlock, Keyless asks the
@@ -199,18 +200,29 @@ async function actionIcon(size: number, locked: boolean): Promise<ImageData> {
   return ctx.getImageData(0, 0, size, size);
 }
 
-let shownLocked: boolean | null = null;
+let shownState: Status["state"] | null = null;
+let iconLocked: boolean | null = null;
 
-/** Shows whether Keyless is locked on the toolbar icon, and tells open
- * Keyless menus (the card hides, the list offers to unlock). */
-async function showLocked(locked: boolean): Promise<void> {
-  if (shownLocked === locked) return;
-  shownLocked = locked;
-  try {
-    await chrome.action.setIcon({ imageData: { 16: await actionIcon(16, locked), 32: await actionIcon(32, locked) } });
-    await chrome.action.setTitle({ title: locked ? chrome.i18n.getMessage("lockedTitle") : "Keyless" });
-  } catch {
-    shownLocked = null;
+/** Shows whether Keyless is locked: on the toolbar icon, on the Keyless
+ * button in login fields (content scripts get the state, nothing else) and
+ * in open Keyless menus (the card hides, the list offers to unlock). */
+async function showState(state: Status["state"]): Promise<void> {
+  if (shownState === state) return;
+  shownState = state;
+  const locked = state !== "ready";
+  if (iconLocked !== locked) {
+    iconLocked = locked;
+    try {
+      await chrome.action.setIcon({ imageData: { 16: await actionIcon(16, locked), 32: await actionIcon(32, locked) } });
+      await chrome.action.setTitle({ title: locked ? chrome.i18n.getMessage("lockedTitle") : "Keyless" });
+    } catch {
+      iconLocked = null;
+    }
+  }
+  for (const tab of await chrome.tabs.query({}).catch(() => [])) {
+    if (tab.id !== undefined && isWebPage(tab.url)) {
+      chrome.tabs.sendMessage(tab.id, { type: "keyless-state", state }, { frameId: 0 }).catch(() => undefined);
+    }
   }
   await chrome.storage.session.set({ lockState: { locked, at: Date.now() } }).catch(() => undefined);
 }
@@ -230,7 +242,7 @@ async function quickStatus(): Promise<Status> {
   } catch (err) {
     current = { state: err instanceof BridgeError ? (err.message as Status["state"]) : "error" };
   }
-  void showLocked(current.state !== "ready");
+  void showState(current.state);
   return current;
 }
 
@@ -243,11 +255,11 @@ async function followLockState(): Promise<never> {
     try {
       const result = await call<AppStatus>("wait_status", known === undefined ? {} : { locked: known }, watcher);
       known = result.locked;
-      await showLocked(result.locked);
+      await showState(result.locked ? "locked" : "ready");
     } catch (err) {
       // Not connected (app closed, browser not paired…): try again later.
       known = undefined;
-      await showLocked(true);
+      await showState(err instanceof BridgeError ? (err.message as Status["state"]) : "error");
       const missing = err instanceof BridgeError && err.message === "host_missing";
       await new Promise((resolve) => setTimeout(resolve, missing ? 60_000 : 10_000));
     }
@@ -289,7 +301,7 @@ function requestUnlock(): Promise<void> {
 }
 
 async function unlocked(): Promise<void> {
-  await showLocked(false);
+  await showState("ready");
 }
 
 // ----- Filling ----------------------------------------------------------------
@@ -412,6 +424,11 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       // The token the page's Keyless menus will present.
       if (typeof message.token !== "string" || message.token.length < 32) return { ok: false, error: "bad_request" };
       await chrome.storage.session.set({ [tokenKey(sender.tab.id)]: message.token });
+      return { ok: true };
+    case "unlock":
+      // Keyless asks for the password in its own window or the system's:
+      // nothing secret goes through the page.
+      await requestUnlock();
       return { ok: true };
     case "page_state": {
       const current = await quickStatus();

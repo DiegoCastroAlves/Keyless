@@ -8,7 +8,9 @@
 // learns nothing about the logins except how many match the page, and gets
 // credentials only to type them into the page once the user picked one.
 
-import type { Credentials, PageState } from "./types";
+import type { Credentials, PageState, Status } from "./types";
+
+const t = (key: string) => chrome.i18n.getMessage(key) || key;
 
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
 /** Transparent margin around the menus, room for their shadow. */
@@ -118,13 +120,17 @@ async function submitAfterFill(field: HTMLInputElement) {
 
 // ----- UI ---------------------------------------------------------------------
 
-const LOGO = `<svg viewBox="0 0 1024 1024" width="18" height="18" aria-hidden="true"><circle cx="512" cy="512" r="452" fill="#14B8A6"/><circle cx="512" cy="512" r="318" fill="#073b37"/><circle cx="512" cy="438" r="94" fill="#fff"/><path d="M470 486H554L586 676Q590 702 564 702H460Q434 702 438 676Z" fill="#fff"/></svg>`;
+const LOGO = `<svg class="logo" viewBox="0 0 1024 1024" width="18" height="18" aria-hidden="true"><circle cx="512" cy="512" r="452" fill="#14B8A6"/><circle cx="512" cy="512" r="318" fill="#073b37"/><circle cx="512" cy="438" r="94" fill="#fff"/><path d="M470 486H554L586 676Q590 702 564 702H460Q434 702 438 676Z" fill="#fff"/></svg>`;
 
 const STYLE = `
 :host { all: initial; }
-.btn { position: fixed; z-index: 2147483646; width: 24px; height: 24px; border: 0; padding: 3px; border-radius: 6px;
-  background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.btn { position: fixed; z-index: 2147483646; height: 24px; min-width: 24px; border: 0; margin: 0; padding: 0 3px; border-radius: 12px;
+  background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px; }
 .btn:hover { background: rgba(20,184,166,.15); }
+.btn.pill { padding: 0 3px 0 6px; background: rgba(17,24,39,.85); box-shadow: 0 0 0 1px rgba(255,255,255,.16); }
+.btn.pill:hover { background: rgba(31,41,55,.95); }
+.btn.busy { opacity: .55; cursor: progress; }
+.btn svg { flex: none; display: block; }
 iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0; background: transparent; color-scheme: light;
   visibility: hidden; pointer-events: none; width: 0; height: 0; }
 /* Same as the menus' own pages (inline.css). When they differ, the browser
@@ -142,8 +148,31 @@ button.className = "btn";
 button.type = "button";
 button.title = "Keyless";
 button.innerHTML = LOGO;
+button.title = "Keyless";
 button.style.display = "none";
 root.append(button);
+
+const LOCK = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
+const CHEVRON = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
+
+type ButtonKind = "locked" | "logins" | "plain";
+let buttonKind: ButtonKind | null = null;
+
+function kindFor(state: PageState | null): ButtonKind {
+  if (state?.state === "locked") return "locked";
+  return state?.state === "ready" && state.count > 0 ? "logins" : "plain";
+}
+
+/** Locked: a padlock, and a click unlocks. With logins for the page: an
+ * arrow, and a click opens the list. Like 1Password's button. */
+function renderButton(kind: ButtonKind) {
+  if (kind === buttonKind) return;
+  buttonKind = kind;
+  button.className = kind === "plain" ? "btn" : "btn pill";
+  button.innerHTML = (kind === "locked" ? LOCK : kind === "logins" ? CHEVRON : "") + LOGO;
+  button.title = kind === "locked" ? t("unlockApp") : kind === "logins" ? t("showLogins") : "Keyless";
+  place();
+}
 
 function mount() {
   if (!host.isConnected && document.documentElement) document.documentElement.appendChild(host);
@@ -247,7 +276,7 @@ function place() {
   if (!current) return;
   const rect = current.getBoundingClientRect();
   button.style.top = `${rect.top + (rect.height - 24) / 2}px`;
-  button.style.left = `${rect.right - 28}px`;
+  button.style.left = `${rect.right - (button.offsetWidth || 24) - 6}px`;
   if (menu?.open) {
     const width = Math.min(MENU_WIDTH, window.innerWidth - 16);
     const outer = width + 2 * PAD;
@@ -288,11 +317,40 @@ function closeMenu(refocus = false) {
   }
 }
 
-/** Opens the menu by itself when there is something to pick or to unlock. */
+/** Opens the menu by itself when there are logins to pick. When Keyless is
+ * locked the button shows a padlock instead, like 1Password. */
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
   if (field !== current || document.activeElement !== field || menu?.open) return;
-  if (state && ((state.state === "ready" && state.count > 0) || state.state === "locked")) openMenu();
+  if (state?.state === "ready" && state.count > 0) openMenu();
+}
+
+/** The padlock button: Keyless asks for the password itself (the system's
+ * prompt or its own small window); nothing goes through the page. */
+async function unlockFromButton() {
+  if (button.classList.contains("busy")) return;
+  button.classList.add("busy");
+  const reply = await send({ type: "unlock" });
+  button.classList.remove("busy");
+  if (!reply.ok) return;
+  pageState = null;
+  const state = await getPageState();
+  renderButton(kindFor(state));
+  if (current && document.activeElement === current && state?.state === "ready" && state.count > 0) openMenu();
+  void scan();
+}
+
+/** Keyless locked, unlocked or disconnected (from the background). */
+function onState(state: Status["state"]) {
+  if (state === "ready") {
+    pageState = null;
+    void getPageState().then((fresh) => renderButton(kindFor(fresh)));
+    void scan();
+  } else {
+    pageState = { url: location.href, value: Promise.resolve({ state, count: 0 }) };
+    renderButton(kindFor({ state, count: 0 }));
+    closeMenu();
+  }
 }
 
 /** Shows the sign-in card on login pages with saved logins. */
@@ -315,7 +373,8 @@ function dismissCard() {
 button.addEventListener("click", (e) => {
   if (!e.isTrusted) return;
   e.preventDefault();
-  if (menu?.open) menu.post({ type: "activate" });
+  if (buttonKind === "locked") void unlockFromButton();
+  else if (menu?.open) menu.post({ type: "activate" });
   else openMenu(true);
 });
 // The field keeps the focus when the button is pressed.
@@ -335,6 +394,7 @@ document.addEventListener(
     current = target;
     button.style.display = "flex";
     place();
+    void getPageState().then((state) => current === target && renderButton(kindFor(state)));
     // Not when the page focuses a field by itself on load: the card is there
     // for that.
     if (!filling && !refocusing && Date.now() - lastUserInput < 1000) void autoOpen(target);
@@ -431,9 +491,15 @@ const observer = new MutationObserver(() => {
 observer.observe(document.documentElement, { childList: true, subtree: true });
 void scan();
 
-// Fill requested from a Keyless menu, the popup or the keyboard shortcut.
+// Fill requested from a Keyless menu, the popup or the keyboard shortcut; or
+// Keyless locked or unlocked.
 chrome.runtime.onMessage.addListener((message, sender) => {
-  if (sender.id !== chrome.runtime.id || message?.type !== "keyless-fill") return;
+  if (sender.id !== chrome.runtime.id) return;
+  if (message?.type === "keyless-state" && typeof message.state === "string") {
+    onState(message.state);
+    return;
+  }
+  if (message?.type !== "keyless-fill") return;
   // The credentials were checked against this origin; the tab may have
   // navigated since.
   if (message.origin !== location.origin) return;
