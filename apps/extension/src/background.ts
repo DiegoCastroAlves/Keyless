@@ -163,6 +163,58 @@ function fromAppStatus(result: AppStatus): Status {
   return result.locked ? { state: "locked" } : { state: "ready", email: result.email };
 }
 
+// ----- Toolbar icon -------------------------------------------------------------
+
+/** Same padlock as the app's tray icon (tray.rs), drawn over the logo. */
+function drawPadlock(ctx: OffscreenCanvasRenderingContext2D, size: number) {
+  const b = size * 0.62;
+  const [ox, oy] = [size - b, size - b];
+  const cx = ox + b / 2;
+  const joint = oy + b * 0.46;
+  const shape = (grow: number, color: string) => {
+    ctx.fillStyle = ctx.strokeStyle = color;
+    ctx.lineWidth = b * 0.12 + 2 * grow;
+    ctx.beginPath();
+    ctx.arc(cx, joint, b * 0.22, Math.PI, 0);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.roundRect(ox + b * 0.16 - grow, joint - grow, b * 0.68 + 2 * grow, b * 0.52 + 2 * grow, b * 0.12 + grow);
+    ctx.fill();
+  };
+  shape(Math.max(1, b * 0.09), "#ffffff");
+  shape(0, "#111827");
+  if (size >= 32) {
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(cx, oy + b * 0.71, b * 0.075, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
+async function actionIcon(size: number, locked: boolean): Promise<ImageData> {
+  const logo = await createImageBitmap(await (await fetch(chrome.runtime.getURL(`icons/icon-${size}.png`))).blob());
+  const ctx = new OffscreenCanvas(size, size).getContext("2d")!;
+  ctx.drawImage(logo, 0, 0, size, size);
+  if (locked) drawPadlock(ctx, size);
+  return ctx.getImageData(0, 0, size, size);
+}
+
+let shownLocked: boolean | null = null;
+
+/** Shows whether Keyless is locked on the toolbar icon, and tells open
+ * Keyless menus (the card hides, the list offers to unlock). */
+async function showLocked(locked: boolean): Promise<void> {
+  if (shownLocked === locked) return;
+  shownLocked = locked;
+  try {
+    await chrome.action.setIcon({ imageData: { 16: await actionIcon(16, locked), 32: await actionIcon(32, locked) } });
+    await chrome.action.setTitle({ title: locked ? chrome.i18n.getMessage("lockedTitle") : "Keyless" });
+  } catch {
+    shownLocked = null;
+  }
+  await chrome.storage.session.set({ lockState: { locked, at: Date.now() } }).catch(() => undefined);
+}
+
 /** Full status for the popup, including the pairing code. */
 async function status(): Promise<Status> {
   const base = await connect();
@@ -172,10 +224,33 @@ async function status(): Promise<Status> {
 
 /** Status over the existing channel, for frequent checks. */
 async function quickStatus(): Promise<Status> {
+  let current: Status;
   try {
-    return fromAppStatus(await call<AppStatus>("status"));
+    current = fromAppStatus(await call<AppStatus>("status"));
   } catch (err) {
-    return { state: err instanceof BridgeError ? (err.message as Status["state"]) : "error" };
+    current = { state: err instanceof BridgeError ? (err.message as Status["state"]) : "error" };
+  }
+  void showLocked(current.state !== "ready");
+  return current;
+}
+
+/** Keeps the toolbar icon in step with the app: the app answers this long
+ * poll as soon as it locks or unlocks. */
+async function followLockState(): Promise<never> {
+  const watcher = new NativeConnection();
+  let known: boolean | undefined;
+  for (;;) {
+    try {
+      const result = await call<AppStatus>("wait_status", known === undefined ? {} : { locked: known }, watcher);
+      known = result.locked;
+      await showLocked(result.locked);
+    } catch (err) {
+      // Not connected (app closed, browser not paired…): try again later.
+      known = undefined;
+      await showLocked(true);
+      const missing = err instanceof BridgeError && err.message === "host_missing";
+      await new Promise((resolve) => setTimeout(resolve, missing ? 60_000 : 10_000));
+    }
   }
 }
 
@@ -213,9 +288,8 @@ function requestUnlock(): Promise<void> {
   return unlocking;
 }
 
-/** Tells open Keyless menus to refresh. */
 async function unlocked(): Promise<void> {
-  await chrome.storage.session.set({ unlockedAt: Date.now() }).catch(() => undefined);
+  await showLocked(false);
 }
 
 // ----- Filling ----------------------------------------------------------------
@@ -378,3 +452,5 @@ chrome.commands?.onCommand.addListener(async (command) => {
     // Not connected or locked: the popup explains what to do.
   }
 });
+
+void followLockState();

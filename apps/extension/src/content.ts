@@ -182,12 +182,13 @@ class Frame {
     root.append(this.iframe);
   }
 
-  /** Shows the menu; it appears once it has rendered and reported its size. */
-  show() {
+  /** Shows the menu; it appears once it has rendered and reported its size.
+   * `activate`: opened with the Keyless button (unlocks when locked). */
+  show(activate = false) {
     mount();
     this.open = true;
     if (this.loading) {
-      this.post({ type: "show" });
+      this.post({ type: "show", activate });
       if (this.height > 0) this.iframe.classList.add("open");
       return;
     }
@@ -197,7 +198,7 @@ class Frame {
           this.iframe.addEventListener(
             "load",
             () => {
-              this.post({ type: "init" });
+              this.post({ type: "init", activate });
               resolve();
             },
             { once: true },
@@ -265,19 +266,26 @@ function place() {
 /** Keeps the open menu under its field when the page layout moves. */
 let follow: ReturnType<typeof setInterval> | undefined;
 
-function openMenu() {
+function openMenu(activate = false) {
   if (!current) return;
   menu ??= new Frame("menu");
-  menu.show();
+  menu.show(activate);
   place();
   follow ??= setInterval(place, 200);
 }
+
+/** Focus moved back to the field by Keyless itself: not a reason to open. */
+let refocusing = false;
 
 function closeMenu(refocus = false) {
   menu?.hide();
   clearInterval(follow);
   follow = undefined;
-  if (refocus) current?.focus();
+  if (refocus && current) {
+    refocusing = true;
+    current.focus();
+    refocusing = false;
+  }
 }
 
 /** Opens the menu by itself when there is something to pick or to unlock. */
@@ -302,12 +310,16 @@ function dismissCard() {
   observer.disconnect();
 }
 
+// The Keyless button in the field: unlocks right away when Keyless is locked,
+// otherwise opens or closes the list (the menu decides, it knows the state).
 button.addEventListener("click", (e) => {
   if (!e.isTrusted) return;
   e.preventDefault();
-  if (menu?.open) closeMenu();
-  else openMenu();
+  if (menu?.open) menu.post({ type: "activate" });
+  else openMenu(true);
 });
+// The field keeps the focus when the button is pressed.
+button.addEventListener("mousedown", (e) => e.preventDefault());
 
 for (const type of ["mousedown", "keydown", "touchstart"]) {
   document.addEventListener(type, (e) => e.isTrusted && (lastUserInput = Date.now()), true);
@@ -325,7 +337,7 @@ document.addEventListener(
     place();
     // Not when the page focuses a field by itself on load: the card is there
     // for that.
-    if (!filling && Date.now() - lastUserInput < 1000) void autoOpen(target);
+    if (!filling && !refocusing && Date.now() - lastUserInput < 1000) void autoOpen(target);
   },
   true,
 );

@@ -154,6 +154,7 @@ pub fn run() {
                 quick_access_ready: std::sync::atomic::AtomicBool::new(false),
                 quick_access_pending: std::sync::atomic::AtomicBool::new(false),
                 unlock_prompt: Mutex::new(Vec::new()),
+                lock_state: tokio::sync::watch::Sender::new(true),
             });
 
             lock::start(app.handle().clone());

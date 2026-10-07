@@ -288,6 +288,7 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
         load_caches(&mut session, &store)?;
     }
     *state.session.lock().await = Some(session);
+    state.lock_state.send_replace(false);
     state.record_unlock_result(true);
     master_password_entered(&state);
     state.touch();
@@ -393,6 +394,7 @@ async fn open_session(app: &AppHandle, user_id: String, email: String, account: 
     };
     load_caches(&mut session, &state.store())?;
     *state.session.lock().await = Some(session);
+    state.lock_state.send_replace(false);
     state.touch();
     let _ = app.emit(EVENT_UNLOCKED, ());
     let app = app.clone();
@@ -502,6 +504,7 @@ pub async fn lock(app: &AppHandle) {
 pub async fn lock_for(app: &AppHandle, reason: LockReason) {
     let state = app.state::<AppState>();
     let session = state.session.lock().await.take();
+    state.lock_state.send_replace(true);
     let was_unlocked = session.is_some();
     if reason.keeps_keys() {
         keep_keys(&state, session);
@@ -535,6 +538,7 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     system_unlock::forget(&state);
     *state.password_at.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let session = state.session.lock().await.take();
+    state.lock_state.send_replace(true);
     if let Some(tokens) = session.as_ref().and_then(|s| s.tokens.as_ref()) {
         let _ = state.api.sign_out(&tokens.access).await;
     }

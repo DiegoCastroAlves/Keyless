@@ -11,10 +11,22 @@ use tauri::{AppHandle, Manager};
 use crate::{api::now_secs, error::AppError, state::AppState};
 
 const MAX_RESULTS: usize = 50;
+/// How long `wait_status` waits for Keyless to lock or unlock.
+const WAIT_STATUS: std::time::Duration = std::time::Duration::from_secs(50);
 
 pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value, &'static str> {
     match cmd {
         "status" => status(app).await,
+        "wait_status" => {
+            // Long poll: answers as soon as Keyless locks or unlocks (or after
+            // a while), so the extension's icon follows the app.
+            let known = args.get("locked").and_then(Value::as_bool);
+            let mut changes = app.state::<AppState>().lock_state.subscribe();
+            if known == Some(*changes.borrow_and_update()) {
+                let _ = tokio::time::timeout(WAIT_STATUS, changes.changed()).await;
+            }
+            status(app).await
+        }
         "unlock" => {
             // Keyless asks the user itself (system prompt or its own
             // window): the extension never sees the master password.

@@ -166,26 +166,42 @@ document.addEventListener("keydown", (e) => {
 
 // ----- Views --------------------------------------------------------------------
 
+let unlocking = false;
+
+/** Keyless asks for the password itself (the computer password or its own
+ * small window): never in the page, never in the extension. */
+async function unlock() {
+  const text = app.querySelector<HTMLElement>(".locked .note");
+  const button = app.querySelector<HTMLButtonElement>(".locked button");
+  if (unlocking || !text || !button) return;
+  unlocking = true;
+  button.disabled = true;
+  text.textContent = t("waitingUnlock");
+  report();
+  const reply = await send({ type: "unlock" });
+  unlocking = false;
+  if (reply.ok) {
+    toParent("unlocked");
+    await refresh();
+    return;
+  }
+  button.disabled = false;
+  text.textContent = reply.error === "cancelled" ? t("lockedNote") : unlockError(reply.error);
+  report();
+}
+
 function lockedView(): HTMLElement {
   const text = el("p", { className: "note", textContent: t("lockedNote") });
   const button = el("button", { className: "primary", type: "button", textContent: t("unlockApp") });
-  button.addEventListener("click", async () => {
-    // Keyless asks for the password itself (the computer password or its
-    // own small window): never in the page, never in the extension.
-    button.disabled = true;
-    text.textContent = t("waitingUnlock");
-    report();
-    const reply = await send({ type: "unlock" });
-    if (reply.ok) {
-      toParent("unlocked");
-      await refresh();
-      return;
-    }
-    button.disabled = false;
-    text.textContent = reply.error === "cancelled" ? t("lockedNote") : unlockError(reply.error);
-    report();
-  });
+  button.addEventListener("click", () => void unlock());
   return el("div", { className: "locked" }, el("div", { className: "head" }, svg(LOGO), el("span", { textContent: "Keyless" })), text, button);
+}
+
+/** A click on the Keyless button in the field: unlock when locked,
+ * otherwise open or close the list. */
+async function activate(opening: boolean) {
+  if (state?.state === "locked") void unlock();
+  else if (!opening) toParent("close", { refocus: true });
 }
 
 function noteFor(current: InlineState["state"]): string {
@@ -292,7 +308,8 @@ window.addEventListener("message", async (event) => {
     const reply = await chrome.runtime.sendMessage({ type: "hello", token: data.keyless }).catch(() => null);
     if (reply?.ok && !token) {
       token = data.keyless;
-      void refresh(true);
+      await refresh(true);
+      if (data.activate) void activate(true);
     }
     return;
   }
@@ -300,7 +317,11 @@ window.addEventListener("message", async (event) => {
   switch (data.type) {
     case "show":
       expanded = false;
-      void refresh(true);
+      await refresh(true);
+      if (data.activate) void activate(true);
+      break;
+    case "activate":
+      void activate(false);
       break;
     case "refresh":
       void refresh();
@@ -311,7 +332,7 @@ window.addEventListener("message", async (event) => {
   }
 });
 
-// Unlocked from the popup or another menu.
+// Locked or unlocked meanwhile (by the app, the popup or another menu).
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "session" && changes.unlockedAt && token) void refresh();
+  if (area === "session" && changes.lockState && token) void refresh();
 });

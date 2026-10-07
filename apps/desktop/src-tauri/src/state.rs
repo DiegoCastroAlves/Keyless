@@ -219,6 +219,9 @@ pub struct AppState {
     /// Browser extension requests waiting for the unlock prompt to close
     /// (true when Keyless was unlocked).
     pub unlock_prompt: Mutex<Vec<tokio::sync::oneshot::Sender<bool>>>,
+    /// Whether Keyless is locked, for the tray icon and the browser
+    /// extension's icon.
+    pub lock_state: tokio::sync::watch::Sender<bool>,
 }
 
 impl AppState {
