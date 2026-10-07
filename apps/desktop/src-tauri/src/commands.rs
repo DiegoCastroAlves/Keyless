@@ -512,6 +512,53 @@ pub async fn attachment_delete(app: AppHandle, state: State<'_, AppState>, item_
     crate::attachments::delete(&app, &item_id, &attachment_id).await
 }
 
+/// The second step of a sign-in: a code from the authenticator app, or a
+/// recovery code. Returns whether a recovery code was used.
+#[tauri::command]
+pub async fn mfa_finish_sign_in(app: AppHandle, code: Option<String>, recovery_code: Option<String>) -> AppResult<bool> {
+    let proof = match (code, recovery_code) {
+        (Some(code), None) => crate::mfa::Proof::Code(code),
+        (None, Some(code)) => crate::mfa::Proof::RecoveryCode(code),
+        _ => return Err(AppError::Invalid(Msg::new("mfa_invalid_code"))),
+    };
+    crate::mfa::finish_sign_in(&app, proof).await
+}
+
+#[tauri::command]
+pub async fn mfa_cancel_sign_in(state: State<'_, AppState>) -> AppResult<()> {
+    crate::mfa::cancel(&state).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn mfa_status(state: State<'_, AppState>) -> AppResult<crate::mfa::Status> {
+    crate::mfa::status(&state).await
+}
+
+#[tauri::command]
+pub async fn mfa_enroll(state: State<'_, AppState>) -> AppResult<crate::mfa::Enrollment> {
+    state.touch();
+    crate::mfa::enroll(&state).await
+}
+
+#[tauri::command]
+pub async fn mfa_activate(state: State<'_, AppState>, factor_id: String, code: String) -> AppResult<Vec<Zeroizing<String>>> {
+    state.touch();
+    crate::mfa::activate(&state, &factor_id, &code).await
+}
+
+#[tauri::command]
+pub async fn mfa_regenerate(state: State<'_, AppState>) -> AppResult<Vec<Zeroizing<String>>> {
+    state.touch();
+    crate::mfa::regenerate(&state).await
+}
+
+#[tauri::command]
+pub async fn mfa_disable(state: State<'_, AppState>, master_password: String) -> AppResult<()> {
+    state.touch();
+    crate::mfa::disable(&state, Zeroizing::new(master_password)).await
+}
+
 /// A share link for the item, valid for `hours`.
 #[tauri::command]
 pub async fn share_create(app: AppHandle, state: State<'_, AppState>, item_id: String, hours: u32, view_once: bool) -> AppResult<crate::shares::CreatedShare> {

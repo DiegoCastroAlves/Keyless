@@ -102,6 +102,28 @@ codes) would give a session without either, so they are refused twice:
 Even with a stolen session, an attacker cannot read anything, and the
 integrity checks above stop them from destroying data.
 
+### Two-step verification
+
+Optional, in Settings > Account. With it on, signing in on a device also
+needs a code from an authenticator app (a TOTP factor in Supabase Auth);
+unlocking an app already signed in stays local and needs only the master
+password.
+
+- The server enforces it: for an account with a verified factor, every
+  policy and RPC also requires the second step in the session (`aal2`), and a
+  session without it gets the error `keyless_mfa_required` (so the app asks
+  for the code instead of seeing an empty account). The access token hook
+  accepts tokens issued after the second step (`totp`) only for sessions
+  that proved the password.
+- The app draws the setup QR code itself from the `otpauth://` link; turning
+  it off needs the master password.
+- Ten recovery codes (80 bits each, shown once) replace the code if the
+  authenticator app is lost. They still need the master password and Secret
+  Key, the server keeps only their salted SHA-256 hashes, and using one turns
+  two-step verification off until it is set up again. They do not recover
+  the account: a forgotten master password or lost Secret Key cannot be
+  recovered.
+
 ### Continue with Google
 
 Google only identifies the account; it never replaces the master password or

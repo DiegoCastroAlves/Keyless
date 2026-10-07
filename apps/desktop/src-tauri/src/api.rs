@@ -134,6 +134,29 @@ pub struct RemoteMembership {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct MfaFactor {
+    pub id: String,
+    #[serde(default)]
+    pub factor_type: String,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MfaEnrollment {
+    pub id: String,
+    pub totp: MfaTotp,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MfaTotp {
+    pub secret: Zeroizing<String>,
+    /// The otpauth:// link authenticator apps read (the app draws its QR
+    /// code itself).
+    pub uri: Zeroizing<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct RemoteShare {
     pub id: String,
     pub enc_label: String,
@@ -281,6 +304,68 @@ impl Api {
             return Ok(CodeExchange::AccountExists(email.trim().to_string()));
         }
         Err(map_error(status, &body))
+    }
+
+    // ----- two-step verification (Supabase Auth TOTP factors) -------------
+
+    /// The account's second factors.
+    pub async fn mfa_factors(&self, token: &str) -> AppResult<Vec<MfaFactor>> {
+        let req = self.request(Method::GET, self.url("auth/v1/user", &[]), Some(token));
+        let user: Value = self.send(req).await?;
+        Ok(user.get("factors").cloned().map(serde_json::from_value).transpose()?.unwrap_or_default())
+    }
+
+    pub async fn mfa_enroll(&self, token: &str, friendly_name: &str) -> AppResult<MfaEnrollment> {
+        let req = self
+            .request(Method::POST, self.url("auth/v1/factors", &[]), Some(token))
+            .json(&json!({ "factor_type": "totp", "friendly_name": friendly_name, "issuer": "Keyless" }));
+        self.send(req).await
+    }
+
+    /// Checks a code of factor `factor_id`. Returns the new session, which
+    /// carries the second step (aal2).
+    pub async fn mfa_verify(&self, token: &str, factor_id: &str, code: &str) -> AppResult<AuthSession> {
+        let challenge = self
+            .request(Method::POST, self.url(&format!("auth/v1/factors/{factor_id}/challenge"), &[]), Some(token))
+            .json(&json!({}));
+        let challenge: Value = self.send(challenge).await?;
+        let challenge_id = challenge.get("id").and_then(Value::as_str).ok_or_else(|| AppError::Server("no MFA challenge".into()))?;
+        let verify = self
+            .request(Method::POST, self.url(&format!("auth/v1/factors/{factor_id}/verify"), &[]), Some(token))
+            .json(&json!({ "challenge_id": challenge_id, "code": code }));
+        // A wrong code comes back as "mfa_verification_failed" (see map_error).
+        let raw: RawSession = self.send(verify).await?;
+        Ok(raw.into_session())
+    }
+
+    pub async fn mfa_unenroll(&self, token: &str, factor_id: &str) -> AppResult<()> {
+        let req = self.request(Method::DELETE, self.url(&format!("auth/v1/factors/{factor_id}"), &[]), Some(token));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    async fn rpc<T: DeserializeOwned>(&self, token: &str, name: &str, args: Value) -> AppResult<T> {
+        let req = self.request(Method::POST, self.url(&format!("rest/v1/rpc/{name}"), &[]), Some(token)).json(&args);
+        self.send(req).await
+    }
+
+    pub async fn set_recovery_codes(&self, token: &str, hashes: &[String]) -> AppResult<()> {
+        let _: Value = self.rpc(token, "set_recovery_codes", json!({ "p_hashes": hashes })).await?;
+        Ok(())
+    }
+
+    pub async fn recovery_codes_left(&self, token: &str) -> AppResult<u32> {
+        self.rpc(token, "recovery_codes_left", json!({})).await
+    }
+
+    /// Whether `code` matched (and turned two-step verification off).
+    pub async fn use_recovery_code(&self, token: &str, code: &str) -> AppResult<bool> {
+        self.rpc(token, "use_recovery_code", json!({ "p_code": code })).await
+    }
+
+    pub async fn clear_recovery_codes(&self, token: &str) -> AppResult<()> {
+        let _: Value = self.rpc(token, "clear_recovery_codes", json!({})).await?;
+        Ok(())
     }
 
     /// Whether the signed-in account already has Keyless keys.
@@ -681,7 +766,12 @@ fn map_error(status: StatusCode, body: &Value) -> AppError {
         .unwrap_or("")
         .to_string();
 
+    if message.contains("keyless_mfa_required") {
+        return AppError::Auth(Msg::new("mfa_required"));
+    }
     match code.as_str() {
+        "mfa_verification_failed" => return AppError::Invalid(Msg::new("mfa_invalid_code")),
+        "mfa_challenge_expired" => return AppError::Invalid(Msg::new("mfa_invalid_code")),
         "invalid_credentials" | "invalid_grant" => {
             return AppError::Auth(Msg::new("invalid_credentials"));
         }

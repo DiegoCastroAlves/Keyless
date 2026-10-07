@@ -19,6 +19,7 @@ mod import;
 mod item_versions;
 mod items;
 mod lock;
+mod mfa;
 mod oauth;
 mod qr;
 mod shares;
@@ -165,6 +166,7 @@ pub fn run() {
                 lock_state: tokio::sync::watch::Sender::new(true),
                 ssh: Default::default(),
                 watchtower: Default::default(),
+                pending_mfa: Default::default(),
                 unlock_reason: Default::default(),
             });
 
@@ -295,6 +297,13 @@ pub fn run() {
             commands::attachment_save,
             commands::attachment_delete,
             commands::attachment_space,
+            commands::mfa_finish_sign_in,
+            commands::mfa_cancel_sign_in,
+            commands::mfa_status,
+            commands::mfa_enroll,
+            commands::mfa_activate,
+            commands::mfa_regenerate,
+            commands::mfa_disable,
             commands::share_create,
             commands::share_list,
             commands::share_revoke,

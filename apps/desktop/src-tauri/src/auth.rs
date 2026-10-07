@@ -213,13 +213,18 @@ pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, m
             return Err(err);
         }
     };
+    // Two-step verification: the sign-in waits for the code (see `mfa`).
+    if let Some(factor_id) = crate::mfa::factor_to_prove(&state, &auth).await? {
+        crate::mfa::hold(&state, email, kdf, keys, secret_key, auth, factor_id).await;
+        return Err(AppError::Auth(Msg::new("mfa_required")));
+    }
     state.secrets.save_secret_key(&email, &secret_key)?;
     complete_sign_in(app, &email, kdf, keys, auth).await
 }
 
 /// Called after the server accepted our auth secret: fetch (or create) the
 /// account keys, cache everything locally and open a session.
-async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: AccountKeys, auth: AuthSession) -> AppResult<()> {
+pub(crate) async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: AccountKeys, auth: AuthSession) -> AppResult<()> {
     let state = app.state::<AppState>();
     let token = auth.access_token.clone();
     let user_id = auth.user_id.clone();
