@@ -22,6 +22,7 @@ import {
 } from "../../lib/api";
 import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatBytes, formatDate, formatTotp, hostOf } from "../../lib/format";
+import { useFileDrop } from "../../lib/fileDrop";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { ItemVersionsDialog } from "./ItemVersions";
@@ -81,6 +82,21 @@ export function ItemDetail() {
     return () => window.removeEventListener("keydown", onKey);
   }, [edit, item]);
 
+  // Files dropped on an item it can change are attached to it.
+  const dragging = useFileDrop(!!item && item.canEdit && item.trashedAt === null, (files) => {
+    if (!item) return;
+    void api
+      .attachmentAddPaths(
+        item.id,
+        files.map((f) => f.path),
+      )
+      .then(async () => {
+        toast.success(t("item.attachmentsAdded", { count: files.length }));
+        await loadData();
+      })
+      .catch((err) => toast.error(errorMessage(err)));
+  });
+
   if (!selectedId || (!item && !error)) {
     return <EmptyDetail />;
   }
@@ -101,10 +117,26 @@ export function ItemDetail() {
       if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
     }
   };
-  const attach = () => run(() => api.attachmentAdd(item.id), t("item.attachmentAdded"));
+  const attach = () =>
+    run(async () => {
+      const files = await api.attachmentPick();
+      if (!files.length) return;
+      await api.attachmentAddPaths(
+        item.id,
+        files.map((f) => f.path),
+      );
+      toast.success(t("item.attachmentsAdded", { count: files.length }));
+    });
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col bg-panel">
+    <section className="relative flex min-w-0 flex-1 flex-col bg-panel">
+      {dragging && (
+        <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-2xl border-2 border-dashed border-accent bg-panel/90">
+          <div className="flex items-center gap-2.5 text-sm font-medium text-accent">
+            <Paperclip className="size-5" /> {t("item.dropToAttach", { title: item.title })}
+          </div>
+        </div>
+      )}
       <header className="flex items-start gap-4 border-b border-line px-8 pb-5 pt-7">
         <ItemIcon title={item.title} category={item.category} url={item.urls[0]} size="lg" />
         <div className="min-w-0 flex-1 pt-1">

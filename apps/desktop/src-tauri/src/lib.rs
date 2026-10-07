@@ -218,6 +218,10 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            // Files dropped on the window can be attached (see attachments).
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) if window.label() == "main" => {
+                attachments::offer(paths);
+            }
             tauri::WindowEvent::Destroyed if window.label() == ssh_agent::LABEL => {
                 ssh_agent::closed(window.app_handle());
             }
@@ -291,7 +295,9 @@ pub fn run() {
             commands::export_plain,
             commands::ssh_generate_key,
             commands::delete_passkey,
-            commands::attachment_add,
+            commands::attachment_pick,
+            commands::attachment_inspect,
+            commands::attachment_add_paths,
             commands::attachment_save,
             commands::attachment_delete,
             commands::attachment_space,

@@ -215,7 +215,9 @@ attachments a vault has and their sizes (not their names or contents).
   ptrace by other processes of the same user).
 - Strict Content Security Policy, no remote content, navigation locked to the
   bundled UI, no plugin APIs exposed to the web UI (file dialogs and links are
-  opened from Rust).
+  opened from Rust). The web UI names files to attach by path, but only files
+  the user dropped on the window or chose in the file dialog within the last
+  hour can be attached.
 
 ## SSH agent
 

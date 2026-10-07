@@ -40,6 +40,13 @@ const STRANDED_EVERY: Duration = Duration::from_secs(24 * 3600);
 /// One cleanup at a time.
 static CLEAN_UP: tokio::sync::Mutex<Option<Instant>> = tokio::sync::Mutex::const_new(None);
 
+/// Files the user offered, by dropping them on the window or choosing them
+/// in the file dialog. Only these can be attached: the interface names
+/// files by path, and must not be able to name any other file.
+static OFFERED: std::sync::Mutex<Vec<(PathBuf, Instant)>> = std::sync::Mutex::new(Vec::new());
+/// How long an offered file can still be attached.
+const OFFER_FOR: Duration = Duration::from_secs(60 * 60);
+
 /// An attachment whose chunks are to be deleted from the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gone {
@@ -101,53 +108,102 @@ fn progress(app: &AppHandle, item_id: &str, attachment: &Attachment, direction: 
     let _ = app.emit(EVENT_PROGRESS, Progress { item_id: item_id.to_string(), name: attachment.name.clone(), direction, done, total: attachment.size });
 }
 
-/// Asks for a file and adds it to item `item_id`.
-pub async fn add(app: &AppHandle, item_id: &str) -> AppResult<ItemSummary> {
-    let state = app.state::<AppState>();
-    let (vault_id, _) = item_files(&state, item_id, true).await?;
+/// Remembers files the user offered (dropped or chosen).
+pub fn offer(paths: &[PathBuf]) {
+    let mut offered = OFFERED.lock().unwrap_or_else(|e| e.into_inner());
+    offered.retain(|(_, at)| at.elapsed() < OFFER_FOR);
+    offered.extend(paths.iter().map(|p| (p.clone(), Instant::now())));
+    let excess = offered.len().saturating_sub(500);
+    offered.drain(..excess);
+}
 
-    let dialog = app.dialog().file().set_title("Choose a file to attach");
-    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
+fn was_offered(path: &std::path::Path) -> bool {
+    OFFERED.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(p, at)| p == path && at.elapsed() < OFFER_FOR)
+}
+
+/// A file that can be attached.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileInfo {
+    pub path: String,
+    pub name: String,
+    pub size: u64,
+}
+
+/// Name and size of offered files that are regular files; others are left
+/// out.
+pub async fn inspect(paths: &[String]) -> Vec<FileInfo> {
+    let mut files = Vec::new();
+    for path in paths {
+        let path = PathBuf::from(path);
+        if !was_offered(&path) {
+            continue;
+        }
+        let Ok(meta) = tokio::fs::metadata(&path).await else { continue };
+        if meta.is_file() {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            files.push(FileInfo { path: path.to_string_lossy().into_owned(), name, size: meta.len() });
+        }
+    }
+    files
+}
+
+/// Asks for files to attach (several at once).
+pub async fn pick(app: &AppHandle) -> AppResult<Vec<FileInfo>> {
+    let dialog = app.dialog().file().set_title("Choose files to attach");
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_files())
         .await
         .map_err(|e| AppError::Store(e.to_string()))?
         .ok_or(AppError::Cancelled)?;
-    let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unreadable")))?;
-    let unreadable = |e: std::io::Error| AppError::Invalid(Msg::new("file_unreadable").with("detail", e));
-    let meta = tokio::fs::metadata(&path).await.map_err(unreadable)?;
-    if !meta.is_file() {
+    let paths: Vec<PathBuf> = picked.into_iter().filter_map(|p| p.into_path().ok()).collect();
+    offer(&paths);
+    Ok(inspect(&paths.iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>()).await)
+}
+
+/// Adds offered files to item `item_id`: all are uploaded, then the item is
+/// saved once with them. If any fails, none is added.
+pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String]) -> AppResult<ItemSummary> {
+    let state = app.state::<AppState>();
+    let (vault_id, _) = item_files(&state, item_id, true).await?;
+    let files = inspect(paths).await;
+    if files.is_empty() || files.len() != paths.len() {
         return Err(AppError::Invalid(Msg::new("file_unreadable")));
     }
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let attachment = Attachment::new(&name, meta.len(), now_secs())?;
+    let attachments: Vec<(Attachment, PathBuf)> = files
+        .iter()
+        .map(|f| Attachment::new(&f.name, f.size, now_secs()).map(|a| (a, PathBuf::from(&f.path))))
+        .collect::<Result<_, _>>()?;
 
-    // Room for it: the server checks a whole chunk ahead.
+    // Room for them: the server checks a whole chunk ahead.
     let (_, token) = sync::ensure_token(&state).await?;
     if let Some(space) = state.api.attachment_space(&token).await? {
-        let needed = attachment.size + attachment.chunks() as u64 * CHUNK_OVERHEAD as u64;
+        let needed: u64 = attachments.iter().map(|(a, _)| a.size + a.chunks() as u64 * CHUNK_OVERHEAD as u64).sum();
         if space.used + needed + (CHUNK_SIZE + CHUNK_OVERHEAD) as u64 > space.quota {
             return Err(AppError::Invalid(Msg::new("attachment_space_full").with("quota", space.quota / (1024 * 1024))));
         }
     }
+    let gone = || attachments.iter().map(|(a, _)| Gone::of(&vault_id, a)).collect::<Vec<_>>();
 
-    let uploaded = upload(app, item_id, &vault_id, &attachment, path).await;
-    if let Err(err) = uploaded {
-        // Whatever reached the server goes.
-        forget(app, vec![Gone::of(&vault_id, &attachment)]);
-        return Err(err);
+    for (attachment, path) in &attachments {
+        if let Err(err) = upload(app, item_id, &vault_id, attachment, path.clone()).await {
+            // Whatever reached the server goes.
+            forget(app, gone());
+            return Err(err);
+        }
     }
 
     let draft = items::get_item_draft(&state, item_id).await?;
     let (now_in, mut list) = item_files(&state, item_id, true).await?;
     if now_in != vault_id {
         // The item moved meanwhile.
-        forget(app, vec![Gone::of(&vault_id, &attachment)]);
+        forget(app, gone());
         return Err(AppError::Invalid(Msg::new("attachment_item_moved")));
     }
-    list.push(attachment.clone());
+    list.extend(attachments.iter().map(|(a, _)| a.clone()));
     match items::save_item_with(app, draft, Extras { attachments: Some(list), ..Default::default() }).await {
         Ok(summary) => Ok(summary),
         Err(err) => {
-            forget(app, vec![Gone::of(&vault_id, &attachment)]);
+            forget(app, gone());
             Err(err)
         }
     }

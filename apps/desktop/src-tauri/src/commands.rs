@@ -492,11 +492,24 @@ pub async fn delete_passkey(app: AppHandle, state: State<'_, AppState>, item_id:
     items::delete_passkey(&app, &item_id, &credential_id).await
 }
 
-/// Asks for a file and attaches it to the item.
+/// Asks for files to attach.
 #[tauri::command]
-pub async fn attachment_add(app: AppHandle, state: State<'_, AppState>, item_id: String) -> AppResult<ItemSummary> {
+pub async fn attachment_pick(app: AppHandle, state: State<'_, AppState>) -> AppResult<Vec<crate::attachments::FileInfo>> {
     state.touch();
-    crate::attachments::add(&app, &item_id).await
+    crate::attachments::pick(&app).await
+}
+
+/// Name and size of files the user dropped or chose (others are left out).
+#[tauri::command]
+pub async fn attachment_inspect(paths: Vec<String>) -> AppResult<Vec<crate::attachments::FileInfo>> {
+    Ok(crate::attachments::inspect(&paths).await)
+}
+
+/// Attaches files the user dropped or chose to the item.
+#[tauri::command]
+pub async fn attachment_add_paths(app: AppHandle, state: State<'_, AppState>, item_id: String, paths: Vec<String>) -> AppResult<ItemSummary> {
+    state.touch();
+    crate::attachments::add_paths(&app, &item_id, &paths).await
 }
 
 /// Asks where to save an attachment and saves it there.

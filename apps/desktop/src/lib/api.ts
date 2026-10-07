@@ -297,6 +297,13 @@ export interface AttachmentView {
   createdAt: number;
 }
 
+/** A file the user dropped or chose, to attach. */
+export interface FileInfo {
+  path: string;
+  name: string;
+  size: number;
+}
+
 /** Attachment space the account uses and may use, in bytes. */
 export interface AttachmentSpace {
   used: number;
@@ -561,7 +568,11 @@ export const api = {
   exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
   deletePasskey: (itemId: string, credentialId: string) => invoke<ItemSummary>("delete_passkey", { itemId, credentialId }),
-  attachmentAdd: (itemId: string) => invoke<ItemSummary>("attachment_add", { itemId }),
+  /** Asks for files to attach; throws "cancelled" if none was chosen. */
+  attachmentPick: () => invoke<FileInfo[]>("attachment_pick"),
+  /** Name and size of files the user dropped or chose. */
+  attachmentInspect: (paths: string[]) => invoke<FileInfo[]>("attachment_inspect", { paths }),
+  attachmentAddPaths: (itemId: string, paths: string[]) => invoke<ItemSummary>("attachment_add_paths", { itemId, paths }),
   attachmentSave: (itemId: string, attachmentId: string) => invoke<void>("attachment_save", { itemId, attachmentId }),
   attachmentDelete: (itemId: string, attachmentId: string) => invoke<ItemSummary>("attachment_delete", { itemId, attachmentId }),
   attachmentSpace: () => invoke<AttachmentSpace | null>("attachment_space"),

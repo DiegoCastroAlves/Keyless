@@ -1,4 +1,4 @@
-import { Ban, ClipboardPaste, Crosshair, Globe, GripVertical, ImageIcon, Monitor, Plus, ScanQrCode, Trash, WandSparkles, X } from "lucide-react";
+import { Ban, ClipboardPaste, Crosshair, FileText, Globe, GripVertical, ImageIcon, Monitor, Paperclip, Plus, ScanQrCode, Trash, WandSparkles, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,8 +21,22 @@ import {
   cx,
 } from "../../components/ui";
 import { fieldLabel, isFieldLabel } from "../../i18n";
-import { api, errorCode, errorMessage, type Field, type FieldKind, type ItemDraft, type Section, type SshKeyFields, type UrlFill } from "../../lib/api";
+import {
+  api,
+  errorCode,
+  errorMessage,
+  type AttachmentView,
+  type Field,
+  type FieldKind,
+  type FileInfo,
+  type ItemDraft,
+  type Section,
+  type SshKeyFields,
+  type UrlFill,
+} from "../../lib/api";
 import { FIELD_KINDS, categoryInfo, categoryLabel, fieldKindLabel, isSecretKind, newFieldId } from "../../lib/categories";
+import { useFileDrop } from "../../lib/fileDrop";
+import { formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { GeneratorPanel } from "./Generator";
@@ -43,7 +57,29 @@ export function ItemEditor() {
     titleRef.current?.focus();
   }, []);
 
-  const dirty = JSON.stringify(draft) !== initial.current;
+  // Attachments change when the item is saved: files to add, and the
+  // item's files to delete.
+  const [attachments, setAttachments] = useState<AttachmentView[]>([]);
+  const [newFiles, setNewFiles] = useState<FileInfo[]>([]);
+  const [removing, setRemoving] = useState<string[]>([]);
+  useEffect(() => {
+    if (!editing.draft.id) return;
+    api
+      .getItem(editing.draft.id)
+      .then((item) => setAttachments(item.attachments ?? []))
+      .catch(() => setAttachments([]));
+  }, [editing.draft.id]);
+  const addFiles = useCallback((files: FileInfo[]) => setNewFiles((current) => [...current, ...files.filter((f) => !current.some((c) => c.path === f.path))]), []);
+  const dragging = useFileDrop(true, addFiles);
+  const pickFiles = async () => {
+    try {
+      addFiles(await api.attachmentPick());
+    } catch (err) {
+      if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
+    }
+  };
+
+  const dirty = JSON.stringify(draft) !== initial.current || newFiles.length > 0 || removing.length > 0;
   const update = (patch: Partial<ItemDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const save = useCallback(async () => {
@@ -54,12 +90,14 @@ export function ItemEditor() {
       stopEditing();
       await useApp.getState().loadData();
       useApp.getState().select(saved.id);
+      // The files go after the item, with their progress on the item.
+      if (newFiles.length || removing.length) void applyAttachments(saved.id, newFiles, removing, t);
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
       setSaving(false);
     }
-  }, [draft, stopEditing, t]);
+  }, [draft, newFiles, removing, stopEditing, t]);
 
   const cancel = useCallback(() => {
     if (dirty) setConfirmDiscard(true);
@@ -199,6 +237,16 @@ export function ItemEditor() {
             <Textarea value={draft.notes} onChange={(e) => update({ notes: e.target.value })} placeholder={t("editor.notesPlaceholder")} rows={4} />
           </div>
 
+          <AttachmentsEditor
+            attachments={attachments}
+            newFiles={newFiles}
+            removing={removing}
+            dragging={dragging}
+            onPick={() => void pickFiles()}
+            onDropNew={(path) => setNewFiles((files) => files.filter((f) => f.path !== path))}
+            onToggleRemove={(id) => setRemoving((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]))}
+          />
+
           <TagsEditor tags={draft.tags} onChange={(tags) => update({ tags })} />
         </div>
       </div>
@@ -225,6 +273,104 @@ export function ItemEditor() {
         </div>
       </Dialog>
     </section>
+  );
+}
+
+/** Deletes and adds the files chosen while editing, once the item is saved. */
+async function applyAttachments(itemId: string, files: FileInfo[], removing: string[], t: (key: string, options?: Record<string, unknown>) => string) {
+  try {
+    for (const id of removing) await api.attachmentDelete(itemId, id);
+    if (files.length) {
+      await api.attachmentAddPaths(
+        itemId,
+        files.map((f) => f.path),
+      );
+      toast.success(t("item.attachmentsAdded", { count: files.length }));
+    }
+  } catch (err) {
+    toast.error(errorMessage(err));
+  } finally {
+    await useApp.getState().loadData();
+  }
+}
+
+/** The item's files while editing: the ones it has (to keep or delete) and
+ * the new ones, chosen in the file dialog or dropped on the window. */
+function AttachmentsEditor({
+  attachments,
+  newFiles,
+  removing,
+  dragging,
+  onPick,
+  onDropNew,
+  onToggleRemove,
+}: {
+  attachments: AttachmentView[];
+  newFiles: FileInfo[];
+  removing: string[];
+  dragging: boolean;
+  onPick: () => void;
+  onDropNew: (path: string) => void;
+  onToggleRemove: (id: string) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="space-y-2">
+      <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.attachments")}</div>
+      {(attachments.length > 0 || newFiles.length > 0) && (
+        <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+          {attachments.map((a) => {
+            const gone = removing.includes(a.id);
+            return (
+              <li key={a.id} className="flex items-center gap-3 px-3.5 py-2.5">
+                <FileText className={cx("size-4 shrink-0", gone ? "text-subtle" : "text-accent")} />
+                <div className="min-w-0 flex-1">
+                  <div className={cx("truncate text-sm", gone && "text-subtle line-through")}>{a.name}</div>
+                  <div className="text-xs text-subtle">{gone ? t("editor.deleteOnSave") : formatBytes(a.size)}</div>
+                </div>
+                {gone ? (
+                  <Button size="sm" variant="ghost" onClick={() => onToggleRemove(a.id)}>
+                    {t("editor.keepFile")}
+                  </Button>
+                ) : (
+                  <IconButton label={t("common.delete")} onClick={() => onToggleRemove(a.id)}>
+                    <Trash className="size-4" />
+                  </IconButton>
+                )}
+              </li>
+            );
+          })}
+          {newFiles.map((f) => (
+            <li key={f.path} className="flex items-center gap-3 px-3.5 py-2.5">
+              <Paperclip className="size-4 shrink-0 text-accent" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm">{f.name}</div>
+                <div className="text-xs text-subtle">
+                  {formatBytes(f.size)} · {t("editor.addOnSave")}
+                </div>
+              </div>
+              <IconButton label={t("common.remove")} onClick={() => onDropNew(f.path)}>
+                <X className="size-4" />
+              </IconButton>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div
+        className={cx(
+          "flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-xl border border-dashed px-4 py-4 text-center text-[13px] text-muted transition-colors",
+          dragging ? "border-accent bg-accent-soft text-accent" : "border-line-strong",
+        )}
+      >
+        <Paperclip className="size-4" />
+        <span>{dragging ? t("editor.dropHere") : t("editor.dragFiles")}</span>
+        {!dragging && (
+          <button type="button" onClick={onPick} className="font-medium text-accent hover:underline">
+            {t("editor.chooseFiles")}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
