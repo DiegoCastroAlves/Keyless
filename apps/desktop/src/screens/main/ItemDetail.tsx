@@ -1,4 +1,4 @@
-import { Archive, ArrowRightLeft, Copy, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileText, Fingerprint, History, Paperclip, Pencil, RotateCcw, Star, Trash } from "lucide-react";
+import { Archive, ArrowRightLeft, Copy, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileText, Fingerprint, History, Paperclip, Pencil, RotateCcw, Share2, Star, Trash } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -26,6 +26,7 @@ import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { ItemVersionsDialog } from "./ItemVersions";
 import { MoveItemsDialog } from "./MoveDialog";
+import { ShareDialog } from "./ShareDialog";
 
 export function ItemDetail() {
   const { t } = useTranslation();
@@ -40,6 +41,7 @@ export function ItemDetail() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -159,6 +161,9 @@ export function ItemDetail() {
                   <MenuItem icon={<ArrowRightLeft className="size-4" />} disabled={!item.canEdit} onSelect={() => setMoveOpen(true)}>
                     {t("move.toVaultAction")}
                   </MenuItem>
+                  <MenuItem icon={<Share2 className="size-4" />} onSelect={() => setShareOpen(true)}>
+                    {t("share.action")}
+                  </MenuItem>
                   <MenuItem icon={<Paperclip className="size-4" />} disabled={!item.canEdit} onSelect={() => void attach()}>
                     {t("item.attach")}
                   </MenuItem>
@@ -182,6 +187,7 @@ export function ItemDetail() {
       </header>
 
       <MoveItemsDialog open={moveOpen} onOpenChange={setMoveOpen} itemIds={[item.id]} fromVaultId={item.vaultId} />
+      <ShareDialog open={shareOpen} onOpenChange={setShareOpen} itemId={item.id} title={item.title} />
       <ItemVersionsDialog itemId={item.id} canEdit={item.canEdit} open={versionsOpen} onOpenChange={setVersionsOpen} onRestored={() => void loadData()} />
 
       <div className="flex-1 overflow-y-auto px-8 py-6">

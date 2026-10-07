@@ -134,6 +134,16 @@ pub struct RemoteMembership {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+pub struct RemoteShare {
+    pub id: String,
+    pub enc_label: String,
+    pub expires_at: String,
+    pub max_views: Option<i64>,
+    pub views: i64,
+    pub revoked_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
 pub struct RemoteItemVersion {
     pub revision: i64,
     pub enc_overview: String,
@@ -503,6 +513,40 @@ impl Api {
         let req = self
             .request(Method::POST, self.url("rest/v1/rpc/cancel_account_deletion", &[]), Some(token))
             .json(&json!({}));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    // ----- share links ----------------------------------------------------
+
+    pub async fn insert_share(&self, token: &str, row: &Value) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/shares", &[]), Some(token))
+            .header("Prefer", "return=minimal")
+            .json(row);
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    /// The account's links, newest first (never their contents).
+    pub async fn shares(&self, token: &str) -> AppResult<Vec<RemoteShare>> {
+        let req = self.request(
+            Method::GET,
+            self.url(
+                "rest/v1/shares",
+                &[("select", "id,enc_label,expires_at,max_views,views,created_at,revoked_at"), ("order", "created_at.desc"), ("limit", "200")],
+            ),
+            Some(token),
+        );
+        self.send(req).await
+    }
+
+    pub async fn revoke_share(&self, token: &str, id: &str, at: &str) -> AppResult<()> {
+        let filter = format!("eq.{id}");
+        let req = self
+            .request(Method::PATCH, self.url("rest/v1/shares", &[("id", &filter)]), Some(token))
+            .header("Prefer", "return=minimal")
+            .json(&json!({ "revoked_at": at }));
         let _: Value = self.send(req).await?;
         Ok(())
     }

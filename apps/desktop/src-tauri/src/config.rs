@@ -13,5 +13,12 @@ pub const SUPABASE_PUBLISHABLE_KEY: &str = match option_env!("KEYLESS_SUPABASE_K
     None => "sb_publishable_3SSYrJqgt-zB30WaRHnuSw_YN7WaHqD",
 };
 
+/// The web page that opens share links (keyless.diegoalves.dev, see
+/// `apps/site`). Links carry their key after '#', which never reaches it.
+pub const SHARE_PAGE_URL: &str = match option_env!("KEYLESS_SHARE_URL") {
+    Some(url) => url,
+    None => "https://keyless.diegoalves.dev/share/",
+};
+
 /// Service name used for entries in the OS credential store.
 pub const KEYRING_SERVICE: &str = "Keyless";

@@ -512,6 +512,25 @@ pub async fn attachment_delete(app: AppHandle, state: State<'_, AppState>, item_
     crate::attachments::delete(&app, &item_id, &attachment_id).await
 }
 
+/// A share link for the item, valid for `hours`.
+#[tauri::command]
+pub async fn share_create(app: AppHandle, state: State<'_, AppState>, item_id: String, hours: u32, view_once: bool) -> AppResult<crate::shares::CreatedShare> {
+    state.touch();
+    crate::shares::create(&app, &item_id, hours, view_once).await
+}
+
+/// Links that can still be opened (of one item, when given).
+#[tauri::command]
+pub async fn share_list(app: AppHandle, item_id: Option<String>) -> AppResult<Vec<crate::shares::ShareView>> {
+    crate::shares::list(&app, item_id.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn share_revoke(app: AppHandle, state: State<'_, AppState>, share_id: String) -> AppResult<()> {
+    state.touch();
+    crate::shares::revoke(&app, &share_id).await
+}
+
 #[tauri::command]
 pub async fn attachment_space(state: State<'_, AppState>) -> AppResult<Option<crate::api::AttachmentSpace>> {
     crate::attachments::space(&state).await

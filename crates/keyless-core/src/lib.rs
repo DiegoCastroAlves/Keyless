@@ -19,6 +19,7 @@ pub mod import;
 pub mod item;
 pub mod keys;
 pub mod passkey;
+pub mod share;
 pub mod totp;
 pub mod vault;
 

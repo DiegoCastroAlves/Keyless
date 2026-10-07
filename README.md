@@ -27,6 +27,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   online check can run by itself once a day
 - File attachments in items, encrypted on the device in chunks (250 MiB per
   account)
+- Share links: a copy of an item that someone without Keyless opens in the
+  browser, for up to 30 days or a single view; the key is only in the link
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)
 - Encrypted backups (`.keyless`) with a separate backup password, and an
   unencrypted CSV or JSON export for moving elsewhere
@@ -86,6 +88,7 @@ the Keyless button inside a login field, or press `Ctrl+Shift+L`.
 | `crates/keyless-core` | Cryptography, key hierarchy, item model, TOTP, generator, importers and backups. |
 | `apps/desktop` | Desktop app: Tauri (Rust, `src-tauri/`) and React UI (`src/`). |
 | `apps/extension` | Browser extension (Manifest V3) for Chromium browsers and Firefox. |
+| `apps/site` | Public site (keyless.diegoalves.dev): the page that opens share links. |
 | `supabase/migrations` | Database schema, Row Level Security and RPCs. |
 | `packaging/arch` | Arch Linux package (`PKGBUILD`), built for every release. |
 | `docs/SECURITY.md` | Security design and threat model. |
@@ -107,7 +110,17 @@ cargo clippy --workspace --all-targets -- -D warnings
 cd apps/extension
 pnpm install
 pnpm build            # dist/chrome and dist/firefox
+
+cd apps/site
+pnpm install
+pnpm build            # dist/, with Cloudflare Pages headers in dist/_headers
 ```
+
+The site is served by Cloudflare Pages from this repository: root directory
+`apps/site`, build command `pnpm install --frozen-lockfile && pnpm build`,
+output directory `dist`, custom domain `keyless.diegoalves.dev`. The app
+builds share links for that address (`KEYLESS_SHARE_URL` at build time
+changes it).
 
 Releases: push a tag like `v0.1.0` and GitHub Actions builds the Windows and
 Linux installers, the Arch package and the browser extension, signs the

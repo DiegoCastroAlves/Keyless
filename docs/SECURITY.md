@@ -151,6 +151,16 @@ and `x25519-dalek`; randomness from the operating system via `getrandom`.
   item history (removing one deletes it for good), nor of exports and
   backups (the JSON export lists them without their keys).
 
+- `shares`: share links. A snapshot of an item (title, websites, notes and
+  the fields with a value; no one-time password secrets, passkeys,
+  attachments or password history), encrypted with a random key that exists
+  only in the link's fragment (`#<id>.<key>`, which browsers never send), and
+  a label encrypted with the owner's key. The owner can list and revoke
+  links but never read the snapshot back; anyone with a link opens it with
+  `open_share()`, which counts the view, until it expires (30 days at most),
+  is revoked or has been viewed as many times as allowed (once, if asked).
+  Each account may have 100 active links.
+
 Row Level Security limits every table to the rows of vaults the user belongs
 to. Server-managed columns (`seq`, `revision`, timestamps) are set by
 triggers and are not writable through the API; `anon` has no access at all.
@@ -248,6 +258,19 @@ SSH keys kept in items; private keys never leave Keyless.
   day while Keyless is unlocked. Its results stay in memory (until sign-out)
   and are shown only while unlocked.
 - Ignored alerts are stored in the item's encrypted overview.
+
+## Share links page
+
+The page that opens share links (`apps/site`, served at
+keyless.diegoalves.dev by Cloudflare Pages) is static. It reads the id and
+key from the fragment and removes them from the address bar and history
+right away, asks before fetching (so link previews do not use up a
+one-view link), decrypts in the browser with the same envelope format as
+the app, and shows everything as text, never as HTML; only `http` and
+`https` websites become links. Its headers allow only its own scripts and
+styles, connections only to the Keyless server, no framing and no referrer.
+Whoever controls that site could serve a page that leaks keys, so the site
+needs the same care as the app's releases.
 
 ## Updates
 

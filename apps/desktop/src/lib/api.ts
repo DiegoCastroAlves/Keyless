@@ -269,6 +269,23 @@ export interface ItemDetail extends ItemSummary {
   canEdit: boolean;
 }
 
+/** A share link just created: shown once, never stored. */
+export interface CreatedShare {
+  id: string;
+  link: string;
+  expiresAt: number;
+}
+
+/** A share link that still works. */
+export interface ShareView {
+  id: string;
+  itemId: string;
+  title: string;
+  expiresAt: number;
+  maxViews: number | null;
+  views: number;
+}
+
 /** A file kept in an item. */
 export interface AttachmentView {
   id: string;
@@ -546,6 +563,9 @@ export const api = {
   attachmentSave: (itemId: string, attachmentId: string) => invoke<void>("attachment_save", { itemId, attachmentId }),
   attachmentDelete: (itemId: string, attachmentId: string) => invoke<ItemSummary>("attachment_delete", { itemId, attachmentId }),
   attachmentSpace: () => invoke<AttachmentSpace | null>("attachment_space"),
+  shareCreate: (itemId: string, hours: number, viewOnce: boolean) => invoke<CreatedShare>("share_create", { itemId, hours, viewOnce }),
+  shareList: (itemId?: string) => invoke<ShareView[]>("share_list", { itemId: itemId ?? null }),
+  shareRevoke: (shareId: string) => invoke<void>("share_revoke", { shareId }),
   sshRequest: () => invoke<SshRequest | null>("ssh_request"),
   sshRequestReady: () => invoke<void>("ssh_request_ready"),
   /** Resolves to whether more requests wait. */

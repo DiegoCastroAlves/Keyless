@@ -36,6 +36,7 @@ jobs:
           cache-dependency-path: |
             apps/desktop/pnpm-lock.yaml
             apps/extension/pnpm-lock.yaml
+            apps/site/pnpm-lock.yaml
 
       - name: Frontend type check and build
         working-directory: apps/desktop
@@ -45,6 +46,12 @@ jobs:
 
       - name: Browser extension type check and build
         working-directory: apps/extension
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Site type check and build
+        working-directory: apps/site
         run: |
           pnpm install --frozen-lockfile
           pnpm build

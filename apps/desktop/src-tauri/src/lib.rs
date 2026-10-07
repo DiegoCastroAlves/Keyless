@@ -21,6 +21,7 @@ mod items;
 mod lock;
 mod oauth;
 mod qr;
+mod shares;
 mod quick_access;
 mod secrets;
 mod site_icons;
@@ -294,6 +295,9 @@ pub fn run() {
             commands::attachment_save,
             commands::attachment_delete,
             commands::attachment_space,
+            commands::share_create,
+            commands::share_list,
+            commands::share_revoke,
             commands::set_watchtower_ignored,
             commands::ssh_import_key,
             commands::ssh_request,

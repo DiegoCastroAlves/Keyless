@@ -260,7 +260,7 @@ fn parse_date(text: &str) -> Option<i64> {
 
 /// Unix seconds at the start of a day (UTC), from Howard Hinnant's
 /// days-from-civil.
-fn unix_day(year: i64, month: u32, day: u32) -> i64 {
+pub(crate) fn unix_day(year: i64, month: u32, day: u32) -> i64 {
     let y = if month <= 2 { year - 1 } else { year };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
