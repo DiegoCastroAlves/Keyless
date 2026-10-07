@@ -8,29 +8,20 @@ use keyless_core::{
 };
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
-use zeroize::Zeroizing;
-
-use crate::{api::now_secs, error::AppError, state::AppState, system_unlock};
+use crate::{api::now_secs, error::AppError, state::AppState};
 
 const MAX_RESULTS: usize = 50;
 
-pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Value, &'static str> {
+pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value, &'static str> {
     match cmd {
         "status" => status(app).await,
         "unlock" => {
-            // Typed in the extension popup. Throttled like the app's lock
-            // screen.
-            let password = match args.get_mut("password") {
-                Some(Value::String(password)) if !password.is_empty() => Zeroizing::new(std::mem::take(password)),
-                _ => return Err("bad_request"),
-            };
-            crate::auth::unlock(app, password).await.map_err(unlock_error)?;
-            Ok(Value::Null)
-        }
-        "unlock_system" => {
-            // The operating system asks for the computer password; the app
-            // stays in the background.
-            crate::auth::unlock_with_system(app).await.map_err(unlock_error)?;
+            // Keyless asks the user itself (system prompt or its own
+            // window): the extension never sees the master password.
+            crate::unlock_prompt::request(app).await.map_err(|err| {
+                log::info!("unlock for the browser extension: {err}");
+                unlock_error(err)
+            })?;
             Ok(Value::Null)
         }
         "show_app" => {
@@ -83,19 +74,15 @@ async fn status(app: &AppHandle) -> Result<Value, &'static str> {
     let guard = state.session.lock().await;
     Ok(match guard.as_ref() {
         Some(session) => json!({ "locked": false, "email": session.email }),
-        None => json!({ "locked": true, "systemUnlock": system_unlock::available(&state) }),
+        None => json!({ "locked": true }),
     })
 }
 
 fn unlock_error(err: AppError) -> &'static str {
     match err {
-        AppError::WrongPassword => "wrong_password",
-        AppError::RateLimited(_) => "rate_limited",
         AppError::Cancelled => "cancelled",
         AppError::NoAccount => "no_account",
         AppError::Invalid(msg) if msg.key == "busy" => "busy",
-        AppError::Invalid(msg) if msg.key == "system_unlock_unavailable" => "unavailable",
-        AppError::Offline => "offline",
         _ => "error",
     }
 }

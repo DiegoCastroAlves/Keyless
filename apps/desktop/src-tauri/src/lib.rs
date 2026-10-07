@@ -24,6 +24,7 @@ mod store;
 mod sync;
 mod system_unlock;
 mod tray;
+mod unlock_prompt;
 mod updates;
 
 use std::{
@@ -152,6 +153,7 @@ pub fn run() {
                 quick_access_shown: Mutex::new(None),
                 quick_access_ready: std::sync::atomic::AtomicBool::new(false),
                 quick_access_pending: std::sync::atomic::AtomicBool::new(false),
+                unlock_prompt: Mutex::new(Vec::new()),
             });
 
             lock::start(app.handle().clone());
@@ -201,6 +203,9 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+            }
+            tauri::WindowEvent::Destroyed if window.label() == unlock_prompt::LABEL => {
+                unlock_prompt::closed(window.app_handle());
             }
             tauri::WindowEvent::Destroyed if window.label() == "main" => {
                 let app = window.app_handle();
@@ -269,6 +274,8 @@ pub fn run() {
             commands::show_quick_access,
             commands::hide_quick_access,
             commands::quick_access_ready,
+            commands::unlock_prompt_ready,
+            commands::close_unlock_prompt,
             commands::show_item_in_app,
             commands::set_quick_access_shortcut,
             commands::check_for_updates,

@@ -174,13 +174,13 @@ async fn handle_line(app: &AppHandle, line: &[u8]) -> Value {
             let Some(plaintext) = channel.open(nonce, ct) else {
                 return json!({ "type": "error", "code": "bad_request" });
             };
-            let Ok(mut request) = serde_json::from_slice::<EncryptedRequest>(&plaintext) else {
+            let Ok(request) = serde_json::from_slice::<EncryptedRequest>(&plaintext) else {
                 return json!({ "type": "error", "code": "bad_request" });
             };
             if !fresh_request(bridge, &request.id, request.ts) {
                 return json!({ "type": "error", "code": "replay" });
             }
-            let response = match handlers::dispatch(app, &request.cmd, &mut request.args).await {
+            let response = match handlers::dispatch(app, &request.cmd, &request.args).await {
                 Ok(data) => json!({ "id": request.id, "ok": true, "data": data }),
                 Err(code) => json!({ "id": request.id, "ok": false, "error": code }),
             };

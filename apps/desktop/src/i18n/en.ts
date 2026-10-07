@@ -220,6 +220,10 @@ const en = {
       "<strong>{{email}}</strong> already has a Keyless account. Enter your Secret Key and master password to open it on this device.",
     submit: "Sign in",
   },
+  unlockPrompt: {
+    title: "Keyless is trying to unlock the browser extension.",
+    placeholder: "Enter your master password",
+  },
   lock: {
     title: "Keyless is locked",
     placeholder: "Master password",

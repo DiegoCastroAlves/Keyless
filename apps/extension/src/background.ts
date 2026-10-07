@@ -2,23 +2,27 @@
 //
 // Three kinds of callers, told apart by the sender:
 // - the popup (trusted extension page): may search all logins, fill or copy
-//   any of them and unlock Keyless;
+//   any of them and ask Keyless to unlock;
 // - the Keyless menus shown inside web pages (inline.html, an extension page
 //   in an iframe): may list the logins for the tab they are in, search, fill
-//   into that tab and unlock. They must present the token their content
+//   into that tab and ask Keyless to unlock. They must present the token their content
 //   script registered, so a page cannot embed them on its own;
 // - content scripts (web page process): may only register that token and
 //   ask how many logins match their page. Credentials never go to them
 //   unless the user picked a login in the popup or a Keyless menu.
-// The app re-checks every URL before returning credentials.
+// The app re-checks every URL before returning credentials. The master
+// password never goes through the extension: to unlock, Keyless asks the
+// user itself (the system's password prompt or its own small window).
 
-import { channelKey, equalBytes, fromBase64, identity, kvDelete, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
+import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
 import type { Credentials, InlineState, Login, PageState, Status } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
-/** After the user cancels the computer password prompt, opening the popup
- * again does not bring it back right away. */
+/** Unlocking waits for the user. */
+const UNLOCK_TIMEOUT_MS = 15 * 60_000;
+/** After the user cancels the unlock prompt, opening the popup again does not
+ * bring it back right away. */
 const AUTO_PROMPT_COOLDOWN_MS = 30_000;
 const EXTENSION_BASE = chrome.runtime.getURL("");
 
@@ -28,6 +32,8 @@ class NativeConnection {
   private port: chrome.runtime.Port | null = null;
   private queue: Pending[] = [];
   lastError: string | null = null;
+
+  constructor(private readonly timeoutMs = REQUEST_TIMEOUT_MS) {}
 
   private connect(): chrome.runtime.Port {
     const port = chrome.runtime.connectNative(HOST);
@@ -46,7 +52,7 @@ class NativeConnection {
   send<T = any>(message: unknown): Promise<T> {
     const port = this.port ?? this.connect();
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("timeout")), REQUEST_TIMEOUT_MS);
+      const timer = setTimeout(() => reject(new Error("timeout")), this.timeoutMs);
       this.queue.push({
         resolve: (value) => {
           clearTimeout(timer);
@@ -71,7 +77,7 @@ class NativeConnection {
 const native = new NativeConnection();
 /** Unlocking can wait minutes for the user; the app answers one request at a
  * time per connection, so it gets its own. */
-const slow = new NativeConnection();
+const slow = new NativeConnection(UNLOCK_TIMEOUT_MS);
 let session: { key: CryptoKey; appPublic: Uint8Array } | null = null;
 
 function browserName(): string {
@@ -102,9 +108,8 @@ async function connect(): Promise<Status> {
   const pinned = await kvGet<ArrayBuffer>("appPublic");
   if (pinned && !equalBytes(new Uint8Array(pinned), appPublic)) {
     // A different app key: another installation, or something impersonating
-    // the app. Require pairing again.
+    // the app. Only pairing again, approved by the user, replaces the pin.
     session = null;
-    await kvDelete("appPublic");
     return { state: "not_paired", code: await pairingCode(me, appPublic) };
   }
   if (!reply.paired) {
@@ -117,6 +122,17 @@ async function connect(): Promise<Status> {
 }
 
 async function call<T = any>(cmd: string, args: Record<string, unknown> = {}, connection = native): Promise<T> {
+  try {
+    return await send<T>(cmd, args, connection);
+  } catch (err) {
+    // A host still connected to an app that has since restarted answers
+    // "not running" once, then reconnects.
+    if (!(err instanceof BridgeError) || err.message !== "app_not_running") throw err;
+    return send<T>(cmd, args, connection);
+  }
+}
+
+async function send<T>(cmd: string, args: Record<string, unknown>, connection: NativeConnection): Promise<T> {
   if (!session) {
     const status = await connect();
     if (status.state !== "ready") throw new BridgeError(status.state);
@@ -141,10 +157,10 @@ async function call<T = any>(cmd: string, args: Record<string, unknown> = {}, co
   return response.data as T;
 }
 
-type AppStatus = { locked: boolean; email?: string; systemUnlock?: boolean };
+type AppStatus = { locked: boolean; email?: string };
 
 function fromAppStatus(result: AppStatus): Status {
-  return result.locked ? { state: "locked", systemUnlock: Boolean(result.systemUnlock) } : { state: "ready", email: result.email };
+  return result.locked ? { state: "locked" } : { state: "ready", email: result.email };
 }
 
 /** Full status for the popup, including the pairing code. */
@@ -178,22 +194,23 @@ async function pair(): Promise<boolean> {
 
 // ----- Unlocking ----------------------------------------------------------------
 
-let systemUnlock: Promise<void> | null = null;
-let systemCancelledAt = 0;
+let unlocking: Promise<void> | null = null;
+let cancelledAt = 0;
 
-/** Asks the app to unlock with the computer password. The operating system
- * shows its own prompt; the app stays in the background. */
-function unlockWithSystem(): Promise<void> {
-  systemUnlock ??= call("unlock_system", {}, slow)
+/** Asks Keyless to unlock. It asks the user itself: the computer password
+ * prompt when that is on, otherwise a small Keyless window for the master
+ * password. The main window stays as it was. */
+function requestUnlock(): Promise<void> {
+  unlocking ??= call("unlock", {}, slow)
     .then(unlocked)
     .catch((err) => {
-      if (err instanceof BridgeError && err.message === "cancelled") systemCancelledAt = Date.now();
+      if (err instanceof BridgeError && err.message === "cancelled") cancelledAt = Date.now();
       throw err;
     })
     .finally(() => {
-      systemUnlock = null;
+      unlocking = null;
     });
-  return systemUnlock;
+  return unlocking;
 }
 
 /** Tells open Keyless menus to refresh. */
@@ -241,10 +258,8 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 async function inlineState(url: string | null): Promise<InlineState> {
   const host = url ? new URL(url).hostname.replace(/^www\./, "") : null;
   const current = await quickStatus();
-  if (current.state !== "ready" || !url) {
-    return { state: current.state, host, logins: [], systemUnlock: Boolean(current.systemUnlock) };
-  }
-  return { state: "ready", host, logins: await call<Login[]>("match", { url }), systemUnlock: false };
+  if (current.state !== "ready" || !url) return { state: current.state, url, host, logins: [] };
+  return { state: "ready", url, host, logins: await call<Login[]>("match", { url }) };
 }
 
 // ----- Message routing ----------------------------------------------------------
@@ -261,21 +276,13 @@ async function handlePopup(message: any): Promise<Reply> {
       await native.send({ type: "launch" }).catch(() => undefined);
       return { ok: true };
     case "unlock": {
-      const password = typeof message.password === "string" ? message.password : "";
-      if (!password) return { ok: false, error: "bad_request" };
-      await call("unlock", { password }, slow);
-      await unlocked();
-      return { ok: true };
-    }
-    case "unlock_system": {
-      // Opening the popup starts the prompt by itself, unless the user just
-      // cancelled it.
-      if (message.auto && !systemUnlock && Date.now() - systemCancelledAt < AUTO_PROMPT_COOLDOWN_MS) {
+      // Opening the popup asks by itself, unless the user just cancelled.
+      if (message.auto && !unlocking && Date.now() - cancelledAt < AUTO_PROMPT_COOLDOWN_MS) {
         return { ok: false, error: "skipped" };
       }
-      await unlockWithSystem();
-      // The system prompt takes the focus, which closes the popup: open it
-      // again, now unlocked.
+      await requestUnlock();
+      // The prompt takes the focus, which closes the popup: open it again,
+      // now unlocked.
       await chrome.action.openPopup?.().catch(() => undefined);
       return { ok: true };
     }
@@ -315,8 +322,8 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       if (!url) return { ok: false, error: "no_tab" };
       await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), anySite: Boolean(message.anySite) });
       return { ok: true };
-    case "unlock_system":
-      await unlockWithSystem();
+    case "unlock":
+      await requestUnlock();
       return { ok: true };
     default:
       return { ok: false, error: "bad_request" };

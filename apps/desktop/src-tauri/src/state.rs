@@ -216,6 +216,9 @@ pub struct AppState {
     pub quick_access_ready: std::sync::atomic::AtomicBool,
     /// Quick Access was asked for before its page loaded.
     pub quick_access_pending: std::sync::atomic::AtomicBool,
+    /// Browser extension requests waiting for the unlock prompt to close
+    /// (true when Keyless was unlocked).
+    pub unlock_prompt: Mutex<Vec<tokio::sync::oneshot::Sender<bool>>>,
 }
 
 impl AppState {

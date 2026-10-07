@@ -456,6 +456,18 @@ pub fn hide_quick_access(app: AppHandle) {
     crate::quick_access::hide(&app);
 }
 
+// ----- Unlock prompt for the browser extension --------------------------------
+
+#[tauri::command]
+pub fn unlock_prompt_ready(app: AppHandle) -> AppResult<()> {
+    crate::unlock_prompt::ready(&app).map_err(|e| AppError::Server(e.to_string()))
+}
+
+#[tauri::command]
+pub fn close_unlock_prompt(app: AppHandle) {
+    crate::unlock_prompt::close(&app);
+}
+
 #[tauri::command]
 pub fn show_item_in_app(app: AppHandle, item_id: String) {
     crate::quick_access::show_item(&app, &item_id);

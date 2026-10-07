@@ -108,41 +108,8 @@
   "noResults": {
     "message": "Sin resultados."
   },
-  "unlock": {
-    "message": "Desbloquear"
-  },
-  "unlockWithSystem": {
-    "message": "Desbloquear con la contraseña del equipo"
-  },
-  "waitingSystem": {
-    "message": "Confirma con la contraseña del equipo…"
-  },
-  "unlockInPopup": {
-    "message": "Escribe tu contraseña maestra en la ventana de Keyless."
-  },
-  "unlockToolbarHint": {
-    "message": "Haz clic en el botón de Keyless en la barra del navegador para desbloquear."
-  },
-  "masterPassword": {
-    "message": "Contraseña maestra"
-  },
-  "showPassword": {
-    "message": "Mostrar contraseña"
-  },
-  "hidePassword": {
-    "message": "Ocultar contraseña"
-  },
-  "or": {
-    "message": "o"
-  },
-  "wrongPassword": {
-    "message": "Contraseña maestra incorrecta."
-  },
-  "rateLimited": {
-    "message": "Demasiados intentos. Espera un momento e inténtalo de nuevo."
-  },
   "unlockBusy": {
-    "message": "Primero termina o cancela la solicitud de contraseña del equipo."
+    "message": "Keyless ya está pidiendo una contraseña. Termina eso primero."
   },
   "unlockFailed": {
     "message": "No se pudo desbloquear Keyless."
@@ -189,5 +156,8 @@
         "content": "$1"
       }
     }
+  },
+  "waitingUnlock": {
+    "message": "Desbloquea Keyless en la ventana que se abrió…"
   }
 }

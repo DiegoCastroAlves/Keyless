@@ -231,11 +231,14 @@ must be running, for what it needs.
   the user confirms a warning naming both sites. Before typing, the content
   script checks that the page is still on the origin the credentials were
   checked against.
-- **Unlocking from the browser.** The master password can be typed only in
-  the extension's popup, never in a page; it travels over the encrypted
-  channel and is throttled like the app's lock screen. With "Unlock with the
-  computer password" on, the operating system shows its own prompt and the
-  app stays in the background.
+- **Unlocking from the browser.** The extension never sees the master
+  password. When it asks Keyless to unlock, the app asks the user itself: the
+  operating system's password prompt when "Unlock with the computer password"
+  can be used, otherwise a small Keyless window for the master password
+  (throttled like the lock screen). The main window stays hidden.
+- **Pinned app key.** If the app answers with a different key than the one
+  pinned at pairing, the extension refuses to talk to it until the user pairs
+  again.
 - **Copying** from the popup is done by the app, so the clipboard is kept out
   of history and cleared automatically.
 - Turning off "Browser integration" in Settings removes the host manifests,

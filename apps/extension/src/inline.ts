@@ -7,6 +7,7 @@
 // script registered with the background, which it receives by postMessage
 // (addressed to the extension origin, so the page never sees it).
 
+import { avatar, hostOf } from "./avatar";
 import type { InlineState, Login } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
@@ -52,16 +53,10 @@ const ICON_CLOSE = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" 
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
 const ICON_KEY = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M15 8l2 2"/></svg>`;
 
-function hostOf(url: string): string {
-  try {
-    return new URL(url.includes("://") ? url : `https://${url}`).hostname.replace(/^www\./, "");
-  } catch {
-    return url;
-  }
-}
-
-function avatar(login: Login): HTMLElement {
-  return el("span", { className: "avatar", textContent: (login.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase() });
+/** Icon for a login; matches show the icon of the page they are for. */
+function icon(login: Login): HTMLElement {
+  const matches = state?.logins.some((match) => match.id === login.id);
+  return avatar(login, matches ? (state?.url ?? undefined) : undefined);
 }
 
 function texts(login: Login): HTMLElement {
@@ -89,8 +84,8 @@ function unlockError(code: string | undefined): string {
   switch (code) {
     case "busy":
       return t("unlockBusy");
-    case "rate_limited":
-      return t("rateLimited");
+    case "no_account":
+      return t("noAccount");
     default:
       return t("unlockFailed");
   }
@@ -127,7 +122,7 @@ function confirmOtherSite(login: Login, row: HTMLElement) {
 }
 
 function loginRow(login: Login, options: { submit: boolean; matches?: boolean }): HTMLButtonElement {
-  const row = el("button", { className: "row", type: "button" }, avatar(login), texts(login));
+  const row = el("button", { className: "row", type: "button" }, icon(login), texts(login));
   if (mode === "card") row.append(svg(ICON_KEY));
   if (options.matches === false) row.title = t("savedFor", hostOf(login.url));
   row.addEventListener("click", () => {
@@ -173,36 +168,24 @@ document.addEventListener("keydown", (e) => {
 
 function lockedView(): HTMLElement {
   const text = el("p", { className: "note", textContent: t("lockedNote") });
-  const systemUnlock = state?.systemUnlock ?? false;
-  const button = el("button", { className: "primary", type: "button", textContent: systemUnlock ? t("unlockWithSystem") : t("unlockApp") });
+  const button = el("button", { className: "primary", type: "button", textContent: t("unlockApp") });
   button.addEventListener("click", async () => {
-    if (systemUnlock) {
-      // The computer password prompt: Keyless itself stays in the
-      // background.
-      button.disabled = true;
-      text.textContent = t("waitingSystem");
-      report();
-      const reply = await send({ type: "unlock_system" });
-      if (reply.ok) {
-        toParent("unlocked");
-        await refresh();
-        return;
-      }
-      button.disabled = false;
-      text.textContent = reply.error === "cancelled" ? t("lockedNote") : unlockError(reply.error);
-      report();
-    } else {
-      // The master password is typed in the popup, never in the page.
-      try {
-        await chrome.action.openPopup();
-        text.textContent = t("unlockInPopup");
-      } catch {
-        text.textContent = t("unlockToolbarHint");
-      }
-      report();
+    // Keyless asks for the password itself (the computer password or its
+    // own small window): never in the page, never in the extension.
+    button.disabled = true;
+    text.textContent = t("waitingUnlock");
+    report();
+    const reply = await send({ type: "unlock" });
+    if (reply.ok) {
+      toParent("unlocked");
+      await refresh();
+      return;
     }
+    button.disabled = false;
+    text.textContent = reply.error === "cancelled" ? t("lockedNote") : unlockError(reply.error);
+    report();
   });
-  return el("div", { className: "locked" }, text, button);
+  return el("div", { className: "locked" }, el("div", { className: "head" }, svg(LOGO), el("span", { textContent: "Keyless" })), text, button);
 }
 
 function noteFor(current: InlineState["state"]): string {
@@ -210,7 +193,7 @@ function noteFor(current: InlineState["state"]): string {
 }
 
 function renderMenu() {
-  const box = el("div", { className: "box menu" }, el("div", { className: "head" }, svg(LOGO), el("span", { textContent: "Keyless" })));
+  const box = el("div", { className: "box menu" });
   if (!state || state.state === "ready") {
     const logins = state?.logins ?? [];
     if (logins.length === 0) box.append(el("p", { className: "note", textContent: t("noMatches") }));
@@ -218,6 +201,7 @@ function renderMenu() {
   } else if (state.state === "locked") {
     box.append(lockedView());
   } else {
+    box.append(el("div", { className: "head" }, svg(LOGO), el("span", { textContent: "Keyless" })));
     box.append(el("p", { className: "note", textContent: noteFor(state.state) }));
   }
   app.replaceChildren(box);
@@ -240,7 +224,7 @@ function renderCard() {
     render();
   });
   app.replaceChildren(
-    el("div", { className: "box card" }, avatar(best), texts(best), signIn, closeButton(() => toParent("close"))),
+    el("div", { className: "box card" }, icon(best), texts(best), signIn, closeButton(() => toParent("close"))),
     others,
   );
 }
@@ -290,7 +274,7 @@ function render() {
 let lastRendered = "";
 async function refresh(force = false) {
   const reply = await send<InlineState>({ type: "state" });
-  state = reply.ok && reply.data ? reply.data : { state: "error", host: null, logins: [], systemUnlock: false };
+  state = reply.ok && reply.data ? reply.data : { state: "error", url: null, host: null, logins: [] };
   // Avoid redrawing (and losing the keyboard focus) when nothing changed.
   const key = JSON.stringify(state);
   if (!force && key === lastRendered && app.childElementCount > 0) return;

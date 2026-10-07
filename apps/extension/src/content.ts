@@ -13,8 +13,7 @@ import type { Credentials, PageState } from "./types";
 const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
 /** Transparent margin around the menus, room for their shadow. */
 const PAD = 10;
-const MENU_MIN_WIDTH = 300;
-const MENU_MAX_WIDTH = 420;
+const MENU_WIDTH = 320;
 const CARD_WIDTH = 400;
 
 /** Proves to the background that a menu was opened by this script. Not
@@ -126,8 +125,11 @@ const STYLE = `
 .btn { position: fixed; z-index: 2147483646; width: 24px; height: 24px; border: 0; padding: 3px; border-radius: 6px;
   background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .btn:hover { background: rgba(20,184,166,.15); }
-iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0; background: transparent; color-scheme: normal;
+iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0; background: transparent; color-scheme: light;
   visibility: hidden; pointer-events: none; width: 0; height: 0; }
+/* Same as the menus' own pages (inline.css). When they differ, the browser
+   paints an opaque background behind the menu. */
+@media (prefers-color-scheme: dark) { iframe { color-scheme: dark; } }
 iframe.open { visibility: visible; pointer-events: auto; }
 iframe.card { top: 0; left: 24px; }
 `;
@@ -176,7 +178,7 @@ class Frame {
   constructor(readonly mode: "menu" | "card") {
     this.iframe.className = mode;
     this.iframe.title = "Keyless";
-    this.iframe.style.width = `${(mode === "card" ? CARD_WIDTH : MENU_MIN_WIDTH) + 2 * PAD}px`;
+    this.iframe.style.width = `${(mode === "card" ? CARD_WIDTH : MENU_WIDTH) + 2 * PAD}px`;
     root.append(this.iframe);
   }
 
@@ -246,7 +248,7 @@ function place() {
   button.style.top = `${rect.top + (rect.height - 24) / 2}px`;
   button.style.left = `${rect.right - 28}px`;
   if (menu?.open) {
-    const width = Math.min(Math.max(rect.width, MENU_MIN_WIDTH), MENU_MAX_WIDTH, window.innerWidth - 16);
+    const width = Math.min(MENU_WIDTH, window.innerWidth - 16);
     const outer = width + 2 * PAD;
     let top = rect.bottom + 4 - PAD;
     // Above the field when it does not fit below.

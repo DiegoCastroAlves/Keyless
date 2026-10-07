@@ -30,7 +30,14 @@ const base = {
 };
 
 const targets = {
-  chrome: { ...base, key: CHROME_KEY, minimum_chrome_version: "133", background: { service_worker: "background.js" } },
+  chrome: {
+    ...base,
+    key: CHROME_KEY,
+    minimum_chrome_version: "133",
+    // Site icons from the browser's own cache, for the login lists.
+    permissions: [...base.permissions, "favicon"],
+    background: { service_worker: "background.js" },
+  },
   firefox: {
     ...base,
     background: { scripts: ["background.js"] },
@@ -44,6 +51,7 @@ for (const [name, manifest] of Object.entries(targets)) {
   mkdirSync(outdir, { recursive: true });
   await build({
     entryPoints: { background: "src/background.ts", content: "src/content.ts", popup: "src/popup.ts", inline: "src/inline.ts" },
+    define: { __FAVICONS__: String(name === "chrome") },
     bundle: true,
     format: "iife",
     target: name === "chrome" ? "chrome133" : "firefox130",

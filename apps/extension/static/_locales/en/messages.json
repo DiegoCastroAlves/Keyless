@@ -108,41 +108,8 @@
   "noResults": {
     "message": "No results."
   },
-  "unlock": {
-    "message": "Unlock"
-  },
-  "unlockWithSystem": {
-    "message": "Unlock with computer password"
-  },
-  "waitingSystem": {
-    "message": "Confirm with your computer password…"
-  },
-  "unlockInPopup": {
-    "message": "Type your master password in the Keyless window."
-  },
-  "unlockToolbarHint": {
-    "message": "Click the Keyless button in the browser toolbar to unlock."
-  },
-  "masterPassword": {
-    "message": "Master password"
-  },
-  "showPassword": {
-    "message": "Show password"
-  },
-  "hidePassword": {
-    "message": "Hide password"
-  },
-  "or": {
-    "message": "or"
-  },
-  "wrongPassword": {
-    "message": "Wrong master password."
-  },
-  "rateLimited": {
-    "message": "Too many attempts. Wait a moment and try again."
-  },
   "unlockBusy": {
-    "message": "Finish or cancel the computer password prompt first."
+    "message": "Keyless is already asking for a password. Finish that first."
   },
   "unlockFailed": {
     "message": "Could not unlock Keyless."
@@ -189,5 +156,8 @@
         "content": "$1"
       }
     }
+  },
+  "waitingUnlock": {
+    "message": "Unlock Keyless in the window that opened…"
   }
 }

@@ -12,6 +12,9 @@
   --accent-fg: #ffffff;
   --danger: #dc2626;
   --shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+  /* Must match the iframe element's (set by the content script): otherwise
+     the browser paints an opaque background behind this page. */
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -26,6 +29,7 @@
     --accent-fg: #052e2b;
     --danger: #f87171;
     --shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
   }
 }
 
@@ -75,7 +79,7 @@ button {
 
 .menu {
   border-radius: 12px;
-  padding: 6px;
+  padding: 5px;
 }
 
 .head {
@@ -100,7 +104,7 @@ button {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 7px 10px;
+  padding: 6px 8px;
   border: 0;
   border-radius: 10px;
   background: transparent;
@@ -129,16 +133,36 @@ button {
 }
 
 .avatar {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+}
+
+.avatar img {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
+
+.avatar.initial {
   border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-fg);
-  font-weight: 700;
+  color: #fff;
+  font-weight: 600;
+}
+
+.star {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: flex;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: #f59e0b;
 }
 
 .text {
@@ -156,7 +180,7 @@ button {
 }
 
 .title {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .sub {

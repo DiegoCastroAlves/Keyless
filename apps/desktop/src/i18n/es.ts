@@ -222,6 +222,10 @@ const es: Translations = {
       "<strong>{{email}}</strong> ya tiene una cuenta de Keyless. Ingresa tu clave secreta y tu contraseña maestra para abrirla en este dispositivo.",
     submit: "Iniciar sesión",
   },
+  unlockPrompt: {
+    title: "Keyless está intentando desbloquear la extensión del navegador.",
+    placeholder: "Escribe tu contraseña maestra",
+  },
   lock: {
     title: "Keyless está bloqueado",
     placeholder: "Contraseña maestra",
