@@ -22,7 +22,8 @@ const base = {
   // Asked only if the user turns off the browser's own password manager.
   optional_permissions: ["privacy"],
   host_permissions: ["http://*/*", "https://*/*"],
-  content_scripts: [{ matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: false }],
+  // Also in frames inside pages, for login forms there (see src/content.ts).
+  content_scripts: [{ matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: true }],
   // The Keyless menus shown inside pages (see src/inline.ts).
   web_accessible_resources: [{ resources: ["inline.html"], matches: ["http://*/*", "https://*/*"] }],
   commands: {

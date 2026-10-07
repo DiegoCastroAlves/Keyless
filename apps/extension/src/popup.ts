@@ -145,16 +145,21 @@ function renderLocked() {
 
 /** A login saved for another site: fill only after the user confirms. */
 function confirmOtherSite(login: Login, node: HTMLElement, pageHost: string) {
+  confirmFill(node, t("otherSiteWarning", login.title, hostOf(login.url), pageHost), { type: "fill", id: login.id, anySite: true });
+}
+
+/** A sign-in form from another site inside the page (a frame). */
+function confirmFrame(login: Login, node: HTMLElement) {
+  const pageHost = pageUrl ? new URL(pageUrl).hostname.replace(/^www\./, "") : "";
+  confirmFill(node, t("frameWarning", login.frame ?? "", pageHost), { type: "fill", id: login.id, frameConfirmed: true });
+}
+
+function confirmFill(node: HTMLElement, text: string, request: Record<string, unknown>) {
   const fill = el("button", { className: "primary small", textContent: t("fillAnyway") });
   const cancel = el("button", { className: "secondary small", textContent: t("cancel") });
-  const warning = el(
-    "div",
-    { className: "warn" },
-    el("p", { textContent: t("otherSiteWarning", login.title, hostOf(login.url), pageHost) }),
-    el("div", { className: "warn-actions" }, cancel, fill),
-  );
+  const warning = el("div", { className: "warn" }, el("p", { textContent: text }), el("div", { className: "warn-actions" }, cancel, fill));
   fill.addEventListener("click", async () => {
-    const reply = await send({ type: "fill", id: login.id, anySite: true });
+    const reply = await send(request);
     if (reply.ok) window.close();
     else toast(t("fillFailed"));
   });
@@ -171,7 +176,8 @@ let pageUrl: string | null = null;
 
 function row(login: Login, canFill: boolean, pageHost: string | null = null): HTMLElement {
   const icon = avatar(login, canFill ? (pageUrl ?? undefined) : undefined);
-  const text = el("span", { className: "text" }, el("span", { className: "title", textContent: login.title }), el("span", { className: "sub", textContent: login.username || login.vault }));
+  const sub = login.frame ? [login.username, t("inFrame", login.frame)].filter(Boolean).join(" · ") : login.username || login.vault;
+  const text = el("span", { className: "text" }, el("span", { className: "title", textContent: login.title }), el("span", { className: "sub", textContent: sub }));
   const actions = el("span", { className: "actions" });
   const copy = (field: "username" | "password" | "totp", label: string, icon: string) => {
     const b = el("button", { className: "icon", title: label, innerHTML: icon });
@@ -193,6 +199,7 @@ function row(login: Login, canFill: boolean, pageHost: string | null = null): HT
     const doFill = async () => {
       const reply = await send({ type: "fill", id: login.id });
       if (reply.ok) window.close();
+      else if (reply.error === "cross_site_frame") confirmFrame(login, node);
       else toast(t("fillFailed"));
     };
     node.addEventListener("click", doFill);

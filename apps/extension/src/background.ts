@@ -320,17 +320,86 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
 
 /** Fills a login into the top frame of a tab. The content script checks that
  * the page is still on the origin the credentials were checked against. */
-async function fillTab(tabId: number, url: string, id: string, options: { submit?: boolean; anySite?: boolean } = {}): Promise<void> {
+/** Fills a login into a frame of the tab (the page itself by default). The
+ * app checks the login against `url`, the address of that frame. */
+async function fillTab(
+  tabId: number,
+  url: string,
+  id: string,
+  options: { submit?: boolean; anySite?: boolean; frameId?: number } = {},
+): Promise<void> {
   const settings = await loadSettings();
   const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
   await chrome.tabs.sendMessage(
     tabId,
     { type: "keyless-fill", ...credentials, origin: new URL(url).origin, submit: Boolean(options.submit) && settings.autoSubmit },
-    { frameId: 0 },
+    { frameId: options.frameId ?? 0 },
   );
   // Ready to paste on the next step of the sign-in. Copied by the app, which
   // clears the clipboard after a while.
   if (settings.copyTotp && credentials.totp) await call("copy", { id, field: "totp" }).catch(() => undefined);
+}
+
+// ----- Login forms in frames ----------------------------------------------------
+//
+// Content scripts in every frame report whether their frame has a login form.
+// Frames inside the page show no Keyless button or menu; the popup and the
+// keyboard shortcut fill them. A login is always matched against the address
+// of the frame that receives it, never the tab's, and a frame from another
+// site than the page is filled only after the user confirms in the popup.
+
+const framesKey = (tabId: number) => `loginFrames:${tabId}`;
+
+interface LoginFrame {
+  frameId: number;
+  url: string;
+}
+
+async function loginFrames(tabId: number): Promise<LoginFrame[]> {
+  const frames = (await sessionGet<Record<string, string>>(framesKey(tabId))) ?? {};
+  return Object.entries(frames)
+    .map(([frameId, url]) => ({ frameId: Number(frameId), url }))
+    .sort((a, b) => a.frameId - b.frameId);
+}
+
+async function setLoginFrame(tabId: number, frameId: number, url: string | null): Promise<void> {
+  const key = framesKey(tabId);
+  const frames = (await sessionGet<Record<string, string>>(key)) ?? {};
+  if (url) frames[frameId] = url;
+  else delete frames[frameId];
+  await chrome.storage.session.set({ [key]: frames });
+}
+
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  // A new page: its frames report again.
+  if (change.status === "loading" && change.url) void chrome.storage.session.remove(framesKey(tabId)).catch(() => undefined);
+});
+chrome.tabs.onRemoved.addListener((tabId) => void chrome.storage.session.remove(framesKey(tabId)).catch(() => undefined));
+
+/** Logins for the tab, each with the frame it goes into: frames with a login
+ * form first (the page itself before frames inside it), then the page.
+ * Logins for a frame from another site carry that frame's host. */
+async function tabLogins(tab: chrome.tabs.Tab & { url: string; id: number }): Promise<{ login: Login; frame: LoginFrame }[]> {
+  const top: LoginFrame = { frameId: 0, url: tab.url };
+  const withForms = (await loginFrames(tab.id)).filter((f) => isWebPage(f.url)).map((f) => (f.frameId === 0 ? top : f));
+  const frames = withForms.some((f) => f.frameId === 0) ? withForms : [...withForms, top];
+  const seen = new Set<string>();
+  const result: { login: Login; frame: LoginFrame }[] = [];
+  for (const frame of frames) {
+    for (const login of await call<Login[]>("match", { url: frame.url })) {
+      if (seen.has(login.id)) continue;
+      seen.add(login.id);
+      const other = frame.frameId !== 0 && siteOf(frame.url) !== siteOf(tab.url);
+      result.push({ login: other ? { ...login, frame: new URL(frame.url).hostname } : login, frame });
+    }
+  }
+  return result;
+}
+
+/** The frame a login goes into (see `tabLogins`). */
+async function fillTarget(tab: chrome.tabs.Tab & { url: string; id: number }, id: string): Promise<LoginFrame | null> {
+  const match = (await tabLogins(tab)).find((entry) => entry.login.id === id);
+  return match?.frame ?? null;
 }
 
 // ----- Menus inside pages -------------------------------------------------------
@@ -620,8 +689,8 @@ async function handlePopup(message: any): Promise<Reply> {
     }
     case "tab_matches": {
       const tab = await activeTab();
-      if (!isWebPage(tab?.url)) return { ok: true, data: { url: null, logins: [] } };
-      const logins = await call<Login[]>("match", { url: tab.url });
+      if (tab?.id === undefined || !isWebPage(tab.url)) return { ok: true, data: { url: null, logins: [] } };
+      const logins = (await tabLogins({ ...tab, id: tab.id, url: tab.url })).map((entry) => entry.login);
       return { ok: true, data: { url: tab.url, logins } };
     }
     case "search":
@@ -629,7 +698,13 @@ async function handlePopup(message: any): Promise<Reply> {
     case "fill": {
       const tab = await activeTab();
       if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
-      await fillTab(tab.id, tab.url, String(message.id), { anySite: Boolean(message.anySite) });
+      const id = String(message.id);
+      const frame = message.anySite ? null : await fillTarget({ ...tab, id: tab.id, url: tab.url }, id);
+      if (frame && frame.frameId !== 0 && siteOf(frame.url) !== siteOf(tab.url) && message.frameConfirmed !== true) {
+        // A sign-in form from another site inside this page.
+        return { ok: false, error: "cross_site_frame" };
+      }
+      await fillTab(tab.id, frame?.url ?? tab.url, id, { anySite: Boolean(message.anySite), frameId: frame?.frameId ?? 0 });
       return { ok: true };
     }
     case "copy":
@@ -748,10 +823,17 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
   }
 }
 
+/** What content scripts in frames inside the page may ask. */
+const FRAME_MESSAGES = new Set(["frame_login", "capture", "capture_done"]);
+
 async function handleContent(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
-  // Only the top frame of a regular web page.
-  if (sender.frameId !== 0 || sender.tab?.id === undefined || !isWebPage(sender.url)) return { ok: false, error: "forbidden" };
+  // Regular web pages; frames inside them only for a few things.
+  if (sender.tab?.id === undefined || sender.frameId === undefined || !isWebPage(sender.url)) return { ok: false, error: "forbidden" };
+  if (sender.frameId !== 0 && !FRAME_MESSAGES.has(message?.type)) return { ok: false, error: "forbidden" };
   switch (message.type) {
+    case "frame_login":
+      await setLoginFrame(sender.tab.id, sender.frameId, message.login === true ? sender.url : null);
+      return { ok: true };
     case "register":
       // The token the page's Keyless menus will present.
       if (typeof message.token !== "string" || message.token.length < 32) return { ok: false, error: "bad_request" };
@@ -819,8 +901,10 @@ chrome.commands?.onCommand.addListener(async (command) => {
   const tab = await activeTab();
   if (!tab?.id || !isWebPage(tab.url)) return;
   try {
-    const logins = await call<Login[]>("match", { url: tab.url });
-    if (logins.length > 0) await fillTab(tab.id, tab.url, logins[0].id);
+    // The page's best login, or one for a login form in a frame of the same
+    // site (another site's needs the popup, to confirm).
+    const best = (await tabLogins({ ...tab, id: tab.id, url: tab.url })).find((entry) => !entry.login.frame);
+    if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId });
   } catch {
     // Not connected or locked: the popup explains what to do.
   }

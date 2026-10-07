@@ -3,7 +3,12 @@
 // password in sign-up forms), the sign-in card at the top of the page and
 // the "Save login?" prompt.
 //
-// Runs only in the top frame. The menus are extension pages (inline.html) in
+// In frames inside the page it shows nothing: it only tells the background
+// whether the frame has a login form (so the popup can fill it), fills when
+// asked, and reports logins sent from the frame. Sandboxed frames, with no
+// origin of their own, are left alone.
+//
+// The menus are extension pages (inline.html) in
 // iframes inside a closed shadow root: the page cannot read the logins they
 // list, and only they (or the popup) can ask Keyless to fill or save. This
 // script learns nothing about the logins except how many match the page,
@@ -27,6 +32,11 @@ const PAD = 10;
 const MENU_WIDTH = 320;
 const CARD_WIDTH = 400;
 const SAVE_WIDTH = 380;
+
+/** The page itself, not a frame inside it. */
+const TOP = window === window.top;
+/** A sandboxed frame: never filled. */
+const SANDBOXED = location.origin === "null";
 
 /** Proves to the background that a menu was opened by this script. Not
  * crypto.randomUUID: that needs a secure context, and http pages are not. */
@@ -596,6 +606,7 @@ function register() {
   return registered;
 }
 window.addEventListener("pageshow", (event) => {
+  if (!TOP) return;
   // Back from the back/forward cache: another page of this tab may have
   // registered since.
   if (event.persisted) {
@@ -786,8 +797,19 @@ function onState(state: Status["state"]) {
   }
 }
 
+let reportedLogin = false;
+/** Tells the background whether this frame has a login form. */
+function reportLoginForm() {
+  const login = !SANDBOXED && hasLoginForm();
+  if (login === reportedLogin) return;
+  reportedLogin = login;
+  void send({ type: "frame_login", login });
+}
+
 /** Shows the sign-in card on login pages with saved logins. */
 async function scan() {
+  reportLoginForm();
+  if (!TOP) return;
   // Signed in without leaving the page: the card has nothing left to fill.
   if (card?.open && !hasLoginForm()) card.hide();
   if (cardDismissed || card?.open || !hasLoginForm()) return;
@@ -818,6 +840,8 @@ button.addEventListener("mousedown", (e) => e.preventDefault());
 document.addEventListener(
   "focusin",
   (e) => {
+    // No Keyless button in frames inside the page.
+    if (!TOP) return;
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || !visible(target) || !(fieldKind(target) || formKindOf(target))) return;
     if (current !== target) closeMenu();
@@ -946,6 +970,7 @@ function isLoginPassword(input: HTMLInputElement): boolean {
 /** The user sends a login, sign-up or change-password form: report what was
  * typed, for the "Save login?" prompt, which waits until the login worked. */
 function capture(anchor: HTMLInputElement | null) {
+  if (SANDBOXED) return;
   const scope: ParentNode = anchor?.form ?? document;
   // Payment forms are not logins.
   if (formParts(anchor, "card").size >= 2) return;
@@ -1053,6 +1078,7 @@ document.addEventListener(
 // the new page shows the login form again, signing in failed. Waits a bit
 // for pages that draw their forms with scripts.
 setTimeout(() => {
+  if (!TOP) return;
   void send<boolean>({ type: "save_pending", loginForm: hasLoginForm() }).then((reply) => reply.ok && reply.data && showSavePrompt());
 }, 700);
 
@@ -1060,6 +1086,8 @@ setTimeout(() => {
 // Keyless locked or unlocked; a login to offer saving.
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (sender.id !== chrome.runtime.id) return;
+  // Frames inside the page only fill logins.
+  if (SANDBOXED || (!TOP && message?.type !== "keyless-fill")) return;
   if (message?.type === "keyless-state" && typeof message.state === "string") {
     onState(message.state);
     return;

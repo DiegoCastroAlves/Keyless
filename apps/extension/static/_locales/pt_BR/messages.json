@@ -322,5 +322,24 @@
         "content": "$1"
       }
     }
+  },
+  "frameWarning": {
+    "message": "Este formulário de login vem de $FRAME$, um site incorporado em $PAGE$. Preencha só se você esperava $FRAME$ aqui.",
+    "placeholders": {
+      "frame": {
+        "content": "$1"
+      },
+      "page": {
+        "content": "$2"
+      }
+    }
+  },
+  "inFrame": {
+    "message": "Em um formulário de $FRAME$",
+    "placeholders": {
+      "frame": {
+        "content": "$1"
+      }
+    }
   }
 }

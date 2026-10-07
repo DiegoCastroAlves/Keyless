@@ -322,5 +322,24 @@
         "content": "$1"
       }
     }
+  },
+  "frameWarning": {
+    "message": "This sign-in form comes from $FRAME$, a site embedded in $PAGE$. Fill it only if you expected $FRAME$ here.",
+    "placeholders": {
+      "frame": {
+        "content": "$1"
+      },
+      "page": {
+        "content": "$2"
+      }
+    }
+  },
+  "inFrame": {
+    "message": "In a form from $FRAME$",
+    "placeholders": {
+      "frame": {
+        "content": "$1"
+      }
+    }
   }
 }

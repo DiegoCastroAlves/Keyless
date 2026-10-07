@@ -7,6 +7,9 @@ export interface Login {
   favorite: boolean;
   /** The site's icon, from the app's cache. */
   icon?: { src: string; padded: boolean };
+  /** For a login form in a frame from another site inside the page: that
+   * frame's host. */
+  frame?: string;
 }
 
 export interface Status {

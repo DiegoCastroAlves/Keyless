@@ -239,6 +239,13 @@ must be running, for what it needs.
   styles applied to them and what sits over them. The list opens by itself
   only in a field the user clicked or reached with Tab, never in card or
   address forms.
+- **Login forms in frames.** Frames inside a page get no Keyless button or
+  menu; they only report whether they have a login form, and are filled from
+  the popup (or the keyboard shortcut). A login is matched against the
+  address of the frame that receives it, never only the tab's, and a frame
+  from another site than the page is filled only after the user confirms a
+  warning naming both sites (the shortcut skips it). Sandboxed frames are
+  never filled, and a frame that navigated meanwhile refuses the fill.
 - **Only visible fields are filled.** A field that is tiny, transparent,
   moved off the page or covered by something else ("honeypot" fields that
   collect what a password manager fills) is skipped, and each value goes

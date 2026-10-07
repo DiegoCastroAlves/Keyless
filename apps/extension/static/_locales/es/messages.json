@@ -322,5 +322,24 @@
         "content": "$1"
       }
     }
+  },
+  "frameWarning": {
+    "message": "Este formulario de inicio de sesión viene de $FRAME$, un sitio incrustado en $PAGE$. Rellénalo solo si esperabas $FRAME$ aquí.",
+    "placeholders": {
+      "frame": {
+        "content": "$1"
+      },
+      "page": {
+        "content": "$2"
+      }
+    }
+  },
+  "inFrame": {
+    "message": "En un formulario de $FRAME$",
+    "placeholders": {
+      "frame": {
+        "content": "$1"
+      }
+    }
   }
 }
