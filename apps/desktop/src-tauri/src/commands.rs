@@ -1,7 +1,7 @@
 //! Tauri commands: the only interface between the UI and the Rust side.
 //! Each command records user activity for the auto-lock timer.
 
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use keyless_core::{
     generator::{GeneratedPassword, GeneratorOptions, generate},
@@ -199,7 +199,7 @@ pub fn get_settings(state: State<'_, AppState>) -> Settings {
 }
 
 #[tauri::command]
-pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
+pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Settings) -> AppResult<Settings> {
     let mut settings = settings.sanitized();
     let current = state.settings();
     // Only `set_system_unlock` changes it: turning it on needs the master password.
@@ -213,7 +213,23 @@ pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> AppRes
         std::thread::spawn(move || crate::autostart::sync(enabled));
     }
     state.save_settings(&settings)?;
+    if settings.site_icons != current.site_icons {
+        if settings.site_icons {
+            crate::site_icons::refresh(&app);
+        } else {
+            crate::site_icons::clear(&app)?;
+        }
+    }
     Ok(settings)
+}
+
+/// Cached website icons for these addresses, keyed as given.
+#[tauri::command]
+pub async fn site_icons(state: State<'_, AppState>, sites: Vec<String>) -> AppResult<HashMap<String, crate::site_icons::SiteIcon>> {
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or(AppError::Locked)?;
+    let sites: Vec<String> = sites.into_iter().take(1000).collect();
+    Ok(crate::site_icons::lookup(&state, session, &sites))
 }
 
 #[tauri::command]
@@ -272,7 +288,10 @@ pub async fn get_item_draft(state: State<'_, AppState>, item_id: String) -> AppR
 
 #[tauri::command]
 pub async fn save_item(app: AppHandle, draft: ItemDraft) -> AppResult<ItemSummary> {
-    items::save_item(&app, draft).await
+    let saved = items::save_item(&app, draft).await?;
+    // The icon for a new site.
+    crate::site_icons::refresh(&app);
+    Ok(saved)
 }
 
 #[tauri::command]

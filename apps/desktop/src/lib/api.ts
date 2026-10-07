@@ -110,6 +110,15 @@ export interface Settings {
   start_minimized: boolean;
   /** Registered by the app on Windows; Linux desktops own their shortcuts. */
   quick_access_shortcut: string;
+  /** Show website icons, downloaded from each site and kept encrypted here. */
+  site_icons: boolean;
+}
+
+export interface SiteIcon {
+  /** PNG as a data URL. */
+  src: string;
+  /** Transparent background: shown on a light tile. */
+  padded: boolean;
 }
 
 export type ListSort = "title" | "created" | "modified" | "frequent" | "recent";
@@ -349,6 +358,7 @@ export const api = {
   showQuickAccess: () => invoke<void>("show_quick_access"),
   hideQuickAccess: () => invoke<void>("hide_quick_access"),
   quickAccessReady: () => invoke<void>("quick_access_ready"),
+  siteIcons: (sites: string[]) => invoke<Record<string, SiteIcon>>("site_icons", { sites }),
   unlockPromptReady: () => invoke<void>("unlock_prompt_ready"),
   closeUnlockPrompt: () => invoke<void>("close_unlock_prompt"),
   showItemInApp: (itemId: string) => invoke<void>("show_item_in_app", { itemId }),
@@ -409,6 +419,7 @@ export const api = {
 
 export const events = {
   onItemsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://items-changed", () => cb()),
+  onSiteIconsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://site-icons-changed", () => cb()),
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),

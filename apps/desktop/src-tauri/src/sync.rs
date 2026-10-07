@@ -696,6 +696,8 @@ pub async fn sync_now(app: &AppHandle) -> AppResult<()> {
             if changed {
                 let _ = app.emit(EVENT_ITEMS_CHANGED, ());
             }
+            // Icons for new sites (does nothing when they are all fresh).
+            crate::site_icons::refresh(app);
             Ok(())
         }
         Err(err) => Err(err),

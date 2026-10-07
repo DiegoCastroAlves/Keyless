@@ -577,6 +577,8 @@ const es: Translations = {
     quickAccessPress: "Pulsa las teclas…",
     quickAccessOff: "Desactivado",
     quickAccessTry: "Abrir ahora",
+    siteIcons: "Mostrar los iconos de los sitios",
+    siteIconsHint: "Keyless descarga el icono de cada sitio desde el propio sitio y lo guarda cifrado en este dispositivo.",
     closeToTray: "Seguir ejecutándose en la bandeja",
     closeToTrayHint:
       "Al cerrar la ventana, Keyless sigue ejecutándose en la bandeja del sistema, así la extensión del navegador y el bloqueo automático siguen funcionando. Sal desde el icono de la bandeja.",

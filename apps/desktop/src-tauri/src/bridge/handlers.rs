@@ -224,7 +224,16 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
                 .cmp(&b.2["title"].as_str().unwrap_or("").to_lowercase())
         })
     });
-    Ok(Value::Array(results.into_iter().take(MAX_RESULTS).map(|(_, _, v)| v).collect()))
+    let mut logins: Vec<Value> = results.into_iter().take(MAX_RESULTS).map(|(_, _, v)| v).collect();
+    // Website icons the app has (see `site_icons`).
+    let sites: Vec<String> = logins.iter().filter_map(|l| l["url"].as_str().filter(|u| !u.is_empty()).map(str::to_string)).collect();
+    let icons = crate::site_icons::lookup(&state, session, &sites);
+    for login in &mut logins {
+        if let Some(icon) = login["url"].as_str().and_then(|url| icons.get(url)) {
+            login["icon"] = json!(icon);
+        }
+    }
+    Ok(Value::Array(logins))
 }
 
 /// `any_site` is set when the user explicitly confirmed, in the extension's

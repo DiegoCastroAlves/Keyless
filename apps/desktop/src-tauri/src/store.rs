@@ -12,7 +12,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppResult;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 pub struct Store {
     conn: Connection,
@@ -161,6 +161,18 @@ impl Store {
                  );",
             )?;
         }
+        if version < 4 {
+            // Version 4: website icons (see `site_icons`), encrypted; ids are
+            // keyed hashes of the host. Local only.
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS site_icons (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    found INTEGER NOT NULL,
+                    fetched_at INTEGER NOT NULL
+                 );",
+            )?;
+        }
         self.conn
             .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         Ok(())
@@ -258,7 +270,7 @@ impl Store {
     /// Removes every account-related row (sign out). Settings are kept.
     pub fn wipe_account_data(&self) -> AppResult<()> {
         self.conn.execute_batch(
-            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage;",
+            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage; DELETE FROM site_icons;",
         )?;
         // Reclaim pages so deleted ciphertext does not linger in the file.
         let _ = self.conn.execute_batch("VACUUM;");
@@ -427,6 +439,30 @@ impl Store {
         let mut stmt = self.conn.prepare("SELECT item_id, uses, last_used_at FROM item_usage")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, u32>(1)?, r.get::<_, i64>(2)?))))?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// (encrypted data, whether an icon was found, when it was fetched).
+    pub fn site_icon(&self, id: &str) -> AppResult<Option<(String, bool, i64)>> {
+        Ok(self
+            .conn
+            .query_row("SELECT data, found, fetched_at FROM site_icons WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get::<_, i64>(1)? != 0, r.get(2)?))
+            })
+            .optional()?)
+    }
+
+    pub fn save_site_icon(&self, id: &str, data: &str, found: bool, fetched_at: i64) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO site_icons (id, data, found, fetched_at) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(id) DO UPDATE SET data = excluded.data, found = excluded.found, fetched_at = excluded.fetched_at",
+            rusqlite::params![id, data, found as i64, fetched_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_site_icons(&self) -> AppResult<()> {
+        self.conn.execute("DELETE FROM site_icons", [])?;
+        Ok(())
     }
 
     pub fn bridge_peers(&self) -> AppResult<Vec<(String, String, i64)>> {

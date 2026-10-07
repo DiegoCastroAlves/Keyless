@@ -158,6 +158,17 @@ button.primary:disabled {
   border-radius: 6px;
 }
 
+.avatar.padded {
+  border-radius: 7px;
+  background: #fff;
+}
+
+.avatar.padded img {
+  width: 70%;
+  height: 70%;
+  border-radius: 0;
+}
+
 .avatar.initial {
   border-radius: 8px;
   color: #fff;

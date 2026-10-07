@@ -1,5 +1,6 @@
-// Icons for logins: the site's icon from the browser's own cache (Chromium;
-// no network request), or a coloured initial like in the app.
+// Icons for logins: the site's icon from the app (which downloads it from the
+// site and keeps it encrypted), else from the browser's own cache (Chromium;
+// no network request), else a coloured initial like in the app.
 
 import type { Login } from "./types";
 
@@ -58,7 +59,15 @@ export function avatar(login: Login, pageUrl?: string): HTMLElement {
     box.append(star);
   }
   const site = pageUrl ?? login.url;
-  if (__FAVICONS__ && site) {
+  if (login.icon?.src.startsWith("data:image/png;base64,")) {
+    const icon = document.createElement("img");
+    icon.alt = "";
+    icon.src = login.icon.src;
+    box.classList.remove("initial");
+    box.classList.toggle("padded", login.icon.padded);
+    box.style.background = "";
+    box.firstChild?.replaceWith(icon);
+  } else if (__FAVICONS__ && site) {
     void siteIcon(site)
       .then((src) => {
         if (!src) return;

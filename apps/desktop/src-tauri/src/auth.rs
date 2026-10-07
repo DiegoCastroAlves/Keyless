@@ -405,7 +405,11 @@ async fn open_session(app: &AppHandle, user_id: String, email: String, account: 
                     log::warn!("could not create the default vault: {err}");
                 }
             }
-            Err(err) => log::info!("sync after unlock: {err}"),
+            Err(err) => {
+                log::info!("sync after unlock: {err}");
+                // Without a sync (offline...), icons for the local items.
+                crate::site_icons::refresh(&app);
+            }
         }
     });
     Ok(())

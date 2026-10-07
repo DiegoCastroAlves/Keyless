@@ -574,6 +574,8 @@ const en = {
     quickAccessPress: "Press the keys…",
     quickAccessOff: "Off",
     quickAccessTry: "Open now",
+    siteIcons: "Show website icons",
+    siteIconsHint: "Keyless downloads each site's icon from the site itself and keeps it encrypted on this device.",
     closeToTray: "Keep running in the tray",
     closeToTrayHint:
       "Closing the window keeps Keyless running in the system tray, so the browser extension and auto-lock keep working. Quit from the tray icon.",

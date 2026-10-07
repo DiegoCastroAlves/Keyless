@@ -5,6 +5,8 @@ export interface Login {
   url: string;
   vault: string;
   favorite: boolean;
+  /** The site's icon, from the app's cache. */
+  icon?: { src: string; padded: boolean };
 }
 
 export interface Status {

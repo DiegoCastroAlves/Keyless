@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, type Category, type Strength } from "../lib/api";
 import { categoryInfo } from "../lib/categories";
 import { avatarColor, hostOf } from "../lib/format";
+import { useSiteIcon } from "../lib/siteIcons";
 import { useToasts } from "../lib/toast";
 import { cx } from "./ui";
 
@@ -47,7 +48,22 @@ export function ItemIcon({
   const info = categoryInfo(category);
   const sizes = { sm: "size-8 rounded-lg text-sm", md: "size-9 rounded-[10px] text-[15px]", lg: "size-14 rounded-2xl text-2xl" };
   const iconSizes = { sm: "size-4", md: "size-[18px]", lg: "size-7" };
-  if ((category === "login" || category === "password") && (url || title)) {
+  const isLogin = category === "login" || category === "password";
+  const siteIcon = useSiteIcon(isLogin ? url : undefined);
+  if (siteIcon) {
+    return (
+      <div
+        className={cx(
+          "flex shrink-0 items-center justify-center overflow-hidden",
+          sizes[size],
+          siteIcon.padded && "bg-white shadow-sm ring-1 ring-black/5",
+        )}
+      >
+        <img src={siteIcon.src} alt="" draggable={false} className={cx("object-contain", siteIcon.padded ? "size-[68%]" : "size-full")} />
+      </div>
+    );
+  }
+  if (isLogin && (url || title)) {
     const seed = url ? hostOf(url) : title;
     const letter = ((title || seed).match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase();
     return (

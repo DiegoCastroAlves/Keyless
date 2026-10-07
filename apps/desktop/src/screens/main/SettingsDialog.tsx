@@ -148,6 +148,11 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
+      <Row title={t("settings.siteIcons")} hint={t("settings.siteIconsHint")}>
+        <div className="flex justify-end">
+          <Switch checked={settings.site_icons} onChange={(site_icons) => save({ site_icons })} label={t("settings.siteIcons")} />
+        </div>
+      </Row>
       <Row title={t("settings.autoLock")} hint={t("settings.autoLockHint")}>
         <Combobox
           value={String(settings.auto_lock_minutes)}

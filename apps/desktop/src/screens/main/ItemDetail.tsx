@@ -161,7 +161,7 @@ export function ItemDetail() {
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-5">
-          {item.fields.length > 0 && (
+          {item.fields.some((f) => f.hasValue) && (
             <FieldCard>
               {item.fields.map((f) => (
                 <FieldRow key={f.id} itemId={item.id} field={f} />
@@ -170,7 +170,7 @@ export function ItemDetail() {
           )}
 
           {item.sections.map((section) =>
-            section.fields.length === 0 ? null : (
+            !section.fields.some((f) => f.hasValue) ? null : (
               <div key={section.id}>
                 {section.title && <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{section.title}</h3>}
                 <FieldCard>
