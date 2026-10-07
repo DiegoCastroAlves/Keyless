@@ -156,9 +156,18 @@ pub fn url_host(url: &str) -> Option<String> {
 }
 
 /// Registrable domain ("eTLD+1"), e.g. accounts.google.com -> google.com.
+/// Addresses by number (192.168.1.1, [::1]) are whole hosts.
 pub fn site_of(host: &str) -> String {
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if bare.parse::<std::net::IpAddr>().is_ok() {
+        return host.to_string();
+    }
     psl::domain_str(host).map(str::to_string).unwrap_or_else(|| host.to_string())
 }
+
+/// Hosts where anyone can publish pages under a big site's domain: logins
+/// for the rest of that site are not offered there (nor theirs elsewhere).
+const USER_CONTENT_HOSTS: &[&str] = &["script.google.com"];
 
 /// The page a request comes from, as reported by the browser.
 pub struct Page {
@@ -192,6 +201,8 @@ pub fn match_score(page: &Page, item_url: &str) -> u8 {
         0
     } else if item_host == page.host {
         2
+    } else if USER_CONTENT_HOSTS.contains(&page.host.as_str()) || USER_CONTENT_HOSTS.contains(&item_host.as_str()) {
+        0
     } else if site_of(&item_host) == site_of(&page.host) {
         1
     } else {
@@ -347,6 +358,13 @@ mod tests {
         // Different sites under a public suffix must not match.
         assert_eq!(match_score(&page("https://alice.github.io"), "https://bob.github.io"), 0);
         assert_eq!(match_score(&page("https://foo.co.uk"), "https://bar.co.uk"), 0);
+        // Addresses by number are whole hosts, not domains.
+        assert_eq!(match_score(&page("http://192.168.1.1"), "http://10.0.1.1"), 0);
+        assert_eq!(match_score(&page("http://192.168.1.1/admin"), "http://192.168.1.1"), 2);
+        assert_eq!(match_score(&page("http://[::1]:8080"), "http://[fe80::1]"), 0);
+        // Pages anyone can publish under a big site's domain.
+        assert_eq!(match_score(&page("https://script.google.com/macros/s/x"), "https://accounts.google.com"), 0);
+        assert_eq!(match_score(&page("https://script.google.com"), "https://script.google.com"), 2);
     }
 
     #[test]

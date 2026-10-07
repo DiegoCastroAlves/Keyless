@@ -299,9 +299,10 @@ async function renderSettings() {
   let manager: BrowserManager = "on";
   const showManager = async () => {
     manager = (await send<BrowserManager>({ type: "browser_manager" })).data ?? "on";
-    managerText.textContent = manager === "off" ? t("browserManagerOff") : manager === "other" ? t("browserManagerOther") : t("browserManagerOn");
-    managerButton.textContent = manager === "off" ? t("turnOn") : t("turnOff");
-    managerButton.hidden = manager === "other";
+    const off = manager === "off" || manager === "off_browser";
+    managerText.textContent = off ? t("browserManagerOff") : manager === "other" ? t("browserManagerOther") : t("browserManagerOn");
+    managerButton.textContent = off ? t("turnOn") : t("turnOff");
+    managerButton.hidden = manager === "other" || manager === "off_browser";
   };
   managerButton.addEventListener("click", () => {
     // Both started from the click itself, so the browser can ask for the

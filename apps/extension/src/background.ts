@@ -576,7 +576,9 @@ async function browserManagerState(): Promise<BrowserManager> {
   if (!(await chrome.permissions.contains({ permissions: ["privacy"] }))) return "unknown";
   const details = await Promise.all(browserSettings().map((s) => s.get({})));
   if (details.some((d) => d.levelOfControl === "controlled_by_other_extensions" || d.levelOfControl === "not_controllable")) return "other";
-  return details.some((d) => d.value) ? "on" : "off";
+  if (details.some((d) => d.value)) return "on";
+  // Keyless can only hand back what it turned off.
+  return details.some((d) => d.levelOfControl === "controlled_by_this_extension") ? "off" : "off_browser";
 }
 
 async function applyBrowserManager(): Promise<void> {

@@ -109,6 +109,7 @@ export interface Credentials {
   totp: string | null;
 }
 
-/** The browser's own password manager: on, off, controlled by someone else,
- * or unknown until the "privacy" permission is granted. */
-export type BrowserManager = "on" | "off" | "other" | "unknown";
+/** The browser's own password manager: on, off (by Keyless, or by the user
+ * in the browser's settings), controlled by someone else, or unknown until
+ * the "privacy" permission is granted. */
+export type BrowserManager = "on" | "off" | "off_browser" | "other" | "unknown";
