@@ -692,6 +692,16 @@ const ptBR: Translations = {
     backup: "Backup do Keyless (.keyless)",
     backupHint: "Um backup criptografado exportado do Keyless.",
     backupPassword: "Senha do backup",
+    plainTitle: "Exportação sem criptografia",
+    plainWarning:
+      "O arquivo vai ter todas as senhas, códigos, cartões e notas dos seus cofres em texto puro. Qualquer pessoa que o obtenha — outro programa, uma pasta na nuvem, um backup — consegue ler tudo. Use só para migrar para outro gerenciador de senhas e apague logo depois.",
+    plain_csv: "CSV",
+    plain_csvHint: "Logins para Bitwarden, 1Password ou Chrome; os outros itens como notas.",
+    plain_json: "JSON",
+    plain_jsonHint: "Todos os itens com todos os campos, como o Keyless guarda.",
+    plainUnderstood: "Entendo que este arquivo não é protegido e vou apagá-lo depois de usar.",
+    plainRun: "Exportar sem criptografia…",
+    plainDelete: "Lembre de apagar o arquivo exportado depois de importá-lo.",
     exportTitle: "Backup criptografado",
     exportBody:
       "Salve uma cópia de todos os cofres em um arquivo criptografado com uma senha que você escolher. Guarde-o em um lugar seguro: ele pode ser restaurado mesmo sem esta conta.",

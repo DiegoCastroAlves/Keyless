@@ -464,6 +464,8 @@ export const api = {
   importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
   exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
+  /** An unencrypted export, after the master password. */
+  exportPlain: (masterPassword: string, format: "csv" | "json") => invoke<number>("export_plain", { masterPassword, format }),
   importCommit: (target: ImportTarget) => invoke<number>("import_commit", { target }),
   importCancel: () => invoke<void>("import_cancel"),
 };

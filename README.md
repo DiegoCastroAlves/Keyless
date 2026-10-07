@@ -25,7 +25,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   offering two-factor codes the item lacks, websites without HTTPS, and cards
   or documents about to expire
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)
-- Encrypted backups (`.keyless`) with a separate backup password
+- Encrypted backups (`.keyless`) with a separate backup password, and an
+  unencrypted CSV or JSON export for moving elsewhere
 - Auto-lock on inactivity, sleep and screen lock; clipboard auto-clear that
   stays out of clipboard history
 - Browser extension for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: fills

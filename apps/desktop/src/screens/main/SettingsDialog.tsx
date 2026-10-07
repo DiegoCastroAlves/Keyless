@@ -11,7 +11,7 @@ import { api, errorMessage, type AccountInfo, type BridgePeer, type Settings } f
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
-import { ExportPanel, ImportPanel } from "./ImportDialog";
+import { ExportPanel, ImportPanel, PlainExportPanel } from "./ImportDialog";
 
 export type SettingsTab = "general" | "security" | "browser" | "account" | "import" | "about";
 
@@ -86,6 +86,9 @@ export function SettingsDialog({
                   <ImportPanel onDone={() => onOpenChange(false)} />
                   <div className="border-t border-line pt-6">
                     <ExportPanel />
+                  </div>
+                  <div className="border-t border-line pt-6">
+                    <PlainExportPanel />
                   </div>
                 </div>
               )}

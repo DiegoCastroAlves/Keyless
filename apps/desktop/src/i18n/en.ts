@@ -689,6 +689,16 @@ const en = {
     backup: "Keyless backup (.keyless)",
     backupHint: "An encrypted backup exported from Keyless.",
     backupPassword: "Backup password",
+    plainTitle: "Unencrypted export",
+    plainWarning:
+      "The file will hold every password, code, card and note of your vaults in plain text. Anyone who gets it — another program, a cloud folder, a backup — can read them all. Use it only to move to another password manager, and delete it right after.",
+    plain_csv: "CSV",
+    plain_csvHint: "Logins for Bitwarden, 1Password or Chrome; other items as notes.",
+    plain_json: "JSON",
+    plain_jsonHint: "Every item with all its fields, as Keyless keeps it.",
+    plainUnderstood: "I understand that this file is not protected and I will delete it after use.",
+    plainRun: "Export unencrypted…",
+    plainDelete: "Remember to delete the export file once you have imported it.",
     exportTitle: "Encrypted backup",
     exportBody:
       "Save a copy of every vault in a file encrypted with a password you choose. Keep it somewhere safe: it can be restored even without this account.",

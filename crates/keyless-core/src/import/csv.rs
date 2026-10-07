@@ -22,7 +22,13 @@ struct Columns {
     favorite: Option<usize>,
     tags: Option<usize>,
     kind: Option<usize>,
+    /// Bitwarden's custom fields: one "name: value" per line.
+    fields: Option<usize>,
 }
+
+/// Custom fields with these words in their name are imported hidden.
+const SECRET_LABEL: [&str; 14] =
+    ["password", "senha", "contraseña", "secret", "pin", "code", "código", "key", "token", "recovery", "number", "número", "cvv", "cvc"];
 
 fn find(headers: &[String], names: &[&str]) -> Option<usize> {
     names
@@ -52,7 +58,12 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         favorite: find(&headers, &["favorite"]),
         tags: find(&headers, &["tags", "folder", "grouping"]),
         kind: find(&headers, &["type"]),
+        fields: find(&headers, &["fields"]),
     };
+    // Bitwarden puts every address of an item in `login_uri`, separated by
+    // commas; a plain `url` column holds one address (which may contain
+    // commas).
+    let url_list = cols.url.is_some_and(|i| headers[i] == "login_uri");
     if cols.password.is_none() && cols.notes.is_none() {
         return Err(Error::Import(
             "could not find a password column; supported: Chrome, Edge, Firefox, Bitwarden and 1Password CSV".into(),
@@ -75,9 +86,21 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         };
         let get = |col: Option<usize>| col.and_then(|i| record.get(i)).unwrap_or("").trim().to_string();
 
-        let url = get(cols.url);
+        let urls: Vec<String> = if url_list {
+            get(cols.url).split(',').map(str::trim).filter(|u| !u.is_empty()).map(String::from).collect()
+        } else {
+            Some(get(cols.url)).filter(|u| !u.is_empty()).into_iter().collect()
+        };
+        let url = urls.first().cloned().unwrap_or_default();
         let username = get(cols.username);
-        let password = get(cols.password);
+        // Spaces can be part of a password.
+        let password = cols.password.and_then(|i| record.get(i)).unwrap_or("").to_string();
+        let extra: Vec<(String, String)> = get(cols.fields)
+            .lines()
+            .filter_map(|line| line.split_once(':'))
+            .map(|(label, value)| (label.trim().to_string(), value.trim().to_string()))
+            .filter(|(label, value)| !label.is_empty() && !value.is_empty())
+            .collect();
         let notes = get(cols.notes);
         let totp = get(cols.totp);
         let kind = get(cols.kind).to_ascii_lowercase();
@@ -85,7 +108,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         if title.is_empty() {
             title = host_of(&url).unwrap_or_else(|| "Untitled".into());
         }
-        if url.is_empty() && username.is_empty() && password.is_empty() && notes.is_empty() {
+        if url.is_empty() && username.is_empty() && password.is_empty() && notes.is_empty() && extra.is_empty() {
             continue;
         }
 
@@ -93,7 +116,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
             "note" | "securenote" | "secure note" => Category::SecureNote,
             "card" => Category::CreditCard,
             "identity" => Category::Identity,
-            _ if password.is_empty() && username.is_empty() && !notes.is_empty() => Category::SecureNote,
+            _ if password.is_empty() && username.is_empty() && (!notes.is_empty() || !extra.is_empty()) => Category::SecureNote,
             _ => Category::Login,
         };
 
@@ -127,6 +150,18 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
             });
         }
 
+        for (label, value) in extra {
+            // The CSV does not say which fields are secret: guess from the name.
+            let secret = SECRET_LABEL.iter().any(|word| label.to_lowercase().contains(word));
+            details.fields.push(Field {
+                id: new_field_id(),
+                label,
+                kind: if secret { FieldKind::Concealed } else { FieldKind::Text },
+                value,
+                purpose: None,
+            });
+        }
+
         let favorite = matches!(get(cols.favorite).to_ascii_lowercase().as_str(), "1" | "true" | "yes");
         let tags = get(cols.tags)
             .split([',', ';'])
@@ -140,7 +175,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 title,
                 subtitle: username,
                 category,
-                urls: if url.is_empty() { vec![] } else { vec![ItemUrl { href: url, ..Default::default() }] },
+                urls: urls.into_iter().map(|href| ItemUrl { href, ..Default::default() }).collect(),
                 tags,
                 favorite,
                 ..Default::default()

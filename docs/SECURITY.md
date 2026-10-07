@@ -160,6 +160,9 @@ account has, approximate item sizes (padded), and when items change.
   persisted across restarts, one attempt at a time).
 - Showing the Secret Key, changing the master password, exporting a backup and
   deleting the account always require the master password.
+- An unencrypted export (CSV or JSON, for moving to another password manager)
+  also requires the master password and an explicit confirmation after a
+  warning; the file is written readable only by the current user.
 - Optional unlock with the computer password (Linux packages, via a polkit
   action with `auth_self`: the user's own password or fingerprint, never
   cached, active local session only). After the master password unlocked the

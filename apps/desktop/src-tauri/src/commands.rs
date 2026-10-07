@@ -467,6 +467,13 @@ pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_pa
     import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password)).await
 }
 
+/// An unencrypted export (CSV or JSON), after the master password.
+#[tauri::command]
+pub async fn export_plain(app: AppHandle, state: State<'_, AppState>, master_password: String, format: import::PlainFormat) -> AppResult<usize> {
+    state.touch();
+    import::export_plain(&app, Zeroizing::new(master_password), format).await
+}
+
 #[tauri::command]
 pub async fn import_commit(app: AppHandle, state: State<'_, AppState>, target: ImportTarget) -> AppResult<usize> {
     state.touch();

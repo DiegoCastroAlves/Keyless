@@ -275,6 +275,7 @@ pub fn run() {
             commands::import_commit,
             commands::import_cancel,
             commands::export_backup,
+            commands::export_plain,
             commands::copy_secret_key,
             commands::account_info,
             commands::cancel_account_deletion,

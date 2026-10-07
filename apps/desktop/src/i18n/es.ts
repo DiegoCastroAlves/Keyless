@@ -693,6 +693,16 @@ const es: Translations = {
     backup: "Copia de seguridad de Keyless (.keyless)",
     backupHint: "Una copia de seguridad cifrada exportada desde Keyless.",
     backupPassword: "Contraseña de la copia de seguridad",
+    plainTitle: "Exportación sin cifrar",
+    plainWarning:
+      "El archivo tendrá todas las contraseñas, códigos, tarjetas y notas de tus cofres en texto plano. Cualquiera que lo obtenga — otro programa, una carpeta en la nube, una copia de seguridad — podrá leerlos. Úsalo solo para pasarte a otro gestor de contraseñas y bórralo justo después.",
+    plain_csv: "CSV",
+    plain_csvHint: "Inicios de sesión para Bitwarden, 1Password o Chrome; los demás elementos como notas.",
+    plain_json: "JSON",
+    plain_jsonHint: "Todos los elementos con todos sus campos, como los guarda Keyless.",
+    plainUnderstood: "Entiendo que este archivo no está protegido y lo borraré después de usarlo.",
+    plainRun: "Exportar sin cifrar…",
+    plainDelete: "Recuerda borrar el archivo exportado cuando lo hayas importado.",
     exportTitle: "Copia de seguridad cifrada",
     exportBody:
       "Guarda una copia de todas tus bóvedas en un archivo cifrado con una contraseña que tú eliges. Guárdalo en un lugar seguro: se puede restaurar incluso sin esta cuenta.",

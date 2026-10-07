@@ -248,3 +248,70 @@ export function ExportPanel() {
     </form>
   );
 }
+
+/** An export that is not encrypted, for moving to another password manager.
+ * Every secret ends up in plain text in the file: hence the master password,
+ * the warning and the explicit confirmation. */
+export function PlainExportPanel() {
+  const { t } = useTranslation();
+  const [format, setFormat] = useState<"csv" | "json">("csv");
+  const [masterPassword, setMasterPassword] = useState("");
+  const [understood, setUnderstood] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const count = await api.exportPlain(masterPassword, format);
+      setMasterPassword("");
+      setUnderstood(false);
+      toast.success(t("importer.exported", { count }));
+      toast.show(t("importer.plainDelete"));
+    } catch (err) {
+      if (errorCode(err) !== "cancelled") setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-3">
+      <div className="text-sm font-semibold">{t("importer.plainTitle")}</div>
+      <div className="flex gap-3 rounded-xl border border-danger/40 bg-danger-soft p-3">
+        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
+        <p className="text-xs leading-relaxed text-fg">{t("importer.plainWarning")}</p>
+      </div>
+      <div className="flex gap-2">
+        {(["csv", "json"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setFormat(value)}
+            className={cx(
+              "flex-1 rounded-lg border px-3 py-2 text-left text-[13px]",
+              format === value ? "border-accent bg-accent-soft" : "border-line hover:bg-panel-2",
+            )}
+          >
+            <div className="font-medium">{t(`importer.plain_${value}`)}</div>
+            <div className="text-xs text-muted">{t(`importer.plain_${value}Hint`)}</div>
+          </button>
+        ))}
+      </div>
+      <div>
+        <Label>{t("importer.exportMasterPassword")}</Label>
+        <PasswordInput value={masterPassword} onChange={(e) => setMasterPassword(e.target.value)} />
+      </div>
+      <label className="flex items-start gap-2 text-[13px]">
+        <input type="checkbox" className="mt-0.5 accent-[var(--danger)]" checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />
+        <span>{t("importer.plainUnderstood")}</span>
+      </label>
+      <ErrorText>{error}</ErrorText>
+      <Button type="submit" variant="danger" loading={busy} disabled={!masterPassword || !understood}>
+        {t("importer.plainRun")}
+      </Button>
+    </form>
+  );
+}

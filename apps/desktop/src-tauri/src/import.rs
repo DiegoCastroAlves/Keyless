@@ -145,6 +145,74 @@ pub fn cancel(state: &AppState) {
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
+/// Everything the user can read, except Recently Deleted, by vault.
+async fn collect(state: &AppState) -> AppResult<BackupData> {
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or(AppError::Locked)?;
+    let store = state.store();
+    let mut vaults: Vec<(String, BackupVault)> = session
+        .vaults
+        .iter()
+        .map(|(id, v)| (id.clone(), BackupVault { name: v.meta.name.clone(), description: v.meta.description.clone(), items: Vec::new() }))
+        .collect();
+    for item in store.items()? {
+        let Some(cached) = session.items.get(&item.id) else { continue };
+        if cached.overview.trashed_at.is_some() {
+            continue;
+        }
+        let (Some(enc), Ok(vault)) = (item.enc_details.as_deref(), session.vault(&item.vault_id)) else { continue };
+        let details = vault.key.open_details(&item.vault_id, &item.id, enc)?;
+        if let Some((_, target)) = vaults.iter_mut().find(|(id, _)| *id == item.vault_id) {
+            target.items.push(BackupItem { overview: cached.overview.clone(), details });
+        }
+    }
+    Ok(BackupData { exported_at: now_secs(), vaults: vaults.into_iter().map(|(_, v)| v).collect() })
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlainFormat {
+    Csv,
+    Json,
+}
+
+/// Exports every vault the user can read into a file that is NOT encrypted,
+/// for moving to another password manager. Needs the master password; the
+/// UI warns first. Returns the number of items written.
+pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, format: PlainFormat) -> AppResult<usize> {
+    let state = app.state::<AppState>();
+    crate::auth::confirm_master_password(&state, master_password).await?;
+    let data = collect(&state).await?;
+    let count = data.vaults.iter().map(|v| v.items.len()).sum();
+
+    let (filter, extension) = match format {
+        PlainFormat::Csv => ("CSV", "csv"),
+        PlainFormat::Json => ("JSON", "json"),
+    };
+    let dialog = app
+        .dialog()
+        .file()
+        .set_title("Save unencrypted export")
+        .add_filter(filter, &[extension])
+        .set_file_name(format!("keyless-export-{}.{extension}", today()));
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
+        .await
+        .map_err(|e| AppError::Store(e.to_string()))?
+        .ok_or(AppError::Cancelled)?;
+    let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unwritable")))?;
+
+    tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
+        let contents = Zeroizing::new(match format {
+            PlainFormat::Csv => keyless_core::export::to_csv(&data)?,
+            PlainFormat::Json => keyless_core::export::to_json(&data)?,
+        });
+        write_private(&path, &contents)
+    })
+    .await
+    .map_err(|e| AppError::Store(e.to_string()))??;
+    Ok(count)
+}
+
 /// Exports every vault the user can read into an encrypted `.keyless` file.
 /// Returns the number of items written, or `Cancelled` if no file was chosen.
 pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>) -> AppResult<usize> {
@@ -162,30 +230,7 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
         return Err(AppError::Invalid(Msg::new("password_weak")));
     }
 
-    let data = {
-        let guard = state.session.lock().await;
-        let session = guard.as_ref().ok_or(AppError::Locked)?;
-        let store = state.store();
-        let mut vaults: Vec<(String, BackupVault)> = session
-            .vaults
-            .iter()
-            .map(|(id, v)| {
-                (id.clone(), BackupVault { name: v.meta.name.clone(), description: v.meta.description.clone(), items: Vec::new() })
-            })
-            .collect();
-        for item in store.items()? {
-            let Some(cached) = session.items.get(&item.id) else { continue };
-            if cached.overview.trashed_at.is_some() {
-                continue;
-            }
-            let (Some(enc), Ok(vault)) = (item.enc_details.as_deref(), session.vault(&item.vault_id)) else { continue };
-            let details = vault.key.open_details(&item.vault_id, &item.id, enc)?;
-            if let Some((_, target)) = vaults.iter_mut().find(|(id, _)| *id == item.vault_id) {
-                target.items.push(BackupItem { overview: cached.overview.clone(), details });
-            }
-        }
-        BackupData { exported_at: now_secs(), vaults: vaults.into_iter().map(|(_, v)| v).collect() }
-    };
+    let data = collect(&state).await?;
     let count = data.vaults.iter().map(|v| v.items.len()).sum();
 
     let dialog = app
