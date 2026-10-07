@@ -73,6 +73,14 @@ fn ids(args: &Value, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Whether the page may use passkeys for the relying party it names (needs
+/// no unlocked vault: checked before asking the user anything).
+pub fn check(args: &Value) -> Result<Value, &'static str> {
+    let origin = args.get("origin").and_then(Value::as_str).ok_or("bad_request")?;
+    let (_, host) = page(origin)?;
+    Ok(json!({ "rpId": rp_id(args, &host)? }))
+}
+
 /// Passkeys for the page: `{itemId, credentialId, title, userName}`, only
 /// those in `allowCredentials` when the site lists some.
 pub async fn list(app: &AppHandle, args: &Value) -> Result<Value, &'static str> {

@@ -729,6 +729,15 @@ async function startPasskey(port: chrome.runtime.Port, tabId: number, page: { or
   if (!settings.passkeys || (site && settings.hidden.includes(site))) return fallback();
   const current = await quickStatus();
   if (current.state !== "ready" && current.state !== "locked") return fallback();
+  // A site that names another site's relying party is refused before the
+  // user sees anything.
+  try {
+    await call("passkey_check", { origin: page.origin, rpId: request.rpId });
+  } catch (err) {
+    const code = err instanceof BridgeError ? err.message : "error";
+    if (code === "rp_id_mismatch" || code === "insecure_page") return port.postMessage({ ok: false, error: "security" });
+    return fallback();
+  }
   // Signing in without a passkey for the site: the browser's own way.
   if (request.kind === "get" && current.state === "ready") {
     const found = await call<unknown[]>("passkey_list", { origin: page.origin, rpId: request.rpId, allowCredentials: request.allowCredentials }).catch(() => []);

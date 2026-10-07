@@ -90,6 +90,7 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             super::logins::suggest(max_length, symbols)
         }
         // Passkeys, after the user chose in the extension's window.
+        "passkey_check" => super::passkeys::check(args),
         "passkey_list" => super::passkeys::list(app, args).await,
         "passkey_create" => super::passkeys::create(app, args).await,
         "passkey_get" => super::passkeys::get(app, args).await,
