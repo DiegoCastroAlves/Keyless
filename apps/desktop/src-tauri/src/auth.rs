@@ -559,6 +559,7 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     drop(store);
     state.clipboard.clear_now();
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
     state.set_sync_status(SyncStatus::default());
     let _ = app.emit(EVENT_LOCKED, ());
     Ok(())

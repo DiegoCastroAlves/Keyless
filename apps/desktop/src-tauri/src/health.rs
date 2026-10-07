@@ -23,6 +23,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 
+use tauri::{AppHandle, Emitter, Manager};
+
 use crate::{
     api::now_secs,
     bridge::{forms::parse_expiry, handlers::{site_of, url_host}},
@@ -68,7 +70,7 @@ pub struct HealthReport {
     pub ignored: Vec<(String, String)>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteIssue {
     pub id: String,
@@ -78,7 +80,7 @@ pub struct SiteIssue {
     pub date: Option<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BreachReport {
     pub checked: usize,
@@ -286,6 +288,79 @@ async fn get_list(client: &reqwest::Client, url: &str) -> AppResult<Vec<u8>> {
         body.extend_from_slice(&chunk);
     }
     Ok(body)
+}
+
+/// The last online check of this run, kept until sign-out.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LastCheck {
+    /// Unix seconds.
+    pub checked_at: i64,
+    pub report: BreachReport,
+}
+
+#[derive(Default)]
+pub struct WatchtowerState {
+    pub last: std::sync::Mutex<Option<LastCheck>>,
+    /// No automatic check before this, after one failed (offline).
+    retry_at: std::sync::Mutex<Option<std::time::Instant>>,
+    /// One check at a time.
+    busy: tokio::sync::Mutex<()>,
+}
+
+/// How often the automatic check runs.
+const AUTO_EVERY: i64 = 24 * 3600;
+/// How long it waits after a check failed.
+const AUTO_RETRY: std::time::Duration = std::time::Duration::from_secs(3600);
+pub const EVENT_UPDATED: &str = "keyless://watchtower-updated";
+
+/// Runs the online check and keeps its result.
+pub async fn check_online(app: &AppHandle) -> AppResult<BreachReport> {
+    let state = app.state::<AppState>();
+    let _busy = state.watchtower.busy.lock().await;
+    let report = breaches(&state).await?;
+    *state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastCheck { checked_at: now_secs(), report: report.clone() });
+    let _ = app.emit(EVENT_UPDATED, ());
+    Ok(report)
+}
+
+/// With the setting on, checks online once a day while Keyless is unlocked:
+/// a couple of minutes after unlocking (not to slow down the first sync),
+/// then whenever a day has passed.
+pub fn init(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let mut locked = app.state::<AppState>().lock_state.subscribe();
+        loop {
+            // Woken by a lock or unlock, or every quarter of an hour.
+            if let Ok(Err(_)) = tokio::time::timeout(std::time::Duration::from_secs(15 * 60), locked.changed()).await {
+                return;
+            }
+            if *locked.borrow_and_update() {
+                continue;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            if !due(&app).await {
+                continue;
+            }
+            let state = app.state::<AppState>();
+            if let Err(err) = check_online(&app).await {
+                log::info!("automatic Watchtower check: {err}");
+                *state.watchtower.retry_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now() + AUTO_RETRY);
+            }
+        }
+    });
+}
+
+async fn due(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    if !state.settings().watchtower_auto || state.session.lock().await.is_none() {
+        return false;
+    }
+    if state.watchtower.retry_at.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|at| std::time::Instant::now() < at) {
+        return false;
+    }
+    state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|last| now_secs() - last.checked_at >= AUTO_EVERY)
 }
 
 /// The online check: breached passwords, breached websites and two-factor

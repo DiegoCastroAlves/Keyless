@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon } from "../../components/common";
-import { Button, IconButton, Spinner, Tooltip, cx } from "../../components/ui";
-import { api, errorMessage, type BreachReport, type HealthReport, type ItemSummary, type WatchtowerAlert } from "../../lib/api";
+import { Button, IconButton, Spinner, Switch, Tooltip, cx } from "../../components/ui";
+import { api, errorMessage, events, type BreachReport, type HealthReport, type ItemSummary, type WatchtowerAlert } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
@@ -14,11 +14,30 @@ export function Watchtower() {
   const revision = useApp((s) => s.revision);
   const [report, setReport] = useState<HealthReport | null>(null);
   const [breaches, setBreaches] = useState<BreachReport | null>(null);
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
   const [checking, setChecking] = useState(false);
+  const settings = useApp((s) => s.settings);
+  const setSettings = useApp((s) => s.setSettings);
 
   useEffect(() => {
     api.passwordHealth().then(setReport).catch((err) => toast.error(errorMessage(err)));
   }, [revision]);
+
+  // The last online check, also one made by itself in the background.
+  useEffect(() => {
+    const load = () =>
+      api
+        .lastBreaches()
+        .then((last) => {
+          if (!last) return;
+          setBreaches(last.report);
+          setCheckedAt(last.checkedAt);
+        })
+        .catch(() => undefined);
+    void load();
+    const unlisten = events.onWatchtowerUpdated(() => void load());
+    return () => void unlisten.then((stop) => stop());
+  }, []);
 
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
@@ -113,12 +132,40 @@ export function Watchtower() {
           />
         </div>
 
-        <div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-panel-2 p-4">
-          <ShieldCheck className="size-5 shrink-0 text-accent" />
-          <p className="flex-1 text-xs leading-relaxed text-muted">{t("watchtower.breachPrivacy")}</p>
-          <Button size="sm" onClick={checkBreaches} loading={checking}>
-            {checking ? t("watchtower.checkingBreaches") : t("watchtower.checkBreaches")}
-          </Button>
+        <div className="mt-4 rounded-xl border border-line bg-panel-2 p-4">
+          <div className="flex items-center gap-3">
+            <ShieldCheck className="size-5 shrink-0 text-accent" />
+            <p className="flex-1 text-xs leading-relaxed text-muted">{t("watchtower.breachPrivacy")}</p>
+            <Button size="sm" onClick={checkBreaches} loading={checking}>
+              {checking ? t("watchtower.checkingBreaches") : t("watchtower.checkBreaches")}
+            </Button>
+          </div>
+          {settings && (
+            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 pl-8">
+              <label className="flex flex-1 items-center gap-2.5 text-xs">
+                <Switch
+                  checked={settings.watchtower_auto}
+                  label={t("watchtower.autoCheck")}
+                  onChange={(on) => {
+                    void setSettings({ ...settings, watchtower_auto: on })
+                      .then(() => {
+                        // Turned on: the first check now rather than later.
+                        if (on && checkedAt === null) void checkBreaches();
+                      })
+                      .catch((err) => toast.error(errorMessage(err)));
+                  }}
+                />
+                {t("watchtower.autoCheck")}
+              </label>
+              {checkedAt !== null && (
+                <span className="text-xs text-subtle">
+                  {t("watchtower.lastChecked", {
+                    when: new Date(checkedAt * 1000).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" }),
+                  })}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {!anything ? (

@@ -23,7 +23,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Watchtower: weak, reused and breached passwords (Have I Been Pwned,
   k-anonymity), websites breached since the password was set, websites
   offering two-factor codes the item lacks, websites without HTTPS, and cards
-  or documents about to expire; any alert can be ignored per item
+  or documents about to expire; any alert can be ignored per item, and the
+  online check can run by itself once a day
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)
 - Encrypted backups (`.keyless`) with a separate backup password, and an
   unencrypted CSV or JSON export for moving elsewhere

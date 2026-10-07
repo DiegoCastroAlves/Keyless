@@ -162,6 +162,7 @@ pub fn run() {
                 unlock_prompt: Mutex::new(Vec::new()),
                 lock_state: tokio::sync::watch::Sender::new(true),
                 ssh: Default::default(),
+                watchtower: Default::default(),
                 unlock_reason: Default::default(),
             });
 
@@ -169,6 +170,7 @@ pub fn run() {
             sync::start_background_sync(app.handle().clone());
             bridge::server::start(app.handle().clone());
             ssh_agent::init(app.handle());
+            health::init(app.handle());
             updates::start(app.handle().clone());
             std::thread::spawn(move || bridge::install::sync_registration(browser_integration));
             if start_at_login {
@@ -279,6 +281,7 @@ pub fn run() {
             commands::delete_generated,
             commands::password_health,
             commands::check_breaches,
+            commands::last_breaches,
             commands::import_pick,
             commands::import_commit,
             commands::import_cancel,

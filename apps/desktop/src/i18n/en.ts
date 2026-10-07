@@ -585,6 +585,8 @@ const en = {
     breachedSeen: "Seen {{formatted}} times in breaches",
     checkBreaches: "Check online",
     checkingBreaches: "Checking…",
+    autoCheck: "Check by itself once a day while Keyless is unlocked",
+    lastChecked: "Last checked: {{when}}",
     breachPrivacy:
       "Looks for breached passwords with Have I Been Pwned and k-anonymity (only the first 5 characters of each password's SHA-1 hash leave this device), and downloads the public lists of breached websites and of sites with two-factor authentication to compare here.",
     compromised: "Breached websites",

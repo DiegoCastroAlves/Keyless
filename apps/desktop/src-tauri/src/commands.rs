@@ -459,9 +459,19 @@ pub async fn password_health(state: State<'_, AppState>) -> AppResult<HealthRepo
 }
 
 #[tauri::command]
-pub async fn check_breaches(state: State<'_, AppState>) -> AppResult<BreachReport> {
+pub async fn check_breaches(app: AppHandle, state: State<'_, AppState>) -> AppResult<BreachReport> {
     state.touch();
-    health::breaches(&state).await
+    health::check_online(&app).await
+}
+
+/// The last online check (also an automatic one), if any since Keyless
+/// started.
+#[tauri::command]
+pub async fn last_breaches(state: State<'_, AppState>) -> AppResult<Option<health::LastCheck>> {
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    Ok(state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()).clone())
 }
 
 #[tauri::command]

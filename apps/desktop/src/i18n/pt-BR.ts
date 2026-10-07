@@ -588,6 +588,8 @@ const ptBR: Translations = {
     breachedSeen: "Encontrada {{formatted}} vezes em vazamentos",
     checkBreaches: "Verificar online",
     checkingBreaches: "Verificando…",
+    autoCheck: "Verificar sozinho uma vez por dia, com o Keyless desbloqueado",
+    lastChecked: "Última verificação: {{when}}",
     breachPrivacy:
       "Procura senhas vazadas no Have I Been Pwned com k-anonimato (só os 5 primeiros caracteres do hash SHA-1 de cada senha saem deste dispositivo) e baixa as listas públicas de sites vazados e de sites com verificação em duas etapas para comparar aqui.",
     compromised: "Sites vazados",

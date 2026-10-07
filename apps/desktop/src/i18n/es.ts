@@ -588,6 +588,8 @@ const es: Translations = {
     breachedSeen: "Vista {{formatted}} veces en filtraciones",
     checkBreaches: "Comprobar en línea",
     checkingBreaches: "Comprobando…",
+    autoCheck: "Comprobar solo una vez al día, con Keyless desbloqueado",
+    lastChecked: "Última comprobación: {{when}}",
     breachPrivacy:
       "Busca contraseñas filtradas con Have I Been Pwned y k-anonimato (solo los primeros 5 caracteres del hash SHA-1 de cada contraseña salen de este dispositivo) y descarga las listas públicas de sitios filtrados y de sitios con verificación en dos pasos para compararlas aquí.",
     compromised: "Sitios filtrados",

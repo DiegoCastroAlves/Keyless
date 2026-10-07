@@ -115,6 +115,8 @@ export interface Settings {
   /** Show website icons, downloaded from each site and kept encrypted here. */
   site_icons: boolean;
   ssh_agent: boolean;
+  /** Run Watchtower's online check by itself once a day. */
+  watchtower_auto: boolean;
 }
 
 export interface SiteIcon {
@@ -375,6 +377,13 @@ export interface BreachReport {
   twoFactor: SiteIssue[];
 }
 
+/** Watchtower's last online check since Keyless started. */
+export interface LastCheck {
+  /** Unix seconds. */
+  checkedAt: number;
+  report: BreachReport;
+}
+
 export interface ImportSummary {
   vaults: [string, number][];
   total_items: number;
@@ -502,6 +511,7 @@ export const api = {
   deleteGenerated: (id?: string) => invoke<void>("delete_generated", { id: id ?? null }),
   passwordHealth: () => invoke<HealthReport>("password_health"),
   checkBreaches: () => invoke<BreachReport>("check_breaches"),
+  lastBreaches: () => invoke<LastCheck | null>("last_breaches"),
   importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
   exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
@@ -526,6 +536,7 @@ export const events = {
   onItemsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://items-changed", () => cb()),
   onSiteIconsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://site-icons-changed", () => cb()),
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
+  onWatchtowerUpdated: (cb: () => void): Promise<UnlistenFn> => listen("keyless://watchtower-updated", () => cb()),
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
   onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),

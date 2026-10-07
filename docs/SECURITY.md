@@ -222,6 +222,20 @@ SSH keys kept in items; private keys never leave Keyless.
   malicious program of the same user; the approval is a guard against
   surprise use, not against malware already running as the user.
 
+## Watchtower
+
+- Weak, reused and unsecured (`http`) websites and expiring cards are found
+  on this device, from the unlocked vault.
+- The online check sends nothing about items: passwords are looked up in
+  Have I Been Pwned with k-anonymity (only the first 5 characters of each
+  password's SHA-1 hash leave the device), and the public lists of breached
+  websites (Have I Been Pwned) and of websites with two-factor codes
+  (2fa.directory) are downloaded and compared here.
+- It runs when the user asks, or, if the user turns it on, by itself once a
+  day while Keyless is unlocked. Its results stay in memory (until sign-out)
+  and are shown only while unlocked.
+- Ignored alerts are stored in the item's encrypted overview.
+
 ## Updates
 
 - The app looks at the public list of releases on GitHub twice a day (this
