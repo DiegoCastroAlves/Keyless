@@ -1,21 +1,190 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <title>Keyless</title>
+    <meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1113" media="(prefers-color-scheme: dark)" />
+    <title>Keyless: suas senhas, só suas</title>
+    <meta
+      name="description"
+      content="Gerenciador de senhas de código aberto para Windows e Linux. Tudo é criptografado no seu dispositivo; o servidor só guarda o que não consegue ler."
+    />
     <link rel="icon" href="/icon-32.png" />
-    <link rel="stylesheet" href="/share/style.css" />
+    <link rel="preload" href="/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/home.css" />
+    <script type="module" src="/home.js"></script>
   </head>
   <body>
-    <header><img src="/icon-32.png" width="24" height="24" alt="" /> <strong>Keyless</strong></header>
-    <main>
-      <section class="card">
-        <h1>Keyless</h1>
-        <p>A password manager with end-to-end encryption, for Windows and Linux.</p>
-        <p class="muted"><a href="https://github.com/DiegoCastroAlves/Keyless">github.com/DiegoCastroAlves/Keyless</a></p>
+    <a class="skip" href="#main" data-i18n="skip">Pular para o conteúdo</a>
+
+    <header class="top">
+      <a class="brand" href="/" aria-label="Keyless">
+        <img src="/icon-32.png" width="26" height="26" alt="" />
+        <span>keyless</span>
+      </a>
+      <nav class="top-nav" aria-label="Seções" data-i18n-aria="nav">
+        <a href="#como" data-i18n="navHow">Como funciona</a>
+        <a href="#ferramentas" data-i18n="navTools">Ferramentas</a>
+        <a href="#baixar" data-i18n="navDownload">Baixar</a>
+      </nav>
+      <div class="lang" role="group" aria-label="Idioma" data-i18n-aria="language">
+        <button type="button" data-lang="pt-BR" lang="pt-BR">PT</button>
+        <button type="button" data-lang="en" lang="en">EN</button>
+        <button type="button" data-lang="es" lang="es">ES</button>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow mono" data-i18n="eyebrow">Gerenciador de senhas · Windows e Linux · Código aberto</p>
+        <h1 id="hero-title" data-i18n-html="title">A chave fica <em>com você.</em></h1>
+        <p class="lede" data-i18n="lede">
+          Senhas, cartões, chaves de acesso e arquivos, criptografados no seu computador antes de sair dele. O servidor guarda só o que não
+          consegue ler, e nem nós temos como abrir.
+        </p>
+
+        <figure class="specimen" aria-labelledby="specimen-caption">
+          <div class="specimen-row">
+            <span class="mono tag" data-i18n="youType">Você digita</span>
+            <output class="plain mono" id="plain" aria-live="off">minha senha do banco</output>
+          </div>
+          <div class="specimen-rule" aria-hidden="true"><span></span></div>
+          <div class="specimen-row">
+            <span class="mono tag" data-i18n="leaves">Sai do computador</span>
+            <output class="cipher mono" id="cipher" aria-live="off">k1.mZ3vQ9rT0xLw7pB2kEfN5uYc8aJdH4sG</output>
+          </div>
+          <figcaption id="specimen-caption" class="mono" data-i18n="specimenCaption">
+            XChaCha20-Poly1305 com uma chave que nasce da sua senha mestra e da sua Chave Secreta.
+          </figcaption>
+        </figure>
+
+        <div class="cta">
+          <a class="button primary" id="primary-download" href="https://github.com/DiegoCastroAlves/Keyless/releases">
+            <span id="primary-label" data-i18n="download">Baixar o Keyless</span>
+            <span class="mono version" id="primary-version"></span>
+          </a>
+          <a class="button ghost" href="#baixar" data-i18n="otherVersions">Outras versões</a>
+        </div>
+      </section>
+
+      <section id="como" class="section" aria-labelledby="como-title">
+        <div class="section-head">
+          <span class="mono number">§ 01</span>
+          <h2 id="como-title" data-i18n="howTitle">Como funciona</h2>
+        </div>
+        <ol class="steps">
+          <li>
+            <span class="numeral" aria-hidden="true">1</span>
+            <h3 data-i18n="step1Title">Duas coisas que só você tem</h3>
+            <p data-i18n="step1">
+              Sua senha mestra, que fica na sua cabeça, e a Chave Secreta, gerada no seu dispositivo e guardada no Kit de Emergência. As duas
+              juntas viram a chave da sua conta.
+            </p>
+            <p class="mono sample">K1-7RWQ3N-XK29TF-DMA4H-…</p>
+          </li>
+          <li>
+            <span class="numeral" aria-hidden="true">2</span>
+            <h3 data-i18n="step2Title">Tudo é cifrado aqui</h3>
+            <p data-i18n="step2">
+              Cada item é criptografado no seu computador, amarrado ao cofre e ao item a que pertence. Mudar ou trocar algo no caminho faz a
+              decriptação falhar, em vez de te enganar.
+            </p>
+          </li>
+          <li>
+            <span class="numeral" aria-hidden="true">3</span>
+            <h3 data-i18n="step3Title">O servidor só sincroniza</h3>
+            <p data-i18n="step3">
+              Seus dispositivos trocam texto cifrado. Funciona sem internet, e um conflito entre dois dispositivos nunca apaga nada: as duas
+              versões ficam.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section ledger-section" aria-labelledby="ledger-title">
+        <div class="section-head">
+          <span class="mono number">§ 02</span>
+          <h2 id="ledger-title" data-i18n="ledgerTitle">O que o servidor vê</h2>
+        </div>
+        <div class="ledger">
+          <div class="ledger-col">
+            <h3 class="mono" data-i18n="sees">Vê</h3>
+            <ul>
+              <li data-i18n="sees1">Seu e-mail</li>
+              <li data-i18n="sees2">Quantos cofres e itens você tem</li>
+              <li data-i18n="sees3">Quando algo muda</li>
+              <li data-i18n="sees4">O tamanho aproximado de cada coisa</li>
+            </ul>
+          </div>
+          <div class="ledger-col redacted">
+            <h3 class="mono" data-i18n="never">Nunca vê</h3>
+            <ul>
+              <li><span data-i18n="never1">Suas senhas</span></li>
+              <li><span data-i18n="never2">Os nomes dos sites e dos itens</span></li>
+              <li><span data-i18n="never3">Suas notas e seus arquivos</span></li>
+              <li><span data-i18n="never4">Sua senha mestra e sua Chave Secreta</span></li>
+            </ul>
+          </div>
+        </div>
+        <p class="note" data-i18n-html="ledgerNote">
+          Não dá para recuperar a senha mestra por e-mail. É isso que garante que ninguém, nem quem cuida do servidor, consiga abrir a sua
+          conta. <a href="https://github.com/DiegoCastroAlves/Keyless/blob/main/docs/SECURITY.md">Leia o desenho de segurança.</a>
+        </p>
+      </section>
+
+      <section id="ferramentas" class="section" aria-labelledby="tools-title">
+        <div class="section-head">
+          <span class="mono number">§ 03</span>
+          <h2 id="tools-title" data-i18n="toolsTitle">Ferramentas</h2>
+        </div>
+        <dl class="spec">
+          <div><dt class="mono" data-i18n="t1">Preenchimento</dt><dd data-i18n="d1">Logins, cartões e endereços no Chrome, Edge, Brave e Firefox, e oferece salvar o que você digita.</dd></div>
+          <div><dt class="mono" data-i18n="t2">Chaves de acesso</dt><dd data-i18n="d2">Passkeys criadas e usadas pelo Keyless, em qualquer navegador onde ele estiver.</dd></div>
+          <div><dt class="mono" data-i18n="t3">Watchtower</dt><dd data-i18n="d3">Senhas fracas, repetidas ou vazadas, sites sem HTTPS e cartões perto de vencer.</dd></div>
+          <div><dt class="mono" data-i18n="t4">Anexos</dt><dd data-i18n="d4">Documentos dentro dos itens, criptografados em pedaços antes de subir.</dd></div>
+          <div><dt class="mono" data-i18n="t5">Compartilhar</dt><dd data-i18n="d5">Um link para alguém sem Keyless ver um item, por tempo limitado ou uma vez só.</dd></div>
+          <div><dt class="mono" data-i18n="t6">Agente SSH</dt><dd data-i18n="d6">Chaves SSH para o terminal e para assinar commits, com aprovação a cada uso.</dd></div>
+          <div><dt class="mono" data-i18n="t7">Gerador</dt><dd data-i18n="d7">Senhas e frases aleatórias, com histórico do que foi gerado.</dd></div>
+          <div><dt class="mono" data-i18n="t8">Importar</dt><dd data-i18n="d8">Do 1Password, Bitwarden, Chrome, Edge e Firefox.</dd></div>
+          <div><dt class="mono" data-i18n="t9">Desbloqueio</dt><dd data-i18n="d9">Com a senha mestra, a senha do computador no Linux ou o Windows Hello.</dd></div>
+        </dl>
+      </section>
+
+      <section id="baixar" class="section" aria-labelledby="download-title">
+        <div class="section-head">
+          <span class="mono number">§ 04</span>
+          <h2 id="download-title" data-i18n="downloadTitle">Baixar</h2>
+        </div>
+        <p class="note" id="release-line" data-i18n="releaseLoading">Procurando a versão mais recente…</p>
+        <div class="downloads" id="downloads">
+          <div class="platform">
+            <h3>Windows</h3>
+            <ul class="files mono" data-platform="windows"></ul>
+          </div>
+          <div class="platform">
+            <h3>Linux</h3>
+            <ul class="files mono" data-platform="linux"></ul>
+          </div>
+          <div class="platform">
+            <h3 data-i18n="extension">Extensão do navegador</h3>
+            <ul class="files mono" data-platform="extension"></ul>
+          </div>
+        </div>
+        <p class="note">
+          <a href="https://github.com/DiegoCastroAlves/Keyless/releases" data-i18n="allReleases">Todas as versões no GitHub</a>
+        </p>
       </section>
     </main>
+
+    <footer class="bottom">
+      <p class="wordmark" aria-hidden="true">keyless</p>
+      <div class="bottom-links">
+        <a href="https://github.com/DiegoCastroAlves/Keyless" data-i18n="source">Código-fonte</a>
+        <a href="https://github.com/DiegoCastroAlves/Keyless/blob/main/docs/SECURITY.md" data-i18n="security">Segurança</a>
+        <span data-i18n="madeBy">Feito por Diego Castro Alves</span>
+      </div>
+    </footer>
   </body>
 </html>

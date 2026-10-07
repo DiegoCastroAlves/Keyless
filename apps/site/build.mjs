@@ -33,8 +33,21 @@ cpSync("static", "dist", { recursive: true });
 cpSync("../extension/static/icons/icon-32.png", "dist/icon-32.png");
 cpSync("../extension/static/icons/icon-128.png", "dist/icon-128.png");
 
+// Fonts (SIL Open Font License), served from this site.
+mkdirSync("dist/fonts", { recursive: true });
+const fonts = {
+  "instrument-serif-400.woff2": "@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2",
+  "instrument-serif-400-italic.woff2": "@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2",
+  "ibm-plex-sans-400.woff2": "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2",
+  "ibm-plex-sans-500.woff2": "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2",
+  "ibm-plex-sans-600.woff2": "@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2",
+  "ibm-plex-mono-400.woff2": "@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2",
+  "ibm-plex-mono-500.woff2": "@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2",
+};
+for (const [name, from] of Object.entries(fonts)) cpSync(`node_modules/${from}`, `dist/fonts/${name}`);
+
 await build({
-  entryPoints: { "share/app": "src/share.ts" },
+  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts" },
   bundle: true,
   minify: true,
   format: "esm",
@@ -46,28 +59,39 @@ await build({
 });
 
 // Only this site's own files run, nothing can frame it, and links never
-// tell the next site where they came from.
-const csp = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self'",
-  "img-src 'self'",
-  `connect-src ${SUPABASE_URL}`,
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors 'none'",
-].join("; ");
+// tell the next site where they came from. Each page may connect only where
+// it needs: the share page to the Keyless server, the home page to GitHub
+// (for the newest release). The rules for pages do not overlap, since
+// Cloudflare would join two policies for one page.
+const csp = (connect) =>
+  [
+    "default-src 'none'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "img-src 'self'",
+    "font-src 'self'",
+    `connect-src ${connect}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
 writeFileSync(
   "dist/_headers",
   `/*
-  Content-Security-Policy: ${csp}
   Referrer-Policy: no-referrer
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Cross-Origin-Opener-Policy: same-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
+/
+  Content-Security-Policy: ${csp("https://api.github.com")}
+/index.html
+  Content-Security-Policy: ${csp("https://api.github.com")}
+/404.html
+  Content-Security-Policy: ${csp("'none'")}
 /share/*
+  Content-Security-Policy: ${csp(SUPABASE_URL)}
   Cache-Control: no-store
   X-Robots-Tag: noindex
 `,
