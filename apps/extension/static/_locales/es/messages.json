@@ -378,6 +378,9 @@
   "pkNone": {
     "message": "No hay llaves de acceso guardadas para este sitio."
   },
+  "pkNoneHint": {
+    "message": "Puedes usar otro dispositivo, como un teléfono o una llave de seguridad."
+  },
   "pkOtherDevice": {
     "message": "Usar otro dispositivo"
   },

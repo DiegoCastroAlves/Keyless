@@ -378,6 +378,9 @@
   "pkNone": {
     "message": "No passkey saved for this site."
   },
+  "pkNoneHint": {
+    "message": "You can use another device instead, like a phone or a security key."
+  },
   "pkOtherDevice": {
     "message": "Use another device"
   },

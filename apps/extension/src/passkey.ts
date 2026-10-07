@@ -73,9 +73,9 @@ function shell(title: string, sub: string, ...content: Node[]) {
 }
 
 function footer(primary?: HTMLButtonElement, exists = false) {
-  const other = button(t("pkOtherDevice"), "link", () => void act("passkey_fallback"));
+  const other = primary?.dataset.other ? [] : [button(t("pkOtherDevice"), "link", () => void act("passkey_fallback"))];
   const cancel = button(t("cancel"), "secondary", () => void act("passkey_cancel", { exists }));
-  return el("div", { className: "passkey-foot" }, other, el("span", { className: "grow" }), cancel, ...(primary ? [primary] : []));
+  return el("div", { className: "passkey-foot" }, ...other, el("span", { className: "grow" }), cancel, ...(primary ? [primary] : []));
 }
 
 let choice = "";
@@ -129,7 +129,13 @@ function render(view: View | null, waiting = false, error?: string) {
     row.addEventListener("click", () => void act("passkey_choose", { credentialId: key.credentialId }));
     list.append(row);
   }
-  if (passkeys.length === 0) list.append(el("p", { className: "muted pad", textContent: t("pkNone") }));
+  if (passkeys.length === 0) {
+    // Nothing here: another device is the way forward.
+    list.append(el("p", { className: "muted pad", textContent: t("pkNone") }));
+    const other = button(t("pkOtherDevice"), "primary", () => void act("passkey_fallback"));
+    other.dataset.other = "1";
+    return shell(t("pkGetTitle", view.rpId), t("pkNoneHint"), ...errorNode, list, footer(other));
+  }
   shell(t("pkGetTitle", view.rpId), t("pkGetHint"), ...errorNode, list, footer());
 }
 

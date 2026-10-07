@@ -671,7 +671,9 @@ chrome.permissions.onAdded.addListener(() => void applyBrowserManager().catch(()
 // comes from the browser; the app checks it against the relying party.
 // "Use another device" hands the request back to the browser's own WebAuthn,
 // which also happens silently when Keyless cannot help (not connected, turned
-// off, hidden on the site, or no passkey to sign in with).
+// off, or hidden on the site). The window opens even when there is no
+// passkey to sign in with: answering at once would tell any page, without
+// the user doing anything, whether Keyless has a passkey for it.
 
 interface PasskeyRequest {
   id: string;
@@ -738,12 +740,6 @@ async function startPasskey(port: chrome.runtime.Port, tabId: number, page: { or
     if (code === "rp_id_mismatch" || code === "insecure_page") return port.postMessage({ ok: false, error: "security" });
     return fallback();
   }
-  // Signing in without a passkey for the site: the browser's own way.
-  if (request.kind === "get" && current.state === "ready") {
-    const found = await call<unknown[]>("passkey_list", { origin: page.origin, rpId: request.rpId, allowCredentials: request.allowCredentials }).catch(() => []);
-    if (found.length === 0) return fallback();
-  }
-
   // One request per tab, like the browser.
   for (const other of passkeyRequests.values()) {
     if (other.tabId === tabId) finishPasskey(other, { ok: false, error: "cancelled" });

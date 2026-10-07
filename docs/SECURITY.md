@@ -327,11 +327,15 @@ must be running, for what it needs.
   public suffix (Public Suffix List, private entries included), an IP
   address or a single label. The user decides in a separate Keyless browser
   window, which the page can neither cover nor script, and can hand the
-  request back to the browser ("another device"). Keys are ES256, created
+  request back to the browser ("another device"). A site that names another
+  site's relying party is refused before that window opens. The window
+  opens even when Keyless has no passkey for the site (as in Bitwarden), so
+  a page cannot learn without the user whether Keyless has one. Keys are ES256, created
   and used in the app, stored in the item like any other secret; responses
   use "none" attestation, a counter that stays 0 and the backup flags of a
   synced passkey. User verification is reported because Keyless is unlocked
-  and the user chose in its window. Not supported yet: passkeys offered in
+  and the user chose in its window (Bitwarden does the same); Keyless does
+  not ask for the master password again. Not supported yet: passkeys offered in
   the page's fields (conditional mediation), frames, and WebAuthn
   extensions. Keyless versions before passkeys drop them when they edit the
   item.

@@ -378,6 +378,9 @@
   "pkNone": {
     "message": "Nenhuma chave de acesso salva para este site."
   },
+  "pkNoneHint": {
+    "message": "Você pode usar outro dispositivo, como um celular ou uma chave de segurança."
+  },
   "pkOtherDevice": {
     "message": "Usar outro dispositivo"
   },
