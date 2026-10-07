@@ -108,6 +108,7 @@ pub struct ItemDetailView {
     pub sections: Vec<SectionView>,
     pub notes: String,
     pub passkeys: Vec<PasskeyView>,
+    pub attachments: Vec<crate::attachments::AttachmentView>,
     pub password_history_count: usize,
     pub can_edit: bool,
 }
@@ -373,6 +374,7 @@ pub async fn get_item(state: &AppState, item_id: &str) -> AppResult<ItemDetailVi
                 created_at: p.created_at,
             })
             .collect(),
+        attachments: details.attachments.iter().map(crate::attachments::view).collect(),
         password_history_count: details.password_history.len(),
         can_edit,
     })
@@ -411,7 +413,7 @@ pub async fn delete_passkey(app: &AppHandle, item_id: &str, credential_id: &str)
         load_details(&state, session, item_id)?.1.passkeys.clone()
     };
     passkeys.retain(|p| p.credential_id != credential_id);
-    save_item_with(app, draft, Some(passkeys)).await
+    save_item_with(app, draft, Extras { passkeys: Some(passkeys), ..Default::default() }).await
 }
 
 pub async fn reveal_field(state: &AppState, item_id: &str, field_id: &str) -> AppResult<Zeroizing<String>> {
@@ -588,14 +590,27 @@ fn tombstone_local(state: &AppState, session: &mut Session, local: &LocalItem) -
 }
 
 pub async fn save_item(app: &AppHandle, draft: ItemDraft) -> AppResult<ItemSummary> {
-    save_item_with(app, draft, None).await
+    save_item_with(app, draft, Extras::default()).await
 }
 
 /// Saves a draft; `passkeys` replaces the item's passkeys, which are kept
 /// as they were otherwise (the editor never sees them).
-pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Option<Vec<keyless_core::passkey::Passkey>>) -> AppResult<ItemSummary> {
+/// What a save changes besides the draft; `None` keeps what the item has.
+/// Passkeys and attachments are never part of the edit form.
+#[derive(Default)]
+pub struct Extras {
+    pub passkeys: Option<Vec<keyless_core::passkey::Passkey>>,
+    pub attachments: Option<Vec<keyless_core::attachment::Attachment>>,
+}
+
+pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extras) -> AppResult<ItemSummary> {
     let state = app.state::<AppState>();
     validate_draft(&draft)?;
+    // Moving to another vault: its attachments are copied there first.
+    let moved_from = match &draft.id {
+        Some(id) => crate::attachments::copy_for_move(app, id, &draft.vault_id).await?,
+        None => None,
+    };
     let now = now_secs();
     let result = {
         let mut guard = state.session.lock().await;
@@ -645,10 +660,14 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
         let unknown = existing.as_ref().map(|(_, _, o)| o.unknown.clone()).unwrap_or_default();
         if let Some((_, old_details, _)) = &existing {
             details.passkeys = old_details.passkeys.clone();
+            details.attachments = old_details.attachments.clone();
             details.unknown = old_details.unknown.clone();
         }
-        if let Some(passkeys) = passkeys {
+        if let Some(passkeys) = extras.passkeys {
             details.passkeys = passkeys;
+        }
+        if let Some(attachments) = extras.attachments {
+            details.attachments = attachments;
         }
         if let Some((_, old_details, old_overview)) = &existing {
             created_at = old_overview.created_at;
@@ -714,6 +733,10 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, passkeys: Opt
         let cached = session.items.get(&item_id).ok_or(AppError::NotFound)?;
         summary(&item_id, cached)
     };
+    if let Some(moved) = moved_from {
+        // The copies in the old vault are no longer needed.
+        crate::attachments::forget(app, moved);
+    }
     state.touch();
     sync::spawn_sync(app);
     Ok(result)
@@ -784,6 +807,7 @@ pub async fn restore_item(app: &AppHandle, item_id: &str) -> AppResult<()> {
 
 pub async fn delete_items_permanently(app: &AppHandle, item_ids: &[String]) -> AppResult<()> {
     let state = app.state::<AppState>();
+    let mut files = Vec::new();
     {
         let mut guard = state.session.lock().await;
         let session = unlocked(&mut guard)?;
@@ -792,9 +816,14 @@ pub async fn delete_items_permanently(app: &AppHandle, item_ids: &[String]) -> A
             if !session.vault(&local.vault_id)?.can_write() {
                 continue;
             }
+            // Its attachments go too.
+            if let Ok((_, details)) = load_details(&state, session, id) {
+                files.extend(details.attachments.iter().map(|a| crate::attachments::Gone::of(&local.vault_id, a)));
+            }
             tombstone_local(&state, session, &local)?;
         }
     }
+    crate::attachments::forget(app, files);
     sync::spawn_sync(app);
     Ok(())
 }
@@ -806,6 +835,13 @@ pub async fn delete_items_permanently(app: &AppHandle, item_ids: &[String]) -> A
 /// lost item. Returns how many items moved.
 pub async fn move_items(app: &AppHandle, item_ids: &[String], to_vault: &str) -> AppResult<usize> {
     let state = app.state::<AppState>();
+    // Their attachments are copied to the destination first.
+    let mut old_files = Vec::new();
+    for id in item_ids {
+        if let Some(files) = crate::attachments::copy_for_move(app, id, to_vault).await? {
+            old_files.extend(files);
+        }
+    }
     let moved = {
         let mut guard = state.session.lock().await;
         let session = unlocked(&mut guard)?;
@@ -832,6 +868,7 @@ pub async fn move_items(app: &AppHandle, item_ids: &[String], to_vault: &str) ->
         }
         moved
     };
+    crate::attachments::forget(app, old_files);
     sync::spawn_sync(app);
     Ok(moved)
 }

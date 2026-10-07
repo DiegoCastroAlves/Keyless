@@ -4,6 +4,7 @@
 //! renders what these commands return.
 
 mod api;
+mod attachments;
 mod auth;
 mod autostart;
 mod bridge;
@@ -289,6 +290,10 @@ pub fn run() {
             commands::export_plain,
             commands::ssh_generate_key,
             commands::delete_passkey,
+            commands::attachment_add,
+            commands::attachment_save,
+            commands::attachment_delete,
+            commands::attachment_space,
             commands::set_watchtower_ignored,
             commands::ssh_import_key,
             commands::ssh_request,

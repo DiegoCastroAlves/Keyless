@@ -138,13 +138,26 @@ and `x25519-dalek`; randomness from the operating system via `getrandom`.
   for a year. The client opens and checks them like any item (same vault and
   item, same write, older than the current version), and restoring one saves
   its content as a new version, so rollback protection is unchanged.
+- Storage bucket `attachments` (private): item attachments as encrypted
+  chunks, named `<vault id>/<attachment id>/<chunk>`. Each file has its own
+  random key, kept with its name and size in the item's encrypted details;
+  it is encrypted on the device in chunks of 4 MiB (XChaCha20-Poly1305),
+  each bound to its attachment, position and whether it is the last, so
+  chunks cannot be swapped, reordered, dropped or added. Vault members read
+  them, writers add and remove them, the uploader can always remove their
+  own, and nothing replaces an object. Each account may keep 250 MiB, a
+  limit enforced by the policies. A saved file is written under its final
+  name only once every chunk checked out. Attachments are not part of the
+  item history (removing one deletes it for good), nor of exports and
+  backups (the JSON export lists them without their keys).
 
 Row Level Security limits every table to the rows of vaults the user belongs
 to. Server-managed columns (`seq`, `revision`, timestamps) are set by
 triggers and are not writable through the API; `anon` has no access at all.
 
 **Metadata the server can see:** email addresses, how many vaults and items an
-account has, approximate item sizes (padded), and when items change.
+account has, approximate item sizes (padded), when items change, and how many
+attachments a vault has and their sizes (not their names or contents).
 
 ## The desktop app
 
@@ -404,6 +417,10 @@ must be running, for what it needs.
 - **A malicious server can withhold data** or refuse to store it, and it can
   serve stale data for items a device has never seen before. It cannot read,
   forge, roll back or delete data on a device. Keep an encrypted backup.
+- **Attachments live only on the server.** They are not in backups or
+  exports, and an account deleted for good leaves its attachment objects
+  behind until an administrator removes them (Storage objects can only be
+  deleted through the Storage API, not by the daily purge).
 
 ## Reporting a vulnerability
 

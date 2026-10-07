@@ -492,6 +492,31 @@ pub async fn delete_passkey(app: AppHandle, state: State<'_, AppState>, item_id:
     items::delete_passkey(&app, &item_id, &credential_id).await
 }
 
+/// Asks for a file and attaches it to the item.
+#[tauri::command]
+pub async fn attachment_add(app: AppHandle, state: State<'_, AppState>, item_id: String) -> AppResult<ItemSummary> {
+    state.touch();
+    crate::attachments::add(&app, &item_id).await
+}
+
+/// Asks where to save an attachment and saves it there.
+#[tauri::command]
+pub async fn attachment_save(app: AppHandle, state: State<'_, AppState>, item_id: String, attachment_id: String) -> AppResult<()> {
+    state.touch();
+    crate::attachments::save(&app, &item_id, &attachment_id).await
+}
+
+#[tauri::command]
+pub async fn attachment_delete(app: AppHandle, state: State<'_, AppState>, item_id: String, attachment_id: String) -> AppResult<ItemSummary> {
+    state.touch();
+    crate::attachments::delete(&app, &item_id, &attachment_id).await
+}
+
+#[tauri::command]
+pub async fn attachment_space(state: State<'_, AppState>) -> AppResult<Option<crate::api::AttachmentSpace>> {
+    crate::attachments::space(&state).await
+}
+
 /// A new Ed25519 key for an SSH key item.
 #[tauri::command]
 pub fn ssh_generate_key(state: State<'_, AppState>, comment: String) -> AppResult<crate::ssh_keys::SshKeyFields> {

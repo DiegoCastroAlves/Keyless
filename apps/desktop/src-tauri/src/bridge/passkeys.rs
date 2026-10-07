@@ -166,7 +166,9 @@ pub async fn create(app: &AppHandle, args: &Value) -> Result<Value, &'static str
             sections: Vec::new(),
             notes: String::new(),
         };
-        items::save_item_with(app, draft, Some(vec![created.passkey.clone()])).await.map_err(|_| "error")?;
+        items::save_item_with(app, draft, items::Extras { passkeys: Some(vec![created.passkey.clone()]), ..Default::default() })
+            .await
+            .map_err(|_| "error")?;
     } else {
         // A login saved for this site; a passkey for the same account is
         // replaced.
@@ -183,7 +185,7 @@ pub async fn create(app: &AppHandle, args: &Value) -> Result<Value, &'static str
         };
         passkeys.retain(|p| !(p.rp_id == rp_id && p.user_handle == created.passkey.user_handle));
         passkeys.push(created.passkey.clone());
-        items::save_item_with(app, draft, Some(passkeys)).await.map_err(|_| "error")?;
+        items::save_item_with(app, draft, items::Extras { passkeys: Some(passkeys), ..Default::default() }).await.map_err(|_| "error")?;
     }
 
     let client_data = passkey::client_data_json("webauthn.create", &challenge, &origin, false);

@@ -1,4 +1,4 @@
-//! Minimal Supabase client (GoTrue auth + PostgREST).
+//! Minimal Supabase client (GoTrue auth, PostgREST and Storage).
 //!
 //! Every payload sent here is either ciphertext, a public key, or the derived
 //! auth secret (never the master password, Secret Key or any decryption key).
@@ -505,6 +505,120 @@ impl Api {
             .json(&json!({}));
         let _: Value = self.send(req).await?;
         Ok(())
+    }
+
+    // ----- attachments (Storage) ----------------------------------------
+    //
+    // Objects hold only ciphertext (see `attachments`). Chunks are up to
+    // 4 MiB, so these requests get more time than the others.
+
+    fn object_url(&self, path: &str) -> Url {
+        self.url(&format!("storage/v1/object/{path}"), &[])
+    }
+
+    /// Uploads an attachment chunk. Never replaces an object: if it already
+    /// exists (a retry after a lost answer), it is left as it was.
+    pub async fn upload_attachment(&self, token: &str, name: &str, bytes: Vec<u8>) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.object_url(&format!("{ATTACHMENTS}/{name}")), Some(token))
+            .timeout(STORAGE_TIMEOUT)
+            .header("Content-Type", "application/octet-stream")
+            .header("x-upsert", "false")
+            .body(bytes);
+        match self.send_storage(req).await {
+            Err(AppError::Invalid(msg)) if msg.key == "attachment_exists" => Ok(()),
+            other => other.map(|_| ()),
+        }
+    }
+
+    pub async fn download_attachment(&self, token: &str, name: &str) -> AppResult<Vec<u8>> {
+        let req = self
+            .request(Method::GET, self.object_url(&format!("authenticated/{ATTACHMENTS}/{name}")), Some(token))
+            .timeout(STORAGE_TIMEOUT);
+        self.send_storage(req).await
+    }
+
+    /// Copies an object (moving an item to another vault).
+    pub async fn copy_attachment(&self, token: &str, from: &str, to: &str) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.object_url("copy"), Some(token))
+            .timeout(STORAGE_TIMEOUT)
+            .json(&json!({ "bucketId": ATTACHMENTS, "sourceKey": from, "destinationKey": to }));
+        match self.send_storage(req).await {
+            Err(AppError::Invalid(msg)) if msg.key == "attachment_exists" => Ok(()),
+            other => other.map(|_| ()),
+        }
+    }
+
+    /// Deletes objects; names that do not exist are skipped.
+    pub async fn delete_attachments(&self, token: &str, names: &[String]) -> AppResult<()> {
+        for batch in names.chunks(1000) {
+            let req = self
+                .request(Method::DELETE, self.object_url(ATTACHMENTS), Some(token))
+                .timeout(STORAGE_TIMEOUT)
+                .json(&json!({ "prefixes": batch }));
+            self.send_storage(req).await?;
+        }
+        Ok(())
+    }
+
+    /// Bytes of attachments the account uploaded, and how many it may keep.
+    pub async fn attachment_space(&self, token: &str) -> AppResult<Option<AttachmentSpace>> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/attachment_space", &[]), Some(token))
+            .json(&json!({}));
+        self.send(req).await
+    }
+
+    /// Objects the account uploaded to vaults it no longer belongs to.
+    pub async fn stranded_attachments(&self, token: &str) -> AppResult<Vec<String>> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/stranded_attachments", &[]), Some(token))
+            .json(&json!({}));
+        self.send(req).await
+    }
+
+    async fn send_storage(&self, req: RequestBuilder) -> AppResult<Vec<u8>> {
+        let resp = req.send().await?;
+        let status = resp.status();
+        if status.is_success() {
+            return Ok(resp.bytes().await?.to_vec());
+        }
+        let body: Value = resp.json().await.unwrap_or(Value::Null);
+        Err(storage_error(status, &body))
+    }
+}
+
+const ATTACHMENTS: &str = "attachments";
+const STORAGE_TIMEOUT: Duration = Duration::from_secs(300);
+
+#[derive(Clone, Copy, Debug, Deserialize, serde::Serialize)]
+pub struct AttachmentSpace {
+    pub used: u64,
+    pub quota: u64,
+}
+
+/// Storage answers errors with its own body (often as HTTP 400 with the real
+/// status inside). A refusal by the policies means the vault is read-only
+/// or the account's space is full, not an expired session.
+fn storage_error(status: StatusCode, body: &Value) -> AppError {
+    let inner = body
+        .get("statusCode")
+        .and_then(|v| v.as_str().map(String::from).or_else(|| v.as_u64().map(|n| n.to_string())))
+        .unwrap_or_else(|| status.as_u16().to_string());
+    let message = body.get("message").and_then(Value::as_str).unwrap_or("");
+    let error = body.get("error").and_then(Value::as_str).unwrap_or("");
+    if message.contains("row-level security") {
+        return AppError::Invalid(Msg::new("attachment_refused"));
+    }
+    match inner.as_str() {
+        "409" => AppError::Invalid(Msg::new("attachment_exists")),
+        "404" => AppError::NotFound,
+        "413" => AppError::Invalid(Msg::new("attachment_refused")),
+        "401" | "403" if error.eq_ignore_ascii_case("unauthorized") || message.contains("jwt") || message.contains("JWT") => {
+            AppError::Auth(Msg::new("session_expired"))
+        }
+        _ => AppError::Server(format!("{message} ({inner} {error})")),
     }
 }
 

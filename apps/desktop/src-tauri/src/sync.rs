@@ -698,6 +698,8 @@ pub async fn sync_now(app: &AppHandle) -> AppResult<()> {
             }
             // Icons for new sites (does nothing when they are all fresh).
             crate::site_icons::refresh(app);
+            // Attachment deletions waiting for the network.
+            crate::attachments::spawn_clean_up(app);
             Ok(())
         }
         Err(err) => Err(err),

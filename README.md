@@ -25,6 +25,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   offering two-factor codes the item lacks, websites without HTTPS, and cards
   or documents about to expire; any alert can be ignored per item, and the
   online check can run by itself once a day
+- File attachments in items, encrypted on the device in chunks (250 MiB per
+  account)
 - Import from 1Password (`.1pux`), Chrome, Edge, Firefox, Bitwarden (CSV)
 - Encrypted backups (`.keyless`) with a separate backup password, and an
   unencrypted CSV or JSON export for moving elsewhere

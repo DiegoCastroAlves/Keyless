@@ -221,6 +221,9 @@ pub struct ItemDetails {
     /// Passkeys for the item's website (see `passkey`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub passkeys: Vec<crate::passkey::Passkey>,
+    /// Files kept in the item (see `attachment`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::attachment::Attachment>,
     #[serde(flatten)]
     pub unknown: Unknown,
 }
@@ -309,10 +312,10 @@ mod tests {
         assert_eq!(again["future_flag"], true);
         assert_eq!(again["urls"][0]["pattern"], "/login");
 
-        let json = r#"{"notes":"n","attachments":[{"id":"f1","key":"secret"}]}"#;
+        let json = r#"{"notes":"n","documents":[{"id":"f1","key":"secret"}]}"#;
         let mut details: ItemDetails = serde_json::from_str(json).unwrap();
         assert_eq!(details.notes, "n");
-        assert_eq!(serde_json::to_value(&details).unwrap()["attachments"][0]["key"], "secret");
+        assert_eq!(serde_json::to_value(&details).unwrap()["documents"][0]["key"], "secret");
         details.zeroize();
         assert!(details.unknown.0.is_empty());
         // Nothing extra is written for items without such fields.

@@ -264,8 +264,33 @@ export interface ItemDetail extends ItemSummary {
   sections: SectionView[];
   notes: string;
   passkeys: PasskeyView[];
+  attachments: AttachmentView[];
   passwordHistoryCount: number;
   canEdit: boolean;
+}
+
+/** A file kept in an item. */
+export interface AttachmentView {
+  id: string;
+  name: string;
+  /** Bytes. */
+  size: number;
+  createdAt: number;
+}
+
+/** Attachment space the account uses and may use, in bytes. */
+export interface AttachmentSpace {
+  used: number;
+  quota: number;
+}
+
+export interface AttachmentProgress {
+  itemId: string;
+  name: string;
+  direction: "upload" | "download";
+  /** Bytes. */
+  done: number;
+  total: number;
 }
 
 /** An earlier version of an item (see the item history). */
@@ -517,6 +542,10 @@ export const api = {
   exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
   deletePasskey: (itemId: string, credentialId: string) => invoke<ItemSummary>("delete_passkey", { itemId, credentialId }),
+  attachmentAdd: (itemId: string) => invoke<ItemSummary>("attachment_add", { itemId }),
+  attachmentSave: (itemId: string, attachmentId: string) => invoke<void>("attachment_save", { itemId, attachmentId }),
+  attachmentDelete: (itemId: string, attachmentId: string) => invoke<ItemSummary>("attachment_delete", { itemId, attachmentId }),
+  attachmentSpace: () => invoke<AttachmentSpace | null>("attachment_space"),
   sshRequest: () => invoke<SshRequest | null>("ssh_request"),
   sshRequestReady: () => invoke<void>("ssh_request_ready"),
   /** Resolves to whether more requests wait. */
@@ -536,6 +565,8 @@ export const events = {
   onItemsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://items-changed", () => cb()),
   onSiteIconsChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://site-icons-changed", () => cb()),
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
+  onAttachmentProgress: (cb: (progress: AttachmentProgress) => void): Promise<UnlistenFn> =>
+    listen<AttachmentProgress>("keyless://attachment-progress", (e) => cb(e.payload)),
   onWatchtowerUpdated: (cb: () => void): Promise<UnlistenFn> => listen("keyless://watchtower-updated", () => cb()),
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),

@@ -72,17 +72,7 @@ impl SymmetricKey {
 
     /// Encrypts `plaintext`, binding the result to `context`.
     pub fn seal(&self, plaintext: &[u8], context: &[u8]) -> Result<String> {
-        let mut nonce = [0u8; NONCE_LEN];
-        random_bytes(&mut nonce)?;
-        let aad = full_aad(context);
-        let ciphertext = self
-            .cipher()
-            .encrypt(&XNonce::from(nonce), Payload { msg: plaintext, aad: &aad })
-            .map_err(|_| Error::Encryption)?;
-
-        let mut raw = Vec::with_capacity(NONCE_LEN + ciphertext.len());
-        raw.extend_from_slice(&nonce);
-        raw.extend_from_slice(&ciphertext);
+        let raw = self.seal_raw(plaintext, context)?;
         Ok(format!("{ENVELOPE_V1_PREFIX}{}", URL_SAFE_NO_PAD.encode(raw)))
     }
 
@@ -95,6 +85,27 @@ impl SymmetricKey {
         let raw = URL_SAFE_NO_PAD
             .decode(body)
             .map_err(|_| Error::InvalidEnvelope)?;
+        self.open_raw(&raw, context)
+    }
+
+    /// Like [`SymmetricKey::seal`], but returns raw bytes (nonce, ciphertext
+    /// and tag) instead of an envelope string: for large binary data.
+    pub fn seal_raw(&self, plaintext: &[u8], context: &[u8]) -> Result<Vec<u8>> {
+        let mut nonce = [0u8; NONCE_LEN];
+        random_bytes(&mut nonce)?;
+        let aad = full_aad(context);
+        let ciphertext = self
+            .cipher()
+            .encrypt(&XNonce::from(nonce), Payload { msg: plaintext, aad: &aad })
+            .map_err(|_| Error::Encryption)?;
+        let mut raw = Vec::with_capacity(NONCE_LEN + ciphertext.len());
+        raw.extend_from_slice(&nonce);
+        raw.extend_from_slice(&ciphertext);
+        Ok(raw)
+    }
+
+    /// Decrypts bytes produced by [`SymmetricKey::seal_raw`].
+    pub fn open_raw(&self, raw: &[u8], context: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
         if raw.len() < NONCE_LEN + TAG_LEN {
             return Err(Error::InvalidEnvelope);
         }

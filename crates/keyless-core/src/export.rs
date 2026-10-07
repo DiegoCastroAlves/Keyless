@@ -108,7 +108,18 @@ struct JsonExport<'a> {
 }
 
 pub fn to_json(data: &BackupData) -> Result<Vec<u8>> {
-    serde_json::to_vec_pretty(&JsonExport { format: "keyless-export", version: 1, data }).map_err(Error::from)
+    let mut value = serde_json::to_value(JsonExport { format: "keyless-export", version: 1, data })?;
+    // Attached files are not in the export, so neither are their keys.
+    for vault in value["vaults"].as_array_mut().into_iter().flatten() {
+        for item in vault["items"].as_array_mut().into_iter().flatten() {
+            for attachment in item["details"]["attachments"].as_array_mut().into_iter().flatten() {
+                if let Some(entry) = attachment.as_object_mut() {
+                    entry.remove("key");
+                }
+            }
+        }
+    }
+    serde_json::to_vec_pretty(&value).map_err(Error::from)
 }
 
 #[cfg(test)]
@@ -217,8 +228,14 @@ mod tests {
 
     #[test]
     fn json_has_everything() {
-        let json: serde_json::Value = serde_json::from_slice(&to_json(&sample()).unwrap()).unwrap();
+        let mut data = sample();
+        data.vaults[0].items[0].details.attachments.push(crate::attachment::Attachment::new("scan.pdf", 10, 1).unwrap());
+        let json: serde_json::Value = serde_json::from_slice(&to_json(&data).unwrap()).unwrap();
         assert_eq!(json["format"], "keyless-export");
         assert_eq!(json["vaults"][0]["items"][1]["details"]["fields"][1]["value"], "05/2027");
+        // Attachments are listed, without their keys.
+        let attachment = &json["vaults"][0]["items"][0]["details"]["attachments"][0];
+        assert_eq!(attachment["name"], "scan.pdf");
+        assert!(attachment.get("key").is_none());
     }
 }

@@ -1,13 +1,27 @@
-import { Archive, ArrowRightLeft, Copy, Ellipsis, ExternalLink, Eye, EyeOff, Fingerprint, History, Pencil, RotateCcw, Star, Trash } from "lucide-react";
+import { Archive, ArrowRightLeft, Copy, Download, Ellipsis, ExternalLink, Eye, EyeOff, FileText, Fingerprint, History, Paperclip, Pencil, RotateCcw, Star, Trash } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon, PasswordText } from "../../components/common";
 import { Button, Dialog, IconButton, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip, cx } from "../../components/ui";
 import { fieldLabel } from "../../i18n";
-import { api, errorMessage, type FieldView, type HistoryEntry, type ItemDetail as Detail, type PasskeyView, type TotpCode, type UrlFill } from "../../lib/api";
+import {
+  api,
+  errorCode,
+  errorMessage,
+  events,
+  type AttachmentProgress,
+  type AttachmentSpace,
+  type AttachmentView,
+  type FieldView,
+  type HistoryEntry,
+  type ItemDetail as Detail,
+  type PasskeyView,
+  type TotpCode,
+  type UrlFill,
+} from "../../lib/api";
 import { categoryLabel, isSecretKind } from "../../lib/categories";
-import { formatDate, formatTotp, hostOf } from "../../lib/format";
+import { formatBytes, formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { ItemVersionsDialog } from "./ItemVersions";
@@ -81,9 +95,11 @@ export function ItemDetail() {
       if (success) toast.success(success);
       await loadData();
     } catch (err) {
-      toast.error(errorMessage(err));
+      // Closing a file dialog is not an error.
+      if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
     }
   };
+  const attach = () => run(() => api.attachmentAdd(item.id), t("item.attachmentAdded"));
 
   return (
     <section className="flex min-w-0 flex-1 flex-col bg-panel">
@@ -142,6 +158,9 @@ export function ItemDetail() {
                   </MenuItem>
                   <MenuItem icon={<ArrowRightLeft className="size-4" />} disabled={!item.canEdit} onSelect={() => setMoveOpen(true)}>
                     {t("move.toVaultAction")}
+                  </MenuItem>
+                  <MenuItem icon={<Paperclip className="size-4" />} disabled={!item.canEdit} onSelect={() => void attach()}>
+                    {t("item.attach")}
                   </MenuItem>
                   <MenuItem icon={<History className="size-4" />} onSelect={() => setVersionsOpen(true)}>
                     {t("itemHistory.title")}
@@ -203,6 +222,8 @@ export function ItemDetail() {
               ))}
             </FieldCard>
           )}
+
+          <Attachments item={item} trashed={trashed} onAttach={attach} onChanged={() => void loadData()} />
 
           {item.notes && (
             <FieldCard>
@@ -415,6 +436,122 @@ function TotpValue({ itemId, fieldId }: { itemId: string; fieldId: string }) {
       </span>
       <span className="text-xs tabular-nums text-subtle">{remaining}s</span>
     </span>
+  );
+}
+
+/** The item's files, with what is uploading or downloading for it now and
+ * how much space the account uses. */
+function Attachments({ item, trashed, onAttach, onChanged }: { item: Detail; trashed: boolean; onAttach: () => Promise<void>; onChanged: () => void }) {
+  const { t } = useTranslation();
+  const [progress, setProgress] = useState<AttachmentProgress | null>(null);
+  const [space, setSpace] = useState<AttachmentSpace | null>(null);
+  const attachments = item.attachments ?? [];
+
+  useEffect(() => {
+    setProgress(null);
+    const stop = events.onAttachmentProgress((p) => {
+      if (p.itemId !== item.id) return;
+      setProgress(p.done >= p.total ? null : p);
+    });
+    return () => void stop.then((f) => f());
+  }, [item.id]);
+
+  useEffect(() => {
+    if (attachments.length === 0) return;
+    api
+      .attachmentSpace()
+      .then(setSpace)
+      .catch(() => setSpace(null));
+  }, [attachments.length]);
+
+  if (attachments.length === 0 && !progress) return null;
+  const percent = progress && progress.total > 0 ? Math.floor((progress.done / progress.total) * 100) : 0;
+  return (
+    <FieldCard>
+      <div className="flex items-center gap-2 px-4 pb-1 pt-3">
+        <span className="flex-1 text-xs font-medium text-subtle">{t("item.attachments")}</span>
+        {space && <span className="text-[11px] text-subtle">{t("item.attachmentSpace", { used: formatBytes(space.used), quota: formatBytes(space.quota) })}</span>}
+      </div>
+      {attachments.map((attachment) => (
+        <AttachmentRow key={attachment.id} itemId={item.id} attachment={attachment} canEdit={item.canEdit && !trashed} onDeleted={onChanged} />
+      ))}
+      {progress && (
+        <div className="px-4 py-2.5">
+          <div className="text-xs text-muted">
+            {t(progress.direction === "upload" ? "item.attachmentUploading" : "item.attachmentDownloading", { name: progress.name, percent })}
+          </div>
+          <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-panel-3">
+            <div className="h-full bg-accent transition-[width]" style={{ width: `${percent}%` }} />
+          </div>
+        </div>
+      )}
+      {item.canEdit && !trashed && !progress && (
+        <div className="px-3 pb-2 pt-1">
+          <Button size="sm" variant="ghost" onClick={() => void onAttach()}>
+            <Paperclip className="size-3.5" /> {t("item.attach")}
+          </Button>
+        </div>
+      )}
+    </FieldCard>
+  );
+}
+
+function AttachmentRow({ itemId, attachment, canEdit, onDeleted }: { itemId: string; attachment: AttachmentView; canEdit: boolean; onDeleted: () => void }) {
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.attachmentSave(itemId, attachment.id);
+      toast.success(t("item.attachmentSaved"));
+    } catch (err) {
+      if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async () => {
+    try {
+      await api.attachmentDelete(itemId, attachment.id);
+      toast.success(t("item.attachmentDeleted"));
+      onDeleted();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <div className="group px-4 py-2.5">
+      <div className="flex items-center gap-3">
+        <FileText className="size-5 shrink-0 text-accent" />
+        <div className="min-w-0 flex-1">
+          <div className="selectable truncate text-[15px]">{attachment.name}</div>
+          <div className="text-xs text-subtle">
+            {formatBytes(attachment.size)}
+            {attachment.createdAt > 0 && ` · ${formatDate(attachment.createdAt)}`}
+          </div>
+        </div>
+        <IconButton label={t("item.attachmentSave")} onClick={save} disabled={busy}>
+          <Download className="size-4" />
+        </IconButton>
+        {canEdit && !confirming && (
+          <IconButton label={t("common.delete")} onClick={() => setConfirming(true)} className="opacity-0 group-hover:opacity-100 focus:opacity-100">
+            <Trash className="size-4" />
+          </IconButton>
+        )}
+      </div>
+      {confirming && (
+        <div className="mt-2 flex items-center gap-2 pl-8">
+          <span className="flex-1 text-xs text-muted">{t("item.attachmentDeleteConfirm")}</span>
+          <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button size="sm" variant="danger" onClick={remove}>
+            {t("common.delete")}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
