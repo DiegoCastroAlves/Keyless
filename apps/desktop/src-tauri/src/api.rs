@@ -137,6 +137,7 @@ pub struct RemoteMembership {
 pub struct RemoteShare {
     pub id: String,
     pub enc_label: String,
+    pub created_at: String,
     pub expires_at: String,
     pub max_views: Option<i64>,
     pub views: i64,

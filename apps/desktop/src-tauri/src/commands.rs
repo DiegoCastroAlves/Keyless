@@ -519,10 +519,11 @@ pub async fn share_create(app: AppHandle, state: State<'_, AppState>, item_id: S
     crate::shares::create(&app, &item_id, hours, view_once).await
 }
 
-/// Links that can still be opened (of one item, when given).
+/// Links that can still be opened, or with `all` every recent one (of one
+/// item, when given).
 #[tauri::command]
-pub async fn share_list(app: AppHandle, item_id: Option<String>) -> AppResult<Vec<crate::shares::ShareView>> {
-    crate::shares::list(&app, item_id.as_deref()).await
+pub async fn share_list(app: AppHandle, item_id: Option<String>, all: Option<bool>) -> AppResult<Vec<crate::shares::ShareView>> {
+    crate::shares::list(&app, item_id.as_deref(), all.unwrap_or(false)).await
 }
 
 #[tauri::command]

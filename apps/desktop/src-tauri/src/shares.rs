@@ -51,9 +51,12 @@ pub struct ShareView {
     pub id: String,
     pub item_id: String,
     pub title: String,
+    pub created_at: i64,
     pub expires_at: i64,
     pub max_views: Option<i64>,
     pub views: i64,
+    /// "active", "expired", "revoked" or "used" (a one-view link opened).
+    pub status: &'static str,
 }
 
 /// Creates a link for item `item_id` that lasts `hours` (one of the offered
@@ -91,9 +94,10 @@ pub async fn create(app: &AppHandle, item_id: &str, hours: u32, view_once: bool)
     Ok(CreatedShare { id: key.id.clone(), link: key.link(config::SHARE_PAGE_URL), expires_at })
 }
 
-/// The account's links that can still be opened, newest first; only those
-/// of item `item_id` when given.
-pub async fn list(app: &AppHandle, item_id: Option<&str>) -> AppResult<Vec<ShareView>> {
+/// The account's links, newest first: those that can still be opened, or
+/// with `all` also those that ended (the server keeps them for a day); only
+/// those of item `item_id` when given.
+pub async fn list(app: &AppHandle, item_id: Option<&str>, all: bool) -> AppResult<Vec<ShareView>> {
     let state = app.state::<AppState>();
     let (_, token) = sync::ensure_token(&state).await?;
     let remote = state.api.shares(&token).await?;
@@ -102,10 +106,18 @@ pub async fn list(app: &AppHandle, item_id: Option<&str>) -> AppResult<Vec<Share
     let now = now_secs();
     Ok(remote
         .into_iter()
-        .filter(|s| s.revoked_at.is_none() && s.max_views.is_none_or(|max| s.views < max))
         .filter_map(|s| {
             let expires_at = parse_iso8601(&s.expires_at)?;
-            if expires_at <= now {
+            let status = if s.revoked_at.is_some() {
+                "revoked"
+            } else if s.max_views.is_some_and(|max| s.views >= max) {
+                "used"
+            } else if expires_at <= now {
+                "expired"
+            } else {
+                "active"
+            };
+            if !all && status != "active" {
                 return None;
             }
             // A label that does not open is not this account's.
@@ -114,7 +126,16 @@ pub async fn list(app: &AppHandle, item_id: Option<&str>) -> AppResult<Vec<Share
             if item_id.is_some_and(|id| id != label.item_id) {
                 return None;
             }
-            Some(ShareView { id: s.id, item_id: label.item_id, title: label.title, expires_at, max_views: s.max_views, views: s.views })
+            Some(ShareView {
+                id: s.id,
+                item_id: label.item_id,
+                title: label.title,
+                created_at: parse_iso8601(&s.created_at).unwrap_or(0),
+                expires_at,
+                max_views: s.max_views,
+                views: s.views,
+                status,
+            })
         })
         .collect())
 }

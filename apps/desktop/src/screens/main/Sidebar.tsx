@@ -14,6 +14,7 @@ import {
   Plus,
   RefreshCw,
   Settings as SettingsIcon,
+  Share2,
   ShieldCheck,
   Star,
   Tag,
@@ -33,6 +34,7 @@ import { relativeTime } from "../../lib/format";
 import { useApp, type View } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { MoveVaultDialog } from "./MoveDialog";
+import { SharesDialog } from "./SharesDialog";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 
 function sameView(a: View, b: View): boolean {
@@ -116,6 +118,7 @@ export function Sidebar({
   const refreshStatus = useApp((s) => s.refreshStatus);
   const loadData = useApp((s) => s.loadData);
   const [deleting, setDeleting] = useState<Vault | null>(null);
+  const [sharesOpen, setSharesOpen] = useState(false);
   const [moving, setMoving] = useState<Vault | null>(null);
   const { t } = useTranslation();
 
@@ -193,6 +196,9 @@ export function Sidebar({
             </MenuItem>
             <MenuItem icon={<Download className="size-4" />} onSelect={onOpenImport}>
               {t("sidebar.import")}
+            </MenuItem>
+            <MenuItem icon={<Share2 className="size-4" />} onSelect={() => setSharesOpen(true)}>
+              {t("share.listTitle")}
             </MenuItem>
             <MenuSeparator />
             <MenuItem icon={<Lock className="size-4" />} onSelect={lock} shortcut="Ctrl L">
@@ -308,6 +314,7 @@ export function Sidebar({
       </div>
 
       <MoveVaultDialog vault={moving} onOpenChange={(open) => !open && setMoving(null)} />
+      <SharesDialog open={sharesOpen} onOpenChange={setSharesOpen} />
 
       <Dialog
         open={!!deleting}
