@@ -162,5 +162,65 @@
   },
   "showLogins": {
     "message": "Show logins"
+  },
+  "saveLogin": {
+    "message": "Save login?"
+  },
+  "updateLogin": {
+    "message": "Update login?"
+  },
+  "newItem": {
+    "message": "New item"
+  },
+  "updateExisting": {
+    "message": "Update existing"
+  },
+  "edit": {
+    "message": "Edit"
+  },
+  "done": {
+    "message": "Done"
+  },
+  "save": {
+    "message": "Save"
+  },
+  "update": {
+    "message": "Update"
+  },
+  "unlockToSave": {
+    "message": "Unlock to save"
+  },
+  "saved": {
+    "message": "Saved in Keyless"
+  },
+  "updated": {
+    "message": "Updated in Keyless"
+  },
+  "saveFailed": {
+    "message": "Could not save."
+  },
+  "titleLabel": {
+    "message": "Title"
+  },
+  "usernameLabel": {
+    "message": "Username"
+  },
+  "vaultLabel": {
+    "message": "Vault"
+  },
+  "generatedNote": {
+    "message": "Password suggested by Keyless."
+  },
+  "useSuggested": {
+    "message": "Use suggested password"
+  },
+  "regenerate": {
+    "message": "Suggest another"
+  },
+  "symbols": {
+    "message": "Symbols"
+  },
+  "savedLogins": {
+    "message": "Saved logins"
   }
 }

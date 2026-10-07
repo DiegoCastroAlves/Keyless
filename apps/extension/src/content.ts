@@ -1,14 +1,16 @@
 // Content script: finds login fields, puts the Keyless button in them and
-// hosts the Keyless menus: the list below a login field and the sign-in card
-// at the top of the page.
+// hosts the Keyless menus: the list below a login field (with a suggested
+// password in sign-up forms), the sign-in card at the top of the page and
+// the "Save login?" prompt.
 //
 // Runs only in the top frame. The menus are extension pages (inline.html) in
 // iframes inside a closed shadow root: the page cannot read the logins they
-// list, and only they (or the popup) can ask Keyless to fill. This script
-// learns nothing about the logins except how many match the page, and gets
-// credentials only to type them into the page once the user picked one.
+// list, and only they (or the popup) can ask Keyless to fill or save. This
+// script learns nothing about the logins except how many match the page,
+// gets credentials only to type them into the page once the user picked one,
+// and reports what the user typed when a login form is submitted.
 
-import type { Credentials, PageState, Status } from "./types";
+import type { Credentials, FieldInfo, PageState, Status } from "./types";
 
 const t = (key: string) => chrome.i18n.getMessage(key) || key;
 
@@ -17,6 +19,7 @@ const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
 const PAD = 10;
 const MENU_WIDTH = 320;
 const CARD_WIDTH = 400;
+const SAVE_WIDTH = 380;
 
 /** Proves to the background that a menu was opened by this script. Not
  * crypto.randomUUID: that needs a secure context, and http pages are not. */
@@ -25,6 +28,12 @@ const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.to
 const USERNAME_HINT = /user|email|e-mail|login|account|identifier|usuario|correo|cpf/i;
 const OTP_HINT = /otp|totp|2fa|mfa|one.?time|verification|token|c[oó]digo|code/i;
 const SUBMIT_TEXT = /^(log ?in|sign ?in|entrar|acessar|iniciar sesi[oó]n|ingresar|continue|continuar|next|avan[cç]ar|pr[oó]ximo|siguiente)$/i;
+/** Buttons that send a login, sign-up or change-password form. */
+const SEND_TEXT =
+  /\b(log ?in|sign ?in|sign ?up|entrar|acessar|iniciar sesi[oó]n|ingresar|continu[ea]r?|next|avan[cç]ar|pr[oó]ximo|siguiente|register|registr\w*|cadastr\w*|criar|create|crear|join|save|salvar|guardar|change|alterar|cambiar|update|atualizar|actualizar|submit|enviar)\b/i;
+/** Password fields for a new password, and for the current one. */
+const NEW_PASSWORD_HINT = /new|confirm|repeat|again|retype|regist|sign.?up|create|nova|novo|nueva|nuevo|confirma|cadastr|crear/i;
+const CURRENT_PASSWORD_HINT = /current|old|existing|atual|actual|anterior/i;
 
 type Kind = "username" | "password" | "otp";
 
@@ -79,13 +88,34 @@ function fill(anchor: HTMLInputElement | null, credentials: Credentials) {
   return fields;
 }
 
-/** True when the page shows a form to sign in (not just any email field). */
+function hintsOf(input: HTMLInputElement): string {
+  return `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute("aria-label") ?? ""}`;
+}
+
+/** A password being chosen (sign-up, change password), not typed from memory. */
+function isNewPassword(input: HTMLInputElement): boolean {
+  if (input.type !== "password") return false;
+  const autocomplete = (input.autocomplete || "").toLowerCase();
+  if (autocomplete.includes("new-password")) return true;
+  if (autocomplete.includes("current-password") || CURRENT_PASSWORD_HINT.test(hintsOf(input))) return false;
+  if (NEW_PASSWORD_HINT.test(hintsOf(input))) return true;
+  // Password and confirmation (sign-up); current, new and confirmation.
+  const scope: ParentNode = input.form ?? document;
+  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(visible);
+  return passwords.length === 2 || (passwords.length >= 3 && passwords.indexOf(input) > 0);
+}
+
+function fieldInfo(input: HTMLInputElement): FieldInfo {
+  return { newPassword: isNewPassword(input), maxLength: input.maxLength > 0 ? input.maxLength : null };
+}
+
+/** True when the page shows a form to sign in (not just any email field,
+ * and not a sign-up form). */
 function hasLoginForm(): boolean {
-  return Array.from(document.querySelectorAll<HTMLInputElement>("input")).some((input) => {
-    const kind = fieldKind(input);
-    const explicit = kind === "password" || (kind === "username" && (input.autocomplete || "").toLowerCase().includes("username"));
-    return explicit && visible(input);
-  });
+  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter(visible);
+  const passwords = inputs.filter((input) => fieldKind(input) === "password");
+  if (passwords.length > 0) return passwords.some((input) => !isNewPassword(input));
+  return inputs.some((input) => fieldKind(input) === "username" && (input.autocomplete || "").toLowerCase().includes("username"));
 }
 
 function submitButton(field: HTMLInputElement): HTMLElement | null {
@@ -138,6 +168,7 @@ iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0;
 @media (prefers-color-scheme: dark) { iframe { color-scheme: dark; } }
 iframe.open { visibility: visible; pointer-events: auto; }
 iframe.card { top: 0; left: 50%; transform: translateX(-50%); }
+iframe.save { top: 0; right: 12px; }
 `;
 
 const host = document.createElement("keyless-autofill");
@@ -158,9 +189,10 @@ const CHEVRON = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" str
 type ButtonKind = "locked" | "logins" | "plain";
 let buttonKind: ButtonKind | null = null;
 
-function kindFor(state: PageState | null): ButtonKind {
+function kindFor(state: PageState | null, field: HTMLInputElement | null = current): ButtonKind {
   if (state?.state === "locked") return "locked";
-  return state?.state === "ready" && state.count > 0 ? "logins" : "plain";
+  const offers = state?.state === "ready" && (state.count > 0 || (field !== null && isNewPassword(field)));
+  return offers ? "logins" : "plain";
 }
 
 /** Locked: a padlock, and a click unlocks. With logins for the page: an
@@ -204,20 +236,23 @@ class Frame {
   open = false;
   height = 0;
 
-  constructor(readonly mode: "menu" | "card") {
+  constructor(readonly mode: "menu" | "card" | "save") {
     this.iframe.className = mode;
     this.iframe.title = "Keyless";
-    this.iframe.style.width = `${(mode === "card" ? CARD_WIDTH : MENU_WIDTH) + 2 * PAD}px`;
+    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH }[mode];
+    this.iframe.style.width = `${width + 2 * PAD}px`;
     root.append(this.iframe);
   }
 
   /** Shows the menu; it appears once it has rendered and reported its size.
-   * `activate`: opened with the Keyless button (unlocks when locked). */
-  show(activate = false) {
+   * `activate`: opened with the Keyless button (unlocks when locked).
+   * `field`: the field it was opened for. */
+  show(options: { activate?: boolean; field?: FieldInfo } = {}) {
     mount();
     this.open = true;
+    const details = { activate: options.activate ?? false, field: options.field ?? null };
     if (this.loading) {
-      this.post({ type: "show", activate });
+      this.post({ type: "show", ...details });
       if (this.height > 0) this.iframe.classList.add("open");
       return;
     }
@@ -227,7 +262,7 @@ class Frame {
           this.iframe.addEventListener(
             "load",
             () => {
-              this.post({ type: "init", activate });
+              this.post({ type: "init", ...details });
               resolve();
             },
             { once: true },
@@ -298,7 +333,7 @@ let follow: ReturnType<typeof setInterval> | undefined;
 function openMenu(activate = false) {
   if (!current) return;
   menu ??= new Frame("menu");
-  menu.show(activate);
+  menu.show({ activate, field: fieldInfo(current) });
   place();
   follow ??= setInterval(place, 200);
 }
@@ -317,12 +352,13 @@ function closeMenu(refocus = false) {
   }
 }
 
-/** Opens the menu by itself when there are logins to pick. When Keyless is
- * locked the button shows a padlock instead, like 1Password. */
+/** Opens the menu by itself when there are logins to pick or a password to
+ * suggest. When Keyless is locked the button shows a padlock instead, like
+ * 1Password. */
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
   if (field !== current || document.activeElement !== field || menu?.open) return;
-  if (state?.state === "ready" && state.count > 0) openMenu();
+  if (state?.state === "ready" && (state.count > 0 || isNewPassword(field))) openMenu();
 }
 
 /** The padlock button: Keyless asks for the password itself (the system's
@@ -459,7 +495,7 @@ window.addEventListener("focus", () => {
 // Messages from the menus. Only their frames can be the source; the page
 // cannot pretend to be them.
 window.addEventListener("message", (event) => {
-  const frame = event.source === menu?.iframe.contentWindow ? menu : event.source === card?.iframe.contentWindow ? card : null;
+  const frame = [menu, card, saveFrame].find((f) => f && event.source === f.iframe.contentWindow) ?? null;
   if (!frame || event.origin !== EXTENSION_ORIGIN) return;
   const data = event.data;
   switch (data?.type) {
@@ -468,7 +504,8 @@ window.addEventListener("message", (event) => {
       break;
     case "close":
       if (frame === menu) closeMenu(Boolean(data.refocus));
-      else dismissCard();
+      else if (frame === card) dismissCard();
+      else frame.hide();
       break;
     case "hide":
       frame.hide();
@@ -491,12 +528,100 @@ const observer = new MutationObserver(() => {
 observer.observe(document.documentElement, { childList: true, subtree: true });
 void scan();
 
-// Fill requested from a Keyless menu, the popup or the keyboard shortcut; or
-// Keyless locked or unlocked.
+// ----- Saving logins -------------------------------------------------------------
+
+let saveFrame: Frame | null = null;
+/** What Keyless filled, and the password it suggested here. */
+let filledKey = "";
+let suggested = "";
+let lastCapture = { key: "", at: 0 };
+
+function showSavePrompt() {
+  saveFrame ??= new Frame("save");
+  saveFrame.show();
+}
+
+/** The user sends a login, sign-up or change-password form: report what was
+ * typed, for the "Save login?" prompt. */
+function capture(anchor: HTMLInputElement | null) {
+  const scope: ParentNode = anchor?.form ?? document;
+  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter((i) => visible(i) && i.value);
+  // The new password of a sign-up or change-password form.
+  const chosen = passwords.find(isNewPassword) ?? passwords[0] ?? null;
+  const username = loginFields(chosen ?? anchor).username?.value.trim() ?? "";
+  const password = chosen?.value ?? "";
+  if (!password && !username) return;
+  const key = `${username}\n${password}`;
+  if (key === filledKey || (key === lastCapture.key && Date.now() - lastCapture.at < 5000)) return;
+  lastCapture = { key, at: Date.now() };
+  void send({ type: "capture", username, password, generated: password !== "" && password === suggested });
+}
+
+/** Fills a password Keyless suggested into the new-password fields. */
+function fillNewPassword(password: string) {
+  const scope: ParentNode = current?.form ?? document;
+  const targets = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter((i) => visible(i) && isNewPassword(i));
+  if (targets.length === 0 && current?.type === "password") targets.push(current);
+  filling = true;
+  try {
+    targets.forEach((target) => setValue(target, password));
+  } finally {
+    filling = false;
+  }
+  suggested = password;
+  closeMenu();
+}
+
+document.addEventListener(
+  "submit",
+  (e) => {
+    const form = e.target instanceof HTMLFormElement ? e.target : null;
+    if (form) capture(form.querySelector<HTMLInputElement>('input[type="password"]') ?? form.querySelector<HTMLInputElement>("input"));
+  },
+  true,
+);
+
+// Many sign-in pages never submit a form: a click on their button, or Enter.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!e.isTrusted || !(e.target instanceof Element)) return;
+    const control = e.target.closest<HTMLElement>('button, input[type="submit"], input[type="button"], [role="button"]');
+    if (!control || control.closest("keyless-autofill")) return;
+    const label = (control instanceof HTMLInputElement ? control.value : (control.textContent ?? control.getAttribute("aria-label") ?? "")).trim();
+    if (label.length > 40 || !SEND_TEXT.test(label)) return;
+    const form = control.closest("form");
+    const password = (form ?? document).querySelector<HTMLInputElement>('input[type="password"]');
+    if (password || form) capture(password ?? form?.querySelector<HTMLInputElement>("input") ?? null);
+  },
+  true,
+);
+
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (e.isTrusted && e.key === "Enter" && e.target instanceof HTMLInputElement && fieldKind(e.target)) capture(e.target);
+  },
+  true,
+);
+
+// A prompt left from the previous page (signing in usually navigates).
+void send<boolean>({ type: "save_pending" }).then((reply) => reply.ok && reply.data && showSavePrompt());
+
+// Fill requested from a Keyless menu, the popup or the keyboard shortcut;
+// Keyless locked or unlocked; a login to offer saving.
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (sender.id !== chrome.runtime.id) return;
   if (message?.type === "keyless-state" && typeof message.state === "string") {
     onState(message.state);
+    return;
+  }
+  if (message?.type === "keyless-save") {
+    showSavePrompt();
+    return;
+  }
+  if (message?.type === "keyless-fill-new" && typeof message.password === "string") {
+    if (message.origin === location.origin) fillNewPassword(message.password);
     return;
   }
   if (message?.type !== "keyless-fill") return;
@@ -511,6 +636,8 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   } finally {
     filling = false;
   }
+  // Submitting it unchanged is no reason to offer saving it.
+  filledKey = `${message.username ?? ""}\n${message.password ?? ""}`;
   closeMenu();
   if (card?.open) dismissCard();
   const target = fields.password ?? fields.username ?? fields.otp;

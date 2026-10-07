@@ -22,6 +22,42 @@ export interface PageState {
   count: number;
 }
 
+/** The field a Keyless menu was opened for. */
+export interface FieldInfo {
+  /** A password being chosen (sign-up, change password): suggest one. */
+  newPassword: boolean;
+  maxLength: number | null;
+}
+
+export interface SaveCandidate {
+  id: string;
+  title: string;
+  username: string;
+  vault: string;
+  /** Saved with the username that was typed. */
+  sameUser: boolean;
+}
+
+export interface Vault {
+  id: string;
+  name: string;
+}
+
+/** What the "Save login?" prompt shows. The password stays in the
+ * background script. */
+export interface SaveState {
+  locked: boolean;
+  url: string;
+  host: string;
+  username: string;
+  /** The password was suggested by Keyless. */
+  generated: boolean;
+  title: string;
+  state: "new" | "update";
+  candidates: SaveCandidate[];
+  vaults: Vault[];
+}
+
 /** What the Keyless menus shown in a page get. */
 export interface InlineState {
   state: Status["state"];

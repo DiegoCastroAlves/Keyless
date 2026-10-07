@@ -174,7 +174,7 @@ fn unlocked<'a>(guard: &'a mut tokio::sync::MutexGuard<'_, Option<Session>>) -> 
     guard.as_mut().ok_or(AppError::Locked)
 }
 
-fn load_details(state: &AppState, session: &Session, item_id: &str) -> AppResult<(LocalItem, ItemDetails)> {
+pub(crate) fn load_details(state: &AppState, session: &Session, item_id: &str) -> AppResult<(LocalItem, ItemDetails)> {
     let local = state.store().item(item_id)?.ok_or(AppError::NotFound)?;
     let enc = local.enc_details.as_deref().ok_or(AppError::NotFound)?;
     let vault = session.vault(&local.vault_id)?;

@@ -8,13 +8,15 @@ use keyless_core::{
 };
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
+use zeroize::Zeroizing;
+
 use crate::{api::now_secs, error::AppError, state::AppState};
 
 const MAX_RESULTS: usize = 50;
 /// How long `wait_status` waits for Keyless to lock or unlock.
 const WAIT_STATUS: std::time::Duration = std::time::Duration::from_secs(50);
 
-pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value, &'static str> {
+pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Value, &'static str> {
     match cmd {
         "status" => status(app).await,
         "wait_status" => {
@@ -52,6 +54,34 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value,
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             find(app, Query::Text(query)).await
         }
+        "vaults" => super::logins::vaults(app).await,
+        "check_login" => {
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let username = args.get("username").and_then(Value::as_str).unwrap_or("").to_string();
+            let password = take_secret(args, "password")?;
+            super::logins::check(app, &url, &username, &password).await
+        }
+        "save_login" => {
+            let password = take_secret(args, "password")?;
+            let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let vault = args.get("vaultId").and_then(Value::as_str).map(str::to_string);
+            super::logins::save_new(app, &url, &text("title"), &text("username"), password, vault.as_deref()).await
+        }
+        "update_login" => {
+            let password = take_secret(args, "password")?;
+            let text = |key: &str| args.get(key).and_then(Value::as_str).unwrap_or("").to_string();
+            let (id, url) = (text("id"), text("url"));
+            if id.is_empty() || url.is_empty() {
+                return Err("bad_request");
+            }
+            super::logins::update(app, &id, &url, &text("username"), password).await
+        }
+        "suggest_password" => {
+            let max_length = args.get("maxLength").and_then(Value::as_u64).filter(|&n| n > 0);
+            let symbols = args.get("symbols").and_then(Value::as_bool).unwrap_or(true);
+            super::logins::suggest(max_length, symbols)
+        }
         "credentials" => {
             let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
             let url = args.get("url").and_then(Value::as_str);
@@ -88,6 +118,14 @@ async fn status(app: &AppHandle) -> Result<Value, &'static str> {
         Some(session) => json!({ "locked": false, "email": session.email }),
         None => json!({ "locked": true }),
     })
+}
+
+/// Takes a secret out of the request, so it is wiped after use.
+fn take_secret(args: &mut Value, key: &str) -> Result<Zeroizing<String>, &'static str> {
+    match args.get_mut(key) {
+        Some(Value::String(value)) if !value.is_empty() => Ok(Zeroizing::new(std::mem::take(value))),
+        _ => Err("bad_request"),
+    }
 }
 
 fn unlock_error(err: AppError) -> &'static str {

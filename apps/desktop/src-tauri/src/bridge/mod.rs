@@ -18,6 +18,7 @@ pub mod crypto;
 pub mod handlers;
 pub mod host;
 pub mod install;
+pub mod logins;
 pub mod server;
 
 use std::{

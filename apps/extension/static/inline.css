@@ -373,3 +373,217 @@ button {
   justify-content: flex-end;
   gap: 6px;
 }
+
+/* ----- Suggested password ----- */
+
+.generator {
+  padding-bottom: 2px;
+}
+
+.suggest-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.suggest-line .row {
+  flex: 1;
+  min-width: 0;
+}
+
+.row.suggest > .svg {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.generated {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 12px/1.4 ui-monospace, "Cascadia Code", "DejaVu Sans Mono", monospace;
+  color: var(--text);
+}
+
+.generated .digit {
+  color: #3b82f6;
+}
+
+.generated .symbol {
+  color: #f97316;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 10px 4px 48px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.option input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* ----- "Save login?" prompt ----- */
+
+.save {
+  border-radius: 14px;
+  padding: 10px 12px 12px;
+}
+
+.save-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.save-head strong {
+  flex: 1;
+  font-size: 14px;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.tabs button {
+  flex: 1;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tabs button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.save-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.save-item .edit {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.save-item input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.save-item input:focus {
+  border-color: var(--accent);
+}
+
+.link {
+  flex: none;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.link:hover {
+  background: var(--hover);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice:hover {
+  background: var(--hover);
+}
+
+.choice.active {
+  border-color: var(--accent);
+}
+
+.note.small {
+  margin: 8px 2px 0;
+  font-size: 12px;
+}
+
+.save-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.save-foot .primary {
+  margin: 0;
+}
+
+.save-foot select {
+  min-width: 0;
+  max-width: 60%;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.vault {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.done {
+  margin: 6px 2px 2px;
+  color: var(--accent);
+  font-weight: 600;
+}

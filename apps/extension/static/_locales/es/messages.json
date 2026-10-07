@@ -162,5 +162,65 @@
   },
   "showLogins": {
     "message": "Mostrar inicios de sesión"
+  },
+  "saveLogin": {
+    "message": "¿Guardar inicio de sesión?"
+  },
+  "updateLogin": {
+    "message": "¿Actualizar inicio de sesión?"
+  },
+  "newItem": {
+    "message": "Nuevo elemento"
+  },
+  "updateExisting": {
+    "message": "Actualizar existente"
+  },
+  "edit": {
+    "message": "Editar"
+  },
+  "done": {
+    "message": "Listo"
+  },
+  "save": {
+    "message": "Guardar"
+  },
+  "update": {
+    "message": "Actualizar"
+  },
+  "unlockToSave": {
+    "message": "Desbloquear para guardar"
+  },
+  "saved": {
+    "message": "Guardado en Keyless"
+  },
+  "updated": {
+    "message": "Actualizado en Keyless"
+  },
+  "saveFailed": {
+    "message": "No se pudo guardar."
+  },
+  "titleLabel": {
+    "message": "Título"
+  },
+  "usernameLabel": {
+    "message": "Usuario"
+  },
+  "vaultLabel": {
+    "message": "Bóveda"
+  },
+  "generatedNote": {
+    "message": "Contraseña sugerida por Keyless."
+  },
+  "useSuggested": {
+    "message": "Usar la contraseña sugerida"
+  },
+  "regenerate": {
+    "message": "Sugerir otra"
+  },
+  "symbols": {
+    "message": "Símbolos"
+  },
+  "savedLogins": {
+    "message": "Inicios de sesión guardados"
   }
 }

@@ -7,16 +7,17 @@
 //   in an iframe): may list the logins for the tab they are in, search, fill
 //   into that tab and ask Keyless to unlock. They must present the token their content
 //   script registered, so a page cannot embed them on its own;
-// - content scripts (web page process): may only register that token and
-//   ask how many logins match their page, and ask Keyless to unlock (a click
-//   on the Keyless button in a field). Credentials never go to them
+// - content scripts (web page process): may only register that token, ask
+//   how many logins match their page, ask Keyless to unlock (a click on the
+//   Keyless button in a field) and report what the user typed in a login
+//   form, for the "Save login?" prompt. Credentials never go to them
 //   unless the user picked a login in the popup or a Keyless menu.
 // The app re-checks every URL before returning credentials. The master
 // password never goes through the extension: to unlock, Keyless asks the
 // user itself (the system's password prompt or its own small window).
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
-import type { Credentials, InlineState, Login, PageState, Status } from "./types";
+import type { Credentials, InlineState, Login, PageState, SaveCandidate, SaveState, Status, Vault } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
@@ -348,6 +349,138 @@ async function inlineState(url: string | null): Promise<InlineState> {
   return { state: "ready", url, host, logins: await call<Login[]>("match", { url }) };
 }
 
+// ----- Saving logins --------------------------------------------------------------
+//
+// What the user typed in a login or sign-up form waits here (in memory: the
+// session storage is never written to disk) until they save it, dismiss it,
+// or 5 minutes pass. Only the prompt's frame can save it, after the user
+// chose to; it never sees the password.
+
+interface Capture {
+  url: string;
+  username: string;
+  password: string;
+  /** Suggested by Keyless. */
+  generated: boolean;
+  /** Kept when a suggested password was filled; shown on the next page, in
+   * case the form's submission was missed. */
+  deferred: boolean;
+  at: number;
+  check: SaveCheck | null;
+}
+
+interface SaveCheck {
+  state: "new" | "update" | "same";
+  candidates: SaveCandidate[];
+  title: string;
+}
+
+const CAPTURE_TTL_MS = 5 * 60_000;
+/** A username typed in the first step of a two-step sign-in. */
+const USERNAME_TTL_MS = 2 * 60_000;
+const captureKey = (tabId: number) => `capture:${tabId}`;
+const usernameKey = (tabId: number) => `username:${tabId}`;
+const suggestionKey = (tabId: number) => `suggestion:${tabId}`;
+
+async function sessionGet<T>(key: string): Promise<T | undefined> {
+  return (await chrome.storage.session.get(key))[key] as T | undefined;
+}
+
+async function getCapture(tabId: number): Promise<Capture | null> {
+  const capture = await sessionGet<Capture>(captureKey(tabId));
+  return capture && Date.now() - capture.at < CAPTURE_TTL_MS ? capture : null;
+}
+
+async function setCapture(tabId: number, capture: Capture | null): Promise<void> {
+  if (capture) await chrome.storage.session.set({ [captureKey(tabId)]: capture });
+  else await chrome.storage.session.remove(captureKey(tabId));
+}
+
+/** Rough "same site" for pairing the two steps of a sign-in. */
+function siteOf(url: string): string {
+  const labels = new URL(url).hostname.split(".");
+  const short = labels.length > 2 && labels[labels.length - 1].length === 2 && labels[labels.length - 2].length <= 3;
+  return labels.slice(short ? -3 : -2).join(".");
+}
+
+/** "accounts.google.com" -> "Google" (the app suggests the same). */
+function suggestedTitle(url: string): string {
+  const name = siteOf(url).split(".")[0];
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+async function checkCapture(capture: Capture): Promise<SaveCheck | null> {
+  try {
+    return await call<SaveCheck>("check_login", { url: capture.url, username: capture.username, password: capture.password });
+  } catch {
+    return null;
+  }
+}
+
+/** A login or sign-up form was submitted. */
+async function onCapture(tabId: number, url: string, username: string, password: string, generated: boolean): Promise<void> {
+  if (!password) {
+    // First step of a two-step sign-in: remember who is signing in.
+    if (username) await chrome.storage.session.set({ [usernameKey(tabId)]: { url, username, at: Date.now() } });
+    return;
+  }
+  if (!username) {
+    const first = await sessionGet<{ url: string; username: string; at: number }>(usernameKey(tabId));
+    if (first && Date.now() - first.at < USERNAME_TTL_MS && siteOf(first.url) === siteOf(url)) username = first.username;
+  }
+  const previous = await getCapture(tabId);
+  const capture: Capture = {
+    url,
+    username,
+    password,
+    generated: generated || (previous?.generated === true && previous.password === password),
+    deferred: false,
+    at: Date.now(),
+    check: null,
+  };
+  const current = await quickStatus();
+  if (current.state === "ready") {
+    capture.check = await checkCapture(capture);
+    if (capture.check?.state === "same") {
+      await setCapture(tabId, null);
+      return;
+    }
+  } else if (current.state !== "locked") {
+    return; // Not connected: nowhere to save it.
+  }
+  await setCapture(tabId, capture);
+  chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
+}
+
+async function saveState(tabId: number): Promise<SaveState | null> {
+  const capture = await getCapture(tabId);
+  if (!capture) return null;
+  const locked = (await quickStatus()).state !== "ready";
+  if (!locked && !capture.check) {
+    capture.check = await checkCapture(capture);
+    if (capture.check?.state === "same") {
+      await setCapture(tabId, null);
+      return null;
+    }
+    await setCapture(tabId, capture);
+  }
+  return {
+    locked,
+    url: capture.url,
+    host: new URL(capture.url).hostname.replace(/^www\./, ""),
+    username: capture.username,
+    generated: capture.generated,
+    title: capture.check?.title ?? suggestedTitle(capture.url),
+    state: capture.check?.state === "update" ? "update" : "new",
+    candidates: capture.check?.candidates ?? [],
+    vaults: locked ? [] : await call<Vault[]>("vaults").catch(() => []),
+  };
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void chrome.storage.session.remove([captureKey(tabId), usernameKey(tabId), suggestionKey(tabId)]).catch(() => undefined);
+});
+
 // ----- Message routing ----------------------------------------------------------
 
 type Reply = { ok: true; data?: unknown } | { ok: false; error: string };
@@ -411,6 +544,43 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
     case "unlock":
       await requestUnlock();
       return { ok: true };
+    case "save_state":
+      return { ok: true, data: await saveState(tab.id) };
+    case "save": {
+      const capture = await getCapture(tab.id);
+      if (!capture) return { ok: false, error: "expired" };
+      const username = typeof message.username === "string" ? message.username.trim() : capture.username;
+      if (message.mode === "update") {
+        await call("update_login", { id: String(message.itemId ?? ""), url: capture.url, username, password: capture.password });
+      } else {
+        const vaultId = typeof message.vaultId === "string" ? message.vaultId : undefined;
+        await call("save_login", { url: capture.url, title: String(message.title ?? ""), username, password: capture.password, vaultId });
+      }
+      await setCapture(tab.id, null);
+      await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
+      return { ok: true };
+    }
+    case "dismiss_save":
+      await setCapture(tab.id, null);
+      return { ok: true };
+    case "suggest": {
+      // Generated by the app; kept here so only what was shown gets filled.
+      const maxLength = Number(message.maxLength) || 0;
+      const result = await call<{ password: string }>("suggest_password", { maxLength, symbols: message.symbols !== false });
+      await chrome.storage.session.set({ [suggestionKey(tab.id)]: result.password });
+      return { ok: true, data: result.password };
+    }
+    case "use_suggested": {
+      if (!url) return { ok: false, error: "no_tab" };
+      const password = await sessionGet<string>(suggestionKey(tab.id));
+      if (typeof password !== "string") return { ok: false, error: "expired" };
+      await chrome.storage.session.remove(suggestionKey(tab.id));
+      await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-new", password, origin: new URL(url).origin }, { frameId: 0 });
+      // Not lost if the form's submission is missed: offered on the next page.
+      const previous = await getCapture(tab.id);
+      await setCapture(tab.id, { url, username: previous?.username ?? "", password, generated: true, deferred: true, at: Date.now(), check: null });
+      return { ok: true };
+    }
     default:
       return { ok: false, error: "bad_request" };
   }
@@ -430,6 +600,17 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       // nothing secret goes through the page.
       await requestUnlock();
       return { ok: true };
+    case "capture": {
+      const text = (value: unknown) => (typeof value === "string" ? value : "");
+      await onCapture(sender.tab.id, sender.url, text(message.username).trim(), text(message.password), message.generated === true);
+      return { ok: true };
+    }
+    case "save_pending": {
+      // A prompt to show on this page: after a submission, or on the next
+      // page after a suggested password was used.
+      const capture = await getCapture(sender.tab.id);
+      return { ok: true, data: Boolean(capture && (!capture.deferred || capture.url !== sender.url)) };
+    }
     case "page_state": {
       const current = await quickStatus();
       let count = 0;
