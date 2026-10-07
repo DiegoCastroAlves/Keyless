@@ -18,9 +18,11 @@ const base = {
   default_locale: "en",
   icons: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/icon-16.png", 32: "icons/icon-32.png" } },
-  permissions: ["nativeMessaging", "tabs"],
+  permissions: ["nativeMessaging", "tabs", "storage"],
   host_permissions: ["http://*/*", "https://*/*"],
   content_scripts: [{ matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: false }],
+  // The Keyless menus shown inside pages (see src/inline.ts).
+  web_accessible_resources: [{ resources: ["inline.html"], matches: ["http://*/*", "https://*/*"] }],
   commands: {
     "fill-login": { suggested_key: { default: "Ctrl+Shift+L", mac: "Command+Shift+L" }, description: "__MSG_commandFill__" },
   },
@@ -41,7 +43,7 @@ for (const [name, manifest] of Object.entries(targets)) {
   rmSync(outdir, { recursive: true, force: true });
   mkdirSync(outdir, { recursive: true });
   await build({
-    entryPoints: { background: "src/background.ts", content: "src/content.ts", popup: "src/popup.ts" },
+    entryPoints: { background: "src/background.ts", content: "src/content.ts", popup: "src/popup.ts", inline: "src/inline.ts" },
     bundle: true,
     format: "iife",
     target: name === "chrome" ? "chrome133" : "firefox130",

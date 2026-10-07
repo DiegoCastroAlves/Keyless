@@ -1,15 +1,29 @@
-// Content script: shows the Keyless button in login fields and fills them.
+// Content script: finds login fields, puts the Keyless button in them and
+// hosts the Keyless menus: the list below a login field and the sign-in card
+// at the top of the page.
 //
-// Runs only in the top frame. The button and menu live in a closed shadow
-// root, so the page cannot read or restyle them, and only real user clicks
-// (isTrusted) are honoured.
+// Runs only in the top frame. The menus are extension pages (inline.html) in
+// iframes inside a closed shadow root: the page cannot read the logins they
+// list, and only they (or the popup) can ask Keyless to fill. This script
+// learns nothing about the logins except how many match the page, and gets
+// credentials only to type them into the page once the user picked one.
 
-import type { Login } from "./types";
+import type { Credentials, PageState } from "./types";
 
-const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
+const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
+/** Transparent margin around the menus, room for their shadow. */
+const PAD = 10;
+const MENU_MIN_WIDTH = 300;
+const MENU_MAX_WIDTH = 420;
+const CARD_WIDTH = 400;
+
+/** Proves to the background that a menu was opened by this script. Not
+ * crypto.randomUUID: that needs a secure context, and http pages are not. */
+const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 const USERNAME_HINT = /user|email|e-mail|login|account|identifier|usuario|correo|cpf/i;
 const OTP_HINT = /otp|totp|2fa|mfa|one.?time|verification|token|c[oó]digo|code/i;
+const SUBMIT_TEXT = /^(log ?in|sign ?in|entrar|acessar|iniciar sesi[oó]n|ingresar|continue|continuar|next|avan[cç]ar|pr[oó]ximo|siguiente)$/i;
 
 type Kind = "username" | "password" | "otp";
 
@@ -22,7 +36,7 @@ function fieldKind(input: HTMLInputElement): Kind | null {
   if (autocomplete.includes("one-time-code")) return "otp";
   if (!["text", "email", "tel", ""].includes(type)) return null;
   if (autocomplete.includes("username") || autocomplete.includes("email") || type === "email") return "username";
-  if (OTP_HINT.test(hints) && (input.maxLength > 0 && input.maxLength <= 10)) return "otp";
+  if (OTP_HINT.test(hints) && input.maxLength > 0 && input.maxLength <= 10) return "otp";
   if (USERNAME_HINT.test(hints)) return "username";
   return null;
 }
@@ -56,11 +70,51 @@ function loginFields(anchor: HTMLInputElement | null) {
   return { username, password, otp };
 }
 
-function fill(anchor: HTMLInputElement | null, credentials: { username: string; password: string; totp: string | null }) {
+function fill(anchor: HTMLInputElement | null, credentials: Credentials) {
   const fields = loginFields(anchor);
   if (fields.username && credentials.username) setValue(fields.username, credentials.username);
   if (fields.password && credentials.password) setValue(fields.password, credentials.password);
   if (fields.otp && credentials.totp && !fields.password) setValue(fields.otp, credentials.totp);
+  return fields;
+}
+
+/** True when the page shows a form to sign in (not just any email field). */
+function hasLoginForm(): boolean {
+  return Array.from(document.querySelectorAll<HTMLInputElement>("input")).some((input) => {
+    const kind = fieldKind(input);
+    const explicit = kind === "password" || (kind === "username" && (input.autocomplete || "").toLowerCase().includes("username"));
+    return explicit && visible(input);
+  });
+}
+
+function submitButton(field: HTMLInputElement): HTMLElement | null {
+  const scope: ParentNode = field.form ?? document;
+  const candidates = Array.from(
+    scope.querySelectorAll<HTMLElement>('button, input[type="submit"], input[type="image"], [role="button"]'),
+  ).filter(visible);
+  const label = (el: HTMLElement) => (el instanceof HTMLInputElement ? el.value : el.textContent ?? "").trim();
+  // Outside a form, a submit button could belong to anything (a search box):
+  // only one that reads like signing in will do.
+  return (
+    (field.form ? candidates.find((el) => (el as HTMLButtonElement).type === "submit") : undefined) ??
+    candidates.find((el) => SUBMIT_TEXT.test(label(el))) ??
+    null
+  );
+}
+
+/** Signs in after filling: clicks the form's button once the page enabled it. */
+async function submitAfterFill(field: HTMLInputElement) {
+  let button: HTMLElement | null = null;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    // Pages often enable the button only after reacting to the new values.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    button = submitButton(field);
+    if (button && !(button as HTMLButtonElement).disabled && button.getAttribute("aria-disabled") !== "true") {
+      button.click();
+      return;
+    }
+  }
+  if (!button && field.form) field.form.requestSubmit();
 }
 
 // ----- UI ---------------------------------------------------------------------
@@ -72,21 +126,10 @@ const STYLE = `
 .btn { position: fixed; z-index: 2147483646; width: 24px; height: 24px; border: 0; padding: 3px; border-radius: 6px;
   background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .btn:hover { background: rgba(20,184,166,.15); }
-.menu { position: fixed; z-index: 2147483647; min-width: 260px; max-width: 340px; max-height: 320px; overflow: auto;
-  background: #161a20; color: #e7eaee; border: 1px solid #2a3039; border-radius: 12px; padding: 6px;
-  box-shadow: 0 12px 32px rgba(0,0,0,.35); font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
-.head { display: flex; align-items: center; gap: 8px; padding: 6px 8px 8px; font-weight: 600; font-size: 12px; color: #9aa3ae; }
-.row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: transparent;
-  color: inherit; text-align: left; cursor: pointer; font: inherit; }
-.row:hover, .row:focus { background: #232932; outline: none; }
-.avatar { flex: none; width: 28px; height: 28px; border-radius: 8px; background: #0d9488; color: #fff; display: flex;
-  align-items: center; justify-content: center; font-weight: 600; }
-.text { min-width: 0; }
-.title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sub { color: #9aa3ae; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.note { padding: 8px; color: #9aa3ae; }
-.action { margin: 4px 8px 8px; padding: 6px 10px; border: 0; border-radius: 8px; background: #2dd4bf; color: #052e2b;
-  font: 600 12px system-ui, sans-serif; cursor: pointer; }
+iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0; background: transparent; color-scheme: normal;
+  visibility: hidden; pointer-events: none; width: 0; height: 0; }
+iframe.open { visibility: visible; pointer-events: auto; }
+iframe.card { top: 0; left: 24px; }
 `;
 
 const host = document.createElement("keyless-autofill");
@@ -97,18 +140,104 @@ button.className = "btn";
 button.type = "button";
 button.title = "Keyless";
 button.innerHTML = LOGO;
-const menu = document.createElement("div");
-menu.className = "menu";
-menu.style.display = "none";
-root.append(button, menu);
-let mounted = false;
-let current: HTMLInputElement | null = null;
+button.style.display = "none";
+root.append(button);
 
 function mount() {
-  if (!mounted && document.documentElement) {
-    document.documentElement.appendChild(host);
-    mounted = true;
+  if (!host.isConnected && document.documentElement) document.documentElement.appendChild(host);
+}
+
+function send<T>(message: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
+  // Rejects when the extension was updated or reloaded under this page.
+  return chrome.runtime.sendMessage(message).catch(() => ({ ok: false, error: "error" }));
+}
+
+let registered: Promise<unknown> | null = null;
+function register() {
+  registered ??= send({ type: "register", token });
+  return registered;
+}
+window.addEventListener("pageshow", (event) => {
+  // Back from the back/forward cache: another page of this tab may have
+  // registered since.
+  if (event.persisted) {
+    registered = null;
+    void register();
   }
+});
+
+/** A Keyless menu: inline.html in an iframe. */
+class Frame {
+  readonly iframe = document.createElement("iframe");
+  private loading: Promise<void> | null = null;
+  open = false;
+  height = 0;
+
+  constructor(readonly mode: "menu" | "card") {
+    this.iframe.className = mode;
+    this.iframe.title = "Keyless";
+    this.iframe.style.width = `${(mode === "card" ? CARD_WIDTH : MENU_MIN_WIDTH) + 2 * PAD}px`;
+    root.append(this.iframe);
+  }
+
+  /** Shows the menu; it appears once it has rendered and reported its size. */
+  show() {
+    mount();
+    this.open = true;
+    if (this.loading) {
+      this.post({ type: "show" });
+      if (this.height > 0) this.iframe.classList.add("open");
+      return;
+    }
+    this.loading = register().then(
+      () =>
+        new Promise<void>((resolve) => {
+          this.iframe.addEventListener(
+            "load",
+            () => {
+              this.post({ type: "init" });
+              resolve();
+            },
+            { once: true },
+          );
+          this.iframe.src = chrome.runtime.getURL(`inline.html#${this.mode}`);
+        }),
+    );
+  }
+
+  hide() {
+    this.open = false;
+    this.iframe.classList.remove("open");
+  }
+
+  resize(height: number) {
+    this.height = height;
+    this.iframe.style.height = `${height}px`;
+    if (this.open && height > 0) this.iframe.classList.add("open");
+    place();
+  }
+
+  post(message: Record<string, unknown>) {
+    this.iframe.contentWindow?.postMessage({ ...message, keyless: token }, EXTENSION_ORIGIN);
+  }
+}
+
+let current: HTMLInputElement | null = null;
+let menu: Frame | null = null;
+let card: Frame | null = null;
+let cardDismissed = false;
+let filling = false;
+let lastUserInput = 0;
+
+/** Asked once per address, and again when the window gets the focus back
+ * or Keyless was unlocked (not on every change of a busy page). */
+let pageState: { url: string; value: Promise<PageState | null> } | null = null;
+function getPageState(): Promise<PageState | null> {
+  if (pageState?.url !== location.href) {
+    const value = send<PageState>({ type: "page_state" }).then((reply) => (reply.ok ? (reply.data ?? null) : null));
+    pageState = { url: location.href, value };
+  }
+  return pageState.value;
 }
 
 function place() {
@@ -116,98 +245,71 @@ function place() {
   const rect = current.getBoundingClientRect();
   button.style.top = `${rect.top + (rect.height - 24) / 2}px`;
   button.style.left = `${rect.right - 28}px`;
-  menu.style.top = `${rect.bottom + 4}px`;
-  menu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 348))}px`;
-}
-
-function hide() {
-  button.style.display = "none";
-  menu.style.display = "none";
-  current = null;
-}
-
-function send<T>(message: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
-  return chrome.runtime.sendMessage(message);
-}
-
-function note(text: string, action?: { label: string; run: () => void }) {
-  menu.replaceChildren();
-  const head = document.createElement("div");
-  head.className = "head";
-  head.innerHTML = LOGO;
-  head.append("Keyless");
-  const p = document.createElement("div");
-  p.className = "note";
-  p.textContent = text;
-  menu.append(head, p);
-  if (action) {
-    const b = document.createElement("button");
-    b.className = "action";
-    b.textContent = action.label;
-    b.addEventListener("click", (e) => {
-      if (e.isTrusted) action.run();
-    });
-    menu.append(b);
+  if (menu?.open) {
+    const width = Math.min(Math.max(rect.width, MENU_MIN_WIDTH), MENU_MAX_WIDTH, window.innerWidth - 16);
+    const outer = width + 2 * PAD;
+    let top = rect.bottom + 4 - PAD;
+    // Above the field when it does not fit below.
+    if (rect.bottom + 4 + menu.height - 2 * PAD > window.innerHeight && rect.top - menu.height > 0) {
+      top = rect.top - 4 - menu.height + PAD;
+    }
+    const left = Math.max(0, Math.min(rect.left - PAD, window.innerWidth - outer));
+    menu.iframe.style.width = `${outer}px`;
+    menu.iframe.style.top = `${top}px`;
+    menu.iframe.style.left = `${left}px`;
   }
 }
 
-async function openMenu() {
+/** Keeps the open menu under its field when the page layout moves. */
+let follow: ReturnType<typeof setInterval> | undefined;
+
+function openMenu() {
   if (!current) return;
-  const anchor = current;
-  menu.style.display = "block";
+  menu ??= new Frame("menu");
+  menu.show();
   place();
-  note(t("loading"));
-  const reply = await send<Login[]>({ type: "matches" });
-  if (anchor !== current) return;
-  if (!reply.ok) {
-    if (reply.error === "locked") note(t("lockedNote"), { label: t("unlockApp"), run: () => void send({ type: "show_app" }) });
-    else note(t("notConnectedNote"));
-    return;
-  }
-  const logins = reply.data ?? [];
-  if (logins.length === 0) {
-    note(t("noMatches"));
-    return;
-  }
-  menu.replaceChildren();
-  const head = document.createElement("div");
-  head.className = "head";
-  head.innerHTML = LOGO;
-  head.append(t("fillWith"));
-  menu.append(head);
-  for (const login of logins) {
-    const row = document.createElement("button");
-    row.className = "row";
-    row.type = "button";
-    const avatar = document.createElement("span");
-    avatar.className = "avatar";
-    avatar.textContent = (login.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase();
-    const text = document.createElement("span");
-    text.className = "text";
-    const title = document.createElement("div");
-    title.className = "title";
-    title.textContent = login.title;
-    const sub = document.createElement("div");
-    sub.className = "sub";
-    sub.textContent = login.username || login.vault;
-    text.append(title, sub);
-    row.append(avatar, text);
-    row.addEventListener("click", async (e) => {
-      if (!e.isTrusted) return;
-      const credentials = await send<{ username: string; password: string; totp: string | null }>({ type: "credentials", id: login.id });
-      if (credentials.ok && credentials.data) fill(anchor, credentials.data);
-      hide();
-    });
-    menu.append(row);
-  }
+  follow ??= setInterval(place, 200);
+}
+
+function closeMenu(refocus = false) {
+  menu?.hide();
+  clearInterval(follow);
+  follow = undefined;
+  if (refocus) current?.focus();
+}
+
+/** Opens the menu by itself when there is something to pick or to unlock. */
+async function autoOpen(field: HTMLInputElement) {
+  const state = await getPageState();
+  if (field !== current || document.activeElement !== field || menu?.open) return;
+  if (state && ((state.state === "ready" && state.count > 0) || state.state === "locked")) openMenu();
+}
+
+/** Shows the sign-in card on login pages with saved logins. */
+async function scan() {
+  if (cardDismissed || card?.open || !hasLoginForm()) return;
+  const state = await getPageState();
+  if (cardDismissed || card?.open || state?.state !== "ready" || state.count === 0) return;
+  card ??= new Frame("card");
+  card.show();
+}
+
+function dismissCard() {
+  cardDismissed = true;
+  card?.hide();
+  observer.disconnect();
 }
 
 button.addEventListener("click", (e) => {
   if (!e.isTrusted) return;
   e.preventDefault();
-  if (menu.style.display === "block") menu.style.display = "none";
-  else void openMenu();
+  if (menu?.open) closeMenu();
+  else openMenu();
 });
+
+for (const type of ["mousedown", "keydown", "touchstart"]) {
+  document.addEventListener(type, (e) => e.isTrusted && (lastUserInput = Date.now()), true);
+}
 
 document.addEventListener(
   "focusin",
@@ -215,10 +317,21 @@ document.addEventListener(
     const target = e.target;
     if (!(target instanceof HTMLInputElement) || !fieldKind(target) || !visible(target)) return;
     mount();
+    if (current !== target) closeMenu();
     current = target;
     button.style.display = "flex";
-    menu.style.display = "none";
     place();
+    // Not when the page focuses a field by itself on load: the card is there
+    // for that.
+    if (!filling && Date.now() - lastUserInput < 1000) void autoOpen(target);
+  },
+  true,
+);
+
+document.addEventListener(
+  "click",
+  (e) => {
+    if (e.isTrusted && current && e.target === current && !menu?.open && !filling) void autoOpen(current);
   },
   true,
 );
@@ -226,20 +339,100 @@ document.addEventListener(
 document.addEventListener(
   "mousedown",
   (e) => {
-    if (e.composedPath().includes(host)) return;
-    if (current && e.target !== current) hide();
+    // Clicks inside the menus happen in their own frames and never get here.
+    if (e.composedPath().includes(host) || e.target === current) return;
+    closeMenu();
+    button.style.display = "none";
+    current = null;
   },
   true,
 );
+
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!menu?.open || e.target !== current) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      menu.iframe.focus();
+      menu.post({ type: "focus" });
+    } else if (e.key === "Escape" || e.key === "Tab") {
+      closeMenu();
+    }
+  },
+  true,
+);
+
+document.addEventListener(
+  "input",
+  (e) => {
+    // Typing by hand: the menu would only be in the way.
+    if (e.isTrusted && e.target === current && !filling) closeMenu();
+  },
+  true,
+);
+
 window.addEventListener("scroll", place, true);
 window.addEventListener("resize", place);
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") menu.style.display = "none";
+window.addEventListener("focus", () => {
+  // Back from the popup or the computer password prompt: Keyless may have
+  // been unlocked meanwhile.
+  pageState = null;
+  if (menu?.open) menu.post({ type: "refresh" });
+  void scan();
 });
 
-// Fill requested from the popup or the keyboard shortcut.
+// Messages from the menus. Only their frames can be the source; the page
+// cannot pretend to be them.
+window.addEventListener("message", (event) => {
+  const frame = event.source === menu?.iframe.contentWindow ? menu : event.source === card?.iframe.contentWindow ? card : null;
+  if (!frame || event.origin !== EXTENSION_ORIGIN) return;
+  const data = event.data;
+  switch (data?.type) {
+    case "size":
+      frame.resize(Math.max(0, Math.min(Number(data.height) || 0, 640)));
+      break;
+    case "close":
+      if (frame === menu) closeMenu(Boolean(data.refocus));
+      else dismissCard();
+      break;
+    case "hide":
+      frame.hide();
+      break;
+    case "unlocked":
+      pageState = null;
+      void scan();
+      break;
+  }
+});
+
+// Login forms that appear later (single-page apps, dialogs).
+let scanTimer: ReturnType<typeof setTimeout> | undefined;
+const observer = new MutationObserver(() => {
+  scanTimer ??= setTimeout(() => {
+    scanTimer = undefined;
+    void scan();
+  }, 500);
+});
+observer.observe(document.documentElement, { childList: true, subtree: true });
+void scan();
+
+// Fill requested from a Keyless menu, the popup or the keyboard shortcut.
 chrome.runtime.onMessage.addListener((message, sender) => {
   if (sender.id !== chrome.runtime.id || message?.type !== "keyless-fill") return;
-  const focused = document.activeElement instanceof HTMLInputElement ? document.activeElement : null;
-  fill(focused, message);
+  // The credentials were checked against this origin; the tab may have
+  // navigated since.
+  if (message.origin !== location.origin) return;
+  const anchor = current?.isConnected ? current : document.activeElement instanceof HTMLInputElement ? document.activeElement : null;
+  filling = true;
+  let fields;
+  try {
+    fields = fill(anchor, message);
+  } finally {
+    filling = false;
+  }
+  closeMenu();
+  if (card?.open) dismissCard();
+  const target = fields.password ?? fields.username ?? fields.otp;
+  if (message.submit && target) void submitAfterFill(target);
 });

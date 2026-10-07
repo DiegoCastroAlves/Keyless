@@ -1,6 +1,6 @@
 //! Commands the browser extension can run (after pairing, over the
-//! encrypted channel). Deliberately small: status, finding logins for a page
-//! and returning the credentials the user chose to fill.
+//! encrypted channel). Deliberately small: status, unlocking, finding logins
+//! for a page and returning the credentials the user chose to fill.
 
 use keyless_core::{
     item::{Category, FieldKind, FieldPurpose},
@@ -8,14 +8,31 @@ use keyless_core::{
 };
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
+use zeroize::Zeroizing;
 
-use crate::{api::now_secs, state::AppState};
+use crate::{api::now_secs, error::AppError, state::AppState, system_unlock};
 
 const MAX_RESULTS: usize = 50;
 
-pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value, &'static str> {
+pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Value, &'static str> {
     match cmd {
         "status" => status(app).await,
+        "unlock" => {
+            // Typed in the extension popup. Throttled like the app's lock
+            // screen.
+            let password = match args.get_mut("password") {
+                Some(Value::String(password)) if !password.is_empty() => Zeroizing::new(std::mem::take(password)),
+                _ => return Err("bad_request"),
+            };
+            crate::auth::unlock(app, password).await.map_err(unlock_error)?;
+            Ok(Value::Null)
+        }
+        "unlock_system" => {
+            // The operating system asks for the computer password; the app
+            // stays in the background.
+            crate::auth::unlock_with_system(app).await.map_err(unlock_error)?;
+            Ok(Value::Null)
+        }
         "show_app" => {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.unminimize();
@@ -35,7 +52,8 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &Value) -> Result<Value,
         "credentials" => {
             let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
             let url = args.get("url").and_then(Value::as_str);
-            credentials(app, id, url).await
+            let any_site = args.get("anySite").and_then(Value::as_bool).unwrap_or(false);
+            credentials(app, id, url, any_site).await
         }
         "copy" => {
             // Copied by the app: kept out of clipboard history and cleared
@@ -65,8 +83,21 @@ async fn status(app: &AppHandle) -> Result<Value, &'static str> {
     let guard = state.session.lock().await;
     Ok(match guard.as_ref() {
         Some(session) => json!({ "locked": false, "email": session.email }),
-        None => json!({ "locked": true }),
+        None => json!({ "locked": true, "systemUnlock": system_unlock::available(&state) }),
     })
+}
+
+fn unlock_error(err: AppError) -> &'static str {
+    match err {
+        AppError::WrongPassword => "wrong_password",
+        AppError::RateLimited(_) => "rate_limited",
+        AppError::Cancelled => "cancelled",
+        AppError::NoAccount => "no_account",
+        AppError::Invalid(msg) if msg.key == "busy" => "busy",
+        AppError::Invalid(msg) if msg.key == "system_unlock_unavailable" => "unavailable",
+        AppError::Offline => "offline",
+        _ => "error",
+    }
 }
 
 /// Host part of a URL, accepting bare domains.
@@ -104,13 +135,16 @@ impl Page {
     }
 }
 
+fn is_https(url: &str) -> bool {
+    url.trim().get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"))
+}
+
 /// 2 = same host, 1 = same site, 0 = no match. A login saved for an https
 /// address is never offered to a plain http page, where anyone on the network
 /// could read it.
 pub fn match_score(page: &Page, item_url: &str) -> u8 {
     let Some(item_host) = url_host(item_url) else { return 0 };
-    let item_secure = item_url.trim().get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"));
-    if item_secure && !page.secure {
+    if is_https(item_url) && !page.secure {
         0
     } else if item_host == page.host {
         2
@@ -147,7 +181,9 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
         Query::Url(_) => String::new(),
     };
 
-    let mut results: Vec<(u8, Value)> = Vec::new();
+    // Logins used most recently come first, like the last one used here.
+    let usage = state.store().item_usage().unwrap_or_default();
+    let mut results: Vec<(u8, i64, Value)> = Vec::new();
     for (id, item) in &session.items {
         let o = &item.overview;
         if o.trashed_at.is_some() || o.archived || !is_fillable(o.category) {
@@ -169,6 +205,7 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
         let vault = session.vaults.get(&item.vault_id).map(|v| v.meta.name.clone()).unwrap_or_default();
         results.push((
             score,
+            usage.get(id).map(|&(_, last_used)| last_used).unwrap_or(0),
             json!({
                 "id": id,
                 "title": o.title,
@@ -180,18 +217,21 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
         ));
     }
     results.sort_by(|a, b| {
-        b.0.cmp(&a.0).then_with(|| {
-            a.1["title"]
+        b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then_with(|| {
+            a.2["title"]
                 .as_str()
                 .unwrap_or("")
                 .to_lowercase()
-                .cmp(&b.1["title"].as_str().unwrap_or("").to_lowercase())
+                .cmp(&b.2["title"].as_str().unwrap_or("").to_lowercase())
         })
     });
-    Ok(Value::Array(results.into_iter().take(MAX_RESULTS).map(|(_, v)| v).collect()))
+    Ok(Value::Array(results.into_iter().take(MAX_RESULTS).map(|(_, _, v)| v).collect()))
 }
 
-async fn credentials(app: &AppHandle, id: &str, url: Option<&str>) -> Result<Value, &'static str> {
+/// `any_site` is set when the user explicitly confirmed, in the extension's
+/// own UI, filling a login saved for another site. A login saved for an https
+/// address still never goes to a plain http page.
+async fn credentials(app: &AppHandle, id: &str, url: Option<&str>, any_site: bool) -> Result<Value, &'static str> {
     let state = app.state::<AppState>();
     let guard = state.session.lock().await;
     let session = guard.as_ref().ok_or("locked")?;
@@ -201,7 +241,12 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>) -> Result<Val
     if let Some(url) = url {
         let page = Page::parse(url).ok_or("bad_request")?;
         if !cached.overview.urls.iter().any(|u| match_score(&page, &u.href) > 0) {
-            return Err("url_mismatch");
+            if !any_site {
+                return Err("url_mismatch");
+            }
+            if !page.secure && cached.overview.urls.iter().any(|u| is_https(&u.href)) {
+                return Err("insecure_page");
+            }
         }
     }
 

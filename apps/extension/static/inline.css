@@ -1,0 +1,340 @@
+/* The Keyless menus inside web pages. The iframe is transparent: only the
+   box and its shadow show. */
+
+:root {
+  --bg: #ffffff;
+  --panel: #f3f5f7;
+  --hover: #eceff3;
+  --border: #dfe3e8;
+  --text: #121820;
+  --muted: #5d6877;
+  --accent: #0d9488;
+  --accent-fg: #ffffff;
+  --danger: #dc2626;
+  --shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c2128;
+    --panel: #232932;
+    --hover: #2a313b;
+    --border: #2f3640;
+    --text: #e7eaee;
+    --muted: #9aa3ae;
+    --accent: #2dd4bf;
+    --accent-fg: #052e2b;
+    --danger: #f87171;
+    --shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  padding: 10px;
+  color: var(--text);
+  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.svg {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.box {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+/* ----- List below a field ----- */
+
+.menu {
+  border-radius: 12px;
+  padding: 6px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.head .svg svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ----- Rows ----- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus {
+  background: var(--hover);
+  outline: none;
+}
+
+.search .row:focus {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.search .row:focus .sub,
+.search .row:focus .svg {
+  color: var(--accent-fg);
+}
+
+.row > .svg {
+  color: var(--muted);
+}
+
+.avatar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 700;
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.title,
+.sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.sub {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ----- Sign-in card ----- */
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+  padding: 10px 10px 10px 14px;
+  border-radius: 32px;
+}
+
+.signin {
+  flex: none;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.signin:hover,
+.signin:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.x {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.x:hover,
+.x:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+  outline: none;
+}
+
+.others {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: -1px;
+  padding: 3px 14px 5px;
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  clip-path: inset(0 -12px -12px -12px);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.others:hover,
+.others:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.search {
+  padding: 6px;
+  border-radius: 22px;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bar input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.bar input::placeholder {
+  color: var(--muted);
+}
+
+.list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+/* ----- Messages ----- */
+
+.note {
+  margin: 2px 10px 8px;
+  color: var(--muted);
+}
+
+.locked {
+  padding-bottom: 4px;
+}
+
+.error {
+  margin: 2px 10px 6px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.primary,
+.secondary {
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary {
+  margin: 0 10px 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.secondary {
+  background: var(--hover);
+}
+
+.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.small {
+  margin: 0;
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.warn {
+  width: 100%;
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.warn p {
+  margin: 0 0 8px;
+}
+
+.warn .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

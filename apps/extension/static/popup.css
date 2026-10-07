@@ -218,3 +218,119 @@ button.icon:hover {
   font-size: 12px;
   white-space: nowrap;
 }
+
+.state.locked {
+  text-align: left;
+}
+
+.state.locked h2,
+.state.locked > p {
+  text-align: center;
+}
+
+button.wide {
+  width: 100%;
+}
+
+button.secondary {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  background: var(--panel);
+  color: var(--text);
+  font: 600 13px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+button.secondary:hover {
+  background: var(--hover);
+}
+
+button.secondary:disabled {
+  opacity: 0.6;
+}
+
+button.small {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.or::before,
+.or::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.unlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.password {
+  position: relative;
+}
+
+.password input {
+  width: 100%;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 38px 0 10px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.password input:focus {
+  border-color: var(--accent);
+}
+
+.password .eye {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+
+.state .error {
+  min-height: 1em;
+  margin: 0;
+  color: #dc2626;
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: dark) {
+  .state .error {
+    color: #f87171;
+  }
+}
+
+.warn {
+  margin: 2px 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+.warn p {
+  margin: 0 0 8px;
+}
+
+.warn-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

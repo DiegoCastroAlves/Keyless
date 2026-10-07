@@ -196,7 +196,7 @@ account has, approximate item sizes (padded), and when items change.
 ## The browser extension
 
 The extension never stores vault data or keys. It asks the desktop app, which
-must be running and unlocked, for what it needs.
+must be running, for what it needs.
 
 - **Transport.** The browser starts the Keyless executable as a native
   messaging host, which only relays messages to the running app over a local
@@ -211,15 +211,31 @@ must be running and unlocked, for what it needs.
   a key from X25519 + HKDF-SHA256 over both public keys, with a direction
   label as associated data. Requests carry a timestamp and a unique ID; stale
   or repeated requests are rejected.
-- **Pages get only their own logins.** Content scripts run only in the top
-  frame of `http(s)` pages, in a closed shadow root, and only act on real user
-  clicks. The background script reports the page URL from the browser (not
-  from the page), and the app returns credentials only if that URL matches
-  the item's website (same registrable domain, using the Public Suffix List).
-  A login saved for an `https` address is never offered to a plain `http`
-  page.
-  Search, copy and listing every login are available only to the extension's
-  own popup.
+- **Menus inside pages are isolated from them.** The list below a login field
+  and the sign-in card are extension pages in iframes, inside a closed shadow
+  root. The page cannot read or script them, and in Chromium they run in the
+  extension's process. The content script (which runs in the page's process)
+  only learns how many logins match the page; it never receives a login
+  until the user picks one, and then only to type it into the page.
+- **A page cannot drive the menus.** The content script registers a random
+  token with the background script and hands it to its menus by
+  `postMessage` addressed to the extension origin. The background script
+  answers menus only with the token of their tab, so a page that embeds the
+  menu page itself gets nothing.
+- **Pages get only their own logins.** The background script reports the page
+  URL from the browser (not from the page), and the app returns credentials
+  only if that URL matches the item's website (same registrable domain, using
+  the Public Suffix List). A login saved for an `https` address is never
+  offered to, or filled into, a plain `http` page. Filling a login saved for
+  another site is possible only from the popup or the card's search, after
+  the user confirms a warning naming both sites. Before typing, the content
+  script checks that the page is still on the origin the credentials were
+  checked against.
+- **Unlocking from the browser.** The master password can be typed only in
+  the extension's popup, never in a page; it travels over the encrypted
+  channel and is throttled like the app's lock screen. With "Unlock with the
+  computer password" on, the operating system shows its own prompt and the
+  app stays in the background.
 - **Copying** from the popup is done by the app, so the clipboard is kept out
   of history and cleared automatically.
 - Turning off "Browser integration" in Settings removes the host manifests,

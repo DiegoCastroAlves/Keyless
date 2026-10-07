@@ -8,9 +8,6 @@
   "commandFill": {
     "message": "Rellenar el inicio de sesión de esta página"
   },
-  "loading": {
-    "message": "Cargando…"
-  },
   "lockedTitle": {
     "message": "Keyless está bloqueado"
   },
@@ -25,9 +22,6 @@
   },
   "noMatches": {
     "message": "No hay inicios de sesión guardados para este sitio."
-  },
-  "fillWith": {
-    "message": "Rellenar con Keyless"
   },
   "hostMissingTitle": {
     "message": "No se encontró la app Keyless"
@@ -113,5 +107,87 @@
   },
   "noResults": {
     "message": "Sin resultados."
+  },
+  "unlock": {
+    "message": "Desbloquear"
+  },
+  "unlockWithSystem": {
+    "message": "Desbloquear con la contraseña del equipo"
+  },
+  "waitingSystem": {
+    "message": "Confirma con la contraseña del equipo…"
+  },
+  "unlockInPopup": {
+    "message": "Escribe tu contraseña maestra en la ventana de Keyless."
+  },
+  "unlockToolbarHint": {
+    "message": "Haz clic en el botón de Keyless en la barra del navegador para desbloquear."
+  },
+  "masterPassword": {
+    "message": "Contraseña maestra"
+  },
+  "showPassword": {
+    "message": "Mostrar contraseña"
+  },
+  "hidePassword": {
+    "message": "Ocultar contraseña"
+  },
+  "or": {
+    "message": "o"
+  },
+  "wrongPassword": {
+    "message": "Contraseña maestra incorrecta."
+  },
+  "rateLimited": {
+    "message": "Demasiados intentos. Espera un momento e inténtalo de nuevo."
+  },
+  "unlockBusy": {
+    "message": "Primero termina o cancela la solicitud de contraseña del equipo."
+  },
+  "unlockFailed": {
+    "message": "No se pudo desbloquear Keyless."
+  },
+  "noAccount": {
+    "message": "Primero inicia sesión en Keyless desde la aplicación."
+  },
+  "signIn": {
+    "message": "Iniciar sesión"
+  },
+  "otherLogins": {
+    "message": "Otros inicios de sesión"
+  },
+  "findLogin": {
+    "message": "Escribe para buscar un inicio de sesión…"
+  },
+  "close": {
+    "message": "Cerrar"
+  },
+  "cancel": {
+    "message": "Cancelar"
+  },
+  "fillAnyway": {
+    "message": "Rellenar de todos modos"
+  },
+  "otherSiteWarning": {
+    "message": "«$TITLE$» está guardado para $ITEM$, no para $PAGE$. ¿Rellenarlo aquí de todos modos?",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "item": {
+        "content": "$2"
+      },
+      "page": {
+        "content": "$3"
+      }
+    }
+  },
+  "savedFor": {
+    "message": "Guardado para $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
   }
 }

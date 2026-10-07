@@ -8,9 +8,6 @@
   "commandFill": {
     "message": "Fill the login for this page"
   },
-  "loading": {
-    "message": "Loading…"
-  },
   "lockedTitle": {
     "message": "Keyless is locked"
   },
@@ -25,9 +22,6 @@
   },
   "noMatches": {
     "message": "No logins saved for this site."
-  },
-  "fillWith": {
-    "message": "Fill with Keyless"
   },
   "hostMissingTitle": {
     "message": "Keyless app not found"
@@ -113,5 +107,87 @@
   },
   "noResults": {
     "message": "No results."
+  },
+  "unlock": {
+    "message": "Unlock"
+  },
+  "unlockWithSystem": {
+    "message": "Unlock with computer password"
+  },
+  "waitingSystem": {
+    "message": "Confirm with your computer password…"
+  },
+  "unlockInPopup": {
+    "message": "Type your master password in the Keyless window."
+  },
+  "unlockToolbarHint": {
+    "message": "Click the Keyless button in the browser toolbar to unlock."
+  },
+  "masterPassword": {
+    "message": "Master password"
+  },
+  "showPassword": {
+    "message": "Show password"
+  },
+  "hidePassword": {
+    "message": "Hide password"
+  },
+  "or": {
+    "message": "or"
+  },
+  "wrongPassword": {
+    "message": "Wrong master password."
+  },
+  "rateLimited": {
+    "message": "Too many attempts. Wait a moment and try again."
+  },
+  "unlockBusy": {
+    "message": "Finish or cancel the computer password prompt first."
+  },
+  "unlockFailed": {
+    "message": "Could not unlock Keyless."
+  },
+  "noAccount": {
+    "message": "Sign in to Keyless in the app first."
+  },
+  "signIn": {
+    "message": "Sign in"
+  },
+  "otherLogins": {
+    "message": "Other logins"
+  },
+  "findLogin": {
+    "message": "Type to find a login…"
+  },
+  "close": {
+    "message": "Close"
+  },
+  "cancel": {
+    "message": "Cancel"
+  },
+  "fillAnyway": {
+    "message": "Fill anyway"
+  },
+  "otherSiteWarning": {
+    "message": "“$TITLE$” is saved for $ITEM$, not for $PAGE$. Fill it here anyway?",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "item": {
+        "content": "$2"
+      },
+      "page": {
+        "content": "$3"
+      }
+    }
+  },
+  "savedFor": {
+    "message": "Saved for $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
   }
 }

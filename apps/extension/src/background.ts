@@ -1,15 +1,26 @@
 // Background script: owns the connection to the Keyless app.
 //
-// Messages from the popup (trusted extension page) may search all logins and
-// fill or copy any of them. Messages from content scripts may only ask for
-// logins matching the page they run in; the app re-checks the URL before
-// returning credentials.
+// Three kinds of callers, told apart by the sender:
+// - the popup (trusted extension page): may search all logins, fill or copy
+//   any of them and unlock Keyless;
+// - the Keyless menus shown inside web pages (inline.html, an extension page
+//   in an iframe): may list the logins for the tab they are in, search, fill
+//   into that tab and unlock. They must present the token their content
+//   script registered, so a page cannot embed them on its own;
+// - content scripts (web page process): may only register that token and
+//   ask how many logins match their page. Credentials never go to them
+//   unless the user picked a login in the popup or a Keyless menu.
+// The app re-checks every URL before returning credentials.
 
 import { channelKey, equalBytes, fromBase64, identity, kvDelete, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
-import type { Login, Status } from "./types";
+import type { Credentials, InlineState, Login, PageState, Status } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
+/** After the user cancels the computer password prompt, opening the popup
+ * again does not bring it back right away. */
+const AUTO_PROMPT_COOLDOWN_MS = 30_000;
+const EXTENSION_BASE = chrome.runtime.getURL("");
 
 type Pending = { resolve: (value: any) => void; reject: (reason: Error) => void };
 
@@ -58,6 +69,9 @@ class NativeConnection {
 }
 
 const native = new NativeConnection();
+/** Unlocking can wait minutes for the user; the app answers one request at a
+ * time per connection, so it gets its own. */
+const slow = new NativeConnection();
 let session: { key: CryptoKey; appPublic: Uint8Array } | null = null;
 
 function browserName(): string {
@@ -102,7 +116,7 @@ async function connect(): Promise<Status> {
   return { state: "ready" };
 }
 
-async function call<T = any>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
+async function call<T = any>(cmd: string, args: Record<string, unknown> = {}, connection = native): Promise<T> {
   if (!session) {
     const status = await connect();
     if (status.state !== "ready") throw new BridgeError(status.state);
@@ -112,7 +126,7 @@ async function call<T = any>(cmd: string, args: Record<string, unknown> = {}): P
   const { nonce, ct } = await seal(session!.key, request);
   let reply: any;
   try {
-    reply = await native.send({ type: "enc", pub: toBase64(me.publicRaw), nonce, ct });
+    reply = await connection.send({ type: "enc", pub: toBase64(me.publicRaw), nonce, ct });
   } catch {
     session = null;
     throw new BridgeError("host_missing");
@@ -127,12 +141,23 @@ async function call<T = any>(cmd: string, args: Record<string, unknown> = {}): P
   return response.data as T;
 }
 
+type AppStatus = { locked: boolean; email?: string; systemUnlock?: boolean };
+
+function fromAppStatus(result: AppStatus): Status {
+  return result.locked ? { state: "locked", systemUnlock: Boolean(result.systemUnlock) } : { state: "ready", email: result.email };
+}
+
+/** Full status for the popup, including the pairing code. */
 async function status(): Promise<Status> {
   const base = await connect();
   if (base.state !== "ready") return base;
+  return quickStatus();
+}
+
+/** Status over the existing channel, for frequent checks. */
+async function quickStatus(): Promise<Status> {
   try {
-    const result = await call<{ locked: boolean; email?: string }>("status");
-    return result.locked ? { state: "locked" } : { state: "ready", email: result.email };
+    return fromAppStatus(await call<AppStatus>("status"));
   } catch (err) {
     return { state: err instanceof BridgeError ? (err.message as Status["state"]) : "error" };
   }
@@ -151,15 +176,78 @@ async function pair(): Promise<boolean> {
   return false;
 }
 
+// ----- Unlocking ----------------------------------------------------------------
+
+let systemUnlock: Promise<void> | null = null;
+let systemCancelledAt = 0;
+
+/** Asks the app to unlock with the computer password. The operating system
+ * shows its own prompt; the app stays in the background. */
+function unlockWithSystem(): Promise<void> {
+  systemUnlock ??= call("unlock_system", {}, slow)
+    .then(unlocked)
+    .catch((err) => {
+      if (err instanceof BridgeError && err.message === "cancelled") systemCancelledAt = Date.now();
+      throw err;
+    })
+    .finally(() => {
+      systemUnlock = null;
+    });
+  return systemUnlock;
+}
+
+/** Tells open Keyless menus to refresh. */
+async function unlocked(): Promise<void> {
+  await chrome.storage.session.set({ unlockedAt: Date.now() }).catch(() => undefined);
+}
+
+// ----- Filling ----------------------------------------------------------------
+
+function isWebPage(url: string | undefined): url is string {
+  return Boolean(url && /^https?:/.test(url));
+}
+
 async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
 }
 
-async function fillTab(tabId: number, url: string, id: string): Promise<void> {
-  const credentials = await call<{ username: string; password: string; totp: string | null }>("credentials", { id, url });
-  await chrome.tabs.sendMessage(tabId, { type: "keyless-fill", ...credentials }, { frameId: 0 });
+/** Fills a login into the top frame of a tab. The content script checks that
+ * the page is still on the origin the credentials were checked against. */
+async function fillTab(tabId: number, url: string, id: string, options: { submit?: boolean; anySite?: boolean } = {}): Promise<void> {
+  const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
+  await chrome.tabs.sendMessage(
+    tabId,
+    { type: "keyless-fill", ...credentials, origin: new URL(url).origin, submit: Boolean(options.submit) },
+    { frameId: 0 },
+  );
 }
+
+// ----- Menus inside pages -------------------------------------------------------
+
+const tokenKey = (tabId: number) => `frame:${tabId}`;
+
+async function validToken(tabId: number, token: unknown): Promise<boolean> {
+  if (typeof token !== "string" || token.length < 32) return false;
+  const key = tokenKey(tabId);
+  const stored = (await chrome.storage.session.get(key))[key];
+  return typeof stored === "string" && stored === token;
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  void chrome.storage.session.remove(tokenKey(tabId)).catch(() => undefined);
+});
+
+async function inlineState(url: string | null): Promise<InlineState> {
+  const host = url ? new URL(url).hostname.replace(/^www\./, "") : null;
+  const current = await quickStatus();
+  if (current.state !== "ready" || !url) {
+    return { state: current.state, host, logins: [], systemUnlock: Boolean(current.systemUnlock) };
+  }
+  return { state: "ready", host, logins: await call<Login[]>("match", { url }), systemUnlock: false };
+}
+
+// ----- Message routing ----------------------------------------------------------
 
 type Reply = { ok: true; data?: unknown } | { ok: false; error: string };
 
@@ -172,12 +260,28 @@ async function handlePopup(message: any): Promise<Reply> {
     case "launch":
       await native.send({ type: "launch" }).catch(() => undefined);
       return { ok: true };
-    case "show_app":
-      await call("show_app");
+    case "unlock": {
+      const password = typeof message.password === "string" ? message.password : "";
+      if (!password) return { ok: false, error: "bad_request" };
+      await call("unlock", { password }, slow);
+      await unlocked();
       return { ok: true };
+    }
+    case "unlock_system": {
+      // Opening the popup starts the prompt by itself, unless the user just
+      // cancelled it.
+      if (message.auto && !systemUnlock && Date.now() - systemCancelledAt < AUTO_PROMPT_COOLDOWN_MS) {
+        return { ok: false, error: "skipped" };
+      }
+      await unlockWithSystem();
+      // The system prompt takes the focus, which closes the popup: open it
+      // again, now unlocked.
+      await chrome.action.openPopup?.().catch(() => undefined);
+      return { ok: true };
+    }
     case "tab_matches": {
       const tab = await activeTab();
-      if (!tab?.url || !/^https?:/.test(tab.url)) return { ok: true, data: { url: null, logins: [] } };
+      if (!isWebPage(tab?.url)) return { ok: true, data: { url: null, logins: [] } };
       const logins = await call<Login[]>("match", { url: tab.url });
       return { ok: true, data: { url: tab.url, logins } };
     }
@@ -185,8 +289,8 @@ async function handlePopup(message: any): Promise<Reply> {
       return { ok: true, data: await call<Login[]>("search", { query: String(message.query ?? "") }) };
     case "fill": {
       const tab = await activeTab();
-      if (!tab?.id || !tab.url) return { ok: false, error: "no_tab" };
-      await fillTab(tab.id, tab.url, String(message.id));
+      if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
+      await fillTab(tab.id, tab.url, String(message.id), { anySite: Boolean(message.anySite) });
       return { ok: true };
     }
     case "copy":
@@ -196,17 +300,45 @@ async function handlePopup(message: any): Promise<Reply> {
   }
 }
 
+async function handleInline(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
+  const tab = sender.tab;
+  if (tab?.id === undefined || !(await validToken(tab.id, message.token))) return { ok: false, error: "forbidden" };
+  const url = isWebPage(tab.url) ? tab.url : null;
+  switch (message.type) {
+    case "hello":
+      return { ok: true };
+    case "state":
+      return { ok: true, data: await inlineState(url) };
+    case "search":
+      return { ok: true, data: await call<Login[]>("search", { query: String(message.query ?? "") }) };
+    case "fill":
+      if (!url) return { ok: false, error: "no_tab" };
+      await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), anySite: Boolean(message.anySite) });
+      return { ok: true };
+    case "unlock_system":
+      await unlockWithSystem();
+      return { ok: true };
+    default:
+      return { ok: false, error: "bad_request" };
+  }
+}
+
 async function handleContent(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
   // Only the top frame of a regular web page.
-  if (sender.frameId !== 0 || !sender.url || !/^https?:/.test(sender.url)) return { ok: false, error: "forbidden" };
+  if (sender.frameId !== 0 || sender.tab?.id === undefined || !isWebPage(sender.url)) return { ok: false, error: "forbidden" };
   switch (message.type) {
-    case "matches":
-      return { ok: true, data: await call<Login[]>("match", { url: sender.url }) };
-    case "credentials":
-      return { ok: true, data: await call("credentials", { id: String(message.id), url: sender.url }) };
-    case "show_app":
-      await call("show_app");
+    case "register":
+      // The token the page's Keyless menus will present.
+      if (typeof message.token !== "string" || message.token.length < 32) return { ok: false, error: "bad_request" };
+      await chrome.storage.session.set({ [tokenKey(sender.tab.id)]: message.token });
       return { ok: true };
+    case "page_state": {
+      const current = await quickStatus();
+      let count = 0;
+      if (current.state === "ready") count = (await call<Login[]>("match", { url: sender.url })).length;
+      const data: PageState = { state: current.state, count };
+      return { ok: true, data };
+    }
     default:
       return { ok: false, error: "bad_request" };
   }
@@ -214,10 +346,14 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
-  // Extension pages (the popup, also when opened in a tab) are served from the
-  // extension origin; content scripts report the URL of the web page.
-  const fromExtensionPage = Boolean(sender.url?.startsWith(chrome.runtime.getURL("")));
-  (fromExtensionPage ? handlePopup(message) : handleContent(message, sender))
+  // Extension pages (the popup, also when opened in a tab, and the menus in
+  // web pages) are served from the extension origin; content scripts report
+  // the URL of the web page.
+  const page = sender.url?.startsWith(EXTENSION_BASE) ? new URL(sender.url).pathname : null;
+  const handler =
+    page === "/popup.html" ? handlePopup(message) : page === "/inline.html" ? handleInline(message, sender) : page === null ? handleContent(message, sender) : null;
+  if (!handler) return false;
+  handler
     .then(sendResponse)
     .catch((err: Error) => sendResponse({ ok: false, error: err instanceof BridgeError ? err.message : "error" }));
   return true;
@@ -227,7 +363,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.commands?.onCommand.addListener(async (command) => {
   if (command !== "fill-login") return;
   const tab = await activeTab();
-  if (!tab?.id || !tab.url || !/^https?:/.test(tab.url)) return;
+  if (!tab?.id || !isWebPage(tab.url)) return;
   try {
     const logins = await call<Login[]>("match", { url: tab.url });
     if (logins.length > 0) await fillTab(tab.id, tab.url, logins[0].id);
