@@ -230,7 +230,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn polkit_call_is_well_formed() {
-        match authenticate().await {
+        match linux::authenticate().await {
             Ok(authorized) => println!("polkit answered: authorized = {authorized}"),
             Err(err) => println!("polkit answered with an error: {err:?}"),
         }
