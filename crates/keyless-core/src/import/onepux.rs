@@ -124,6 +124,8 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
         }
     }
 
+    details.sort_main_fields();
+
     // "Password" items keep their value in details.password.
     if let Some(pw) = details_raw.get("password").and_then(Value::as_str)
         && details.password().is_none()

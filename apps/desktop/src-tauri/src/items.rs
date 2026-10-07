@@ -339,7 +339,8 @@ pub async fn get_item(state: &AppState, item_id: &str) -> AppResult<ItemDetailVi
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;
     let cached = session.items.get(item_id).ok_or(AppError::NotFound)?;
-    let (local, details) = load_details(state, session, item_id)?;
+    let (local, mut details) = load_details(state, session, item_id)?;
+    details.sort_main_fields();
     let can_edit = session.vault(&local.vault_id)?.can_write();
     Ok(ItemDetailView {
         summary: summary(item_id, cached),
@@ -360,7 +361,9 @@ pub async fn get_item_draft(state: &AppState, item_id: &str) -> AppResult<ItemDr
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;
     let cached = session.items.get(item_id).ok_or(AppError::NotFound)?;
-    let (_, details) = load_details(state, session, item_id)?;
+    let (_, mut details) = load_details(state, session, item_id)?;
+    // Same order as the item view; saving keeps it.
+    details.sort_main_fields();
     let o = &cached.overview;
     Ok(ItemDraft {
         id: Some(item_id.to_string()),

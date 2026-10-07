@@ -172,6 +172,17 @@ impl ItemDetails {
             .chain(self.sections.iter().flat_map(|s| s.fields.iter()))
     }
 
+    /// Puts the username before the password, then the other main fields
+    /// as they were. Imports keep the source's order, which sometimes has
+    /// the password first.
+    pub fn sort_main_fields(&mut self) {
+        self.fields.sort_by_key(|f| match f.purpose {
+            Some(FieldPurpose::Username) => 0,
+            Some(FieldPurpose::Password) => 1,
+            _ => 2,
+        });
+    }
+
     pub fn field_by_purpose(&self, purpose: FieldPurpose) -> Option<&Field> {
         self.all_fields().find(|f| f.purpose == Some(purpose))
     }
@@ -235,5 +246,20 @@ mod tests {
         ];
         assert_eq!(details.username(), Some("me"));
         assert_eq!(details.password(), Some("pw"));
+    }
+
+    #[test]
+    fn username_comes_before_password() {
+        let field = |id: &str, purpose| Field { id: id.into(), label: id.into(), kind: FieldKind::Text, value: String::new(), purpose };
+        let mut details = ItemDetails::default();
+        details.fields = vec![
+            field("otp", Some(FieldPurpose::Other)),
+            field("password", Some(FieldPurpose::Password)),
+            field("note", None),
+            field("username", Some(FieldPurpose::Username)),
+        ];
+        details.sort_main_fields();
+        let order: Vec<&str> = details.fields.iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(order, ["username", "password", "otp", "note"]);
     }
 }
