@@ -64,6 +64,8 @@ export interface SaveCandidate {
   vault: string;
   /** Saved with the username that was typed. */
   sameUser: boolean;
+  /** Its password is the current password typed in a change-password form. */
+  current: boolean;
 }
 
 export interface Vault {

@@ -9,6 +9,13 @@
 // script learns nothing about the logins except how many match the page,
 // gets credentials only to type them into the page once the user picked one,
 // and reports what the user typed when a login form is submitted.
+//
+// Against clickjacking (a page hiding or covering the menus to trick a click
+// on them), the menus live in the browser's top layer under a random tag, the
+// page's changes to them are undone, this script tells them when it sees
+// them altered, and they ignore clicks while they cannot be seen (see
+// inline.ts). Only fields the user can see are filled, so hidden "honeypot"
+// fields get nothing.
 
 import type { Credentials, FieldInfo, FormKind, PageState, Status } from "./types";
 
@@ -27,6 +34,8 @@ const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.to
 
 const USERNAME_HINT = /user|email|e-mail|login|account|identifier|usuario|correo|cpf/i;
 const OTP_HINT = /otp|totp|2fa|mfa|one.?time|verification|token|c[oó]digo|code/i;
+/** Password fields that are not a login's: card codes, PINs, one-time codes. */
+const NOT_LOGIN_PASSWORD = /cvv|cvc|csc|security.?code|\bpin\b|otp|token|one.?time|verification|c[oó]digo|card|cart[aã]o|tarjeta/i;
 const SUBMIT_TEXT = /^(log ?in|sign ?in|entrar|acessar|iniciar sesi[oó]n|ingresar|continue|continuar|next|avan[cç]ar|pr[oó]ximo|siguiente)$/i;
 /** Buttons that send a login, sign-up or change-password form. */
 const SEND_TEXT =
@@ -42,7 +51,16 @@ function fieldKind(input: HTMLInputElement): Kind | null {
   const type = (input.type || "text").toLowerCase();
   const autocomplete = (input.autocomplete || "").toLowerCase();
   const hints = `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute("aria-label") ?? ""}`;
-  if (type === "password") return "password";
+  if (type === "password") {
+    // Some pages mask one-time codes, card codes and PINs too.
+    if (autocomplete.includes("one-time-code")) return "otp";
+    if (autocomplete.includes("cc-")) return null;
+    const text = `${hints} ${input.labels ? Array.from(input.labels, (l) => l.textContent ?? "").join(" ") : ""}`;
+    if (NOT_LOGIN_PASSWORD.test(text)) return OTP_HINT.test(text) && input.maxLength > 0 && input.maxLength <= 10 ? "otp" : null;
+    // A short numeric secret.
+    if (input.maxLength > 0 && input.maxLength <= 6 && /numeric|decimal|tel/.test(input.inputMode)) return null;
+    return "password";
+  }
   if (autocomplete.includes("one-time-code")) return "otp";
   if (!["text", "email", "tel", ""].includes(type)) return null;
   if (autocomplete.includes("username") || autocomplete.includes("email") || type === "email") return "username";
@@ -57,6 +75,29 @@ function visible(el: HTMLElement): boolean {
   return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
 }
 
+/** A field the user can actually see: not tiny, not transparent, not moved
+ * out of the page, and not covered where it is on screen. Pages hide
+ * "honeypot" fields to collect what a password manager fills into them. */
+function viewable(el: HTMLElement): boolean {
+  const rect = el.getBoundingClientRect();
+  if (rect.width < 10 || rect.height < 10) return false;
+  if (rect.right + scrollX < 0 || rect.bottom + scrollY < 0) return false;
+  for (let node: Element | null = el; node; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    if (style.display === "none" || style.visibility !== "visible" || Number(style.opacity) < 0.1) return false;
+  }
+  const x = rect.left + rect.width / 2;
+  const y = rect.top + rect.height / 2;
+  if (x >= 0 && y >= 0 && x < innerWidth && y < innerHeight) {
+    const top = document.elementFromPoint(x, y);
+    // A floating label drawn over its own field does not hide it.
+    const label = top?.closest("label");
+    const ownLabel = label !== null && label !== undefined && Array.from((el as HTMLInputElement).labels ?? []).includes(label);
+    if (top && top !== el && !el.contains(top) && top !== host && !ownLabel) return false;
+  }
+  return true;
+}
+
 /** Sets a value the way frameworks (React, Vue, Angular) notice. */
 function setValue(input: HTMLInputElement, value: string) {
   input.focus();
@@ -68,7 +109,7 @@ function setValue(input: HTMLInputElement, value: string) {
 
 function loginFields(anchor: HTMLInputElement | null) {
   const scope: ParentNode = anchor?.form ?? document;
-  const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(visible);
+  const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(viewable);
   const password = inputs.find((i) => i.type === "password") ?? null;
   let username: HTMLInputElement | null = null;
   if (password) {
@@ -80,11 +121,27 @@ function loginFields(anchor: HTMLInputElement | null) {
   return { username, password, otp };
 }
 
+/** Fills a value split over several boxes when the page asks for it that
+ * way (a one-time code in 6 boxes, a card number in 4). */
+function setSplit(first: HTMLInputElement, value: string) {
+  const size = first.maxLength;
+  if (size > 0 && size < value.length) {
+    const scope = first.parentElement?.parentElement ?? first.parentElement ?? document;
+    const all = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter((i) => i.maxLength === size && viewable(i));
+    const boxes = all.slice(Math.max(0, all.indexOf(first)));
+    if (boxes.length * size >= value.length) {
+      boxes.slice(0, Math.ceil(value.length / size)).forEach((box, i) => setValue(box, value.slice(i * size, (i + 1) * size)));
+      return;
+    }
+  }
+  setValue(first, value);
+}
+
 function fill(anchor: HTMLInputElement | null, credentials: Credentials) {
   const fields = loginFields(anchor);
   if (fields.username && credentials.username) setValue(fields.username, credentials.username);
   if (fields.password && credentials.password) setValue(fields.password, credentials.password);
-  if (fields.otp && credentials.totp && !fields.password) setValue(fields.otp, credentials.totp);
+  if (fields.otp && credentials.totp && !fields.password) setSplit(fields.otp, credentials.totp);
   return fields;
 }
 
@@ -94,14 +151,16 @@ function hintsOf(input: HTMLInputElement): string {
 
 /** A password being chosen (sign-up, change password), not typed from memory. */
 function isNewPassword(input: HTMLInputElement): boolean {
-  if (input.type !== "password") return false;
+  if (fieldKind(input) !== "password") return false;
   const autocomplete = (input.autocomplete || "").toLowerCase();
   if (autocomplete.includes("new-password")) return true;
   if (autocomplete.includes("current-password") || CURRENT_PASSWORD_HINT.test(hintsOf(input))) return false;
   if (NEW_PASSWORD_HINT.test(hintsOf(input))) return true;
   // Password and confirmation (sign-up); current, new and confirmation.
   const scope: ParentNode = input.form ?? document;
-  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(visible);
+  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(
+    (p) => visible(p) && fieldKind(p) === "password",
+  );
   return passwords.length === 2 || (passwords.length >= 3 && passwords.indexOf(input) > 0);
 }
 
@@ -187,20 +246,29 @@ function partOf(control: FormControl): [FormKind, string] | null {
   return null;
 }
 
-/** The form's fields of this kind, with what each asks for. */
-function formParts(anchor: Element | null, kind: FormKind): Map<FormControl, string> {
+/** The form's fields of this kind, with what each asks for: the first
+ * visible field for each thing asked. */
+function formParts(anchor: Element | null, kind: FormKind, check: (el: HTMLElement) => boolean = viewable): Map<FormControl, string> {
   const scope: ParentNode = (anchor as FormControl | null)?.form ?? document;
   const parts = new Map<FormControl, string>();
+  const taken = new Set<string>();
   for (const control of scope.querySelectorAll<FormControl>("input, select")) {
-    if (control.disabled || !visible(control)) continue;
+    // Selects are often hidden under a page's own drop-down: only inputs
+    // can be "honeypots" worth worrying about.
+    if (control.disabled || !(control instanceof HTMLSelectElement ? visible(control) : check(control))) continue;
+    let part: string | null = null;
     if (control instanceof HTMLInputElement && fieldKind(control)) {
       // Login fields stay login fields; an address form's email is filled too.
       const email = control.type === "email" || (control.autocomplete || "").toLowerCase().includes("email");
-      if (kind === "identity" && email) parts.set(control, "email");
-      continue;
+      if (kind === "identity" && email) part = "email";
+    } else {
+      const found = partOf(control);
+      if (found?.[0] === kind) part = found[1];
     }
-    const part = partOf(control);
-    if (part?.[0] === kind) parts.set(control, part[1]);
+    if (part && !taken.has(part)) {
+      taken.add(part);
+      parts.set(control, part);
+    }
   }
   return parts;
 }
@@ -210,7 +278,7 @@ function formParts(anchor: Element | null, kind: FormKind): Map<FormControl, str
 function formKindOf(control: FormControl): FormKind | null {
   const part = partOf(control);
   if (!part) return null;
-  return formParts(control, part[0]).size >= 2 ? part[0] : null;
+  return formParts(control, part[0], visible).size >= 2 ? part[0] : null;
 }
 
 function fieldInfo(input: HTMLInputElement): FieldInfo {
@@ -258,7 +326,7 @@ function setControl(control: FormControl, values: string[]) {
     control.dispatchEvent(new Event("input", { bubbles: true }));
     control.dispatchEvent(new Event("change", { bubbles: true }));
   } else if (values[0]) {
-    setValue(control, values[0]);
+    setSplit(control, values[0]);
   }
 }
 
@@ -317,7 +385,8 @@ async function submitAfterFill(field: HTMLInputElement) {
 const LOGO = `<svg class="logo" viewBox="0 0 1024 1024" width="18" height="18" aria-hidden="true"><circle cx="512" cy="512" r="452" fill="#14B8A6"/><circle cx="512" cy="512" r="318" fill="#073b37"/><circle cx="512" cy="438" r="94" fill="#fff"/><path d="M470 486H554L586 676Q590 702 564 702H460Q434 702 438 676Z" fill="#fff"/></svg>`;
 
 const STYLE = `
-:host { all: initial; }
+:host { all: initial; position: fixed; inset: 0 auto auto 0; width: 0; height: 0; margin: 0; padding: 0; border: 0;
+  overflow: visible; background: transparent; }
 .btn { position: fixed; z-index: 2147483646; height: 24px; min-width: 24px; border: 0; margin: 0; padding: 0 3px; border-radius: 12px;
   background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px; }
 .btn:hover { background: rgba(20,184,166,.15); }
@@ -331,11 +400,15 @@ iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0;
    paints an opaque background behind the menu. */
 @media (prefers-color-scheme: dark) { iframe { color-scheme: dark; } }
 iframe.open { visibility: visible; pointer-events: auto; }
-iframe.card { top: 0; left: 50%; transform: translateX(-50%); }
+iframe.card { top: 0; left: max(0px, calc(50% - ${(CARD_WIDTH + 2 * PAD) / 2}px)); }
 iframe.save { top: 0; right: 12px; }
 `;
 
-const host = document.createElement("keyless-autofill");
+/** A random tag: page styles cannot target it by name. */
+const host = document.createElement(`keyless-${token.slice(0, 10)}`);
+/** The top layer puts the menus above everything the page draws. */
+const topLayer = typeof host.showPopover === "function";
+if (topLayer) host.popover = "manual";
 const root = host.attachShadow({ mode: "closed" });
 root.innerHTML = `<style>${STYLE}</style>`;
 const button = document.createElement("button");
@@ -378,9 +451,139 @@ function renderButton(kind: ButtonKind) {
   place();
 }
 
-function mount() {
-  if (!host.isConnected && document.documentElement) document.documentElement.appendChild(host);
+/** Where the menus go: in the page's open modal dialog, if any, since a
+ * modal dialog makes everything outside it inert (unclickable). */
+function container(): Element | null {
+  let dialogs: HTMLDialogElement[] = [];
+  try {
+    dialogs = Array.from(document.querySelectorAll<HTMLDialogElement>("dialog:modal"));
+  } catch {
+    // An older browser without :modal.
+  }
+  return dialogs[dialogs.length - 1] ?? document.documentElement;
 }
+
+type MovableParent = Element & { moveBefore?: (node: Node, child: Node | null) => void };
+
+function mount() {
+  const parent = container() as MovableParent | null;
+  if (!parent) return;
+  if (host.parentNode !== parent) {
+    // Moved without reloading the menus where the browser can; otherwise
+    // they reload and are set up again (see Frame).
+    try {
+      if (host.isConnected && parent.moveBefore) parent.moveBefore(host, null);
+      else parent.appendChild(host);
+    } catch {
+      parent.appendChild(host);
+    }
+    guard.observe(host, { attributes: true });
+    removal.disconnect();
+    removal.observe(parent, { childList: true });
+  }
+  if (topLayer && host.isConnected && !host.matches(":popover-open")) raise();
+}
+
+/** Shows the menus above anything else in the top layer, including dialogs
+ * and popovers the page opened after them. */
+function raise() {
+  if (!topLayer || !host.isConnected) return;
+  try {
+    if (host.matches(":popover-open")) host.hidePopover();
+    host.showPopover();
+  } catch {
+    // Not connected, or the page made it impossible: the menus refuse clicks.
+  }
+  // Chrome stops updating the menus' view of their visibility after this:
+  // they start watching it again.
+  for (const frame of [menu, card, saveFrame]) if (frame?.open) frame.post({ type: "recheck" });
+}
+
+/** The page has something of its own in the top layer (a dialog, a popover),
+ * which may be above the menus. */
+function outranked(): boolean {
+  return Array.from(document.querySelectorAll(":popover-open, :modal")).some((el) => el !== host);
+}
+
+/** Undoes what the page does to the menus' element. */
+const guard = new MutationObserver(() => {
+  for (const name of host.getAttributeNames()) if (name !== "popover") host.removeAttribute(name);
+  if (topLayer && host.getAttribute("popover") !== "manual") host.popover = "manual";
+  raise();
+});
+const removal = new MutationObserver(() => {
+  // Removed by the page: put back while something is shown.
+  if (!host.isConnected && (button.style.display !== "none" || [menu, card, saveFrame].some((f) => f?.open))) mount();
+});
+host.addEventListener("toggle", (event) => {
+  if ((event as ToggleEvent).newState === "closed" && [menu, card, saveFrame].some((f) => f?.open)) raise();
+});
+
+/** What the menus' element must look like (computed): anything else may hide,
+ * shrink, clip or blend the menus. A property the browser does not know
+ * reads as "" and is skipped. */
+const EXPECTED_STYLE: Record<string, string> = {
+  position: "fixed",
+  display: "block",
+  visibility: "visible",
+  opacity: "1",
+  overflow: "visible",
+  filter: "none",
+  "backdrop-filter": "none",
+  transform: "none",
+  translate: "none",
+  rotate: "none",
+  scale: "none",
+  zoom: "1",
+  perspective: "none",
+  "clip-path": "none",
+  "mask-image": "none",
+  "mix-blend-mode": "normal",
+  contain: "none",
+  "will-change": "auto",
+  "content-visibility": "visible",
+};
+
+/** Nothing the page did makes the menus invisible or see-through. The menus
+ * also check this themselves where the browser can (see inline.ts). */
+function untouched(): boolean {
+  if (!host.isConnected || (topLayer && !host.matches(":popover-open"))) return false;
+  const style = getComputedStyle(host);
+  for (const [name, expected] of Object.entries(EXPECTED_STYLE)) {
+    const value = style.getPropertyValue(name);
+    if (value && value !== expected) return false;
+  }
+  if (!topLayer) {
+    // Outside the top layer the page's own opacity applies to the menus.
+    for (const el of [document.documentElement, document.body]) if (el && Number(getComputedStyle(el).opacity) < 0.99) return false;
+  }
+  return true;
+}
+
+/** Nothing the page put on screen later sits over the menu. */
+function uncovered(frame: Frame): boolean {
+  const rect = frame.iframe.getBoundingClientRect();
+  const points = [
+    [rect.left + rect.width / 2, rect.top + rect.height / 2],
+    [rect.left + PAD + 4, rect.top + PAD + 4],
+    [rect.right - PAD - 4, rect.bottom - PAD - 4],
+  ];
+  return points.every(([x, y]) => x < 0 || y < 0 || x >= innerWidth || y >= innerHeight || document.elementFromPoint(x, y) === host);
+}
+
+const lastSafe = new Map<Frame, boolean>();
+/** Tells the open menus whether they can be trusted to be seen. */
+function reportSafety() {
+  const style = untouched();
+  for (const frame of [menu, card, saveFrame]) {
+    if (!frame?.open || frame.height === 0) continue;
+    const safe = style && uncovered(frame);
+    if (lastSafe.get(frame) === safe) continue;
+    lastSafe.set(frame, safe);
+    frame.post({ type: "safety", safe });
+  }
+}
+setInterval(() => [menu, card, saveFrame].some((f) => f?.open) && reportSafety(), 250);
 
 function send<T>(message: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
   // Rejects when the extension was updated or reloaded under this page.
@@ -405,6 +608,8 @@ window.addEventListener("pageshow", (event) => {
 class Frame {
   readonly iframe = document.createElement("iframe");
   private loading: Promise<void> | null = null;
+  /** What the menu was last shown for, to set it up again if it reloads. */
+  private details: { activate: boolean; field: FieldInfo | null } = { activate: false, field: null };
   open = false;
   height = 0;
 
@@ -421,8 +626,13 @@ class Frame {
    * `field`: the field it was opened for. */
   show(options: { activate?: boolean; field?: FieldInfo } = {}) {
     mount();
+    // Above whatever the page put in the top layer since.
+    if (!this.open && outranked()) raise();
     this.open = true;
     const details = { activate: options.activate ?? false, field: options.field ?? null };
+    this.details = { activate: false, field: details.field };
+    // Told again once it has its size (see resize).
+    lastSafe.delete(this);
     if (this.loading) {
       this.post({ type: "show", ...details });
       if (this.height > 0) this.iframe.classList.add("open");
@@ -431,14 +641,13 @@ class Frame {
     this.loading = register().then(
       () =>
         new Promise<void>((resolve) => {
-          this.iframe.addEventListener(
-            "load",
-            () => {
-              this.post({ type: "init", ...details });
-              resolve();
-            },
-            { once: true },
-          );
+          let first = true;
+          // Also when it reloads after being moved (see mount).
+          this.iframe.addEventListener("load", () => {
+            this.post({ type: "init", ...(first ? details : this.details) });
+            first = false;
+            resolve();
+          });
           this.iframe.src = chrome.runtime.getURL(`inline.html#${this.mode}`);
         }),
     );
@@ -454,6 +663,8 @@ class Frame {
     this.iframe.style.height = `${height}px`;
     if (this.open && height > 0) this.iframe.classList.add("open");
     place();
+    lastSafe.delete(this);
+    reportSafety();
   }
 
   post(message: Record<string, unknown>) {
@@ -466,7 +677,6 @@ let menu: Frame | null = null;
 let card: Frame | null = null;
 let cardDismissed = false;
 let filling = false;
-let lastUserInput = 0;
 
 /** Asked once per address, and again when the window gets the focus back
  * or Keyless was unlocked (not on every change of a busy page). */
@@ -493,9 +703,12 @@ function place() {
       top = rect.top - 4 - menu.height + PAD;
     }
     const left = Math.max(0, Math.min(rect.left - PAD, window.innerWidth - outer));
+    const moved = Math.abs(parseFloat(menu.iframe.style.top) - top) > 2 || Math.abs(parseFloat(menu.iframe.style.left) - left) > 2;
     menu.iframe.style.width = `${outer}px`;
     menu.iframe.style.top = `${top}px`;
     menu.iframe.style.left = `${left}px`;
+    // Moved under the pointer: no click is accepted right away.
+    if (moved) menu.post({ type: "moved" });
   }
 }
 
@@ -525,12 +738,24 @@ function closeMenu(refocus = false) {
 }
 
 /** Opens the menu by itself when there are logins to pick or a password to
- * suggest. When Keyless is locked the button shows a padlock instead, like
- * 1Password. */
+ * suggest, in a field the user clicked or tabbed to. Card and address menus
+ * open only with the Keyless button. When Keyless is locked the button
+ * shows a padlock instead, like 1Password. */
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
-  if (field !== current || document.activeElement !== field || menu?.open) return;
-  if (offers(state, field)) openMenu();
+  if (field !== current || document.activeElement !== field || menu?.open || !userWentTo(field)) return;
+  if (!fieldKind(field) || !offers(state, field)) return;
+  openMenu();
+}
+
+let lastPointer: { target: EventTarget | null; at: number } = { target: null, at: 0 };
+let lastTab = 0;
+document.addEventListener("pointerdown", (e) => e.isTrusted && (lastPointer = { target: e.target, at: Date.now() }), true);
+document.addEventListener("keydown", (e) => e.isTrusted && e.key === "Tab" && (lastTab = Date.now()), true);
+
+/** The user clicked the field or reached it with Tab just now. */
+function userWentTo(field: HTMLInputElement): boolean {
+  return (lastPointer.target === field && Date.now() - lastPointer.at < 1500) || Date.now() - lastTab < 1000;
 }
 
 /** The padlock button: Keyless asks for the password itself (the system's
@@ -563,6 +788,8 @@ function onState(state: Status["state"]) {
 
 /** Shows the sign-in card on login pages with saved logins. */
 async function scan() {
+  // Signed in without leaving the page: the card has nothing left to fill.
+  if (card?.open && !hasLoginForm()) card.hide();
   if (cardDismissed || card?.open || !hasLoginForm()) return;
   const state = await getPageState();
   if (cardDismissed || card?.open || state?.state !== "ready" || state.count === 0) return;
@@ -588,10 +815,6 @@ button.addEventListener("click", (e) => {
 // The field keeps the focus when the button is pressed.
 button.addEventListener("mousedown", (e) => e.preventDefault());
 
-for (const type of ["mousedown", "keydown", "touchstart"]) {
-  document.addEventListener(type, (e) => e.isTrusted && (lastUserInput = Date.now()), true);
-}
-
 document.addEventListener(
   "focusin",
   (e) => {
@@ -603,9 +826,8 @@ document.addEventListener(
     button.style.display = "flex";
     place();
     void getPageState().then((state) => current === target && renderButton(kindFor(state)));
-    // Not when the page focuses a field by itself on load: the card is there
-    // for that.
-    if (!filling && !refocusing && Date.now() - lastUserInput < 1000) void autoOpen(target);
+    // Not when the page focuses a field by itself: the card is there for that.
+    if (!filling && !refocusing) void autoOpen(target);
   },
   true,
 );
@@ -713,26 +935,70 @@ function showSavePrompt() {
   saveFrame.show();
 }
 
+function isLoginPassword(input: HTMLInputElement): boolean {
+  return fieldKind(input) === "password" && input.value !== "" && viewable(input);
+}
+
 /** The user sends a login, sign-up or change-password form: report what was
- * typed, for the "Save login?" prompt. */
+ * typed, for the "Save login?" prompt, which waits until the login worked. */
 function capture(anchor: HTMLInputElement | null) {
   const scope: ParentNode = anchor?.form ?? document;
-  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter((i) => visible(i) && i.value);
-  // The new password of a sign-up or change-password form.
-  const chosen = passwords.find(isNewPassword) ?? passwords[0] ?? null;
-  const username = loginFields(chosen ?? anchor).username?.value.trim() ?? "";
-  const password = chosen?.value ?? "";
+  // Payment forms are not logins.
+  if (formParts(anchor, "card").size >= 2) return;
+  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(isLoginPassword);
+  // Sign-up and change-password forms: the new password, and the current one.
+  let chosen = passwords.find(isNewPassword) ?? null;
+  let currentPassword = passwords.find((p) => !isNewPassword(p) && p.value !== chosen?.value) ?? null;
+  if (!chosen && passwords.length >= 2) {
+    // Forms that do not say which is which: the same password twice is a
+    // new one and its confirmation; before them, the current one.
+    const last = passwords[passwords.length - 1];
+    const repeated = passwords.filter((p) => p.value === last.value);
+    if (repeated.length >= 2) {
+      chosen = last;
+      currentPassword = passwords.find((p) => p.value !== last.value) ?? null;
+    }
+  }
+  const field = chosen ?? currentPassword;
+  const username = loginFields(field ?? anchor).username?.value.trim() ?? "";
+  const password = field?.value ?? "";
   if (!password && !username) return;
   const key = `${username}\n${password}`;
   if (key === filledKey || (key === lastCapture.key && Date.now() - lastCapture.at < 5000)) return;
   lastCapture = { key, at: Date.now() };
-  void send({ type: "capture", username, password, generated: password !== "" && password === suggested });
+  void send({
+    type: "capture",
+    username,
+    password,
+    current: chosen && currentPassword ? currentPassword.value : "",
+    generated: password !== "" && password === suggested,
+  });
+  if (field) watchOutcome(field);
+}
+
+/** Signing in worked when the form goes away for good (pages that do not
+ * navigate; for those that do, the next page tells). Not when it only hides
+ * while the page checks the password, then comes back with an error. */
+function watchOutcome(field: HTMLInputElement) {
+  const started = Date.now();
+  let goneSince: number | null = null;
+  const timer = setInterval(() => {
+    const gone = !field.isConnected || !visible(field);
+    if (!gone) goneSince = null;
+    else goneSince ??= Date.now();
+    if (goneSince !== null && Date.now() - goneSince >= 1500 && !hasLoginForm()) {
+      clearInterval(timer);
+      void send({ type: "capture_done" });
+    } else if (Date.now() - started > 30_000) {
+      clearInterval(timer);
+    }
+  }, 300);
 }
 
 /** Fills a password Keyless suggested into the new-password fields. */
 function fillNewPassword(password: string) {
   const scope: ParentNode = current?.form ?? document;
-  const targets = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter((i) => visible(i) && isNewPassword(i));
+  const targets = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter((i) => viewable(i) && isNewPassword(i));
   if (targets.length === 0 && current?.type === "password") targets.push(current);
   filling = true;
   try {
@@ -747,6 +1013,8 @@ function fillNewPassword(password: string) {
 document.addEventListener(
   "submit",
   (e) => {
+    // A page script submitting a form is not the user signing in.
+    if (!e.isTrusted) return;
     const form = e.target instanceof HTMLFormElement ? e.target : null;
     if (form) capture(form.querySelector<HTMLInputElement>('input[type="password"]') ?? form.querySelector<HTMLInputElement>("input"));
   },
@@ -759,7 +1027,7 @@ document.addEventListener(
   (e) => {
     if (!e.isTrusted || !(e.target instanceof Element)) return;
     const control = e.target.closest<HTMLElement>('button, input[type="submit"], input[type="button"], [role="button"]');
-    if (!control || control.closest("keyless-autofill")) return;
+    if (!control || e.composedPath().includes(host)) return;
     const label = (control instanceof HTMLInputElement ? control.value : (control.textContent ?? control.getAttribute("aria-label") ?? "")).trim();
     if (label.length > 40 || !SEND_TEXT.test(label)) return;
     const form = control.closest("form");
@@ -777,8 +1045,12 @@ document.addEventListener(
   true,
 );
 
-// A prompt left from the previous page (signing in usually navigates).
-void send<boolean>({ type: "save_pending" }).then((reply) => reply.ok && reply.data && showSavePrompt());
+// A prompt left from the previous page (signing in usually navigates). When
+// the new page shows the login form again, signing in failed. Waits a bit
+// for pages that draw their forms with scripts.
+setTimeout(() => {
+  void send<boolean>({ type: "save_pending", loginForm: hasLoginForm() }).then((reply) => reply.ok && reply.data && showSavePrompt());
+}, 700);
 
 // Fill requested from a Keyless menu, the popup or the keyboard shortcut;
 // Keyless locked or unlocked; a login to offer saving.

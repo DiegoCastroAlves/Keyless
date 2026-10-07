@@ -237,5 +237,11 @@
   },
   "insecurePage": {
     "message": "Keyless fills cards only on secure (https) pages."
+  },
+  "otherSitesInPopup": {
+    "message": "For a login saved for another site, use Keyless in the browser toolbar."
+  },
+  "chooseLoginToUpdate": {
+    "message": "Choose the login to update."
   }
 }

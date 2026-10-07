@@ -237,5 +237,11 @@
   },
   "insecurePage": {
     "message": "Keyless solo rellena tarjetas en páginas seguras (https)."
+  },
+  "otherSitesInPopup": {
+    "message": "Para un inicio de sesión guardado para otro sitio, usa Keyless en la barra del navegador."
+  },
+  "chooseLoginToUpdate": {
+    "message": "Elige el inicio de sesión que quieres actualizar."
   }
 }

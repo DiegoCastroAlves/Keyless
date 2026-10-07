@@ -46,15 +46,17 @@ pub async fn vaults(app: &AppHandle) -> Result<Value, &'static str> {
 /// - "update": a login with this username has another password;
 /// - "new": no login with this username.
 ///
-/// `candidates` are the page's logins, those with this username first.
-pub async fn check(app: &AppHandle, url: &str, username: &str, password: &str) -> Result<Value, &'static str> {
+/// `candidates` are the page's logins: the one whose password is `current`
+/// (the current password typed in a change-password form) first, then
+/// those with this username. `current` marks the login being changed.
+pub async fn check(app: &AppHandle, url: &str, username: &str, password: &str, current: &str) -> Result<Value, &'static str> {
     let page = Page::parse(url).ok_or("bad_request")?;
     let state = app.state::<AppState>();
     let guard = state.session.lock().await;
     let session = guard.as_ref().ok_or("locked")?;
 
     let mut state_name = "new";
-    let mut candidates: Vec<(bool, Value)> = Vec::new();
+    let mut candidates: Vec<((bool, bool), Value)> = Vec::new();
     for (id, item) in &session.items {
         let o = &item.overview;
         if o.trashed_at.is_some() || o.archived || !is_login(o.category) {
@@ -67,19 +69,20 @@ pub async fn check(app: &AppHandle, url: &str, username: &str, password: &str) -
         let saved_user = details.username().unwrap_or("");
         // A form may ask only for the password (second step of a login).
         let same_user = username.is_empty() || saved_user.eq_ignore_ascii_case(username);
-        if same_user {
-            if details.password() == Some(password) {
+        let is_current = !current.is_empty() && details.password() == Some(current);
+        if same_user || is_current {
+            if same_user && details.password() == Some(password) {
                 return Ok(json!({ "state": "same", "candidates": [] }));
             }
             state_name = "update";
         }
         let vault = session.vaults.get(&item.vault_id).map(|v| v.meta.name.clone()).unwrap_or_default();
         candidates.push((
-            same_user,
-            json!({ "id": id, "title": o.title, "username": saved_user, "vault": vault, "sameUser": same_user }),
+            (is_current, same_user),
+            json!({ "id": id, "title": o.title, "username": saved_user, "vault": vault, "sameUser": same_user, "current": is_current }),
         ));
     }
-    candidates.sort_by_key(|(same_user, _)| !same_user);
+    candidates.sort_by_key(|((is_current, same_user), _)| (!is_current, !same_user));
     Ok(json!({
         "state": state_name,
         "candidates": candidates.into_iter().map(|(_, c)| c).collect::<Vec<_>>(),
@@ -155,8 +158,9 @@ pub async fn save_new(
     Ok(json!({ "id": saved.id }))
 }
 
-/// Updates the password (and username) of a saved login; the old password
-/// goes to the item's history. Adds the page's address when missing.
+/// Updates the password (and username) of a saved login for the page; the
+/// old password goes to the item's history. Only a login saved for the page
+/// can be changed from it.
 pub async fn update(app: &AppHandle, id: &str, url: &str, username: &str, password: Zeroizing<String>) -> Result<Value, &'static str> {
     let state = app.state::<AppState>();
     let mut draft = items::get_item_draft(&state, id).await.map_err(save_error)?;
@@ -171,10 +175,10 @@ pub async fn update(app: &AppHandle, id: &str, url: &str, username: &str, passwo
     if !username.is_empty() {
         set(FieldPurpose::Username, username);
     }
-    set(FieldPurpose::Password, &password);
     if !draft.urls.iter().any(|u| match_score(&page, &u.href) > 0) {
-        draft.urls.push(ItemUrl { href: origin(url)?, label: String::new() });
+        return Err("bad_request");
     }
+    set(FieldPurpose::Password, &password);
     let saved = items::save_item(app, draft).await.map_err(save_error)?;
     let _ = app.emit(EVENT_ITEMS_CHANGED, ());
     crate::commands::record_use(&state, &saved.id);

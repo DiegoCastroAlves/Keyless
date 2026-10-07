@@ -237,5 +237,11 @@
   },
   "insecurePage": {
     "message": "O Keyless só preenche cartões em páginas seguras (https)."
+  },
+  "otherSitesInPopup": {
+    "message": "Para um login salvo para outro site, use o Keyless na barra do navegador."
+  },
+  "chooseLoginToUpdate": {
+    "message": "Escolha o login que vai ser atualizado."
   }
 }

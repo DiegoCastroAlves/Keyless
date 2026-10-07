@@ -377,11 +377,19 @@ function isSecurePage(url: string): boolean {
 // session storage is never written to disk) until they save it, dismiss it,
 // or 5 minutes pass. Only the prompt's frame can save it, after the user
 // chose to; it never sees the password.
+//
+// The prompt waits until signing in worked: the form went away, or the next
+// page has no login form. It is only shown on the same site, and only a
+// login it offered (one saved for that site) can be updated.
 
 interface Capture {
   url: string;
   username: string;
   password: string;
+  /** The current password, in a change-password form. */
+  current: string;
+  /** Signing in worked (or a suggested password was used): the prompt can show. */
+  ready: boolean;
   /** Suggested by Keyless. */
   generated: boolean;
   /** Kept when a suggested password was filled; shown on the next page, in
@@ -433,14 +441,19 @@ function suggestedTitle(url: string): string {
 
 async function checkCapture(capture: Capture): Promise<SaveCheck | null> {
   try {
-    return await call<SaveCheck>("check_login", { url: capture.url, username: capture.username, password: capture.password });
+    return await call<SaveCheck>("check_login", {
+      url: capture.url,
+      username: capture.username,
+      password: capture.password,
+      current: capture.current || undefined,
+    });
   } catch {
     return null;
   }
 }
 
-/** A login or sign-up form was submitted. */
-async function onCapture(tabId: number, url: string, username: string, password: string, generated: boolean): Promise<void> {
+/** A login or sign-up form was submitted. The prompt shows once it worked. */
+async function onCapture(tabId: number, url: string, username: string, password: string, currentPassword: string, generated: boolean): Promise<void> {
   if (!password) {
     // First step of a two-step sign-in: remember who is signing in.
     if (username) await chrome.storage.session.set({ [usernameKey(tabId)]: { url, username, at: Date.now() } });
@@ -455,6 +468,8 @@ async function onCapture(tabId: number, url: string, username: string, password:
     url,
     username,
     password,
+    current: currentPassword,
+    ready: false,
     generated: generated || (previous?.generated === true && previous.password === password),
     deferred: false,
     at: Date.now(),
@@ -471,12 +486,44 @@ async function onCapture(tabId: number, url: string, username: string, password:
     return; // Not connected: nowhere to save it.
   }
   await setCapture(tabId, capture);
+}
+
+/** The page the prompt would show on belongs to the site the login was
+ * typed in. */
+function sameSite(capture: Capture, url: string | undefined): boolean {
+  try {
+    return url !== undefined && new URL(url).protocol === new URL(capture.url).protocol && siteOf(url) === siteOf(capture.url);
+  } catch {
+    return false;
+  }
+}
+
+/** Signing in worked: shows the prompt on the page. */
+async function captureDone(tabId: number, url: string): Promise<void> {
+  const capture = await getCapture(tabId);
+  if (!capture || capture.ready || !sameSite(capture, url)) return;
+  capture.ready = true;
+  await setCapture(tabId, capture);
   chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
 }
 
-async function saveState(tabId: number): Promise<SaveState | null> {
+/** A page loaded in the tab: whether it shows the prompt. */
+async function savePending(tabId: number, url: string, loginForm: boolean): Promise<boolean> {
   const capture = await getCapture(tabId);
-  if (!capture) return null;
+  if (!capture || !sameSite(capture, url)) return false;
+  if (capture.deferred) return capture.url !== url;
+  if (!capture.ready) {
+    // Back on a login form: signing in failed (the user tries again).
+    if (loginForm) return false;
+    capture.ready = true;
+    await setCapture(tabId, capture);
+  }
+  return true;
+}
+
+async function saveState(tabId: number, url: string | undefined): Promise<SaveState | null> {
+  const capture = await getCapture(tabId);
+  if (!capture || !capture.ready || !sameSite(capture, url)) return null;
   const locked = (await quickStatus()).state !== "ready";
   if (!locked && !capture.check) {
     capture.check = await checkCapture(capture);
@@ -557,23 +604,26 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       return { ok: true };
     case "state":
       return { ok: true, data: await inlineState(url) };
-    case "search":
-      return { ok: true, data: await call<Login[]>("search", { query: String(message.query ?? "") }) };
     case "fill":
+      // Only the page's own logins: a login saved for another site is filled
+      // from the toolbar popup, which a page cannot cover or fake.
       if (!url) return { ok: false, error: "no_tab" };
-      await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), anySite: Boolean(message.anySite) });
+      await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit) });
       return { ok: true };
     case "unlock":
       await requestUnlock();
       return { ok: true };
     case "save_state":
-      return { ok: true, data: await saveState(tab.id) };
+      return { ok: true, data: await saveState(tab.id, tab.url) };
     case "save": {
       const capture = await getCapture(tab.id);
-      if (!capture) return { ok: false, error: "expired" };
+      if (!capture || !capture.ready || !sameSite(capture, tab.url)) return { ok: false, error: "expired" };
       const username = typeof message.username === "string" ? message.username.trim() : capture.username;
       if (message.mode === "update") {
-        await call("update_login", { id: String(message.itemId ?? ""), url: capture.url, username, password: capture.password });
+        // Only a login the prompt offered: one saved for this site.
+        const id = String(message.itemId ?? "");
+        if (!capture.check?.candidates.some((c) => c.id === id)) return { ok: false, error: "bad_request" };
+        await call("update_login", { id, url: capture.url, username, password: capture.password });
       } else {
         const vaultId = typeof message.vaultId === "string" ? message.vaultId : undefined;
         await call("save_login", { url: capture.url, title: String(message.title ?? ""), username, password: capture.password, vaultId });
@@ -610,7 +660,17 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-new", password, origin: new URL(url).origin }, { frameId: 0 });
       // Not lost if the form's submission is missed: offered on the next page.
       const previous = await getCapture(tab.id);
-      await setCapture(tab.id, { url, username: previous?.username ?? "", password, generated: true, deferred: true, at: Date.now(), check: null });
+      await setCapture(tab.id, {
+        url,
+        username: previous?.username ?? "",
+        password,
+        current: "",
+        ready: true,
+        generated: true,
+        deferred: true,
+        at: Date.now(),
+        check: null,
+      });
       return { ok: true };
     }
     default:
@@ -634,15 +694,17 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       return { ok: true };
     case "capture": {
       const text = (value: unknown) => (typeof value === "string" ? value : "");
-      await onCapture(sender.tab.id, sender.url, text(message.username).trim(), text(message.password), message.generated === true);
+      await onCapture(sender.tab.id, sender.url, text(message.username).trim(), text(message.password), text(message.current), message.generated === true);
       return { ok: true };
     }
-    case "save_pending": {
-      // A prompt to show on this page: after a submission, or on the next
-      // page after a suggested password was used.
-      const capture = await getCapture(sender.tab.id);
-      return { ok: true, data: Boolean(capture && (!capture.deferred || capture.url !== sender.url)) };
-    }
+    case "capture_done":
+      // The login form went away without leaving the page.
+      await captureDone(sender.tab.id, sender.url);
+      return { ok: true };
+    case "save_pending":
+      // A prompt to show on this page: after signing in worked, or on the
+      // next page after a suggested password was used.
+      return { ok: true, data: await savePending(sender.tab.id, sender.url, message.loginForm === true) };
     case "page_state": {
       const current = await quickStatus();
       const data: PageState = { state: current.state, count: 0 };

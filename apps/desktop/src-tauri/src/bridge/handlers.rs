@@ -64,7 +64,9 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
             let username = args.get("username").and_then(Value::as_str).unwrap_or("").to_string();
             let password = take_secret(args, "password")?;
-            super::logins::check(app, &url, &username, &password).await
+            // The current password of a change-password form, if any.
+            let current = take_secret(args, "current").unwrap_or_default();
+            super::logins::check(app, &url, &username, &password, &current).await
         }
         "save_login" => {
             let password = take_secret(args, "password")?;

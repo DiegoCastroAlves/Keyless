@@ -6,8 +6,14 @@
 // neither read it nor script it. It only works with the token its content
 // script registered with the background, which it receives by postMessage
 // (addressed to the extension origin, so the page never sees it).
+//
+// The page can still draw over it or make it see-through, to get a click on
+// it the user did not mean (clickjacking). So clicks only count when the
+// menu has been on screen, unchanged and fully visible, for a moment: the
+// browser says so where it can (IntersectionObserver v2, in Chromium), and
+// the content script reports what the page did to the menu.
 
-import { avatar, hostOf } from "./avatar";
+import { avatar } from "./avatar";
 import type { FieldInfo, FormItems, InlineState, Login, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
@@ -41,6 +47,62 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
   node.append(...children);
   return node;
 }
+
+// ----- Click guard --------------------------------------------------------------
+
+/** How long the menu must have been visible, unmoved, before a click counts. */
+const SETTLE_MS = 500;
+/** Since when the browser has seen the menu fully visible (null: not now). */
+let seenSince: number | null = null;
+/** The content script found nothing hiding or covering the menu. */
+let pageSafe = false;
+/** Shown or moved: clicks wait until then. */
+let quietUntil = 0;
+
+const tracksVisibility = typeof IntersectionObserverEntry !== "undefined" && "isVisible" in IntersectionObserverEntry.prototype;
+let visibility: IntersectionObserver | null = null;
+
+/** Asks the browser to tell whenever the menu stops or starts being fully
+ * visible. Started again when the content script asks: after the menus
+ * were put back on top, Chrome's answer can get stuck. */
+function watchVisibility() {
+  if (!tracksVisibility) return;
+  visibility?.disconnect();
+  seenSince = null;
+  visibility = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        const isVisible = (entry as IntersectionObserverEntry & { isVisible: boolean }).isVisible;
+        seenSince = isVisible ? (seenSince ?? Date.now()) : null;
+      }
+    },
+    { threshold: [0], trackVisibility: true, delay: 100 } as IntersectionObserverInit,
+  );
+  visibility.observe(document.documentElement);
+}
+watchVisibility();
+
+function settle() {
+  quietUntil = Date.now() + SETTLE_MS;
+}
+
+function clickable(): boolean {
+  const now = Date.now();
+  if (!pageSafe || now < quietUntil) return false;
+  return !tracksVisibility || (seenSince !== null && now - seenSince >= SETTLE_MS);
+}
+
+// Before any button's own handler. Pressing Enter or Space on a button
+// clicks it too, so this covers the keyboard as well.
+window.addEventListener(
+  "click",
+  (e) => {
+    if (clickable()) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  },
+  true,
+);
 
 function svg(markup: string): HTMLElement {
   const span = el("span", { className: "svg" });
@@ -95,42 +157,17 @@ function unlockError(code: string | undefined): string {
 
 // ----- Actions ------------------------------------------------------------------
 
-async function fillLogin(login: Login, submit: boolean, anySite = false) {
-  const reply = await send({ type: "fill", id: login.id, submit, anySite });
+async function fillLogin(login: Login, submit: boolean) {
+  const reply = await send({ type: "fill", id: login.id, submit });
   if (reply.ok) return; // The content script closes the menu.
   if (reply.error === "locked") await refresh();
   else showError(t("fillFailed"));
 }
 
-/** A login saved for another site: fill only after the user confirms. */
-function confirmOtherSite(login: Login, row: HTMLElement) {
-  const fillButton = el("button", { className: "primary small", type: "button", textContent: t("fillAnyway") });
-  const cancel = el("button", { className: "secondary small", type: "button", textContent: t("cancel") });
-  const warning = el(
-    "div",
-    { className: "warn" },
-    el("p", { textContent: t("otherSiteWarning", login.title, hostOf(login.url), state?.host ?? "") }),
-    el("div", { className: "actions" }, cancel, fillButton),
-  );
-  fillButton.addEventListener("click", () => void fillLogin(login, false, true));
-  cancel.addEventListener("click", () => {
-    warning.replaceWith(row);
-    row.focus();
-    report();
-  });
-  row.replaceWith(warning);
-  fillButton.focus();
-  report();
-}
-
-function loginRow(login: Login, options: { submit: boolean; matches?: boolean }): HTMLButtonElement {
+function loginRow(login: Login, options: { submit: boolean }): HTMLButtonElement {
   const row = el("button", { className: "row", type: "button" }, icon(login), texts(login));
   if (mode === "card") row.append(svg(ICON_KEY));
-  if (options.matches === false) row.title = t("savedFor", hostOf(login.url));
-  row.addEventListener("click", () => {
-    if (options.matches === false) confirmOtherSite(login, row);
-    else void fillLogin(login, options.submit);
-  });
+  row.addEventListener("click", () => void fillLogin(login, options.submit));
   return row;
 }
 
@@ -368,23 +405,19 @@ function renderSearch(current: InlineState) {
   });
   app.replaceChildren(el("div", { className: "box search" }, el("div", { className: "bar" }, svg(LOGO), input, close), list));
 
-  const matching = new Set(current.logins.map((login) => login.id));
+  // Only the page's logins. Logins saved for other sites are filled from
+  // the toolbar popup, which the page cannot cover.
   const show = (logins: Login[]) => {
-    list.replaceChildren(...logins.map((login) => loginRow(login, { submit: matching.has(login.id), matches: matching.has(login.id) })));
+    list.replaceChildren(...logins.slice(0, MAX_SEARCH_RESULTS).map((login) => loginRow(login, { submit: true })));
     if (logins.length === 0) list.append(el("p", { className: "note", textContent: t("noResults") }));
+    list.append(el("p", { className: "note small", textContent: t("otherSitesInPopup") }));
     report();
   };
   show(current.logins);
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
   input.addEventListener("input", () => {
-    clearTimeout(timer);
-    timer = setTimeout(async () => {
-      const query = input.value.trim();
-      if (!query) return show(current.logins);
-      const reply = await send<Login[]>({ type: "search", query });
-      if (input.value.trim() === query) show((reply.data ?? []).slice(0, MAX_SEARCH_RESULTS));
-    }, 120);
+    const words = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    show(current.logins.filter((login) => words.every((word) => `${login.title} ${login.username} ${login.url}`.toLowerCase().includes(word))));
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {
@@ -415,7 +448,10 @@ async function loadSave() {
     return;
   }
   saveMode = saving.state;
-  chosenId = saving.candidates.find((c) => c.sameUser)?.id ?? saving.candidates[0]?.id ?? null;
+  // The login being changed: the one with the current password typed, or
+  // the only one with this username. Otherwise the user picks.
+  const sameUser = saving.candidates.filter((c) => c.sameUser);
+  chosenId = saving.candidates.find((c) => c.current)?.id ?? (sameUser.length === 1 ? sameUser[0].id : null);
   draftTitle = saving.title;
   draftUser = saving.username;
   vaultId = saving.vaults[0]?.id ?? "";
@@ -491,7 +527,9 @@ function renderSave() {
 
   const candidate = s.candidates.find((c) => c.id === chosenId) ?? null;
   const title = saveMode === "new" ? draftTitle : (candidate?.title ?? "");
-  const login: Login = { id: "", title, username: draftUser, url: s.url, vault: "", favorite: false };
+  // A change-password form usually has no username: the login keeps its own.
+  const shownUser = draftUser || (saveMode === "update" ? (candidate?.username ?? "") : "");
+  const login: Login = { id: "", title, username: shownUser, url: s.url, vault: "", favorite: false };
   const edit = el("button", { type: "button", className: "link", textContent: editing ? t("done") : t("edit") });
   edit.addEventListener("click", () => {
     editing = !editing;
@@ -505,11 +543,12 @@ function renderSave() {
         ...(saveMode === "new" ? [input(draftTitle, t("titleLabel"), (value) => (draftTitle = value))] : []),
         input(draftUser, t("usernameLabel"), (value) => (draftUser = value)),
       )
-    : el("span", { className: "text" }, el("span", { className: "title", textContent: title || s.host }), el("span", { className: "sub", textContent: draftUser || s.host }));
+    : el("span", { className: "text" }, el("span", { className: "title", textContent: title || s.host }), el("span", { className: "sub", textContent: shownUser || s.host }));
   box.append(el("div", { className: "save-item" }, avatar(login, s.url), details, edit));
 
   // Which login to update, when there are several for the site.
   if (saveMode === "update" && s.candidates.length > 1) {
+    if (!chosenId) box.append(el("p", { className: "note small", textContent: t("chooseLoginToUpdate") }));
     const list = el("div", { className: "choices" });
     for (const c of s.candidates) {
       const choice = el("button", { type: "button", className: `choice${c.id === chosenId ? " active" : ""}` }, el("span", { className: "title", textContent: c.title }), el("span", { className: "sub", textContent: c.username || c.vault }));
@@ -570,6 +609,9 @@ window.addEventListener("message", async (event) => {
   if (event.source !== window.parent || typeof data?.keyless !== "string") return;
   if (data.type === "init") {
     if (token) return;
+    settle();
+    // Until the content script has checked the menu on screen.
+    pageSafe = false;
     // Adopted only once the background confirms it: the page can post here
     // too, but cannot know the token.
     const reply = await chrome.runtime.sendMessage({ type: "hello", token: data.keyless }).catch(() => null);
@@ -583,7 +625,21 @@ window.addEventListener("message", async (event) => {
   }
   if (!token || data.keyless !== token) return;
   switch (data.type) {
+    case "safety":
+      // Visible again after being hidden or covered: wait a moment again.
+      if (data.safe === true && !pageSafe) settle();
+      pageSafe = data.safe === true;
+      break;
+    case "moved":
+      settle();
+      break;
+    case "recheck":
+      settle();
+      watchVisibility();
+      break;
     case "show":
+      settle();
+      pageSafe = false;
       expanded = false;
       if (data.field) {
         if (data.field.newPassword !== field.newPassword || data.field.maxLength !== field.maxLength) suggestion = null;
