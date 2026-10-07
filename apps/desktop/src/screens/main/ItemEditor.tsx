@@ -1,12 +1,27 @@
-import { ClipboardPaste, GripVertical, ImageIcon, Monitor, Plus, ScanQrCode, Trash, WandSparkles, X } from "lucide-react";
+import { Ban, ClipboardPaste, Crosshair, Globe, GripVertical, ImageIcon, Monitor, Plus, ScanQrCode, Trash, WandSparkles, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon, PasswordInput } from "../../components/common";
-import { Button, Combobox, Dialog, IconButton, Input, Menu, MenuContent, MenuItem, MenuTrigger, Textarea, cx } from "../../components/ui";
+import {
+  Button,
+  Combobox,
+  Dialog,
+  IconButton,
+  Input,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuLabel,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+  Textarea,
+  cx,
+} from "../../components/ui";
 import { fieldLabel } from "../../i18n";
-import { api, errorCode, errorMessage, type Field, type FieldKind, type ItemDraft, type Section } from "../../lib/api";
+import { api, errorCode, errorMessage, type Field, type FieldKind, type ItemDraft, type Section, type UrlFill } from "../../lib/api";
 import { FIELD_KINDS, categoryInfo, categoryLabel, fieldKindLabel, isSecretKind, newFieldId } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -163,6 +178,10 @@ export function ItemEditor() {
                     onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
                     placeholder={t("editor.websitePlaceholder")}
                   />
+                  <FillRuleButton
+                    value={url.fill ?? "domain"}
+                    onChange={(fill) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, fill } : u)) })}
+                  />
                   <IconButton label={t("common.remove")} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
                     <X className="size-4" />
                   </IconButton>
@@ -312,6 +331,48 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
 }
 
 /** Reads a one-time password QR code, like 1Password's "Scan QR Code". */
+const FILL_RULES: { value: UrlFill; icon: typeof Globe }[] = [
+  { value: "domain", icon: Globe },
+  { value: "host", icon: Crosshair },
+  { value: "never", icon: Ban },
+];
+
+/** Where the browser extension may fill the login, per website (like
+ * 1Password's "autofill behavior"). */
+function FillRuleButton({ value, onChange }: { value: UrlFill; onChange: (value: UrlFill) => void }) {
+  const { t } = useTranslation();
+  const Current = FILL_RULES.find((r) => r.value === value)?.icon ?? Globe;
+  const [open, setOpen] = useState(false);
+  return (
+    <Menu open={open} onOpenChange={setOpen}>
+      <MenuTrigger asChild>
+        <IconButton label={`${t("editor.fillRule")}: ${t(`editor.fill.${value}`)}`} className={cx(value !== "domain" && "text-accent")}>
+          <Current className="size-4" />
+        </IconButton>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuLabel>{t("editor.fillRule")}</MenuLabel>
+        <MenuRadioGroup
+          value={value}
+          onValueChange={(next) => {
+            onChange(next as UrlFill);
+            setOpen(false);
+          }}
+        >
+          {FILL_RULES.map((rule) => (
+            <MenuRadioItem key={rule.value} value={rule.value}>
+              <span className="flex items-center gap-2.5">
+                <rule.icon className="size-4 text-muted" />
+                {t(`editor.fill.${rule.value}`)}
+              </span>
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
+  );
+}
+
 function ScanQrButton({ onRead }: { onRead: (value: string) => void }) {
   const { t } = useTranslation();
   const scan = async (source: "screen" | "clipboard" | "file") => {

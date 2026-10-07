@@ -238,7 +238,10 @@ must be running, for what it needs.
 - **Pages get only their own logins.** The background script reports the page
   URL from the browser (not from the page), and the app returns credentials
   only if that URL matches the item's website (same registrable domain, using
-  the Public Suffix List). A login saved for an `https` address is never
+  the Public Suffix List; numeric addresses and hosts where anyone can
+  publish pages, like script.google.com, must match exactly). Each website of
+  an item can be narrowed to its exact host, or set to never fill. A login
+  saved for an `https` address is never
   offered to, or filled into, a plain `http` page. Filling a login saved for
   another site is possible only from the toolbar popup, which a page cannot
   cover, after the user confirms a warning naming both sites; the menus in

@@ -377,6 +377,12 @@ const es: Translations = {
     fieldType: "Tipo de campo",
     addWebsite: "Añadir sitio web",
     websitePlaceholder: "https://ejemplo.com",
+    fillRule: "Rellenar en el navegador",
+    fill: {
+      domain: "En cualquier parte de este sitio",
+      host: "Solo en este host exacto",
+      never: "Nunca rellenar en este sitio",
+    },
     notesPlaceholder: "Añadir notas",
     tagsPlaceholder: "Añade una etiqueta y pulsa Intro",
     totpPlaceholder: "otpauth://… o clave de configuración",

@@ -45,6 +45,29 @@ pub struct ItemUrl {
     pub href: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub label: String,
+    /// Where the login may be filled, like 1Password's "autofill behavior".
+    #[serde(default, skip_serializing_if = "UrlMatch::is_default")]
+    pub fill: UrlMatch,
+}
+
+/// Which pages an item's website covers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UrlMatch {
+    /// Anywhere on the website: the same registrable domain
+    /// (accounts.example.com for example.com).
+    #[default]
+    Domain,
+    /// Only this exact host (and port, when one is given).
+    Host,
+    /// Never: kept for reference, not filled anywhere.
+    Never,
+}
+
+impl UrlMatch {
+    pub fn is_default(&self) -> bool {
+        *self == UrlMatch::Domain
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

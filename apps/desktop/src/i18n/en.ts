@@ -374,6 +374,12 @@ const en = {
     fieldType: "Field type",
     addWebsite: "Add website",
     websitePlaceholder: "https://example.com",
+    fillRule: "Fill in the browser",
+    fill: {
+      domain: "Anywhere on this website",
+      host: "Only on this exact host",
+      never: "Never fill on this website",
+    },
     notesPlaceholder: "Add notes",
     tagsPlaceholder: "Add a tag and press Enter",
     totpPlaceholder: "otpauth://… or setup key",

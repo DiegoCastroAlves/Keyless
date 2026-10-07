@@ -188,9 +188,14 @@ export interface ItemSummary {
   lastUsedAt: number | null;
 }
 
+/** Where an item's website is filled: anywhere on the site (default), only
+ * its exact host, or never. */
+export type UrlFill = "domain" | "host" | "never";
+
 export interface ItemUrl {
   href: string;
   label?: string;
+  fill?: UrlFill;
 }
 
 export interface FieldView {

@@ -623,7 +623,7 @@ pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemS
                 .urls
                 .iter()
                 .filter(|u| !u.href.trim().is_empty())
-                .map(|u| ItemUrl { href: normalize_url(&u.href), label: u.label.trim().to_string() })
+                .map(|u| ItemUrl { href: normalize_url(&u.href), label: u.label.trim().to_string(), fill: u.fill })
                 .collect(),
             tags,
             favorite: draft.favorite,

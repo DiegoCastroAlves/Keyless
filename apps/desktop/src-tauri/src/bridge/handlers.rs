@@ -3,7 +3,7 @@
 //! for a page and returning the credentials the user chose to fill.
 
 use keyless_core::{
-    item::{Category, FieldKind, FieldPurpose},
+    item::{Category, FieldKind, FieldPurpose, ItemUrl, UrlMatch},
     totp::Totp,
 };
 use serde_json::{Value, json};
@@ -146,13 +146,20 @@ fn unlock_error(err: AppError) -> &'static str {
 
 /// Host part of a URL, accepting bare domains.
 pub fn url_host(url: &str) -> Option<String> {
+    url_parts(url).map(|(host, _)| host)
+}
+
+/// Host and port (when not the scheme's default) of a URL, accepting bare
+/// domains.
+fn url_parts(url: &str) -> Option<(String, Option<u16>)> {
     let url = url.trim();
     let normalized = if url.contains("://") { url.to_string() } else { format!("https://{url}") };
     let parsed = url::Url::parse(&normalized).ok()?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return None;
     }
-    parsed.host_str().map(|h| h.trim_start_matches("www.").to_ascii_lowercase())
+    let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
+    Some((host, parsed.port()))
 }
 
 /// Registrable domain ("eTLD+1"), e.g. accounts.google.com -> google.com.
@@ -172,6 +179,7 @@ const USER_CONTENT_HOSTS: &[&str] = &["script.google.com"];
 /// The page a request comes from, as reported by the browser.
 pub struct Page {
     host: String,
+    port: Option<u16>,
     secure: bool,
 }
 
@@ -184,7 +192,7 @@ impl Page {
             _ => return None,
         };
         let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
-        Some(Page { host, secure })
+        Some(Page { host, port: parsed.port(), secure })
     }
 }
 
@@ -194,14 +202,19 @@ fn is_https(url: &str) -> bool {
 
 /// 2 = same host, 1 = same site, 0 = no match. A login saved for an https
 /// address is never offered to a plain http page, where anyone on the network
-/// could read it.
-pub fn match_score(page: &Page, item_url: &str) -> u8 {
-    let Some(item_host) = url_host(item_url) else { return 0 };
-    if is_https(item_url) && !page.secure {
+/// could read it. The address's fill rule narrows this: only its exact host
+/// (and port, when it has one), or nowhere.
+pub fn match_score(page: &Page, item_url: &ItemUrl) -> u8 {
+    if item_url.fill == UrlMatch::Never {
+        return 0;
+    }
+    let Some((item_host, item_port)) = url_parts(&item_url.href) else { return 0 };
+    let exact = item_url.fill == UrlMatch::Host;
+    if is_https(&item_url.href) && !page.secure {
         0
     } else if item_host == page.host {
-        2
-    } else if USER_CONTENT_HOSTS.contains(&page.host.as_str()) || USER_CONTENT_HOSTS.contains(&item_host.as_str()) {
+        if exact && item_port.is_some() && item_port != page.port { 0 } else { 2 }
+    } else if exact || USER_CONTENT_HOSTS.contains(&page.host.as_str()) || USER_CONTENT_HOSTS.contains(&item_host.as_str()) {
         0
     } else if site_of(&item_host) == site_of(&page.host) {
         1
@@ -245,7 +258,7 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
             continue;
         }
         let score = match &page {
-            Some(page) => o.urls.iter().map(|u| match_score(page, &u.href)).max().unwrap_or(0),
+            Some(page) => o.urls.iter().map(|u| match_score(page, u)).max().unwrap_or(0),
             None => {
                 let hit = needle.is_empty()
                     || o.title.to_lowercase().contains(&needle)
@@ -304,7 +317,7 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>, any_site: boo
     // Requests that come from a page must match that page's site.
     if let Some(url) = url {
         let page = Page::parse(url).ok_or("bad_request")?;
-        if !cached.overview.urls.iter().any(|u| match_score(&page, &u.href) > 0) {
+        if !cached.overview.urls.iter().any(|u| match_score(&page, u) > 0) {
             if !any_site {
                 return Err("url_mismatch");
             }
@@ -341,6 +354,10 @@ mod tests {
         Page::parse(url).unwrap()
     }
 
+    fn url(href: &str) -> ItemUrl {
+        ItemUrl { href: href.into(), ..Default::default() }
+    }
+
     #[test]
     fn url_matching() {
         assert_eq!(url_host("https://www.GitHub.com/login"), Some("github.com".into()));
@@ -350,31 +367,49 @@ mod tests {
         assert!(Page::parse("javascript:alert(1)").is_none());
         assert!(Page::parse("github.com").is_none());
 
-        assert_eq!(match_score(&page("https://github.com/login"), "https://github.com"), 2);
-        assert_eq!(match_score(&page("https://gist.github.com"), "https://github.com"), 1);
-        assert_eq!(match_score(&page("https://accounts.google.com"), "google.com"), 1);
-        assert_eq!(match_score(&page("https://evilgithub.com"), "https://github.com"), 0);
-        assert_eq!(match_score(&page("https://github.com.evil.io"), "https://github.com"), 0);
+        assert_eq!(match_score(&page("https://github.com/login"), &url("https://github.com")), 2);
+        assert_eq!(match_score(&page("https://gist.github.com"), &url("https://github.com")), 1);
+        assert_eq!(match_score(&page("https://accounts.google.com"), &url("google.com")), 1);
+        assert_eq!(match_score(&page("https://evilgithub.com"), &url("https://github.com")), 0);
+        assert_eq!(match_score(&page("https://github.com.evil.io"), &url("https://github.com")), 0);
         // Different sites under a public suffix must not match.
-        assert_eq!(match_score(&page("https://alice.github.io"), "https://bob.github.io"), 0);
-        assert_eq!(match_score(&page("https://foo.co.uk"), "https://bar.co.uk"), 0);
+        assert_eq!(match_score(&page("https://alice.github.io"), &url("https://bob.github.io")), 0);
+        assert_eq!(match_score(&page("https://foo.co.uk"), &url("https://bar.co.uk")), 0);
         // Addresses by number are whole hosts, not domains.
-        assert_eq!(match_score(&page("http://192.168.1.1"), "http://10.0.1.1"), 0);
-        assert_eq!(match_score(&page("http://192.168.1.1/admin"), "http://192.168.1.1"), 2);
-        assert_eq!(match_score(&page("http://[::1]:8080"), "http://[fe80::1]"), 0);
+        assert_eq!(match_score(&page("http://192.168.1.1"), &url("http://10.0.1.1")), 0);
+        assert_eq!(match_score(&page("http://192.168.1.1/admin"), &url("http://192.168.1.1")), 2);
+        assert_eq!(match_score(&page("http://[::1]:8080"), &url("http://[fe80::1]")), 0);
         // Pages anyone can publish under a big site's domain.
-        assert_eq!(match_score(&page("https://script.google.com/macros/s/x"), "https://accounts.google.com"), 0);
-        assert_eq!(match_score(&page("https://script.google.com"), "https://script.google.com"), 2);
+        assert_eq!(match_score(&page("https://script.google.com/macros/s/x"), &url("https://accounts.google.com")), 0);
+        assert_eq!(match_score(&page("https://script.google.com"), &url("https://script.google.com")), 2);
     }
 
     #[test]
     fn https_logins_stay_off_http_pages() {
-        assert_eq!(match_score(&page("http://github.com"), "https://github.com"), 0);
-        assert_eq!(match_score(&page("http://github.com"), "HTTPS://github.com"), 0);
+        assert_eq!(match_score(&page("http://github.com"), &url("https://github.com")), 0);
+        assert_eq!(match_score(&page("http://github.com"), &url("HTTPS://github.com")), 0);
         // Upgrading is fine, and so are addresses saved without a scheme or
         // for plain http (routers, local services).
-        assert_eq!(match_score(&page("https://github.com"), "http://github.com"), 2);
-        assert_eq!(match_score(&page("http://router.lan"), "router.lan"), 2);
-        assert_eq!(match_score(&page("http://localhost:8765/login"), "http://localhost:8765"), 2);
+        assert_eq!(match_score(&page("https://github.com"), &url("http://github.com")), 2);
+        assert_eq!(match_score(&page("http://router.lan"), &url("router.lan")), 2);
+        assert_eq!(match_score(&page("http://localhost:8765/login"), &url("http://localhost:8765")), 2);
+    }
+
+    #[test]
+    fn fill_rules() {
+        let host = |href: &str| ItemUrl { href: href.into(), fill: UrlMatch::Host, ..Default::default() };
+        let never = |href: &str| ItemUrl { href: href.into(), fill: UrlMatch::Never, ..Default::default() };
+        // Only this host: not the rest of the site.
+        assert_eq!(match_score(&page("https://accounts.google.com"), &host("https://accounts.google.com")), 2);
+        assert_eq!(match_score(&page("https://mail.google.com"), &host("https://accounts.google.com")), 0);
+        // With a port, only that port; without one, any.
+        assert_eq!(match_score(&page("http://localhost:3000"), &host("http://localhost:8765")), 0);
+        assert_eq!(match_score(&page("http://localhost:8765/x"), &host("http://localhost:8765")), 2);
+        assert_eq!(match_score(&page("https://nas.lan:5001"), &host("nas.lan")), 2);
+        assert_eq!(match_score(&page("https://github.com"), &never("https://github.com")), 0);
+        // Saved without a rule: anywhere on the site, as before.
+        let saved: ItemUrl = serde_json::from_str(r#"{"href":"https://github.com"}"#).unwrap();
+        assert_eq!(saved.fill, UrlMatch::Domain);
+        assert_eq!(serde_json::to_string(&saved).unwrap(), r#"{"href":"https://github.com"}"#);
     }
 }

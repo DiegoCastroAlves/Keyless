@@ -62,7 +62,7 @@ pub async fn check(app: &AppHandle, url: &str, username: &str, password: &str, c
         if o.trashed_at.is_some() || o.archived || !is_login(o.category) {
             continue;
         }
-        if !o.urls.iter().any(|u| match_score(&page, &u.href) > 0) {
+        if !o.urls.iter().any(|u| match_score(&page, u) > 0) {
             continue;
         }
         let Ok((_, details)) = items::load_details(&state, session, id) else { continue };
@@ -145,7 +145,7 @@ pub async fn save_new(
         vault_id,
         title,
         category: Category::Login,
-        urls: vec![ItemUrl { href: origin(url)?, label: String::new() }],
+        urls: vec![ItemUrl { href: origin(url)?, ..Default::default() }],
         tags: Vec::new(),
         favorite: false,
         fields: vec![login_field(FieldPurpose::Username, username), login_field(FieldPurpose::Password, &password)],
@@ -175,7 +175,7 @@ pub async fn update(app: &AppHandle, id: &str, url: &str, username: &str, passwo
     if !username.is_empty() {
         set(FieldPurpose::Username, username);
     }
-    if !draft.urls.iter().any(|u| match_score(&page, &u.href) > 0) {
+    if !draft.urls.iter().any(|u| match_score(&page, u) > 0) {
         return Err("bad_request");
     }
     set(FieldPurpose::Password, &password);

@@ -14,7 +14,7 @@ use super::{ImportResult, ImportedItem, ImportedVault};
 use crate::{
     Error, Result,
     item::{
-        Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl,
+        Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, UrlMatch,
         PasswordHistoryEntry, Section, new_field_id,
     },
 };
@@ -179,17 +179,20 @@ fn convert_item(raw: &Value, attachments: &mut usize) -> Option<ImportedItem> {
     if let Some(list) = overview_raw.get("urls").and_then(Value::as_array) {
         for u in list {
             if let Some(href) = u.get("url").and_then(Value::as_str).filter(|h| !h.is_empty()) {
-                urls.push(ItemUrl {
-                    href: href.into(),
-                    label: u.get("label").and_then(Value::as_str).unwrap_or("").into(),
-                });
+                // 1Password's "autofill behavior" for the address.
+                let fill = match u.get("mode").and_then(Value::as_str).unwrap_or("") {
+                    "never" => UrlMatch::Never,
+                    "exact" | "host" => UrlMatch::Host,
+                    _ => UrlMatch::Domain,
+                };
+                urls.push(ItemUrl { href: href.into(), label: u.get("label").and_then(Value::as_str).unwrap_or("").into(), fill });
             }
         }
     }
     if urls.is_empty()
         && let Some(href) = overview_raw.get("url").and_then(Value::as_str).filter(|h| !h.is_empty())
     {
-        urls.push(ItemUrl { href: href.into(), label: String::new() });
+        urls.push(ItemUrl { href: href.into(), ..Default::default() });
     }
 
     let tags = overview_raw

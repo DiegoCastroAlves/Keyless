@@ -140,7 +140,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 title,
                 subtitle: username,
                 category,
-                urls: if url.is_empty() { vec![] } else { vec![ItemUrl { href: url, label: String::new() }] },
+                urls: if url.is_empty() { vec![] } else { vec![ItemUrl { href: url, ..Default::default() }] },
                 tags,
                 favorite,
                 ..Default::default()

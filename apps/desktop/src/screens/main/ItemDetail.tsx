@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ItemIcon, PasswordText } from "../../components/common";
 import { Button, Dialog, IconButton, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip, cx } from "../../components/ui";
 import { fieldLabel } from "../../i18n";
-import { api, errorMessage, type FieldView, type HistoryEntry, type ItemDetail as Detail, type TotpCode } from "../../lib/api";
+import { api, errorMessage, type FieldView, type HistoryEntry, type ItemDetail as Detail, type TotpCode, type UrlFill } from "../../lib/api";
 import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useApp } from "../../lib/store";
@@ -185,7 +185,7 @@ export function ItemDetail() {
           {item.urlEntries.length > 0 && (
             <FieldCard>
               {item.urlEntries.map((u, index) => (
-                <WebsiteRow key={`${u.href}-${index}`} itemId={item.id} index={index} href={u.href} label={u.label} />
+                <WebsiteRow key={`${u.href}-${index}`} itemId={item.id} index={index} href={u.href} label={u.label} fill={u.fill} />
               ))}
             </FieldCard>
           )}
@@ -404,7 +404,7 @@ function TotpValue({ itemId, fieldId }: { itemId: string; fieldId: string }) {
   );
 }
 
-function WebsiteRow({ itemId, index, href, label }: { itemId: string; index: number; href: string; label?: string }) {
+function WebsiteRow({ itemId, index, href, label, fill }: { itemId: string; index: number; href: string; label?: string; fill?: UrlFill }) {
   const { t } = useTranslation();
   const open = async () => {
     try {
@@ -426,6 +426,7 @@ function WebsiteRow({ itemId, index, href, label }: { itemId: string; index: num
       <button onClick={open} className="min-w-0 flex-1 text-left">
         <div className="text-xs font-medium text-subtle">{label || t("item.website")}</div>
         <div className="mt-0.5 truncate text-[15px] text-accent">{hostOf(href)}</div>
+        {fill && fill !== "domain" && <div className="mt-0.5 text-xs text-subtle">{t(`editor.fill.${fill}`)}</div>}
       </button>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         <Tooltip content={t("item.openWebsite")}>

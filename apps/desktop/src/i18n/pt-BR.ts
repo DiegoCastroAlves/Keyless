@@ -377,6 +377,12 @@ const ptBR: Translations = {
     fieldType: "Tipo de campo",
     addWebsite: "Adicionar site",
     websitePlaceholder: "https://exemplo.com",
+    fillRule: "Preencher no navegador",
+    fill: {
+      domain: "Em qualquer parte deste site",
+      host: "Só neste endereço exato",
+      never: "Nunca preencher neste site",
+    },
     notesPlaceholder: "Adicionar notas",
     tagsPlaceholder: "Adicione uma tag e pressione Enter",
     totpPlaceholder: "otpauth://… ou chave de configuração",
