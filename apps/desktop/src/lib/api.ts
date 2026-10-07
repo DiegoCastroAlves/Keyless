@@ -95,7 +95,7 @@ export interface Settings {
   clipboard_clear_seconds: number;
   lock_on_sleep: boolean;
   theme: "system" | "light" | "dark";
-  language: "system" | "en" | "es";
+  language: "system" | "en" | "es" | "pt-BR";
   browser_integration: boolean;
   check_updates: boolean;
   /** Changed only through api.setSystemUnlock (needs the master password). */

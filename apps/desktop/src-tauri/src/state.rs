@@ -35,7 +35,7 @@ pub struct Settings {
     pub lock_on_sleep: bool,
     /// "system", "light" or "dark".
     pub theme: String,
-    /// "system", "en" or "es".
+    /// "system", "en", "es" or "pt-BR".
     pub language: String,
     /// Register the native messaging host so the browser extension works.
     pub browser_integration: bool,
@@ -75,7 +75,7 @@ impl Settings {
         if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
             self.theme = "system".into();
         }
-        if !matches!(self.language.as_str(), "system" | "en" | "es") {
+        if !matches!(self.language.as_str(), "system" | "en" | "es" | "pt-BR") {
             self.language = "system".into();
         }
         if !matches!(self.list_sort.as_str(), "title" | "created" | "modified" | "frequent" | "recent") {

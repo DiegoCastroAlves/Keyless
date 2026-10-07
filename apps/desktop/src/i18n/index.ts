@@ -4,18 +4,22 @@ import { initReactI18next } from "react-i18next";
 import type { AppError } from "../lib/api";
 import en from "./en";
 import es from "./es";
+import ptBR from "./pt-BR";
 
 export const LANGUAGES = [
   { code: "en", name: "English" },
   { code: "es", name: "Español" },
+  { code: "pt-BR", name: "Português (Brasil)" },
 ] as const;
 
 export type LanguageCode = (typeof LANGUAGES)[number]["code"];
 
+/** The system's language when Keyless has it (any Portuguese reads pt-BR). */
 function systemLanguage(): LanguageCode {
   const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
   for (const tag of preferred) {
     const base = tag.toLowerCase().split("-")[0];
+    if (base === "pt") return "pt-BR";
     if (LANGUAGES.some((l) => l.code === base)) return base as LanguageCode;
   }
   return "en";
@@ -27,7 +31,7 @@ export function resolveLanguage(setting: string | undefined): LanguageCode {
 }
 
 void i18n.use(initReactI18next).init({
-  resources: { en: { translation: en }, es: { translation: es } },
+  resources: { en: { translation: en }, es: { translation: es }, "pt-BR": { translation: ptBR } },
   lng: systemLanguage(),
   fallbackLng: "en",
   interpolation: { escapeValue: false },

@@ -1,0 +1,226 @@
+{
+  "name": {
+    "message": "Keyless"
+  },
+  "description": {
+    "message": "Preencha senhas com o Keyless, o gerenciador de senhas de conhecimento zero."
+  },
+  "commandFill": {
+    "message": "Preencher o login desta página"
+  },
+  "lockedTitle": {
+    "message": "O Keyless está bloqueado"
+  },
+  "lockedNote": {
+    "message": "Desbloqueie o Keyless para preencher senhas."
+  },
+  "unlockApp": {
+    "message": "Desbloquear o Keyless"
+  },
+  "notConnectedNote": {
+    "message": "Este navegador não está conectado ao Keyless. Abra a extensão do Keyless para conectar."
+  },
+  "noMatches": {
+    "message": "Nenhum login salvo para este site."
+  },
+  "hostMissingTitle": {
+    "message": "App do Keyless não encontrado"
+  },
+  "hostMissingBody": {
+    "message": "Instale o app do Keyless e ative \"Permitir a extensão do navegador\" em Configurações > Navegador. Depois, abra esta janela novamente."
+  },
+  "notRunningTitle": {
+    "message": "O Keyless não está em execução"
+  },
+  "notRunningBody": {
+    "message": "Abra o app do Keyless para preencher senhas."
+  },
+  "openApp": {
+    "message": "Abrir o Keyless"
+  },
+  "errorTitle": {
+    "message": "Algo deu errado"
+  },
+  "errorBody": {
+    "message": "A extensão não conseguiu se comunicar com o Keyless."
+  },
+  "retry": {
+    "message": "Tentar novamente"
+  },
+  "pairTitle": {
+    "message": "Conectar ao Keyless"
+  },
+  "pairBody": {
+    "message": "O Keyless vai pedir que você aprove este navegador. Confira se ele mostra este código:"
+  },
+  "connect": {
+    "message": "Conectar"
+  },
+  "pairHint": {
+    "message": "Você só precisa fazer isso uma vez em cada navegador."
+  },
+  "pairWaiting": {
+    "message": "Aprove a conexão no app do Keyless…"
+  },
+  "pairFailed": {
+    "message": "A conexão não foi aprovada."
+  },
+  "copied": {
+    "message": "Copiado · será apagado em $SECONDS$ s",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "copyFailed": {
+    "message": "Não foi possível copiar."
+  },
+  "copyUsername": {
+    "message": "Copiar nome de usuário"
+  },
+  "copyPassword": {
+    "message": "Copiar senha"
+  },
+  "copyCode": {
+    "message": "Copiar código de verificação"
+  },
+  "fill": {
+    "message": "Preencher nesta página"
+  },
+  "fillFailed": {
+    "message": "Não foi possível preencher esta página."
+  },
+  "searchPlaceholder": {
+    "message": "Buscar no Keyless"
+  },
+  "suggestionsFor": {
+    "message": "Sugestões para $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "searchHint": {
+    "message": "Busque nos seus logins."
+  },
+  "noResults": {
+    "message": "Nenhum resultado."
+  },
+  "unlockBusy": {
+    "message": "O Keyless já está pedindo uma senha. Conclua isso primeiro."
+  },
+  "unlockFailed": {
+    "message": "Não foi possível desbloquear o Keyless."
+  },
+  "noAccount": {
+    "message": "Entre no Keyless pelo app primeiro."
+  },
+  "signIn": {
+    "message": "Entrar"
+  },
+  "otherLogins": {
+    "message": "Outros logins"
+  },
+  "findLogin": {
+    "message": "Digite para encontrar um login…"
+  },
+  "close": {
+    "message": "Fechar"
+  },
+  "cancel": {
+    "message": "Cancelar"
+  },
+  "fillAnyway": {
+    "message": "Preencher mesmo assim"
+  },
+  "otherSiteWarning": {
+    "message": "“$TITLE$” está salvo para $ITEM$, não para $PAGE$. Preencher aqui mesmo assim?",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "item": {
+        "content": "$2"
+      },
+      "page": {
+        "content": "$3"
+      }
+    }
+  },
+  "savedFor": {
+    "message": "Salvo para $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "waitingUnlock": {
+    "message": "Desbloqueie o Keyless na janela que se abriu…"
+  },
+  "showLogins": {
+    "message": "Mostrar logins"
+  },
+  "saveLogin": {
+    "message": "Salvar login?"
+  },
+  "updateLogin": {
+    "message": "Atualizar login?"
+  },
+  "newItem": {
+    "message": "Novo item"
+  },
+  "updateExisting": {
+    "message": "Atualizar existente"
+  },
+  "edit": {
+    "message": "Editar"
+  },
+  "done": {
+    "message": "Concluído"
+  },
+  "save": {
+    "message": "Salvar"
+  },
+  "update": {
+    "message": "Atualizar"
+  },
+  "unlockToSave": {
+    "message": "Desbloquear para salvar"
+  },
+  "saved": {
+    "message": "Salvo no Keyless"
+  },
+  "updated": {
+    "message": "Atualizado no Keyless"
+  },
+  "saveFailed": {
+    "message": "Não foi possível salvar."
+  },
+  "titleLabel": {
+    "message": "Título"
+  },
+  "usernameLabel": {
+    "message": "Nome de usuário"
+  },
+  "vaultLabel": {
+    "message": "Cofre"
+  },
+  "generatedNote": {
+    "message": "Senha sugerida pelo Keyless."
+  },
+  "useSuggested": {
+    "message": "Usar senha sugerida"
+  },
+  "regenerate": {
+    "message": "Sugerir outra"
+  },
+  "symbols": {
+    "message": "Símbolos"
+  },
+  "savedLogins": {
+    "message": "Logins salvos"
+  }
+}

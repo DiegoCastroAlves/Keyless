@@ -29,7 +29,7 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Browser extension for Chrome, Edge, Brave, Vivaldi, Opera and Firefox: fills
   logins on the matching site, with an end-to-end encrypted, paired connection
   to the desktop app
-- English and Spanish
+- English, Spanish and Brazilian Portuguese (follows the system language by default)
 
 ## Install
 
