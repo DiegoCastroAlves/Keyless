@@ -188,6 +188,15 @@ export interface ItemSummary {
   lastUsedAt: number | null;
 }
 
+/** A password from the generator history (local to this device). */
+export interface GeneratedEntry {
+  id: string;
+  password: string;
+  /** The website it was filled on by the browser extension. */
+  site: string | null;
+  createdAt: number;
+}
+
 /** Where an item's website is filled: anywhere on the site (default), only
  * its exact host, or never. */
 export type UrlFill = "domain" | "host" | "never";
@@ -414,6 +423,10 @@ export const api = {
   deleteItemsPermanently: (itemIds: string[]) => invoke<void>("delete_items_permanently", { itemIds }),
 
   generatePassword: (options: GeneratorOptions) => invoke<GeneratedPassword>("generate_password", { options }),
+  rememberGenerated: (password: string) => invoke<void>("remember_generated", { password }),
+  generatorHistory: () => invoke<GeneratedEntry[]>("generator_history"),
+  /** One entry, or the whole history without an id. */
+  deleteGenerated: (id?: string) => invoke<void>("delete_generated", { id: id ?? null }),
   passwordHealth: () => invoke<HealthReport>("password_health"),
   checkBreaches: () => invoke<BreachReport>("check_breaches"),
   importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>

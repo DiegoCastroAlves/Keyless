@@ -726,6 +726,8 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       if (typeof password !== "string") return { ok: false, error: "expired" };
       await chrome.storage.session.remove(suggestionKey(tab.id));
       await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-new", password, origin: new URL(url).origin }, { frameId: 0 });
+      // In the app's generator history, in case the sign-up is never saved.
+      await call("remember_generated", { password, url }).catch(() => undefined);
       // Not lost if the form's submission is missed: offered on the next page.
       const previous = await getCapture(tab.id);
       await setCapture(tab.id, {

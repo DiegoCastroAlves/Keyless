@@ -17,6 +17,7 @@ use crate::{
     auth::{self, AppStatus, CreatedAccount},
     clipboard,
     error::{AppError, AppResult, Msg},
+    generator_history,
     health::{self, BreachReport, HealthReport, Strength},
     import::{self, ImportFormat, ImportTarget},
     items::{self, HistoryEntry, ItemDetailView, ItemDraft, ItemSummary, TotpCode, VaultDto},
@@ -390,6 +391,35 @@ pub async fn delete_items_permanently(app: AppHandle, state: State<'_, AppState>
 pub fn generate_password(state: State<'_, AppState>, options: GeneratorOptions) -> AppResult<GeneratedPassword> {
     state.touch();
     Ok(generate(&options)?)
+}
+
+/// A generated password was copied or put in an item.
+#[tauri::command]
+pub async fn remember_generated(state: State<'_, AppState>, password: Zeroizing<String>) -> AppResult<()> {
+    state.touch();
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or(AppError::Locked)?;
+    generator_history::remember(&state, session, &password, None)
+}
+
+#[tauri::command]
+pub async fn generator_history(state: State<'_, AppState>) -> AppResult<Vec<generator_history::Entry>> {
+    state.touch();
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or(AppError::Locked)?;
+    generator_history::list(&state, session)
+}
+
+#[tauri::command]
+pub async fn delete_generated(state: State<'_, AppState>, id: Option<String>) -> AppResult<()> {
+    state.touch();
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    match id {
+        Some(id) => state.store().delete_generated(&id),
+        None => state.store().clear_generated(),
+    }
 }
 
 #[tauri::command]

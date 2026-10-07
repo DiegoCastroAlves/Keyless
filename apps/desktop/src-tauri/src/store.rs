@@ -12,7 +12,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppResult;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 pub struct Store {
     conn: Connection,
@@ -173,6 +173,17 @@ impl Store {
                  );",
             )?;
         }
+        if version < 5 {
+            // Version 5: generator history (see `generator_history`),
+            // encrypted. Local only.
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS generator_history (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                 );",
+            )?;
+        }
         self.conn
             .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         Ok(())
@@ -270,7 +281,7 @@ impl Store {
     /// Removes every account-related row (sign out). Settings are kept.
     pub fn wipe_account_data(&self) -> AppResult<()> {
         self.conn.execute_batch(
-            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage; DELETE FROM site_icons;",
+            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage; DELETE FROM site_icons; DELETE FROM generator_history;",
         )?;
         // Reclaim pages so deleted ciphertext does not linger in the file.
         let _ = self.conn.execute_batch("VACUUM;");
@@ -462,6 +473,39 @@ impl Store {
 
     pub fn clear_site_icons(&self) -> AppResult<()> {
         self.conn.execute("DELETE FROM site_icons", [])?;
+        Ok(())
+    }
+
+    /// Adds a generator history entry and keeps only the newest `keep`.
+    pub fn add_generated(&self, id: &str, data: &str, created_at: i64, keep: usize) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO generator_history (id, data, created_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, data, created_at],
+        )?;
+        self.conn.execute(
+            "DELETE FROM generator_history WHERE rowid NOT IN
+               (SELECT rowid FROM generator_history ORDER BY created_at DESC, rowid DESC LIMIT ?1)",
+            [keep as i64],
+        )?;
+        Ok(())
+    }
+
+    /// (id, encrypted data, created at), newest first.
+    pub fn generated_entries(&self, limit: usize) -> AppResult<Vec<(String, String, i64)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, data, created_at FROM generator_history ORDER BY created_at DESC, rowid DESC LIMIT ?1")?;
+        let rows = stmt.query_map([limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn delete_generated(&self, id: &str) -> AppResult<()> {
+        self.conn.execute("DELETE FROM generator_history WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    pub fn clear_generated(&self) -> AppResult<()> {
+        self.conn.execute("DELETE FROM generator_history", [])?;
         Ok(())
     }
 

@@ -1,11 +1,12 @@
-import { Copy, RefreshCw } from "lucide-react";
+import { ArrowLeft, Copy, Eye, EyeOff, History, RefreshCw, Trash } from "lucide-react";
 import { Slider } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordText } from "../../components/common";
 import { Button, Combobox, Dialog, IconButton, Switch, cx } from "../../components/ui";
-import { api, errorMessage, type GeneratedPassword, type GeneratorOptions } from "../../lib/api";
+import { api, errorMessage, type GeneratedEntry, type GeneratedPassword, type GeneratorOptions } from "../../lib/api";
+import { relativeTime } from "../../lib/format";
 import { toast } from "../../lib/toast";
 
 type Mode = GeneratorOptions["kind"];
@@ -101,6 +102,7 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
     try {
       const r = await api.copyText(result.password);
       toast.copied(t("item.password"), r.clearAfterSeconds);
+      remember(result.password);
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -188,10 +190,103 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
       )}
 
       {onUse && result && (
-        <Button variant="primary" className="w-full" onClick={() => onUse(result.password)}>
+        <Button
+          variant="primary"
+          className="w-full"
+          onClick={() => {
+            remember(result.password);
+            onUse(result.password);
+          }}
+        >
           {t("generator.use")}
         </Button>
       )}
+    </div>
+  );
+}
+
+/** Kept in the generator history once the password is actually used. */
+function remember(password: string) {
+  void api.rememberGenerated(password).catch(() => undefined);
+}
+
+function GeneratorHistory() {
+  const { t } = useTranslation();
+  const [entries, setEntries] = useState<GeneratedEntry[] | null>(null);
+  const [visible, setVisible] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+
+  const load = useCallback(() => {
+    api.generatorHistory().then(setEntries).catch((err) => toast.error(errorMessage(err)));
+  }, []);
+  useEffect(load, [load]);
+
+  const copy = async (value: string) => {
+    try {
+      const result = await api.copyText(value);
+      toast.copied(t("item.password"), result.clearAfterSeconds);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const remove = async (id?: string) => {
+    try {
+      await api.deleteGenerated(id);
+      setConfirming(false);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] text-muted">{t("generator.historyNote")}</p>
+      {entries && entries.length === 0 && <p className="text-sm text-subtle">{t("generator.historyEmpty")}</p>}
+      {entries && entries.length > 0 && (
+        <div className="max-h-[50vh] divide-y divide-line overflow-y-auto rounded-xl border border-line">
+          {entries.map((entry) => (
+            <div key={entry.id} className="group flex items-center gap-2 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                {visible === entry.id ? (
+                  <PasswordText value={entry.password} className="break-all text-sm" />
+                ) : (
+                  <span className="tracking-[0.2em] text-muted">••••••••••</span>
+                )}
+                <div className="truncate text-xs text-subtle">
+                  {relativeTime(entry.createdAt)}
+                  {entry.site && ` · ${t("generator.filledOn", { site: entry.site })}`}
+                </div>
+              </div>
+              <IconButton label={visible === entry.id ? t("item.conceal") : t("item.reveal")} onClick={() => setVisible(visible === entry.id ? null : entry.id)}>
+                {visible === entry.id ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </IconButton>
+              <IconButton label={t("common.copy")} onClick={() => copy(entry.password)}>
+                <Copy className="size-4" />
+              </IconButton>
+              <IconButton label={t("common.delete")} onClick={() => remove(entry.id)} className="opacity-0 group-hover:opacity-100 focus:opacity-100">
+                <Trash className="size-4" />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
+      {entries && entries.length > 0 &&
+        (confirming ? (
+          <div className="flex items-center justify-end gap-2">
+            <span className="mr-auto text-[13px]">{t("generator.clearHistoryConfirm")}</span>
+            <Button variant="ghost" size="sm" onClick={() => setConfirming(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => remove()}>
+              {t("generator.clearHistory")}
+            </Button>
+          </div>
+        ) : (
+          <Button variant="ghost" size="sm" onClick={() => setConfirming(true)}>
+            <Trash className="size-4" /> {t("generator.clearHistory")}
+          </Button>
+        ))}
     </div>
   );
 }
@@ -231,9 +326,27 @@ function LengthSlider({ label, value, min, max, onChange }: { label: string; val
 
 export function GeneratorDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
+  const [history, setHistory] = useState(false);
+  useEffect(() => {
+    if (!open) setHistory(false);
+  }, [open]);
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title={t("generator.title")}>
-      <GeneratorPanel />
+    <Dialog open={open} onOpenChange={onOpenChange} title={history ? t("generator.historyTitle") : t("generator.title")}>
+      {history ? (
+        <div className="space-y-3">
+          <GeneratorHistory />
+          <Button variant="ghost" size="sm" onClick={() => setHistory(false)}>
+            <ArrowLeft className="size-4" /> {t("common.back")}
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <GeneratorPanel />
+          <Button variant="ghost" size="sm" onClick={() => setHistory(true)}>
+            <History className="size-4" /> {t("generator.history")}
+          </Button>
+        </div>
+      )}
     </Dialog>
   );
 }

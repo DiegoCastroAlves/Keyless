@@ -163,9 +163,12 @@ account has, approximate item sizes (padded), and when items change.
   when the computer sleeps, on sign out, when the setting is turned off and 24
   hours after the master password was last entered. Turning it on requires the
   master password.
-- The local database contains only what the server stores, plus the refresh
-  token encrypted with the user key. File permissions are restricted to the
-  current user.
+- The local database contains what the server stores, plus a few things that
+  never leave the device: the refresh token, website icons and the password
+  generator history (each encrypted with a key derived from the user key; icon
+  rows are named by a keyed hash, not by the site), and how often each item
+  was used (by its random id). File permissions are restricted to the current
+  user, and signing out wipes it.
 - The Secret Key is kept in the OS credential store (Windows Credential
   Manager with local-only persistence, Secret Service on Linux). Without one,
   it falls back to a file readable only by the current user, and the app says

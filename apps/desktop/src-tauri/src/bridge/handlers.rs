@@ -89,6 +89,17 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let symbols = args.get("symbols").and_then(Value::as_bool).unwrap_or(true);
             super::logins::suggest(max_length, symbols)
         }
+        "remember_generated" => {
+            // A suggested password was filled into a page: kept in the
+            // generator history, with the page's site.
+            let password = take_secret(args, "password")?;
+            let site = args.get("url").and_then(Value::as_str).and_then(Page::parse).map(|page| page.host);
+            let state = app.state::<AppState>();
+            let guard = state.session.lock().await;
+            let session = guard.as_ref().ok_or("locked")?;
+            crate::generator_history::remember(&state, session, &password, site.as_deref()).map_err(|_| "error")?;
+            Ok(json!(true))
+        }
         "credentials" => {
             let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
             let url = args.get("url").and_then(Value::as_str);

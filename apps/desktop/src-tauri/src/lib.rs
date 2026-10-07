@@ -11,6 +11,7 @@ mod clipboard;
 mod commands;
 mod config;
 mod error;
+mod generator_history;
 mod hardening;
 mod health;
 mod import;
@@ -261,6 +262,9 @@ pub fn run() {
             commands::restore_item,
             commands::delete_items_permanently,
             commands::generate_password,
+            commands::remember_generated,
+            commands::generator_history,
+            commands::delete_generated,
             commands::password_health,
             commands::check_breaches,
             commands::import_pick,
