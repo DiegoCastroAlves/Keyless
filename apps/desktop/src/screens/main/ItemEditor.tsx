@@ -20,8 +20,8 @@ import {
   Textarea,
   cx,
 } from "../../components/ui";
-import { fieldLabel } from "../../i18n";
-import { api, errorCode, errorMessage, type Field, type FieldKind, type ItemDraft, type Section, type UrlFill } from "../../lib/api";
+import { fieldLabel, isFieldLabel } from "../../i18n";
+import { api, errorCode, errorMessage, type Field, type FieldKind, type ItemDraft, type Section, type SshKeyFields, type UrlFill } from "../../lib/api";
 import { FIELD_KINDS, categoryInfo, categoryLabel, fieldKindLabel, isSecretKind, newFieldId } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -130,6 +130,7 @@ export function ItemEditor() {
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-6">
           <div className="space-y-2">
+            {draft.category === "ssh_key" && <SshKeyTools draft={draft} onFields={(fields) => setDraft((d) => ({ ...d, fields }))} />}
             {draft.fields.map((field, i) => (
               <FieldEditor key={field.id} field={field} onChange={(f) => setField(i, f)} onRemove={() => removeField(i)} />
             ))}
@@ -252,7 +253,8 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
   const { t } = useTranslation();
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const secret = isSecretKind(field);
-  const canGenerate = field.kind === "concealed" || field.purpose === "password";
+  // Not for an SSH private key: it is generated as a key, not a password.
+  const canGenerate = (field.kind === "concealed" || field.purpose === "password") && !isFieldLabel(field.label, "private key");
 
   const valueInput = (() => {
     const common = {
@@ -331,6 +333,106 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
 }
 
 /** Reads a one-time password QR code, like 1Password's "Scan QR Code". */
+/** SSH key items: generates a key, or fills the public key and fingerprint
+ * from a pasted private key (asking for its passphrase when it has one). */
+function SshKeyTools({ draft, onFields }: { draft: ItemDraft; onFields: (fields: Field[]) => void }) {
+  const { t } = useTranslation();
+  const privateKey = draft.fields.find((f) => isFieldLabel(f.label, "private key"))?.value ?? "";
+  const [needsPassphrase, setNeedsPassphrase] = useState(false);
+  const [passphrase, setPassphrase] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const derived = useRef("");
+
+  const apply = useCallback(
+    (key: SshKeyFields) => {
+      const values: Record<string, string> = { "private key": key.privateKey, "public key": key.publicKey, fingerprint: key.fingerprint };
+      const keyOf = (label: string) => Object.keys(values).find((k) => isFieldLabel(label, k));
+      const fields = draft.fields.map((f) => {
+        const k = keyOf(f.label);
+        return k ? { ...f, value: values[k] } : f;
+      });
+      for (const [label, value] of Object.entries(values)) {
+        if (!fields.some((f) => isFieldLabel(f.label, label))) {
+          fields.push({ id: newFieldId(), label: fieldLabel(label), kind: label === "private key" ? "concealed" : label === "public key" ? "multiline" : "text", value });
+        }
+      }
+      derived.current = key.privateKey;
+      onFields(fields);
+    },
+    [draft.fields, onFields],
+  );
+
+  const derive = useCallback(
+    async (withPassphrase?: string) => {
+      setBusy(true);
+      try {
+        apply(await api.sshImportKey(privateKey, withPassphrase ?? null, draft.title));
+        setNeedsPassphrase(false);
+        setPassphrase("");
+        setError(null);
+      } catch (err) {
+        const code = errorCode(err);
+        if (code === "ssh_key_passphrase") setNeedsPassphrase(true);
+        else setError(errorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [apply, privateKey, draft.title],
+  );
+
+  // A key was pasted: fill in the rest.
+  useEffect(() => {
+    if (!privateKey.includes("-----END ") || privateKey === derived.current) return;
+    derived.current = privateKey;
+    const timer = setTimeout(() => void derive(), 300);
+    return () => clearTimeout(timer);
+  }, [privateKey, derive]);
+
+  const generate = async () => {
+    setBusy(true);
+    try {
+      apply(await api.sshGenerateKey(draft.title));
+      setError(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-line bg-panel-2 p-3">
+      {!privateKey.trim() ? (
+        <div className="flex items-center gap-3">
+          <p className="flex-1 text-[13px] text-muted">{t("sshKey.hint")}</p>
+          <Button size="sm" variant="secondary" onClick={generate} loading={busy}>
+            <WandSparkles className="size-4" /> {t("sshKey.generate")}
+          </Button>
+        </div>
+      ) : needsPassphrase ? (
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void derive(passphrase);
+          }}
+        >
+          <span className="shrink-0 text-[13px] text-muted">{t("sshKey.passphrase")}</span>
+          <PasswordInput value={passphrase} onChange={(e) => setPassphrase(e.target.value)} className="h-8" autoFocus />
+          <Button size="sm" type="submit" loading={busy} disabled={!passphrase}>
+            {t("sshKey.unlock")}
+          </Button>
+        </form>
+      ) : (
+        <p className="text-[13px] text-muted">{t("sshKey.ready")}</p>
+      )}
+      {error && <p className="text-[13px] text-danger">{error}</p>}
+    </div>
+  );
+}
+
 const FILL_RULES: { value: UrlFill; icon: typeof Globe }[] = [
   { value: "domain", icon: Globe },
   { value: "host", icon: Crosshair },

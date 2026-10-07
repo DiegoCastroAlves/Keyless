@@ -112,6 +112,7 @@ export interface Settings {
   quick_access_shortcut: string;
   /** Show website icons, downloaded from each site and kept encrypted here. */
   site_icons: boolean;
+  ssh_agent: boolean;
 }
 
 export interface SiteIcon {
@@ -186,6 +187,27 @@ export interface ItemSummary {
   /** Uses on this device (copied, revealed, opened, filled). Local only. */
   uses: number;
   lastUsedAt: number | null;
+}
+
+/** A program asking the SSH agent to sign. */
+export interface SshRequest {
+  id: number;
+  program: string;
+  parent: string | null;
+  keyTitle: string;
+  fingerprint: string;
+  /** "login", "git" or "sign" (with a namespace). */
+  purpose: string;
+  namespace: string | null;
+}
+
+export type SshAnswer = "deny" | "once" | "remember";
+
+/** The fields of an SSH key item. */
+export interface SshKeyFields {
+  privateKey: string;
+  publicKey: string;
+  fingerprint: string;
 }
 
 /** A password from the generator history (local to this device). */
@@ -464,6 +486,16 @@ export const api = {
   importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
   exportBackup: (masterPassword: string, password: string) => invoke<number>("export_backup", { masterPassword, password }),
+  sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
+  sshRequest: () => invoke<SshRequest | null>("ssh_request"),
+  sshRequestReady: () => invoke<void>("ssh_request_ready"),
+  /** Resolves to whether more requests wait. */
+  sshAnswer: (id: number, answer: SshAnswer) => invoke<boolean>("ssh_answer", { id, answer }),
+  sshClose: () => invoke<void>("ssh_close"),
+  unlockPromptReason: () => invoke<"browser" | "ssh">("unlock_prompt_reason"),
+  sshAgentInfo: () => invoke<string | null>("ssh_agent_info"),
+  sshImportKey: (privateKey: string, passphrase: string | null, comment: string) =>
+    invoke<SshKeyFields>("ssh_import_key", { privateKey, passphrase, comment }),
   /** An unencrypted export, after the master password. */
   exportPlain: (masterPassword: string, format: "csv" | "json") => invoke<number>("export_plain", { masterPassword, format }),
   importCommit: (target: ImportTarget) => invoke<number>("import_commit", { target }),

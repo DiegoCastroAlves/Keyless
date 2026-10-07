@@ -34,7 +34,18 @@ const es: Translations = {
     lock: "Bloquear",
     settings: "Ajustes",
   },
+  sshKey: {
+    hint: "Pega abajo una clave privada existente o crea una nueva.",
+    generate: "Generar una clave nueva",
+    passphrase: "Esta clave tiene frase de contraseña:",
+    unlock: "Desbloquear",
+    ready: "La clave pública y la huella vienen de la clave privada. La clave privada se guarda sin su frase de contraseña, protegida por tu cofre.",
+  },
   errors: {
+    ssh_key_invalid: "No es una clave privada SSH que Keyless pueda leer (OpenSSH o RSA PEM).",
+    ssh_key_wrong_passphrase: "Frase de contraseña incorrecta para esta clave.",
+    ssh_key_passphrase: "Esta clave necesita su frase de contraseña.",
+    ssh_key_unsupported: "Las claves RSA PEM con frase de contraseña no son compatibles. Conviértela antes con ssh-keygen -p -f <archivo>.",
     qr_not_found: "No se encontró ningún código QR de contraseña de un solo uso.",
     qr_no_clipboard_image: "No hay ninguna imagen en el portapapeles.",
     qr_screen_failed: "No se pudo capturar la pantalla. Copia la imagen del código QR y usa «Imagen del portapapeles».",
@@ -227,6 +238,7 @@ const es: Translations = {
   },
   unlockPrompt: {
     title: "Keyless está intentando desbloquear la extensión del navegador.",
+    titleSsh: "Un programa quiere usar una clave SSH guardada en Keyless.",
     placeholder: "Escribe tu contraseña maestra",
   },
   lock: {
@@ -589,7 +601,26 @@ const es: Translations = {
     sharedWith: "Misma contraseña que otros {{count}} elementos",
     notChecked: "Aún no comprobado",
   },
+  sshApprove: {
+    title: "¿Permitir que {{program}} use una clave SSH?",
+    startedBy: "Iniciado por {{parent}}",
+    login: "Para iniciar sesión en un servidor.",
+    git: "Para firmar un commit o una etiqueta de git.",
+    sign: "Para firmar datos ({{namespace}}).",
+    remember: "Dejar que {{program}} use esta clave hasta que Keyless se bloquee",
+    deny: "Denegar",
+    allow: "Permitir",
+  },
   settings: {
+    developer: "Desarrollador",
+    sshAgentTitle: "Agente SSH",
+    sshAgentBody:
+      "SSH y git pueden usar las claves SSH que guardas en Keyless sin que las claves privadas salgan de él. Cada uso necesita tu aprobación y Keyless debe estar desbloqueado.",
+    sshAgent: "Usar el agente SSH de Keyless",
+    sshAgentHint: "Desactivado por defecto. Solo los programas que se ejecutan con tu usuario pueden usarlo.",
+    sshAgentHow: "Añade esto a ~/.ssh/config:",
+    sshAgentOr: "O configúralo para una terminal:",
+    sshAgentConfig: "Configuración",
     title: "Ajustes",
     general: "General",
     security: "Seguridad",

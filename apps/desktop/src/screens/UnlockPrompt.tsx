@@ -15,6 +15,7 @@ export function UnlockPrompt() {
   const { t } = useTranslation();
   const [theme, setTheme] = useState<string>();
   const [email, setEmail] = useState<string | null>(null);
+  const [reason, setReason] = useState<"browser" | "ssh">("browser");
   const [password, setPassword] = useState("");
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -24,8 +25,9 @@ export function UnlockPrompt() {
   useTheme(theme);
 
   useEffect(() => {
-    void Promise.all([api.getSettings(), api.status()])
-      .then(([settings, status]) => {
+    void Promise.all([api.getSettings(), api.status(), api.unlockPromptReason()])
+      .then(([settings, status, why]) => {
+        setReason(why);
         applyLanguage(settings.language);
         setTheme(settings.theme);
         setEmail(status.email);
@@ -67,7 +69,7 @@ export function UnlockPrompt() {
   return (
     <div className="flex h-screen select-none flex-col items-center justify-center bg-panel px-8 text-fg">
       <Logo className="size-12" />
-      <p className="mt-4 text-center text-[15px] font-semibold leading-snug">{t("unlockPrompt.title")}</p>
+      <p className="mt-4 text-center text-[15px] font-semibold leading-snug">{reason === "ssh" ? t("unlockPrompt.titleSsh") : t("unlockPrompt.title")}</p>
       {email && <p className="mt-1 truncate text-xs text-muted">{email}</p>}
       <form onSubmit={submit} className="mt-5 w-full">
         <div className="relative">

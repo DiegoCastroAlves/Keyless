@@ -32,7 +32,7 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
         "unlock" => {
             // Keyless asks the user itself (system prompt or its own
             // window): the extension never sees the master password.
-            crate::unlock_prompt::request(app).await.map_err(|err| {
+            crate::unlock_prompt::request(app, crate::unlock_prompt::Reason::Browser).await.map_err(|err| {
                 log::info!("unlock for the browser extension: {err}");
                 unlock_error(err)
             })?;

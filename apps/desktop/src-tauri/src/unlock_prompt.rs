@@ -16,10 +16,20 @@ use crate::{
 
 pub const LABEL: &str = "unlock-prompt";
 
+/// Who asks to unlock, for the prompt's text.
+#[derive(Clone, Copy, Debug, Default, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Reason {
+    #[default]
+    Browser,
+    Ssh,
+}
+
 /// Returns once Keyless is unlocked, or `Cancelled` when the user closed the
 /// prompt.
-pub async fn request(app: &AppHandle) -> AppResult<()> {
+pub async fn request(app: &AppHandle, reason: Reason) -> AppResult<()> {
     let state = app.state::<AppState>();
+    *state.unlock_reason.lock().unwrap_or_else(|e| e.into_inner()) = reason;
     if state.session.lock().await.is_some() {
         return Ok(());
     }

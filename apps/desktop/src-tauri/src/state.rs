@@ -60,11 +60,13 @@ pub struct Settings {
     pub quick_access_shortcut: String,
     /// Show website icons, downloaded from each site (see `site_icons`).
     pub site_icons: bool,
+    /// Run the SSH agent (see `ssh_agent`).
+    pub ssh_agent: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false }
     }
 }
 
@@ -224,6 +226,10 @@ pub struct AppState {
     /// Whether Keyless is locked, for the tray icon and the browser
     /// extension's icon.
     pub lock_state: tokio::sync::watch::Sender<bool>,
+    /// Who asked for the unlock prompt last.
+    pub unlock_reason: Mutex<crate::unlock_prompt::Reason>,
+    /// The SSH agent: its task, approvals waiting and given.
+    pub ssh: crate::ssh_agent::SshState,
 }
 
 impl AppState {

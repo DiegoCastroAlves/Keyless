@@ -580,6 +580,10 @@ pub async fn save_item(app: &AppHandle, mut draft: ItemDraft) -> AppResult<ItemS
             if field.kind == FieldKind::Totp {
                 field.value = field.value.trim().to_string();
             }
+            // A private key whose line breaks were lost in a single-line field.
+            if draft.category == Category::SshKey && field.kind == FieldKind::Concealed && field.value.contains("-----BEGIN ") {
+                field.value = crate::ssh_keys::normalize_pem(&field.value).to_string();
+            }
         }
         for section in draft.sections.iter_mut() {
             if section.id.is_empty() {

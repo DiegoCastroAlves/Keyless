@@ -1,4 +1,4 @@
-import { Download, Fingerprint, Globe, Info, KeyRound, Settings2, ShieldCheck, Trash, User, X } from "lucide-react";
+import { Copy, Download, Fingerprint, Globe, Info, KeyRound, Settings2, ShieldCheck, Terminal, Trash, User, X } from "lucide-react";
 import { Dialog as RDialog } from "radix-ui";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +13,7 @@ import { toast } from "../../lib/toast";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 import { ExportPanel, ImportPanel, PlainExportPanel } from "./ImportDialog";
 
-export type SettingsTab = "general" | "security" | "browser" | "account" | "import" | "about";
+export type SettingsTab = "general" | "security" | "browser" | "developer" | "account" | "import" | "about";
 
 export function SettingsDialog({
   open,
@@ -35,6 +35,7 @@ export function SettingsDialog({
     { id: "security", label: t("settings.security"), icon: <ShieldCheck className="size-4" /> },
     { id: "browser", label: t("settings.browser"), icon: <Globe className="size-4" /> },
     { id: "account", label: t("settings.account"), icon: <User className="size-4" /> },
+    { id: "developer", label: t("settings.developer"), icon: <Terminal className="size-4" /> },
     { id: "import", label: t("settings.import"), icon: <Download className="size-4" /> },
     { id: "about", label: t("settings.about"), icon: <Info className="size-4" /> },
   ];
@@ -80,6 +81,7 @@ export function SettingsDialog({
               {tab === "general" && <GeneralTab />}
               {tab === "security" && <SecurityTab />}
               {tab === "browser" && <BrowserTab />}
+              {tab === "developer" && <DeveloperTab />}
               {tab === "account" && <AccountTab onClose={() => onOpenChange(false)} />}
               {tab === "import" && (
                 <div className="space-y-8">
@@ -477,6 +479,68 @@ function SystemUnlockSection() {
         </form>
       )}
     </div>
+  );
+}
+
+/** The SSH agent: off by default; shows how to point SSH at it. */
+function DeveloperTab() {
+  const { t } = useTranslation();
+  const settings = useApp((s) => s.settings);
+  const setSettings = useApp((s) => s.setSettings);
+  const [socket, setSocket] = useState<string | null>(null);
+  useEffect(() => {
+    void api.sshAgentInfo().then(setSocket);
+  }, []);
+  if (!settings) return null;
+  const shown = socket?.replace(/^\/home\/[^/]+/, "~") ?? "";
+  const config = `Host *\n  IdentityAgent ${shown}`;
+  const copy = async (text: string) => {
+    try {
+      const result = await api.copyText(text);
+      toast.copied(t("settings.sshAgentConfig"), result.clearAfterSeconds);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <div className="text-sm font-semibold">{t("settings.sshAgentTitle")}</div>
+        <p className="mt-1 text-xs leading-relaxed text-muted">{t("settings.sshAgentBody")}</p>
+      </div>
+      <Row title={t("settings.sshAgent")} hint={t("settings.sshAgentHint")}>
+        <div className="flex justify-end">
+          <Switch
+            checked={settings.ssh_agent}
+            onChange={(ssh_agent) => setSettings({ ...settings, ssh_agent }).catch((err) => toast.error(errorMessage(err)))}
+            label={t("settings.sshAgent")}
+          />
+        </div>
+      </Row>
+      {settings.ssh_agent && socket && (
+        <div className="space-y-2 rounded-xl border border-line bg-panel-2 p-4">
+          <p className="text-xs text-muted">{t("settings.sshAgentHow")}</p>
+          <div className="flex items-start gap-2">
+            <pre className="selectable min-w-0 flex-1 overflow-x-auto rounded-lg bg-panel px-3 py-2 font-mono text-xs">{config}</pre>
+            <IconButtonCopy onClick={() => copy(config)} label={t("common.copy")} />
+          </div>
+          <p className="text-xs text-muted">{t("settings.sshAgentOr")}</p>
+          <div className="flex items-start gap-2">
+            <pre className="selectable min-w-0 flex-1 overflow-x-auto rounded-lg bg-panel px-3 py-2 font-mono text-xs">{`export SSH_AUTH_SOCK=${shown}`}</pre>
+            <IconButtonCopy onClick={() => copy(`export SSH_AUTH_SOCK=${shown}`)} label={t("common.copy")} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function IconButtonCopy({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <Button variant="ghost" size="sm" onClick={onClick} aria-label={label} title={label}>
+      <Copy className="size-4" />
+    </Button>
   );
 }
 

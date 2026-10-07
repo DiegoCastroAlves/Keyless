@@ -189,6 +189,28 @@ account has, approximate item sizes (padded), and when items change.
   bundled UI, no plugin APIs exposed to the web UI (file dialogs and links are
   opened from Rust).
 
+## SSH agent
+
+Off by default (Settings > Developer). SSH and git ask it to sign with the
+SSH keys kept in items; private keys never leave Keyless.
+
+- It listens on `~/.keyless/agent.sock`, in a directory only the user can
+  open, with the socket itself readable only by the user, and it refuses
+  connections from processes of other users (peer credentials).
+- Keys are read from the unlocked vault for each request and are not kept
+  after a lock. While Keyless is locked, a request asks to unlock it first.
+- Every signature needs the user's approval in a Keyless window that names
+  the program asking (and the one that started it), the key and what the
+  signature is for: signing in to a server, a git commit or tag, or other
+  data. Approval can be remembered for that program and key until Keyless
+  locks; closing the window, or waiting 60 seconds, denies. The window does
+  not take the Enter key, so typing in a terminal cannot approve.
+- RSA signatures with SHA-1 (`ssh-rsa`) are refused; only rsa-sha2-256/512,
+  Ed25519 and ECDSA.
+- The program name comes from the operating system and can be chosen by a
+  malicious program of the same user; the approval is a guard against
+  surprise use, not against malware already running as the user.
+
 ## Updates
 
 - The app looks at the public list of releases on GitHub twice a day (this

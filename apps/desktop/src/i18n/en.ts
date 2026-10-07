@@ -32,7 +32,18 @@ const en = {
     lock: "Lock",
     settings: "Settings",
   },
+  sshKey: {
+    hint: "Paste an existing private key below, or create a new one.",
+    generate: "Generate a new key",
+    passphrase: "This key has a passphrase:",
+    unlock: "Unlock",
+    ready: "Public key and fingerprint come from the private key. The private key is stored without its passphrase, protected by your vault.",
+  },
   errors: {
+    ssh_key_invalid: "This is not an SSH private key Keyless can read (OpenSSH or RSA PEM).",
+    ssh_key_wrong_passphrase: "Wrong passphrase for this key.",
+    ssh_key_passphrase: "This key needs its passphrase.",
+    ssh_key_unsupported: "Passphrase-protected RSA PEM keys are not supported. Convert it with ssh-keygen -p -f <file> first.",
     qr_not_found: "No one-time password QR code found.",
     qr_no_clipboard_image: "There is no image in the clipboard.",
     qr_screen_failed: "Could not capture the screen. Copy the QR code image instead and use “Image in the clipboard”.",
@@ -225,6 +236,7 @@ const en = {
   },
   unlockPrompt: {
     title: "Keyless is trying to unlock the browser extension.",
+    titleSsh: "A program is asking to use an SSH key stored in Keyless.",
     placeholder: "Enter your master password",
   },
   lock: {
@@ -586,7 +598,26 @@ const en = {
     sharedWith: "Same password as {{count}} other items",
     notChecked: "Not checked yet",
   },
+  sshApprove: {
+    title: "Allow {{program}} to use an SSH key?",
+    startedBy: "Started by {{parent}}",
+    login: "To sign in to a server.",
+    git: "To sign a git commit or tag.",
+    sign: "To sign data ({{namespace}}).",
+    remember: "Let {{program}} use this key until Keyless locks",
+    deny: "Deny",
+    allow: "Allow",
+  },
   settings: {
+    developer: "Developer",
+    sshAgentTitle: "SSH agent",
+    sshAgentBody:
+      "SSH and git can use the SSH keys you keep in Keyless without the private keys ever leaving it. Each use needs your approval, and Keyless must be unlocked.",
+    sshAgent: "Use the Keyless SSH agent",
+    sshAgentHint: "Off by default. Only programs running as you can reach it.",
+    sshAgentHow: "Add this to ~/.ssh/config:",
+    sshAgentOr: "Or set it for a shell:",
+    sshAgentConfig: "Configuration",
     title: "Settings",
     general: "General",
     security: "Security",

@@ -214,6 +214,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
         std::thread::spawn(move || crate::autostart::sync(enabled));
     }
     state.save_settings(&settings)?;
+    if settings.ssh_agent != current.ssh_agent {
+        crate::ssh_agent::apply(&app);
+    }
     if settings.site_icons != current.site_icons {
         if settings.site_icons {
             crate::site_icons::refresh(&app);
@@ -467,6 +470,57 @@ pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_pa
     import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password)).await
 }
 
+/// A new Ed25519 key for an SSH key item.
+#[tauri::command]
+pub fn ssh_generate_key(state: State<'_, AppState>, comment: String) -> AppResult<crate::ssh_keys::SshKeyFields> {
+    state.touch();
+    crate::ssh_keys::generate(&comment)
+}
+
+/// The public key and fingerprint of a pasted private key (decrypted with
+/// its passphrase when it has one).
+#[tauri::command]
+pub fn ssh_import_key(
+    state: State<'_, AppState>,
+    private_key: Zeroizing<String>,
+    passphrase: Option<Zeroizing<String>>,
+    comment: String,
+) -> AppResult<crate::ssh_keys::SshKeyFields> {
+    state.touch();
+    crate::ssh_keys::import(&private_key, passphrase.as_deref().map(|p| p.as_str()), &comment)
+}
+
+/// The SSH signature request the approval window shows.
+#[tauri::command]
+pub fn ssh_request(app: AppHandle) -> Option<crate::ssh_agent::Request> {
+    crate::ssh_agent::current(&app)
+}
+
+#[tauri::command]
+pub fn ssh_request_ready(app: AppHandle) -> AppResult<()> {
+    crate::ssh_agent::ready(&app).map_err(|e| AppError::Server(e.to_string()))
+}
+
+/// Returns whether more requests are waiting.
+#[tauri::command]
+pub fn ssh_answer(app: AppHandle, id: u64, answer: crate::ssh_agent::Answer) -> AppResult<bool> {
+    crate::ssh_agent::answer(&app, id, answer)
+}
+
+/// Closes the approval window, denying what is waiting.
+#[tauri::command]
+pub fn ssh_close(app: AppHandle) {
+    if let Some(window) = tauri::Manager::get_webview_window(&app, crate::ssh_agent::LABEL) {
+        let _ = window.close();
+    }
+}
+
+/// Where the SSH agent listens, for the settings.
+#[tauri::command]
+pub fn ssh_agent_info() -> Option<String> {
+    crate::ssh_agent::socket_path().map(|p| p.display().to_string())
+}
+
 /// An unencrypted export (CSV or JSON), after the master password.
 #[tauri::command]
 pub async fn export_plain(app: AppHandle, state: State<'_, AppState>, master_password: String, format: import::PlainFormat) -> AppResult<usize> {
@@ -544,6 +598,12 @@ pub fn hide_quick_access(app: AppHandle) {
 #[tauri::command]
 pub fn unlock_prompt_ready(app: AppHandle) -> AppResult<()> {
     crate::unlock_prompt::ready(&app).map_err(|e| AppError::Server(e.to_string()))
+}
+
+/// Who asks to unlock: "browser" or "ssh".
+#[tauri::command]
+pub fn unlock_prompt_reason(state: State<'_, AppState>) -> crate::unlock_prompt::Reason {
+    *state.unlock_reason.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[tauri::command]

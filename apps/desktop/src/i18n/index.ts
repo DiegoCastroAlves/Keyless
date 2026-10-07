@@ -57,6 +57,16 @@ export function translateError(err: unknown): string {
 }
 
 /** Translates a stored field label when it is one of our built-in labels. */
+/** A field label is this template label (stored as typed when the item was
+ * created, so in any of the languages, or as the English key). */
+export function isFieldLabel(label: string, key: string): boolean {
+  const normalized = label.trim().toLowerCase();
+  return (
+    normalized === key ||
+    LANGUAGES.some((l) => i18n.getFixedT(l.code)(`fieldLabels.${key}`, { defaultValue: key }).toLowerCase() === normalized)
+  );
+}
+
 export function fieldLabel(label: string): string {
   const key = `fieldLabels.${label}`;
   return label && i18n.exists(key) ? i18n.t(key) : label;

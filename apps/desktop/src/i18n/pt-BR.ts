@@ -34,7 +34,18 @@ const ptBR: Translations = {
     lock: "Bloquear",
     settings: "Configurações",
   },
+  sshKey: {
+    hint: "Cole abaixo uma chave privada existente ou crie uma nova.",
+    generate: "Gerar uma chave nova",
+    passphrase: "Esta chave tem senha:",
+    unlock: "Desbloquear",
+    ready: "A chave pública e a impressão digital vêm da chave privada. A chave privada é guardada sem a senha dela, protegida pelo seu cofre.",
+  },
   errors: {
+    ssh_key_invalid: "Isto não é uma chave privada SSH que o Keyless consiga ler (OpenSSH ou RSA PEM).",
+    ssh_key_wrong_passphrase: "Senha errada para esta chave.",
+    ssh_key_passphrase: "Esta chave precisa da senha dela.",
+    ssh_key_unsupported: "Chaves RSA PEM com senha não são suportadas. Converta antes com ssh-keygen -p -f <arquivo>.",
     qr_not_found: "Nenhum QR code de código de verificação encontrado.",
     qr_no_clipboard_image: "Não há nenhuma imagem na área de transferência.",
     qr_screen_failed: "Não foi possível capturar a tela. Copie a imagem do QR code e use “Imagem da área de transferência”.",
@@ -227,6 +238,7 @@ const ptBR: Translations = {
   },
   unlockPrompt: {
     title: "O Keyless está tentando desbloquear a extensão do navegador.",
+    titleSsh: "Um programa quer usar uma chave SSH guardada no Keyless.",
     placeholder: "Digite sua senha mestra",
   },
   lock: {
@@ -589,7 +601,26 @@ const ptBR: Translations = {
     sharedWith: "Mesma senha de outros {{count}} itens",
     notChecked: "Ainda não verificado",
   },
+  sshApprove: {
+    title: "Permitir que {{program}} use uma chave SSH?",
+    startedBy: "Iniciado por {{parent}}",
+    login: "Para entrar em um servidor.",
+    git: "Para assinar um commit ou tag do git.",
+    sign: "Para assinar dados ({{namespace}}).",
+    remember: "Deixar {{program}} usar esta chave até o Keyless bloquear",
+    deny: "Negar",
+    allow: "Permitir",
+  },
   settings: {
+    developer: "Desenvolvedor",
+    sshAgentTitle: "Agente SSH",
+    sshAgentBody:
+      "O SSH e o git podem usar as chaves SSH guardadas no Keyless sem que as chaves privadas saiam dele. Cada uso precisa da sua aprovação, e o Keyless precisa estar desbloqueado.",
+    sshAgent: "Usar o agente SSH do Keyless",
+    sshAgentHint: "Desligado por padrão. Só programas rodando com o seu usuário conseguem usá-lo.",
+    sshAgentHow: "Adicione isto ao ~/.ssh/config:",
+    sshAgentOr: "Ou configure para um terminal:",
+    sshAgentConfig: "Configuração",
     title: "Configurações",
     general: "Geral",
     security: "Segurança",

@@ -23,6 +23,8 @@ mod qr;
 mod quick_access;
 mod secrets;
 mod site_icons;
+mod ssh_agent;
+mod ssh_keys;
 mod state;
 mod store;
 mod sync;
@@ -159,11 +161,14 @@ pub fn run() {
                 quick_access_pending: std::sync::atomic::AtomicBool::new(false),
                 unlock_prompt: Mutex::new(Vec::new()),
                 lock_state: tokio::sync::watch::Sender::new(true),
+                ssh: Default::default(),
+                unlock_reason: Default::default(),
             });
 
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
             bridge::server::start(app.handle().clone());
+            ssh_agent::init(app.handle());
             updates::start(app.handle().clone());
             std::thread::spawn(move || bridge::install::sync_registration(browser_integration));
             if start_at_login {
@@ -208,6 +213,9 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 }
+            }
+            tauri::WindowEvent::Destroyed if window.label() == ssh_agent::LABEL => {
+                ssh_agent::closed(window.app_handle());
             }
             tauri::WindowEvent::Destroyed if window.label() == unlock_prompt::LABEL => {
                 unlock_prompt::closed(window.app_handle());
@@ -276,6 +284,14 @@ pub fn run() {
             commands::import_cancel,
             commands::export_backup,
             commands::export_plain,
+            commands::ssh_generate_key,
+            commands::ssh_import_key,
+            commands::ssh_request,
+            commands::ssh_request_ready,
+            commands::ssh_answer,
+            commands::ssh_agent_info,
+            commands::ssh_close,
+            commands::unlock_prompt_reason,
             commands::copy_secret_key,
             commands::account_info,
             commands::cancel_account_deletion,
