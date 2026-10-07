@@ -7,6 +7,11 @@ import { applyLanguage } from "../i18n";
 import { api, errorMessage, type SshAnswer, type SshRequest } from "../lib/api";
 import { useTheme } from "../lib/theme";
 
+/** How long the buttons wait after a request appears: a click meant for
+ * something else (the window opens under the pointer, or the next request
+ * replaces the one just answered) must not answer it. */
+const ARM_MS = 600;
+
 /** The window Keyless shows when a program asks the SSH agent to sign with
  * a key: which program, which key and what for. Closing it denies. */
 export function SshApprove() {
@@ -15,8 +20,15 @@ export function SshApprove() {
   const [request, setRequest] = useState<SshRequest | null>(null);
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [armed, setArmed] = useState(false);
 
   useTheme(theme);
+
+  useEffect(() => {
+    setArmed(false);
+    const timer = setTimeout(() => setArmed(true), ARM_MS);
+    return () => clearTimeout(timer);
+  }, [request?.id]);
 
   const load = useCallback(async () => {
     const next = await api.sshRequest();
@@ -44,7 +56,8 @@ export function SshApprove() {
   }, [load]);
 
   const answer = async (value: SshAnswer) => {
-    if (!request) return;
+    // Denying is always safe; approving waits until the request was seen.
+    if (!request || (!armed && value !== "deny")) return;
     try {
       if (await api.sshAnswer(request.id, value)) await load();
     } catch (err) {
@@ -57,10 +70,12 @@ export function SshApprove() {
 
   const purpose =
     request.purpose === "login"
-      ? t("sshApprove.login")
+      ? t("sshApprove.login", { user: request.user ?? "?" })
       : request.purpose === "git"
         ? t("sshApprove.git")
-        : t("sshApprove.sign", { namespace: request.namespace ?? "?" });
+        : request.purpose === "sign"
+          ? t("sshApprove.sign", { namespace: request.namespace ?? "?" })
+          : t("sshApprove.unknown");
 
   return (
     <div className="flex h-screen select-none flex-col bg-panel px-7 py-6 text-fg">
@@ -81,17 +96,19 @@ export function SshApprove() {
           <div className="truncate font-mono text-[11px] text-subtle">{request.fingerprint}</div>
         </div>
       </div>
-      <label className="mt-3 flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-[var(--accent)]" />
-        {t("sshApprove.remember", { program: request.program })}
-      </label>
+      {request.canRemember && (
+        <label className="mt-3 flex items-center gap-2 text-[13px]">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-[var(--accent)]" />
+          {t(request.purpose === "git" ? "sshApprove.rememberGit" : "sshApprove.rememberLogin", { program: request.program })}
+        </label>
+      )}
       {error && <p className="mt-2 text-[13px] text-danger">{error}</p>}
       <div className="mt-auto flex justify-end gap-2 pt-4">
         <Button variant="secondary" onClick={() => answer("deny")}>
           {t("sshApprove.deny")}
         </Button>
         {/* Not focused: an Enter typed in the terminal must not approve. */}
-        <Button variant="primary" onClick={() => answer(remember ? "remember" : "once")}>
+        <Button variant="primary" disabled={!armed} onClick={() => answer(remember && request.canRemember ? "remember" : "once")}>
           {t("sshApprove.allow")}
         </Button>
       </div>

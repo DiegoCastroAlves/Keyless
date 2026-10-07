@@ -206,10 +206,16 @@ SSH keys kept in items; private keys never leave Keyless.
   after a lock. While Keyless is locked, a request asks to unlock it first.
 - Every signature needs the user's approval in a Keyless window that names
   the program asking (and the one that started it), the key and what the
-  signature is for: signing in to a server, a git commit or tag, or other
-  data. Approval can be remembered for that program and key until Keyless
-  locks; closing the window, or waiting 60 seconds, denies. The window does
-  not take the Enter key, so typing in a terminal cannot approve.
+  signature is for: signing in to a server (only when the data is exactly
+  an SSH public key sign-in request, whose user name is shown), a git
+  commit or tag, other data with its namespace, or data Keyless does not
+  recognize. Approval can be remembered until Keyless locks only for
+  sign-ins and git signatures, and only for that program, key and purpose:
+  letting `ssh` sign in does not let it sign commits. Closing the window,
+  or waiting 60 seconds, denies. The window does not take the Enter key, so
+  typing in a terminal cannot approve, and "Allow" works only once a request
+  has been on screen for a moment, so a double click or a click meant for
+  something else cannot approve the next one.
 - RSA signatures with SHA-1 (`ssh-rsa`) are refused; only rsa-sha2-256/512,
   Ed25519 and ECDSA.
 - The program name comes from the operating system and can be chosen by a

@@ -198,9 +198,12 @@ export interface SshRequest {
   parent: string | null;
   keyTitle: string;
   fingerprint: string;
-  /** "login", "git" or "sign" (with a namespace). */
+  /** "login" (as `user`), "git", "sign" (with a namespace) or "unknown". */
   purpose: string;
   namespace: string | null;
+  user: string | null;
+  /** The program may be let do this again until Keyless locks. */
+  canRemember: boolean;
 }
 
 export type SshAnswer = "deny" | "once" | "remember";

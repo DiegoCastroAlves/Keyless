@@ -3,8 +3,11 @@
 //! SSH and git ask it to sign with the SSH keys kept in items; the private
 //! keys never leave Keyless. Every signature needs the user's approval in a
 //! Keyless window that says which program asks, for which key and what for
-//! (signing in to a server, or signing a git commit or other data); the user
-//! can let that program use that key until Keyless locks. While Keyless is
+//! (signing in to a server as which user, signing a git commit, other data);
+//! the user can let that program use that key for the same purpose (signing
+//! in, or git commits) until Keyless locks. Anything else is asked every
+//! time, and the buttons wait a moment after a request appears so a click
+//! meant for something else does not answer it. While Keyless is
 //! locked, a request asks to unlock it first, and nothing is offered if the
 //! user does not.
 //!
@@ -52,10 +55,13 @@ pub struct Request {
     pub parent: Option<String>,
     pub key_title: String,
     pub fingerprint: String,
-    /// "login" (signing in to a server), "git" (a git commit or tag), or
-    /// "sign" (other data, with `namespace`).
+    /// "login" (signing in to a server, as `user`), "git" (a git commit or
+    /// tag), "sign" (other data, with `namespace`) or "unknown".
     pub purpose: String,
     pub namespace: Option<String>,
+    pub user: Option<String>,
+    /// The user may let the program do this again until Keyless locks.
+    pub can_remember: bool,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
@@ -76,8 +82,8 @@ struct Pending {
 pub struct SshState {
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pending: Mutex<VecDeque<Pending>>,
-    /// (key fingerprint, program) approved until Keyless locks.
-    remembered: Mutex<HashSet<(String, String)>>,
+    /// (key fingerprint, program, purpose) approved until Keyless locks.
+    remembered: Mutex<HashSet<(String, String, String)>>,
     next_id: AtomicU64,
 }
 
@@ -170,29 +176,77 @@ async fn unlocked(app: &AppHandle) -> bool {
 }
 
 #[cfg_attr(not(unix), allow(dead_code))]
+#[derive(Debug, PartialEq)]
+struct Purpose {
+    kind: &'static str,
+    namespace: Option<String>,
+    user: Option<String>,
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
 /// What signed data is for: SSHSIG blobs (git and `ssh-keygen -Y`) start
-/// with "SSHSIG" and their namespace; anything else is a sign-in.
-fn purpose(data: &[u8]) -> (String, Option<String>) {
-    let Some(rest) = data.strip_prefix(b"SSHSIG") else { return ("login".into(), None) };
-    let namespace = rest
-        .get(..4)
-        .map(|len| u32::from_be_bytes([len[0], len[1], len[2], len[3]]) as usize)
-        .and_then(|len| rest.get(4..4 + len))
-        .map(|bytes| String::from_utf8_lossy(bytes).into_owned());
-    match namespace.as_deref() {
-        Some("git") => ("git".into(), namespace),
-        _ => ("sign".into(), namespace),
+/// with "SSHSIG" and their namespace; a sign-in is an SSH public key
+/// authentication request (RFC 4252), which names the account. Anything
+/// else is unknown.
+fn purpose(data: &[u8]) -> Purpose {
+    if let Some(rest) = data.strip_prefix(b"SSHSIG") {
+        let namespace = ssh_string(rest).map(|(bytes, _)| String::from_utf8_lossy(bytes).into_owned());
+        let kind = if namespace.as_deref() == Some("git") { "git" } else { "sign" };
+        return Purpose { kind, namespace, user: None };
     }
+    match login_user(data) {
+        Some(user) => Purpose { kind: "login", namespace: None, user: Some(user) },
+        None => Purpose { kind: "unknown", namespace: None, user: None },
+    }
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+/// An SSH string (length, then bytes) and what follows it.
+fn ssh_string(data: &[u8]) -> Option<(&[u8], &[u8])> {
+    let len = u32::from_be_bytes(data.get(..4)?.try_into().ok()?) as usize;
+    let end = len.checked_add(4)?;
+    Some((data.get(4..end)?, data.get(end..)?))
+}
+
+#[cfg_attr(not(unix), allow(dead_code))]
+/// The user name an SSH sign-in request is for: session id, then
+/// SSH_MSG_USERAUTH_REQUEST with user, "ssh-connection", the public key
+/// method, TRUE, algorithm and key (and the server's key when host-bound).
+fn login_user(data: &[u8]) -> Option<String> {
+    let (session, rest) = ssh_string(data)?;
+    if session.is_empty() || session.len() > 64 {
+        return None;
+    }
+    let rest = rest.strip_prefix(&[50])?;
+    let (user, rest) = ssh_string(rest)?;
+    let (service, rest) = ssh_string(rest)?;
+    let (method, rest) = ssh_string(rest)?;
+    let host_bound = match method {
+        b"publickey" => false,
+        b"publickey-hostbound-v00@openssh.com" => true,
+        _ => return None,
+    };
+    if service != b"ssh-connection" {
+        return None;
+    }
+    let rest = rest.strip_prefix(&[1])?;
+    let (_algorithm, rest) = ssh_string(rest)?;
+    let (_key, mut rest) = ssh_string(rest)?;
+    if host_bound {
+        rest = ssh_string(rest)?.1;
+    }
+    rest.is_empty().then(|| String::from_utf8_lossy(user).into_owned())
 }
 
 #[cfg_attr(not(unix), allow(dead_code))]
 /// Asks the user, one request at a time.
 async fn approve(app: &AppHandle, mut request: Request) -> Answer {
     let state = app.state::<AppState>();
-    let key = (request.fingerprint.clone(), request.program.clone());
-    if state.ssh.remembered.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
+    let key = (request.fingerprint.clone(), request.program.clone(), request.purpose.clone());
+    if request.can_remember && state.ssh.remembered.lock().unwrap_or_else(|e| e.into_inner()).contains(&key) {
         return Answer::Once;
     }
+    let can_remember = request.can_remember;
     request.id = state.ssh.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let (tx, rx) = oneshot::channel();
     state.ssh.pending.lock().unwrap_or_else(|e| e.into_inner()).push_back(Pending { request, answer: tx });
@@ -200,7 +254,7 @@ async fn approve(app: &AppHandle, mut request: Request) -> Answer {
         log::warn!("SSH approval window: {err}");
     }
     let answer = tokio::time::timeout(WAIT, rx).await.ok().and_then(Result::ok).unwrap_or(Answer::Deny);
-    if answer == Answer::Remember {
+    if answer == Answer::Remember && can_remember {
         state.ssh.remembered.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
     }
     answer
@@ -369,15 +423,17 @@ mod unix {
                 return Err(AgentError::Failure);
             };
             let (program, parent) = program(self.pid);
-            let (purpose, namespace) = purpose(&request.data);
+            let purpose = purpose(&request.data);
             let ask = Request {
                 id: 0,
                 program,
                 parent,
                 key_title: title,
                 fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
-                purpose,
-                namespace,
+                purpose: purpose.kind.into(),
+                namespace: purpose.namespace,
+                user: purpose.user,
+                can_remember: matches!(purpose.kind, "login" | "git"),
             };
             if approve(&self.app, ask).await == Answer::Deny {
                 return Err(AgentError::Failure);
@@ -391,18 +447,46 @@ mod unix {
 mod tests {
     use super::*;
 
+    fn put(out: &mut Vec<u8>, bytes: &[u8]) {
+        out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+        out.extend_from_slice(bytes);
+    }
+
+    fn sign_in(method: &str, host_key: bool) -> Vec<u8> {
+        let mut data = Vec::new();
+        put(&mut data, &[7; 32]);
+        data.push(50);
+        put(&mut data, b"diego");
+        put(&mut data, b"ssh-connection");
+        put(&mut data, method.as_bytes());
+        data.push(1);
+        put(&mut data, b"ssh-ed25519");
+        put(&mut data, b"key blob");
+        if host_key {
+            put(&mut data, b"host key blob");
+        }
+        data
+    }
+
     #[test]
     fn what_a_signature_is_for() {
-        assert_eq!(purpose(b"\x00\x00\x00\x20session-id...").0, "login");
+        let login = |user: &str| Purpose { kind: "login", namespace: None, user: Some(user.into()) };
+        assert_eq!(purpose(&sign_in("publickey", false)), login("diego"));
+        assert_eq!(purpose(&sign_in("publickey-hostbound-v00@openssh.com", true)), login("diego"));
+        // Anything that is not exactly a sign-in request is unknown.
+        let unknown = Purpose { kind: "unknown", namespace: None, user: None };
+        assert_eq!(purpose(&sign_in("publickey", true)), unknown);
+        assert_eq!(purpose(&sign_in("password", false)), unknown);
+        assert_eq!(purpose(b"\x00\x00\x00\x20session-id..."), unknown);
+        assert_eq!(purpose(b""), unknown);
+
         let mut git = b"SSHSIG".to_vec();
-        git.extend_from_slice(&3u32.to_be_bytes());
-        git.extend_from_slice(b"git");
+        put(&mut git, b"git");
         git.extend_from_slice(&[0, 0, 0, 0]);
-        assert_eq!(purpose(&git), ("git".into(), Some("git".into())));
+        assert_eq!(purpose(&git), Purpose { kind: "git", namespace: Some("git".into()), user: None });
         let mut file = b"SSHSIG".to_vec();
-        file.extend_from_slice(&4u32.to_be_bytes());
-        file.extend_from_slice(b"file");
-        assert_eq!(purpose(&file), ("sign".into(), Some("file".into())));
-        assert_eq!(purpose(b"SSHSIG\x00\x00\xff"), ("sign".into(), None));
+        put(&mut file, b"file");
+        assert_eq!(purpose(&file), Purpose { kind: "sign", namespace: Some("file".into()), user: None });
+        assert_eq!(purpose(b"SSHSIG\x00\x00\xff"), Purpose { kind: "sign", namespace: None, user: None });
     }
 }
