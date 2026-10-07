@@ -23,7 +23,9 @@ use zeroize::Zeroizing;
 use crate::error::{AppError, AppResult, Msg};
 
 /// Flags of an agent sign request (draft-miller-ssh-agent, 3.6.1).
+#[cfg_attr(not(unix), allow(dead_code))]
 const RSA_SHA2_256: u32 = 2;
+#[cfg_attr(not(unix), allow(dead_code))]
 const RSA_SHA2_512: u32 = 4;
 
 #[derive(Serialize)]
@@ -111,6 +113,7 @@ pub fn generate(comment: &str) -> AppResult<SshKeyFields> {
 
 /// Signs for the agent. RSA keys sign with SHA-256 or SHA-512 as the client
 /// asks; SHA-1 (`ssh-rsa`) is refused.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn sign(key: &PrivateKey, data: &[u8], flags: u32) -> AppResult<Signature> {
     let failed = |e: String| AppError::Server(format!("ssh signature: {e}"));
     match key.key_data() {
