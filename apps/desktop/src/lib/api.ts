@@ -358,6 +358,7 @@ export const api = {
   showQuickAccess: () => invoke<void>("show_quick_access"),
   hideQuickAccess: () => invoke<void>("hide_quick_access"),
   quickAccessReady: () => invoke<void>("quick_access_ready"),
+  scanQr: (source: "screen" | "clipboard" | "file") => invoke<string>("scan_qr", { source }),
   siteIcons: (sites: string[]) => invoke<Record<string, SiteIcon>>("site_icons", { sites }),
   unlockPromptReady: () => invoke<void>("unlock_prompt_ready"),
   closeUnlockPrompt: () => invoke<void>("close_unlock_prompt"),

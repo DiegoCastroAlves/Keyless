@@ -17,6 +17,7 @@ mod import;
 mod items;
 mod lock;
 mod oauth;
+mod qr;
 mod quick_access;
 mod secrets;
 mod site_icons;
@@ -277,6 +278,7 @@ pub fn run() {
             commands::hide_quick_access,
             commands::quick_access_ready,
             commands::site_icons,
+            commands::scan_qr,
             commands::unlock_prompt_ready,
             commands::close_unlock_prompt,
             commands::show_item_in_app,

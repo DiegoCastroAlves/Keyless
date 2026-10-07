@@ -1,12 +1,12 @@
-import { GripVertical, Plus, Trash, WandSparkles, X } from "lucide-react";
+import { ClipboardPaste, GripVertical, ImageIcon, Monitor, Plus, ScanQrCode, Trash, WandSparkles, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon, PasswordInput } from "../../components/common";
-import { Button, Combobox, Dialog, IconButton, Input, Textarea, cx } from "../../components/ui";
+import { Button, Combobox, Dialog, IconButton, Input, Menu, MenuContent, MenuItem, MenuTrigger, Textarea, cx } from "../../components/ui";
 import { fieldLabel } from "../../i18n";
-import { api, errorMessage, type Field, type FieldKind, type ItemDraft, type Section } from "../../lib/api";
+import { api, errorCode, errorMessage, type Field, type FieldKind, type ItemDraft, type Section } from "../../lib/api";
 import { FIELD_KINDS, categoryInfo, categoryLabel, fieldKindLabel, isSecretKind, newFieldId } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -281,6 +281,7 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
         </div>
         <div className="flex items-start gap-1">
           <div className="min-w-0 flex-1">{valueInput}</div>
+          {field.kind === "totp" && <ScanQrButton onRead={(value) => onChange({ ...field, value })} />}
           {canGenerate && (
             <Popover.Root open={generatorOpen} onOpenChange={setGeneratorOpen}>
               <Popover.Trigger asChild>
@@ -307,6 +308,39 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
         </div>
       </div>
     </div>
+  );
+}
+
+/** Reads a one-time password QR code, like 1Password's "Scan QR Code". */
+function ScanQrButton({ onRead }: { onRead: (value: string) => void }) {
+  const { t } = useTranslation();
+  const scan = async (source: "screen" | "clipboard" | "file") => {
+    try {
+      onRead(await api.scanQr(source));
+      toast.success(t("editor.qrRead"));
+    } catch (err) {
+      if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <IconButton label={t("editor.scanQr")} className="mt-0.5">
+          <ScanQrCode className="size-4" />
+        </IconButton>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuItem icon={<Monitor className="size-4" />} onSelect={() => void scan("screen")}>
+          {t("editor.scanScreen")}
+        </MenuItem>
+        <MenuItem icon={<ClipboardPaste className="size-4" />} onSelect={() => void scan("clipboard")}>
+          {t("editor.scanClipboard")}
+        </MenuItem>
+        <MenuItem icon={<ImageIcon className="size-4" />} onSelect={() => void scan("file")}>
+          {t("editor.scanFile")}
+        </MenuItem>
+      </MenuContent>
+    </Menu>
   );
 }
 

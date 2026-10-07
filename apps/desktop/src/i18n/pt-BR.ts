@@ -35,6 +35,9 @@ const ptBR: Translations = {
     settings: "Configurações",
   },
   errors: {
+    qr_not_found: "Nenhum QR code de código de verificação encontrado.",
+    qr_no_clipboard_image: "Não há nenhuma imagem na área de transferência.",
+    qr_screen_failed: "Não foi possível capturar a tela. Copie a imagem do QR code e use “Imagem da área de transferência”.",
     locked: "O Keyless está bloqueado.",
     no_account: "Não há nenhuma conta neste dispositivo.",
     wrong_password: "Senha mestra incorreta.",
@@ -357,6 +360,11 @@ const ptBR: Translations = {
     value: "valor",
   },
   editor: {
+    scanQr: "Ler QR code",
+    scanScreen: "Ler da tela",
+    scanClipboard: "Imagem da área de transferência",
+    scanFile: "Arquivo de imagem…",
+    qrRead: "QR code lido",
     newTitle: "Novo item: {{category}}",
     titlePlaceholder: "Título",
     vault: "Cofre",

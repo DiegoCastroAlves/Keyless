@@ -223,6 +223,12 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
     Ok(settings)
 }
 
+/// Reads a one-time password QR code from "screen", "clipboard" or "file".
+#[tauri::command]
+pub async fn scan_qr(app: AppHandle, source: String) -> AppResult<String> {
+    crate::qr::scan(&app, &source).await
+}
+
 /// Cached website icons for these addresses, keyed as given.
 #[tauri::command]
 pub async fn site_icons(state: State<'_, AppState>, sites: Vec<String>) -> AppResult<HashMap<String, crate::site_icons::SiteIcon>> {

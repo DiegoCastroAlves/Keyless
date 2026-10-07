@@ -35,6 +35,9 @@ const es: Translations = {
     settings: "Ajustes",
   },
   errors: {
+    qr_not_found: "No se encontró ningún código QR de contraseña de un solo uso.",
+    qr_no_clipboard_image: "No hay ninguna imagen en el portapapeles.",
+    qr_screen_failed: "No se pudo capturar la pantalla. Copia la imagen del código QR y usa «Imagen del portapapeles».",
     locked: "Keyless está bloqueado.",
     no_account: "No hay ninguna cuenta en este dispositivo.",
     wrong_password: "Contraseña maestra incorrecta.",
@@ -357,6 +360,11 @@ const es: Translations = {
     value: "valor",
   },
   editor: {
+    scanQr: "Escanear código QR",
+    scanScreen: "Escanear la pantalla",
+    scanClipboard: "Imagen del portapapeles",
+    scanFile: "Archivo de imagen…",
+    qrRead: "Código QR leído",
     newTitle: "Nuevo: {{category}}",
     titlePlaceholder: "Título",
     vault: "Bóveda",

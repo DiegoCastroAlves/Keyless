@@ -33,6 +33,9 @@ const en = {
     settings: "Settings",
   },
   errors: {
+    qr_not_found: "No one-time password QR code found.",
+    qr_no_clipboard_image: "There is no image in the clipboard.",
+    qr_screen_failed: "Could not capture the screen. Copy the QR code image instead and use “Image in the clipboard”.",
     locked: "Keyless is locked.",
     no_account: "There is no account on this device.",
     wrong_password: "Incorrect master password.",
@@ -354,6 +357,11 @@ const en = {
     value: "value",
   },
   editor: {
+    scanQr: "Scan QR code",
+    scanScreen: "Scan the screen",
+    scanClipboard: "Image in the clipboard",
+    scanFile: "Image file…",
+    qrRead: "QR code read",
     newTitle: "New {{category}}",
     titlePlaceholder: "Title",
     vault: "Vault",
