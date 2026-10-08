@@ -14,6 +14,8 @@ pub enum Error {
     InvalidKey,
     #[error("invalid Secret Key")]
     InvalidSecretKey,
+    #[error("invalid recovery key")]
+    InvalidRecoveryKey,
     #[error("unsupported or unsafe key derivation parameters")]
     UnsafeKdfParams,
     #[error("key derivation failed")]

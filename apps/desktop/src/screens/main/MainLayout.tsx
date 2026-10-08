@@ -13,6 +13,7 @@ import { ImportDialog } from "./ImportDialog";
 import { ItemDetail } from "./ItemDetail";
 import { ItemEditor } from "./ItemEditor";
 import { ItemList } from "./ItemList";
+import { RecoveryOffer } from "./RecoveryKey";
 import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "./Sidebar";
 import { VaultDialog } from "./VaultDialog";
@@ -118,6 +119,7 @@ export function MainLayout() {
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
       <VaultDialog open={vaultDialog.open} vault={vaultDialog.vault} onOpenChange={(open) => setVaultDialog((d) => ({ ...d, open }))} />
       <ReauthDialog open={reauthOpen} onOpenChange={setReauthOpen} />
+      <RecoveryOffer />
     </div>
   );
 }

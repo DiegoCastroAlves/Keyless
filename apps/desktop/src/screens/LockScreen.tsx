@@ -14,6 +14,7 @@ export function LockScreen({ status }: { status: AppStatus }) {
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(0);
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [confirmRecover, setConfirmRecover] = useState(false);
   const [systemBusy, setSystemBusy] = useState(false);
   const [visible, setVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -88,6 +89,14 @@ export function LockScreen({ status }: { status: AppStatus }) {
     await refreshStatus();
   };
 
+  // A recovery key works on a signed-out device: sign out, then recover.
+  const recover = async () => {
+    useApp.setState({ recoverEmail: status.email ?? null });
+    await api.signOut();
+    setConfirmRecover(false);
+    await refreshStatus();
+  };
+
   return (
     <AuthShell>
       <div className="flex flex-col items-center text-center">
@@ -149,11 +158,23 @@ export function LockScreen({ status }: { status: AppStatus }) {
           {status.systemUnlockMethod === "windows_hello" ? t("lock.systemUnlockHello") : t("lock.systemUnlock")}
         </Button>
       )}
-      <div className="mt-6 text-center">
+      <div className="mt-6 flex flex-col items-center gap-2.5">
+        <button onClick={() => setConfirmRecover(true)} className="text-[13px] text-subtle hover:text-fg hover:underline">
+          {t("recovery.lockForgot")}
+        </button>
         <button onClick={() => setConfirmSignOut(true)} className="inline-flex items-center gap-1.5 text-[13px] text-subtle hover:text-fg">
           <LogOut className="size-3.5" /> {t("common.signOutDevice")}
         </button>
       </div>
+
+      <Dialog open={confirmRecover} onOpenChange={setConfirmRecover} title={t("recovery.lockForgotTitle")} description={t("recovery.lockForgotBody")}>
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => setConfirmRecover(false)}>{t("common.cancel")}</Button>
+          <Button variant="primary" onClick={recover}>
+            {t("recovery.lockForgotRun")}
+          </Button>
+        </div>
+      </Dialog>
 
       <Dialog
         open={confirmSignOut}

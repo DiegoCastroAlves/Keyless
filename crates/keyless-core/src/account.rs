@@ -101,7 +101,16 @@ pub fn unlock_account(bundle: &AccountBundle, kek: &SymmetricKey, user_id: &str)
     bundle.kdf.validate()?;
     let user_key_bytes = kek.open(&bundle.enc_user_key, &user_key_context(user_id, &bundle.kdf))?;
     let user_key = SymmetricKey::from_slice(&user_key_bytes)?;
+    open_with_user_key(bundle, user_key, user_id)
+}
 
+/// The account keys, given the user key (decrypted another way, such as
+/// with a recovery key): decrypts the private key and checks it against the
+/// public key.
+pub fn open_with_user_key(bundle: &AccountBundle, user_key: SymmetricKey, user_id: &str) -> Result<UnlockedAccount> {
+    if bundle.format != ACCOUNT_FORMAT {
+        return Err(Error::Serialization(format!("unsupported account format {}", bundle.format)));
+    }
     let private_bytes = user_key.open(&bundle.enc_private_key, &private_key_context(user_id))?;
     let private_array: Zeroizing<[u8; 32]> =
         Zeroizing::new(private_bytes.as_slice().try_into().map_err(|_| Error::InvalidKey)?);

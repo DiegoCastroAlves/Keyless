@@ -12,6 +12,7 @@ import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 import { ExportPanel, ImportPanel, PlainExportPanel } from "./ImportDialog";
+import { RecoverySection } from "./RecoveryKey";
 
 export type SettingsTab = "general" | "security" | "browser" | "developer" | "account" | "import" | "about";
 
@@ -648,6 +649,7 @@ function AccountTab({ onClose }: { onClose: () => void }) {
           {t("common.signOutDevice")}
         </Button>
       </div>
+      <RecoverySection />
       <div className="rounded-xl border border-danger/30 bg-danger-soft p-4">
         <div className="text-sm font-semibold text-danger">{t("settings.deleteAccount")}</div>
         <p className="mt-1 text-xs leading-relaxed text-muted">{t("settings.deleteAccountBody")}</p>

@@ -169,6 +169,62 @@ pub fn remove_bridge_peer(state: State<'_, AppState>, public_key: String) -> App
     state.store().remove_bridge_peer(&public_key)
 }
 
+/// When the account's recovery key was made (ISO 8601), if it has one.
+#[tauri::command]
+pub async fn recovery_key_status(state: State<'_, AppState>) -> AppResult<Option<String>> {
+    crate::recovery::status(&state).await
+}
+
+/// Makes a recovery key (replacing any other) and returns it to be saved.
+#[tauri::command]
+pub async fn recovery_key_create(app: AppHandle, state: State<'_, AppState>, master_password: String) -> AppResult<String> {
+    state.touch();
+    Ok(crate::recovery::create(&app, Zeroizing::new(master_password)).await?.to_string())
+}
+
+#[tauri::command]
+pub async fn recovery_key_remove(app: AppHandle, state: State<'_, AppState>, master_password: String) -> AppResult<()> {
+    state.touch();
+    crate::recovery::remove(&app, Zeroizing::new(master_password)).await
+}
+
+/// Copies the recovery key just made, or the new Secret Key or recovery key
+/// of a recovery, with the protected clipboard.
+#[tauri::command]
+pub fn recovery_copy(app: AppHandle, state: State<'_, AppState>, which: String) -> AppResult<CopyResult> {
+    let value = crate::recovery::copyable(&state, &which)?;
+    copy(&app, &state, value)
+}
+
+/// The user is done saving the recovery key just made.
+#[tauri::command]
+pub fn recovery_key_hide(state: State<'_, AppState>) {
+    crate::recovery::hide(&state);
+}
+
+/// Account recovery, step 1: checks the recovery key.
+#[tauri::command]
+pub async fn recovery_begin(app: AppHandle, email: String, recovery_key: String) -> AppResult<()> {
+    crate::recovery::begin(&app, &email, Zeroizing::new(recovery_key)).await
+}
+
+/// Step 2: makes the new credentials, to be saved before step 3.
+#[tauri::command]
+pub async fn recovery_prepare(app: AppHandle, master_password: String) -> AppResult<crate::recovery::Prepare> {
+    crate::recovery::prepare(&app, Zeroizing::new(master_password)).await
+}
+
+/// Step 3: sends them and signs in; false if signing in has to be done by hand.
+#[tauri::command]
+pub async fn recovery_finish(app: AppHandle) -> AppResult<bool> {
+    crate::recovery::finish(&app).await
+}
+
+#[tauri::command]
+pub fn recovery_cancel(state: State<'_, AppState>) {
+    *state.pending_recovery.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 #[tauri::command]
 pub async fn change_master_password(app: AppHandle, current: String, new: String) -> AppResult<()> {
     auth::change_master_password(&app, Zeroizing::new(current), Zeroizing::new(new)).await

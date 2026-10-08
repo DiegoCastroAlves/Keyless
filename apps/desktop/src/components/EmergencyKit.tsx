@@ -11,15 +11,16 @@ import { Button } from "./ui";
  * on a new device: the email, the Secret Key and (written by hand) the
  * master password.
  */
-export function EmergencyKit({ email, secretKey }: { email: string; secretKey: string }) {
+export function EmergencyKit({ email, secretKey, recovering = false }: { email: string; secretKey: string; recovering?: boolean }) {
   const { t, i18n } = useTranslation();
   const created = new Date().toLocaleDateString(i18n.language, { year: "numeric", month: "long", day: "numeric" });
 
   // Copied by Rust with the protected clipboard (kept out of clipboard
-  // history and cleared after a while), even before the first sign-in.
+  // history and cleared after a while), even before the first sign-in. A
+  // recovery's new Secret Key is not on the device yet.
   const copy = async () => {
     try {
-      const result = await api.copySecretKey();
+      const result = recovering ? await api.recoveryCopy("secret_key") : await api.copySecretKey();
       toast.copied(t("common.secretKey"), result.clearAfterSeconds);
     } catch (err) {
       toast.error(errorMessage(err));

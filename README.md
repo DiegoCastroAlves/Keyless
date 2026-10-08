@@ -20,6 +20,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Sync across devices, offline first, conflicts never lose data
 - Continue with Google to create or find your account (the master password
   and Secret Key still protect the vault)
+- An optional recovery key, like 1Password's, for a forgotten master password
+  or a lost Secret Key
 - Watchtower: weak, reused and breached passwords (Have I Been Pwned,
   k-anonymity), websites breached since the password was set, websites
   offering two-factor codes the item lacks, websites without HTTPS, and cards

@@ -18,6 +18,7 @@ the database, including its operators, can read a user's items.
 | Key-encryption key (KEK) | Derived in memory while unlocking | Never |
 | User key, vault keys, item plaintext | In memory while unlocked | Never (only as ciphertext) |
 | Auth secret | Derived in memory while signing in | Sent to the server over TLS. The server stores only a bcrypt hash of it |
+| Recovery key (248 random bits, optional) | The user's printed or saved copy | Never; a proof derived from it is sent while recovering, and the server stores only its SHA-256 hash |
 
 ## Key derivation ("two-secret key derivation")
 
@@ -55,6 +56,34 @@ kek
 
 Changing the master password re-wraps only the user key. The X25519 key pair
 is reserved for sharing vaults between users (not enabled yet).
+
+## Recovery key
+
+Optional, like 1Password's recovery codes: it gets the user back in when the
+master password is forgotten or the Secret Key lost. It is made (and
+replaced, or removed) in Settings > Account with the master password, and
+offered once after signing in.
+
+```text
+proof = HKDF-SHA256(ikm = recovery key, salt = "keyless/v1/recovery", info = "proof")[32]
+rkek  = HKDF-SHA256(ikm = recovery key, salt = "keyless/v1/recovery", info = "key encryption key")[32]
+private.recovery_keys = { SHA-256(proof), seal(rkek, user key, "recovery-user-key" | user id) }
+```
+
+- Recovering takes the account's email and the recovery key. `begin_recovery`
+  checks the proof and returns the encrypted user key and key pair; the device
+  opens them, makes a new master password, a new Secret Key and the next
+  recovery key, and shows them to be saved before sending anything.
+  `complete_recovery` checks the proof again, stores the new auth secret (as
+  Supabase Auth stores passwords) and user key wrapping, replaces the
+  recovery key and ends every session. The user key, and so every vault key,
+  stays the same.
+- Both functions are open to anyone, so a wrong proof and an unknown email
+  fail the same way, failures are limited to 10 an hour per account, and a
+  proof is 256 bits from 248 random ones.
+- Whoever has the recovery key and knows the email gets in, with no second
+  check (Supabase's email delivery cannot be relied on): it must be kept as
+  carefully as the Emergency Kit, which is why it is optional.
 
 ## Encryption
 
@@ -431,9 +460,10 @@ must be running, for what it needs.
 
 ## Accepted limitations
 
-- **No password recovery.** If a user forgets the master password and loses
-  every device and the Emergency Kit, their data is gone. This is what makes
-  the zero-knowledge guarantee possible.
+- **No recovery without the recovery key.** A user without one who forgets
+  the master password, or loses the Secret Key (the Emergency Kit and every
+  device), loses their data. This is what makes the zero-knowledge guarantee
+  possible.
 - **Offline devices keep the old master password.** A device that was not
   online when the master password was changed still unlocks its local copy
   with the old one, until it signs in again. Its server session is revoked by

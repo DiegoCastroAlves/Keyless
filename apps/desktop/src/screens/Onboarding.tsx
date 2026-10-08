@@ -1,11 +1,12 @@
-import { ArrowLeft, ArrowRight, Cloud, KeyRound, Loader2, MailCheck, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Cloud, KeyRound, LifeBuoy, Loader2, MailCheck, ShieldCheck } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
 import { AuthShell, Logo, PasswordInput, StrengthMeter, useStrength } from "../components/common";
 import { EmergencyKit } from "../components/EmergencyKit";
+import { RecoveryKit } from "../components/RecoveryKit";
 import { Button, ErrorText, Input, Label } from "../components/ui";
-import { api, errorMessage, isCancelled, type AppStatus, type GoogleResult } from "../lib/api";
+import { api, errorCode, errorMessage, isCancelled, type AppStatus, type GoogleResult, type RecoveryPrepare } from "../lib/api";
 import { useApp } from "../lib/store";
 import { toast } from "../lib/toast";
 
@@ -13,12 +14,21 @@ type Step =
   | { kind: "welcome" }
   | { kind: "create"; googleEmail?: string }
   | { kind: "kit"; email: string; secretKey: string; confirmationRequired: boolean }
-  | { kind: "signin"; email?: string; notice?: "confirm" | "google" };
+  | { kind: "signin"; email?: string; notice?: "confirm" | "google" | "recovered" }
+  | { kind: "recover"; email?: string }
+  | { kind: "recoverPassword"; email: string }
+  | { kind: "recoverKits"; prepared: RecoveryPrepare };
 
 export function Onboarding({ status }: { status: AppStatus }) {
-  const [step, setStep] = useState<Step>(
-    status.pendingEmail ? { kind: "signin", email: status.pendingEmail, notice: "confirm" } : { kind: "welcome" },
-  );
+  const [step, setStep] = useState<Step>(() => {
+    // Sent here by the lock screen's "Forgot your master password?".
+    const recoverEmail = useApp.getState().recoverEmail;
+    if (recoverEmail) {
+      useApp.setState({ recoverEmail: null });
+      return { kind: "recover", email: recoverEmail };
+    }
+    return status.pendingEmail ? { kind: "signin", email: status.pendingEmail, notice: "confirm" } : { kind: "welcome" };
+  });
 
   switch (step.kind) {
     case "welcome":
@@ -64,6 +74,34 @@ export function Onboarding({ status }: { status: AppStatus }) {
           notice={step.notice}
           knownSecretKey={status.hasSecretKey && !!step.email && step.email === status.pendingEmail}
           onBack={() => setStep({ kind: "welcome" })}
+          onRecover={(email) => setStep({ kind: "recover", email })}
+        />
+      );
+    case "recover":
+      return (
+        <RecoverStart
+          initialEmail={step.email}
+          onBack={() => setStep({ kind: "signin", email: step.email })}
+          onOpened={(email) => setStep({ kind: "recoverPassword", email })}
+        />
+      );
+    case "recoverPassword":
+      return (
+        <RecoverPassword
+          email={step.email}
+          onBack={() => {
+            void api.recoveryCancel();
+            setStep({ kind: "recover", email: step.email });
+          }}
+          onPrepared={(prepared) => setStep({ kind: "recoverKits", prepared })}
+        />
+      );
+    case "recoverKits":
+      return (
+        <RecoverKits
+          prepared={step.prepared}
+          onSignIn={() => setStep({ kind: "signin", email: step.prepared.email, notice: "recovered" })}
+          onRestart={() => setStep({ kind: "recover", email: step.prepared.email })}
         />
       );
   }
@@ -292,11 +330,13 @@ function SignIn({
   notice,
   knownSecretKey,
   onBack,
+  onRecover,
 }: {
   initialEmail?: string;
-  notice?: "confirm" | "google";
+  notice?: "confirm" | "google" | "recovered";
   knownSecretKey: boolean;
   onBack: () => void;
+  onRecover: (email: string) => void;
 }) {
   const [email, setEmail] = useState(initialEmail ?? "");
   const [secretKey, setSecretKey] = useState("");
@@ -356,6 +396,12 @@ function SignIn({
           </div>
         </div>
       )}
+      {notice === "recovered" && (
+        <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-[13px] leading-relaxed">
+          <LifeBuoy className="mt-0.5 size-5 shrink-0 text-accent" />
+          <div>{t("recovery.recoveredSignIn")}</div>
+        </div>
+      )}
       {notice === "google" && (
         <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-[13px] leading-relaxed">
           <GoogleLogo className="mt-0.5 size-5 shrink-0" />
@@ -391,6 +437,186 @@ function SignIn({
           {t("signIn.submit")}
         </Button>
       </form>
+      <div className="mt-5 text-center">
+        <button type="button" onClick={() => onRecover(email.trim())} className="text-[13px] text-muted hover:text-fg hover:underline">
+          {t("recovery.forgot")}
+        </button>
+      </div>
+    </AuthShell>
+  );
+}
+
+function RecoverStart({ initialEmail, onBack, onOpened }: { initialEmail?: string; onBack: () => void; onOpened: (email: string) => void }) {
+  const { t } = useTranslation();
+  const [email, setEmail] = useState(initialEmail ?? "");
+  const [key, setKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.recoveryBegin(email, key);
+      setKey("");
+      onOpened(email.trim().toLowerCase());
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthShell>
+      <button onClick={onBack} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+        <ArrowLeft className="size-4" /> {t("common.back")}
+      </button>
+      <div className="flex items-center gap-3">
+        <div className="flex size-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+          <LifeBuoy className="size-5" />
+        </div>
+        <h1 className="text-xl font-semibold tracking-tight">{t("recovery.recoverTitle")}</h1>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-muted">{t("recovery.recoverBody")}</p>
+      <form onSubmit={submit} className="mt-6 space-y-4">
+        <div>
+          <Label htmlFor="email">{t("common.email")}</Label>
+          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!initialEmail} className="h-10" />
+        </div>
+        <div>
+          <Label htmlFor="recovery-key">{t("recovery.keyLabel")}</Label>
+          <textarea
+            id="recovery-key"
+            value={key}
+            onChange={(e) => setKey(e.target.value.toUpperCase())}
+            autoFocus={!!initialEmail}
+            rows={3}
+            spellCheck={false}
+            autoComplete="off"
+            placeholder="KLRK-XXXX-XXXX-XXXX-…"
+            className="w-full resize-none rounded-lg border border-line bg-panel px-3 py-2.5 font-mono text-[13px] tracking-wide outline-none placeholder:text-subtle focus:border-accent focus:ring-4 focus:ring-accent-soft"
+          />
+        </div>
+        <ErrorText>{error}</ErrorText>
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={!email || !key}>
+          {t("common.continue")} <ArrowRight className="size-4" />
+        </Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+function RecoverPassword({ email, onBack, onPrepared }: { email: string; onBack: () => void; onPrepared: (prepared: RecoveryPrepare) => void }) {
+  const { t } = useTranslation();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const strength = useStrength(password, email);
+  const mismatch = confirm.length > 0 && confirm !== password;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const prepared = await api.recoveryPrepare(password);
+      setPassword("");
+      setConfirm("");
+      onPrepared(prepared);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthShell>
+      <button onClick={onBack} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+        <ArrowLeft className="size-4" /> {t("common.back")}
+      </button>
+      <h1 className="text-xl font-semibold tracking-tight">{t("recovery.newPasswordTitle")}</h1>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted">{t("recovery.newPasswordBody", { email })}</p>
+      <form onSubmit={submit} className="mt-6 space-y-4">
+        <div>
+          <Label htmlFor="password">{t("settings.newPassword")}</Label>
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+          <StrengthMeter strength={strength} />
+        </div>
+        <div>
+          <Label htmlFor="confirm">{t("create.confirm")}</Label>
+          <PasswordInput id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} invalid={mismatch} />
+          {mismatch && <p className="mt-1 text-xs text-danger">{t("create.mismatch")}</p>}
+        </div>
+        <ErrorText>{error}</ErrorText>
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          className="w-full"
+          loading={busy}
+          disabled={!password || password !== confirm || (strength?.score ?? 0) < 3}
+        >
+          {t("common.continue")} <ArrowRight className="size-4" />
+        </Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+/** The new Secret Key and recovery key, saved before the recovery is sent:
+ * should the answer get lost, the user already has what the server expects. */
+function RecoverKits({ prepared, onSignIn, onRestart }: { prepared: RecoveryPrepare; onSignIn: () => void; onRestart: () => void }) {
+  const { t } = useTranslation();
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<{ message: string; code: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refreshStatus = useApp((s) => s.refreshStatus);
+
+  const finish = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const signedIn = await api.recoveryFinish();
+      if (signedIn) await refreshStatus();
+      else onSignIn();
+    } catch (err) {
+      setError({ message: errorMessage(err), code: errorCode(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthShell wide>
+      <h1 className="text-xl font-semibold tracking-tight">{t("recovery.kitsTitle")}</h1>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted">{t("recovery.kitsBody")}</p>
+      <div className="mt-5 space-y-5">
+        <EmergencyKit email={prepared.email} secretKey={prepared.secretKey} recovering />
+        <RecoveryKit email={prepared.email} recoveryKey={prepared.recoveryKey} />
+      </div>
+      <label className="mt-5 flex cursor-pointer items-center gap-2.5 text-sm">
+        <input type="checkbox" checked={saved} onChange={(e) => setSaved(e.target.checked)} className="size-4 accent-[var(--accent)]" />
+        {t("recovery.kitsSaved")}
+      </label>
+      {error && (
+        <div className="mt-3 space-y-2">
+          <ErrorText>{error.message}</ErrorText>
+          {error.code === "recovery_failed" && <p className="text-xs leading-relaxed text-muted">{t("recovery.finishRetryHint")}</p>}
+          {error.code === "recovery_expired" && (
+            <Button size="sm" onClick={onRestart}>
+              {t("recovery.restart")}
+            </Button>
+          )}
+        </div>
+      )}
+      <Button variant="primary" size="lg" className="mt-4 w-full" disabled={!saved} loading={busy} onClick={finish}>
+        {t("recovery.finish")} <ArrowRight className="size-4" />
+      </Button>
+      <p className="mt-3 text-center text-xs text-subtle">{t("recovery.otherDevices")}</p>
     </AuthShell>
   );
 }

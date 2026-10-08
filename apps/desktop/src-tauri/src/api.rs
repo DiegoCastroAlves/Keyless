@@ -623,6 +623,70 @@ impl Api {
         self.send(req).await
     }
 
+    // ----- recovery key ----------------------------------------------------
+
+    pub async fn set_recovery_key(&self, token: &str, proof: &str, enc_user_key: &str) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/set_recovery_key", &[]), Some(token))
+            .json(&json!({ "p_proof": proof, "p_enc_user_key": enc_user_key }));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    /// When the account's recovery key was made, if it has one.
+    pub async fn recovery_key_created(&self, token: &str) -> AppResult<Option<String>> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/recovery_key_created", &[]), Some(token))
+            .json(&json!({}));
+        self.send(req).await
+    }
+
+    pub async fn remove_recovery_key(&self, token: &str) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/remove_recovery_key", &[]), Some(token))
+            .json(&json!({}));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    /// Recovery, step 1 (signed out): what is needed to open the account
+    /// with the recovery key whose proof this is.
+    pub async fn begin_recovery(&self, email: &str, proof: &str) -> AppResult<RecoveryStart> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/begin_recovery", &[]), None)
+            .json(&json!({ "p_email": email, "p_proof": proof }));
+        let answer: Value = self.send(req).await?;
+        recovery_answer(answer)
+    }
+
+    /// Recovery, step 2: the new sign-in secret, key wrapping and recovery
+    /// key. Every session of the account ends.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn complete_recovery(
+        &self,
+        email: &str,
+        proof: &str,
+        auth_secret: &str,
+        kdf: &KdfParams,
+        enc_user_key: &str,
+        new_proof: &str,
+        new_enc_recovery_user_key: &str,
+    ) -> AppResult<()> {
+        let req = self
+            .request(Method::POST, self.url("rest/v1/rpc/complete_recovery", &[]), None)
+            .json(&json!({
+                "p_email": email,
+                "p_proof": proof,
+                "p_auth_secret": auth_secret,
+                "p_kdf": kdf,
+                "p_enc_user_key": enc_user_key,
+                "p_new_proof": new_proof,
+                "p_new_enc_recovery_user_key": new_enc_recovery_user_key,
+            }));
+        let answer: Value = self.send(req).await?;
+        recovery_answer::<Value>(answer).map(|_| ())
+    }
+
     async fn send_storage(&self, req: RequestBuilder) -> AppResult<Vec<u8>> {
         let resp = req.send().await?;
         let status = resp.status();
@@ -636,6 +700,29 @@ impl Api {
 
 const ATTACHMENTS: &str = "attachments";
 const STORAGE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// What opening an account with a recovery key needs.
+#[derive(Deserialize)]
+pub struct RecoveryStart {
+    pub user_id: String,
+    pub enc_recovery_user_key: String,
+    pub format: u16,
+    pub public_key: String,
+    pub enc_private_key: String,
+}
+
+/// The recovery functions answer `{"error": code}` rather than failing, so
+/// that failed attempts stay counted.
+fn recovery_answer<T: DeserializeOwned>(answer: Value) -> AppResult<T> {
+    let code = match answer.get("error").and_then(Value::as_str) {
+        None => return serde_json::from_value(answer).map_err(AppError::from),
+        Some("recovery_failed") => "recovery_failed",
+        Some("recovery_throttled") => "recovery_throttled",
+        Some("recovery_invalid") => "recovery_invalid",
+        Some(other) => return Err(AppError::Server(other.to_string())),
+    };
+    Err(AppError::Invalid(Msg::new(code)))
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, serde::Serialize)]
 pub struct AttachmentSpace {

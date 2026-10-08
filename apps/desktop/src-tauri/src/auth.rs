@@ -77,7 +77,7 @@ pub fn validate_new_master_password(password: &str, email: &str) -> AppResult<()
 }
 
 /// Runs the (deliberately slow) key derivation off the async runtime.
-async fn derive(master_password: Zeroizing<String>, secret_key: SecretKey, kdf: KdfParams) -> AppResult<(AccountKeys, SecretKey)> {
+pub(crate) async fn derive(master_password: Zeroizing<String>, secret_key: SecretKey, kdf: KdfParams) -> AppResult<(AccountKeys, SecretKey)> {
     tauri::async_runtime::spawn_blocking(move || {
         derive_account_keys(&master_password, &secret_key, &kdf).map(|keys| (keys, secret_key))
     })
@@ -204,7 +204,14 @@ pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, m
 
     let kdf = KdfParams::recommended();
     let (keys, secret_key) = derive(master_password, secret_key, kdf.clone()).await?;
-    let auth = match state.api.sign_in(&email, &keys.auth_secret).await {
+    sign_in_with_keys(app, &email, kdf, keys, &secret_key).await
+}
+
+/// Signs in with keys already derived (with `kdf`) from the master password
+/// and `secret_key`, which this device then keeps.
+pub(crate) async fn sign_in_with_keys(app: &AppHandle, email: &str, kdf: KdfParams, keys: AccountKeys, secret_key: &SecretKey) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let auth = match state.api.sign_in(email, &keys.auth_secret).await {
         Ok(auth) => auth,
         Err(err) => {
             if matches!(err, AppError::Auth(_)) {
@@ -213,8 +220,8 @@ pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, m
             return Err(err);
         }
     };
-    state.secrets.save_secret_key(&email, &secret_key)?;
-    complete_sign_in(app, &email, kdf, keys, auth).await
+    state.secrets.save_secret_key(email, secret_key)?;
+    complete_sign_in(app, email, kdf, keys, auth).await
 }
 
 /// Called after the server accepted our auth secret: fetch (or create) the
@@ -520,6 +527,7 @@ pub async fn lock_for(app: &AppHandle, reason: LockReason) {
     }
     state.clipboard.clear_now();
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    crate::recovery::forget(&state);
     if was_unlocked {
         let _ = app.emit(EVENT_LOCKED, ());
     }
@@ -559,6 +567,7 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     drop(store);
     state.clipboard.clear_now();
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    crate::recovery::forget(&state);
     *state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
     state.set_sync_status(SyncStatus::default());
     let _ = app.emit(EVENT_LOCKED, ());
@@ -566,7 +575,7 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
 }
 
 /// Verifies the master password against the local account keys.
-async fn verify_master_password(state: &AppState, master_password: Zeroizing<String>) -> AppResult<(LocalAccount, AccountKeys, SecretKey)> {
+pub(crate) async fn verify_master_password(state: &AppState, master_password: Zeroizing<String>) -> AppResult<(LocalAccount, AccountKeys, SecretKey)> {
     let local = state.store().account()?.ok_or(AppError::NoAccount)?;
     let secret_key = state.secrets.load_secret_key(&local.email)?.ok_or(AppError::NoAccount)?;
     let (keys, secret_key) = derive(master_password, secret_key, local.bundle.kdf.clone()).await?;

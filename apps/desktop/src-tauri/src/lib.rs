@@ -23,6 +23,7 @@ mod oauth;
 mod qr;
 mod shares;
 mod quick_access;
+mod recovery;
 mod secrets;
 mod site_icons;
 mod ssh_agent;
@@ -152,6 +153,8 @@ pub fn run() {
                 unlock_busy: std::sync::atomic::AtomicBool::new(false),
                 bridge: bridge::Bridge::new(bridge_secret),
                 pending_import: Mutex::new(None),
+                pending_recovery: Mutex::new(None),
+                shown_recovery_key: Mutex::new(None),
                 google_cancel: Mutex::new(None),
                 pending_google: tokio::sync::Mutex::new(None),
                 update: Mutex::new(None),
@@ -251,6 +254,15 @@ pub fn run() {
             commands::resend_confirmation,
             commands::reveal_secret_key,
             commands::change_master_password,
+            commands::recovery_key_status,
+            commands::recovery_key_create,
+            commands::recovery_key_remove,
+            commands::recovery_copy,
+            commands::recovery_key_hide,
+            commands::recovery_begin,
+            commands::recovery_prepare,
+            commands::recovery_finish,
+            commands::recovery_cancel,
             commands::delete_account,
             commands::password_strength,
             commands::heartbeat,

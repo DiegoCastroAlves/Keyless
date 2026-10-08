@@ -203,6 +203,10 @@ pub struct AppState {
     pub unlock_busy: std::sync::atomic::AtomicBool,
     pub bridge: crate::bridge::Bridge,
     pub pending_import: Mutex<Option<crate::import::PendingImport>>,
+    /// An account recovery between its steps (see `recovery`).
+    pub pending_recovery: Mutex<Option<crate::recovery::PendingRecovery>>,
+    /// The recovery key just made, until the user is done saving it.
+    pub shown_recovery_key: Mutex<Option<Zeroizing<String>>>,
     /// Cancels the running "Continue with Google" browser step.
     pub google_cancel: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Google session waiting for the new account's master password.

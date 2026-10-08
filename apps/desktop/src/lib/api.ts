@@ -371,6 +371,13 @@ export interface HistoryEntry {
   changedAt: number;
 }
 
+/** A recovery's new credentials, to save before it is sent. */
+export interface RecoveryPrepare {
+  email: string;
+  secretKey: string;
+  recoveryKey: string;
+}
+
 export interface CopyResult {
   clearAfterSeconds: number;
 }
@@ -518,6 +525,17 @@ export const api = {
   resendConfirmation: (email: string) => invoke<void>("resend_confirmation", { email }),
   revealSecretKey: (masterPassword: string) => invoke<string>("reveal_secret_key", { masterPassword }),
   copySecretKey: () => invoke<CopyResult>("copy_secret_key"),
+  /** When the account's recovery key was made (ISO 8601), or null. */
+  recoveryKeyStatus: () => invoke<string | null>("recovery_key_status"),
+  recoveryKeyCreate: (masterPassword: string) => invoke<string>("recovery_key_create", { masterPassword }),
+  recoveryKeyRemove: (masterPassword: string) => invoke<void>("recovery_key_remove", { masterPassword }),
+  recoveryKeyHide: () => invoke<void>("recovery_key_hide"),
+  recoveryCopy: (which: "recovery_key" | "secret_key") => invoke<CopyResult>("recovery_copy", { which }),
+  recoveryBegin: (email: string, recoveryKey: string) => invoke<void>("recovery_begin", { email, recoveryKey }),
+  recoveryPrepare: (masterPassword: string) => invoke<RecoveryPrepare>("recovery_prepare", { masterPassword }),
+  /** True when the device signed in with the new credentials. */
+  recoveryFinish: () => invoke<boolean>("recovery_finish"),
+  recoveryCancel: () => invoke<void>("recovery_cancel"),
   accountInfo: () => invoke<AccountInfo>("account_info"),
   cancelAccountDeletion: () => invoke<void>("cancel_account_deletion"),
   versionInfo: () => invoke<VersionInfo>("version_info"),

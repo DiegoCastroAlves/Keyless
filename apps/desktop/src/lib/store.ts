@@ -35,6 +35,8 @@ interface AppStore {
   editing: Editing | null;
   /** Bumped to make the detail pane reload after a change. */
   revision: number;
+  /** Set when the lock screen sends the user to account recovery. */
+  recoverEmail: string | null;
 
   refreshStatus: () => Promise<AppStatus>;
   loadData: () => Promise<void>;
@@ -65,6 +67,7 @@ export const useApp = create<AppStore>((set, get) => ({
   selectedId: null,
   editing: null,
   revision: 0,
+  recoverEmail: null,
 
   refreshStatus: async () => {
     const status = await api.status();
