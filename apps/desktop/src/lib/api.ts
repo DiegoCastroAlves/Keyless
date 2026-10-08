@@ -86,7 +86,10 @@ export function isCancelled(err: unknown): boolean {
 }
 
 export interface Strength {
+  /** 0 to 4: what the rules use (weak is below 3). */
   score: number;
+  /** 0 (very weak) to 6 (excellent): what the user sees. */
+  level: number;
   guessesLog10: number;
   warning: string | null;
   suggestions: string[];
@@ -116,7 +119,7 @@ export interface Settings {
   site_icons: boolean;
   ssh_agent: boolean;
   /** Run Sentinel's online check by itself once a day. */
-  sentinel_auto: boolean;
+  sentinel_check_passwords: boolean;
 }
 
 export interface SiteIcon {
@@ -434,13 +437,14 @@ export interface HealthReport {
   listsUpdatedAt: number | null;
   /** Alerts the user ignored: [item id, alert]. */
   ignored: [string, SentinelAlert][];
-  /** Item id -> its password's strength (0 to 4). */
-  scores: Record<string, number>;
+  /** Item id -> its password's strength level (0 to 6). */
+  levels: Record<string, number>;
 }
 
 /** The editor's check of a password being typed. */
 export interface PasswordCheck {
-  score: number;
+  /** 0 (very weak) to 6 (excellent). */
+  level: number;
   /** Other items that already use it. */
   reused: number;
 }

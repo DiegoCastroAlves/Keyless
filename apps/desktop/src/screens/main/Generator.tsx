@@ -3,7 +3,7 @@ import { Popover, Slider } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { PasswordText } from "../../components/common";
+import { PasswordText, StrengthBadge, useStrength } from "../../components/common";
 import { Button, Dialog, IconButton, Switch, cx } from "../../components/ui";
 import { api, errorMessage, type GeneratedEntry, type GeneratedPassword, type GeneratorOptions } from "../../lib/api";
 import { relativeTime } from "../../lib/format";
@@ -144,7 +144,8 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
   };
 
   const bits = Math.round(result?.entropy_bits ?? 0);
-  const quality = bits >= 100 ? "bg-success" : bits >= 70 ? "bg-accent" : bits >= 45 ? "bg-warning" : "bg-danger";
+  // The same measure as the editor and the item, so they agree.
+  const strength = useStrength(result?.password ?? "");
 
   const separators = [
     { value: "-", label: "-", title: t("generator.sepHyphen") },
@@ -169,10 +170,8 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
             <Copy className="size-4" />
           </IconButton>
         </div>
-        <div className="mt-2 flex items-center gap-2">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-panel-3">
-            <div className={cx("h-full rounded-full transition-all", quality)} style={{ width: `${Math.min(100, (bits / 128) * 100)}%` }} />
-          </div>
+        <div className="mt-2 flex min-h-4 items-center justify-between gap-2">
+          {strength ? <StrengthBadge level={strength.level} className="text-[11px]" /> : <span />}
           <span className="text-[10px] tabular-nums text-subtle">{t("generator.bits", { bits })}</span>
         </div>
       </div>

@@ -344,7 +344,7 @@ function FieldRow({ itemId, field }: { itemId: string; field: FieldView }) {
   const [revealed, setRevealed] = useState<string | null>(null);
   const secret = isSecretKind(field);
   const label = fieldLabel(field.label) || t("item.value");
-  const score = useSentinel((s) => (field.purpose === "password" ? s.report?.scores[itemId] : undefined));
+  const level = useSentinel((s) => (field.purpose === "password" ? s.report?.levels[itemId] : undefined));
 
   // Hide revealed values again after a while or when switching items.
   useEffect(() => {
@@ -402,7 +402,7 @@ function FieldRow({ itemId, field }: { itemId: string; field: FieldView }) {
       <button onClick={copy} className="min-w-0 flex-1 text-left" title={t("item.clickToCopy")}>
         <div className="flex items-center gap-2 text-xs font-medium text-subtle">
           {label}
-          {score !== undefined && <StrengthBadge score={score} className="text-[11px]" />}
+          {level !== undefined && <StrengthBadge level={level} className="text-[11px]" />}
         </div>
         <div className="mt-0.5 min-h-6">{value}</div>
       </button>

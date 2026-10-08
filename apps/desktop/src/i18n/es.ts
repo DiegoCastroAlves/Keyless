@@ -227,6 +227,8 @@ const es: Translations = {
     2: "Aceptable",
     3: "Buena",
     4: "Fuerte",
+    5: "Muy fuerte",
+    6: "Excelente",
   },
   kit: {
     stepTitle: "Guarda tu Kit de emergencia",

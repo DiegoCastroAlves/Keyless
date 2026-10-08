@@ -22,7 +22,7 @@ import {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Spinner, Switch, cx } from "../../components/ui";
+import { Button, IconButton, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Spinner, Switch, Tooltip, cx } from "../../components/ui";
 import { api, errorMessage, type SentinelAlert } from "../../lib/api";
 import { ALERT_TITLE, SENTINEL_ALERTS, isPending, useIssues, useSentinel, type AlertDetail } from "../../lib/sentinel";
 import { useApp } from "../../lib/store";
@@ -160,10 +160,10 @@ export function Sentinel() {
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 pl-8">
               <label className="flex flex-1 items-center gap-2.5 text-xs">
                 <Switch
-                  checked={settings.sentinel_auto}
+                  checked={settings.sentinel_check_passwords}
                   label={t("sentinel.autoCheck")}
                   onChange={(on) => {
-                    void setSettings({ ...settings, sentinel_auto: on })
+                    void setSettings({ ...settings, sentinel_check_passwords: on })
                       .then(() => {
                         // Turned on: the first check now rather than later.
                         if (on && report.passwordsCheckedAt === null) void checkBreaches();
@@ -357,43 +357,52 @@ export function SentinelBanners({ itemId, hasUrl, canEdit }: { itemId: string; h
     }
   };
 
+  // One compact row per alert; the longer explanation is in the tooltip.
   return (
-    <div className="space-y-2">
+    <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
       {active.map(({ alert, detail }) => {
         const tone = ALERT_TONE[alert];
         const Icon = ALERT_ICONS[alert];
         const line = note(alert, detail);
         return (
-          <div
-            key={alert}
-            className={cx(
-              "flex items-start gap-3 rounded-xl border px-4 py-3",
-              tone === "danger" ? "border-danger/40 bg-danger-soft" : tone === "info" ? "border-accent/40 bg-accent-soft" : "border-warning/40 bg-warning-soft",
-            )}
-          >
-            <Icon className={cx("mt-0.5 size-4 shrink-0", tone === "danger" ? "text-danger" : tone === "info" ? "text-accent" : "text-warning")} />
-            <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-semibold">{t(`sentinel.alert.${alert}`)}</div>
-              {line && <div className="mt-0.5 text-xs text-fg">{line}</div>}
-              <div className="mt-0.5 text-xs leading-relaxed text-muted">{t(ALERT_HINT[alert])}</div>
-              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                {hasUrl && alert !== "expiring" && alert !== "duplicate" && (
-                  <Button size="sm" onClick={() => void openSite()}>
-                    <ExternalLink className="size-3.5" /> {t("sentinel.openSite")}
-                  </Button>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => void setIgnored(alert, true)} disabled={!canEdit} title={t("sentinel.ignore")}>
-                  <BellOff className="size-3.5" /> {t("sentinel.ignoreShort")}
-                </Button>
+          <div key={alert} className={cx("flex items-center gap-3 py-2 pl-3 pr-2", tone === "danger" && "bg-danger-soft")}>
+            <span
+              className={cx(
+                "flex size-7 shrink-0 items-center justify-center rounded-lg",
+                tone === "danger" ? "bg-danger/15 text-danger" : tone === "info" ? "bg-accent-soft text-accent" : "bg-warning-soft text-warning",
+              )}
+            >
+              <Icon className="size-3.5" />
+            </span>
+            <Tooltip content={<span className="block max-w-72 font-normal leading-relaxed">{t(ALERT_HINT[alert])}</span>}>
+              <div className="min-w-0 flex-1 cursor-default">
+                <div className="text-[13px] font-medium leading-snug">{t(`sentinel.alert.${alert}`)}</div>
+                {line && <div className="text-xs leading-snug text-muted">{line}</div>}
               </div>
-            </div>
+            </Tooltip>
+            {hasUrl && alert !== "expiring" && alert !== "duplicate" && (
+              <Tooltip content={t("sentinel.openSite")}>
+                <IconButton label={t("sentinel.openSite")} onClick={() => void openSite()} className="size-7">
+                  <ExternalLink className="size-3.5" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {canEdit && (
+              <Tooltip content={t("sentinel.ignore")}>
+                <IconButton label={t("sentinel.ignore")} onClick={() => void setIgnored(alert, true)} className="size-7">
+                  <BellOff className="size-3.5" />
+                </IconButton>
+              </Tooltip>
+            )}
           </div>
         );
       })}
       {ignored.map((alert) => (
-        <div key={`ignored-${alert}`} className="flex items-center gap-3 rounded-xl border border-line bg-panel-2 px-4 py-3">
-          <BellOff className="size-4 shrink-0 text-subtle" />
-          <div className="min-w-0 flex-1 text-[13px]">
+        <div key={`ignored-${alert}`} className="flex items-center gap-3 py-2 pl-3 pr-2">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-panel-3 text-subtle">
+            <BellOff className="size-3.5" />
+          </span>
+          <div className="min-w-0 flex-1 truncate text-[13px]">
             <span className="text-muted">{t("sentinel.ignoredAlert")}</span> <span className="font-medium">{t(`sentinel.alert.${alert}`)}</span>
           </div>
           <Button size="sm" variant="ghost" onClick={() => void setIgnored(alert, false)} disabled={!canEdit}>

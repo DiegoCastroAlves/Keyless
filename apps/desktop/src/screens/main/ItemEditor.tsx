@@ -49,6 +49,10 @@ export function ItemEditor() {
   const [draft, setDraft] = useState<ItemDraft>(editing.draft);
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // What was just added gets the focus, so typing can go on.
+  const [focusField, setFocusField] = useState<string | null>(null);
+  const [focusUrl, setFocusUrl] = useState<number | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const initial = useRef(JSON.stringify(editing.draft));
   const titleRef = useRef<HTMLInputElement>(null);
   const info = categoryInfo(draft.category);
@@ -131,6 +135,7 @@ export function ItemEditor() {
   const removeField = (index: number) => update({ fields: draft.fields.filter((_, i) => i !== index) });
   const addField = (kind: FieldKind, sectionIndex?: number) => {
     const field: Field = { id: newFieldId(), label: "", kind, value: "", purpose: null };
+    setFocusField(field.id);
     if (sectionIndex === undefined) update({ fields: [...draft.fields, field] });
     else
       update({
@@ -149,6 +154,13 @@ export function ItemEditor() {
             ref={titleRef}
             value={draft.title}
             onChange={(e) => update({ title: e.target.value })}
+            onKeyDown={(e) => {
+              // Enter goes on to the first field, like Tab.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                bodyRef.current?.querySelector<HTMLElement>("[data-field-value]")?.focus();
+              }
+            }}
             placeholder={editing.isNew ? t("editor.newTitle", { category: categoryLabel(draft.category) }) : t("editor.titlePlaceholder")}
             spellCheck={false}
             className="w-full rounded-lg bg-transparent px-1 text-xl font-semibold tracking-tight outline-none placeholder:text-subtle focus:bg-panel-2"
@@ -163,13 +175,14 @@ export function ItemEditor() {
                 options={vaultOptions}
                 searchPlaceholder={t("common.searchPlaceholder")}
                 triggerClassName="h-7 text-[13px]"
+                tabIndex={-1}
               />
             </div>
           </div>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-8 py-6">
+      <div ref={bodyRef} className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-6">
           <div className="space-y-2">
             {draft.category === "ssh_key" && <SshKeyTools draft={draft} onFields={(fields) => setDraft((d) => ({ ...d, fields }))} />}
@@ -177,6 +190,7 @@ export function ItemEditor() {
               <FieldEditor
                 key={field.id}
                 field={field}
+                autoFocus={field.id === focusField}
                 passwordContext={passwordContext}
                 onChange={(f) => setField(i, f)}
                 onRemove={() => removeField(i)}
@@ -194,7 +208,11 @@ export function ItemEditor() {
                   placeholder={t("editor.sectionTitle")}
                   className="h-8 border-transparent bg-transparent text-xs font-semibold uppercase tracking-wider shadow-none focus:bg-panel"
                 />
-                <IconButton label={t("editor.deleteSection")} onClick={() => update({ sections: draft.sections.filter((_, i) => i !== si) })}>
+                <IconButton
+                  label={t("editor.deleteSection")}
+                  tabIndex={-1}
+                  onClick={() => update({ sections: draft.sections.filter((_, i) => i !== si) })}
+                >
                   <Trash className="size-4" />
                 </IconButton>
               </div>
@@ -202,6 +220,7 @@ export function ItemEditor() {
                 <FieldEditor
                   key={field.id}
                   field={field}
+                  autoFocus={field.id === focusField}
                   passwordContext={passwordContext}
                   onChange={(f) => setSection(si, { ...section, fields: section.fields.map((x, i) => (i === fi ? f : x)) })}
                   onRemove={() => setSection(si, { ...section, fields: section.fields.filter((_, i) => i !== fi) })}
@@ -227,17 +246,25 @@ export function ItemEditor() {
                     value={url.href}
                     onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
                     placeholder={t("editor.websitePlaceholder")}
+                    autoFocus={i === focusUrl}
                   />
                   <FillRuleButton
                     value={url.fill ?? "domain"}
                     onChange={(fill) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, fill } : u)) })}
                   />
-                  <IconButton label={t("common.remove")} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
+                  <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
                     <X className="size-4" />
                   </IconButton>
                 </div>
               ))}
-              <Button variant="ghost" size="sm" onClick={() => update({ urls: [...draft.urls, { href: "" }] })}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setFocusUrl(draft.urls.length);
+                  update({ urls: [...draft.urls, { href: "" }] });
+                }}
+              >
                 <Plus className="size-4" /> {t("editor.addWebsite")}
               </Button>
             </div>
@@ -414,11 +441,14 @@ interface PasswordContext {
 
 function FieldEditor({
   field,
+  autoFocus,
   passwordContext,
   onChange,
   onRemove,
 }: {
   field: Field;
+  /** Just added: focus its value. */
+  autoFocus?: boolean;
   passwordContext?: PasswordContext;
   onChange: (f: Field) => void;
   onRemove: () => void;
@@ -432,6 +462,10 @@ function FieldEditor({
     const common = {
       value: field.value,
       onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange({ ...field, value: e.target.value }),
+      // A new field without a label starts at its label.
+      autoFocus: autoFocus && !!field.label,
+      // Where Enter in the title goes.
+      "data-field-value": "",
     };
     if (field.kind === "multiline") return <Textarea {...common} rows={3} className="font-mono text-[13px]" />;
     if (field.kind === "totp") return <Input {...common} placeholder={t("editor.totpPlaceholder")} className="font-mono" />;
@@ -457,6 +491,10 @@ function FieldEditor({
             onChange={(e) => onChange({ ...field, label: e.target.value })}
             placeholder={t("editor.fieldLabel")}
             spellCheck={false}
+            // Tab goes from value to value; a label is clicked to rename,
+            // but one still to name is in the way.
+            tabIndex={field.label ? -1 : undefined}
+            autoFocus={autoFocus && !field.label}
             className="min-w-0 flex-1 rounded bg-transparent px-1 text-xs font-medium text-subtle outline-none placeholder:text-subtle/60 focus:text-fg"
           />
           <Combobox
@@ -466,7 +504,10 @@ function FieldEditor({
             align="end"
             searchPlaceholder={t("common.searchPlaceholder")}
             trigger={
-              <button className="rounded px-1.5 py-0.5 text-[11px] font-medium text-subtle opacity-0 hover:bg-panel-3 hover:text-fg group-hover:opacity-100 focus:opacity-100">
+              <button
+                tabIndex={-1}
+                className="rounded px-1.5 py-0.5 text-[11px] font-medium text-subtle opacity-0 hover:bg-panel-3 hover:text-fg group-hover:opacity-100 focus:opacity-100"
+              >
                 {fieldKindLabel(field.kind)}
               </button>
             }
@@ -478,7 +519,12 @@ function FieldEditor({
           {canGenerate && (
             <GeneratorButton className="mt-0.5" onUse={(password) => onChange({ ...field, value: password })} />
           )}
-          <IconButton label={t("editor.deleteField")} onClick={onRemove} className={cx("mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100")}>
+          <IconButton
+            label={t("editor.deleteField")}
+            tabIndex={-1}
+            onClick={onRemove}
+            className={cx("mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100")}
+          >
             <Trash className="size-4" />
           </IconButton>
         </div>
@@ -510,7 +556,7 @@ function PasswordHints({ password, context }: { password: string; context: Passw
   if (!check) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs">
-      <StrengthBadge score={check.score} />
+      <StrengthBadge level={check.level} />
       {check.reused > 0 && <span className="text-warning">{t("editor.reusedPassword", { count: check.reused })}</span>}
     </div>
   );
@@ -632,7 +678,7 @@ function FillRuleButton({ value, onChange }: { value: UrlFill; onChange: (value:
   return (
     <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger asChild>
-        <IconButton label={`${t("editor.fillRule")}: ${t(`editor.fill.${value}`)}`} className={cx(value !== "domain" && "text-accent")}>
+        <IconButton label={`${t("editor.fillRule")}: ${t(`editor.fill.${value}`)}`} tabIndex={-1} className={cx(value !== "domain" && "text-accent")}>
           <Current className="size-4" />
         </IconButton>
       </MenuTrigger>
@@ -672,7 +718,7 @@ function ScanQrButton({ onRead }: { onRead: (value: string) => void }) {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <IconButton label={t("editor.scanQr")} className="mt-0.5">
+        <IconButton label={t("editor.scanQr")} tabIndex={-1} className="mt-0.5">
           <ScanQrCode className="size-4" />
         </IconButton>
       </MenuTrigger>
@@ -706,7 +752,12 @@ function TagsEditor({ tags, onChange }: { tags: string[]; onChange: (tags: strin
         {tags.map((tag) => (
           <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-panel-3 py-0.5 pl-2.5 pr-1 text-xs font-medium">
             {tag}
-            <button onClick={() => onChange(tags.filter((x) => x !== tag))} className="rounded-full p-0.5 text-subtle hover:bg-line hover:text-fg" aria-label={t("common.remove")}>
+            <button
+              tabIndex={-1}
+              onClick={() => onChange(tags.filter((x) => x !== tag))}
+              className="rounded-full p-0.5 text-subtle hover:bg-line hover:text-fg"
+              aria-label={t("common.remove")}
+            >
               <X className="size-3" />
             </button>
           </span>

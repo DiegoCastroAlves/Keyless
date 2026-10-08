@@ -227,6 +227,8 @@ const ptBR: Translations = {
     2: "Razoável",
     3: "Boa",
     4: "Forte",
+    5: "Muito forte",
+    6: "Excelente",
   },
   kit: {
     stepTitle: "Salve seu Kit de Emergência",

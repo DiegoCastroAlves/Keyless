@@ -341,6 +341,7 @@ export function Combobox<T extends string>({
   triggerClassName,
   trigger,
   align = "start",
+  tabIndex,
 }: {
   value: T | null;
   onChange: (value: T) => void;
@@ -350,6 +351,8 @@ export function Combobox<T extends string>({
   className?: string;
   disabled?: boolean;
   triggerClassName?: string;
+  /** For the default trigger: -1 leaves it out of the Tab order. */
+  tabIndex?: number;
   /** Custom trigger element (must accept a ref, e.g. a <button>). */
   trigger?: ReactNode;
   align?: "start" | "end";
@@ -362,6 +365,7 @@ export function Combobox<T extends string>({
         {trigger ?? (
         <button
           type="button"
+          tabIndex={tabIndex}
           className={clsx(
             "flex h-9 w-full items-center gap-2 rounded-lg border border-line bg-panel px-3 text-left text-sm shadow-xs outline-none transition-colors hover:bg-panel-2 focus-visible:border-accent disabled:opacity-60",
             triggerClassName,

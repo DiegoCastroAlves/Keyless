@@ -53,8 +53,11 @@ const MAX_LIST_BYTES: usize = 20 * 1024 * 1024;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Strength {
-    /// 0 (very weak) to 4 (very strong).
+    /// zxcvbn's 0 (very weak) to 4 (very strong): what the rules use (a
+    /// weak password is below 3).
     pub score: u8,
+    /// What the user sees: 0 (very weak) to 6 (excellent), see `level`.
+    pub level: u8,
     pub guesses_log10: f64,
     pub warning: Option<String>,
     pub suggestions: Vec<String>,
@@ -101,16 +104,16 @@ pub struct HealthReport {
     pub lists_updated_at: Option<i64>,
     /// Alerts the user ignored: (item id, alert).
     pub ignored: Vec<(String, String)>,
-    /// Item id -> its password's strength (0 to 4).
-    pub scores: HashMap<String, u8>,
+    /// Item id -> its password's strength level (0 to 6, see `level`).
+    pub levels: HashMap<String, u8>,
 }
 
 /// The editor's check of a password being typed.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordCheck {
-    /// 0 (very weak) to 4 (very strong).
-    pub score: u8,
+    /// 0 (very weak) to 6 (excellent), see `level`.
+    pub level: u8,
     /// Other items that already use it.
     pub reused: usize,
 }
@@ -125,15 +128,30 @@ pub struct SiteIssue {
     pub date: Option<String>,
 }
 
+/// Seven levels, finer than zxcvbn's five scores at the strong end, where
+/// most generated passwords are: the first four are the scores 0 to 3 (so
+/// "weak" means the same everywhere), and score 4 (at least 10^10 guesses)
+/// is split at 10^12 and 10^16 guesses.
+pub fn level(score: u8, guesses_log10: f64) -> u8 {
+    match score {
+        0..=3 => score,
+        _ if guesses_log10 < 12.0 => 4,
+        _ if guesses_log10 < 16.0 => 5,
+        _ => 6,
+    }
+}
+
 pub fn strength(password: &str, user_inputs: &[&str]) -> Strength {
     if password.is_empty() {
-        return Strength { score: 0, guesses_log10: 0.0, warning: None, suggestions: vec![] };
+        return Strength { score: 0, level: 0, guesses_log10: 0.0, warning: None, suggestions: vec![] };
     }
     // zxcvbn is quadratic in length; anything this long is strong anyway.
     let sample: String = password.chars().take(100).collect();
     let entropy = zxcvbn::zxcvbn(&sample, user_inputs);
+    let score = entropy.score() as u8;
     Strength {
-        score: entropy.score() as u8,
+        score,
+        level: level(score, entropy.guesses_log10()),
         guesses_log10: entropy.guesses_log10(),
         warning: entropy.feedback().and_then(|f| f.warning()).map(|w| w.to_string()),
         suggestions: entropy
@@ -179,10 +197,10 @@ impl Entry {
     }
 
     /// Weaker when it holds the item's own words, as the editor shows it.
-    fn strength(&self, password: &str) -> u8 {
+    fn strength(&self, password: &str) -> Strength {
         let username = self.username();
         let inputs: Vec<&str> = username.as_deref().into_iter().chain([self.title.as_str()]).filter(|s| !s.trim().is_empty()).collect();
-        strength(password, &inputs).score
+        strength(password, &inputs)
     }
 
     fn is_login(&self) -> bool {
@@ -239,9 +257,9 @@ pub async fn report(app: &AppHandle) -> AppResult<HealthReport> {
         let skip = |alert: &str| entry.ignores(alert);
         if let Some(password) = entry.password() {
             report.checked += 1;
-            let score = entry.strength(password);
-            report.scores.insert(entry.id.clone(), score);
-            if score < 3 && !skip("weak") {
+            let strength = entry.strength(password);
+            report.levels.insert(entry.id.clone(), strength.level);
+            if strength.score < 3 && !skip("weak") {
                 report.weak.push(entry.id.clone());
             }
             // Grouped even when ignored: the other items still share it.
@@ -302,7 +320,7 @@ pub async fn report(app: &AppHandle) -> AppResult<HealthReport> {
 pub async fn check_password(state: &AppState, password: &str, item_id: Option<&str>, inputs: &[&str]) -> AppResult<PasswordCheck> {
     let entries = entries(state).await?;
     let reused = entries.iter().filter(|e| Some(e.id.as_str()) != item_id && e.password() == Some(password)).count();
-    Ok(PasswordCheck { score: strength(password, inputs).score, reused })
+    Ok(PasswordCheck { level: strength(password, inputs).level, reused })
 }
 
 /// Groups of logins for the same account: the first website's site and the
@@ -491,7 +509,7 @@ async fn run_due(app: &AppHandle) {
             failed = true;
         }
     }
-    if state.settings().sentinel_auto {
+    if state.settings().sentinel_check_passwords {
         match check_passwords(app, AUTO_EVERY).await {
             Ok(checked) => changed |= checked,
             Err(AppError::Locked) => {}
@@ -921,6 +939,19 @@ mod tests {
         assert!(strength("password", &[]).score <= 1);
         assert!(strength("correct-horse-battery-staple-91", &[]).score >= 3);
         assert_eq!(strength("", &[]).score, 0);
+    }
+
+    #[test]
+    fn strength_levels() {
+        // The weak ones are the scores, so "weak" means the same.
+        for score in 0..=3 {
+            assert_eq!(level(score, 20.0), score);
+        }
+        assert_eq!(level(4, 10.5), 4);
+        assert_eq!(level(4, 13.0), 5);
+        assert_eq!(level(4, 16.0), 6);
+        assert_eq!(strength("password", &[]).level, 0);
+        assert_eq!(strength("8]bz-Pv&wu~AO5uEF?f{Uec>", &[]).level, 6);
     }
 
     #[test]

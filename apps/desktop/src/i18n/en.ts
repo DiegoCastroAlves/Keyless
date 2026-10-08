@@ -225,6 +225,8 @@ const en = {
     2: "Fair",
     3: "Good",
     4: "Strong",
+    5: "Very strong",
+    6: "Excellent",
   },
   kit: {
     stepTitle: "Save your Emergency Kit",
