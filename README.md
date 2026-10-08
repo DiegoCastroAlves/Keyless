@@ -24,9 +24,10 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   or a lost Secret Key
 - Sentinel: weak, reused and breached passwords (Have I Been Pwned,
   k-anonymity), websites breached since the password was set, websites
-  offering two-factor codes the item lacks, websites without HTTPS, and cards
-  or documents about to expire; any alert can be ignored per item, and the
-  online check can run by itself once a day
+  offering two-factor codes or passkeys the item lacks, duplicate items,
+  websites without HTTPS, and cards or documents about to expire; each alert
+  lists its items and shows on them, any alert can be ignored per item, and
+  the online check can run by itself once a day
 - File attachments in items, encrypted on the device in chunks (250 MiB per
   account)
 - Share links: a copy of an item that someone without Keyless opens in the

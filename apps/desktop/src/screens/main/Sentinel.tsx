@@ -7,7 +7,9 @@ import {
   Check,
   ChevronDown,
   CircleCheck,
+  Copy,
   ExternalLink,
+  Fingerprint,
   Globe,
   KeyRound,
   LockOpen,
@@ -34,6 +36,8 @@ export const ALERT_ICONS: Record<SentinelAlert, LucideIcon> = {
   unsecured: LockOpen,
   expiring: CalendarClock,
   two_factor: KeyRound,
+  passkey: Fingerprint,
+  duplicate: Copy,
 };
 
 type Tone = "danger" | "warning" | "info";
@@ -46,6 +50,8 @@ const ALERT_TONE: Record<SentinelAlert, Tone> = {
   unsecured: "warning",
   expiring: "warning",
   two_factor: "info",
+  passkey: "info",
+  duplicate: "info",
 };
 
 const ALERT_HINT: Record<SentinelAlert, string> = {
@@ -56,6 +62,8 @@ const ALERT_HINT: Record<SentinelAlert, string> = {
   unsecured: "sentinel.unsecuredHint",
   expiring: "sentinel.expiringHint",
   two_factor: "sentinel.twoFactorHint",
+  passkey: "sentinel.passkeyHint",
+  duplicate: "sentinel.duplicateHint",
 };
 
 /** A date as the alerts show it: unix seconds, or YYYY-MM-DD (UTC). */
@@ -341,6 +349,10 @@ export function SentinelBanners({ itemId, hasUrl, canEdit }: { itemId: string; h
         return d.date ? t(d.expired ? "sentinel.expiredOn" : "sentinel.expiresOn", { date: day(d.date) }) : null;
       case "two_factor":
         return t("sentinel.twoFactorNote", { site: d.site });
+      case "passkey":
+        return t("sentinel.passkeyNote", { site: d.site });
+      case "duplicate":
+        return t("sentinel.duplicateNote", { count: d.others ?? 0 });
       default:
         return null;
     }
@@ -366,7 +378,7 @@ export function SentinelBanners({ itemId, hasUrl, canEdit }: { itemId: string; h
               {line && <div className="mt-0.5 text-xs text-fg">{line}</div>}
               <div className="mt-0.5 text-xs leading-relaxed text-muted">{t(ALERT_HINT[alert])}</div>
               <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                {hasUrl && alert !== "expiring" && (
+                {hasUrl && alert !== "expiring" && alert !== "duplicate" && (
                   <Button size="sm" onClick={() => void openSite()}>
                     <ExternalLink className="size-3.5" /> {t("sentinel.openSite")}
                   </Button>

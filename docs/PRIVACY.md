@@ -34,6 +34,10 @@ Key.
   when you use Sentinel. Only the first 5 characters of the password's
   SHA-1 hash are sent (k-anonymity); the password itself never leaves your
   device.
+- **Have I Been Pwned** and **2fa.directory** publish the lists of breached
+  websites, and of websites with two-factor codes or passkeys, that Sentinel
+  downloads whole to compare on your device. Nothing about your items is
+  sent to them.
 
 Keyless has no ads, no analytics or tracking, and never sells or shares your
 data.

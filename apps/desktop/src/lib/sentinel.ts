@@ -4,10 +4,10 @@ import { create } from "zustand";
 import { api, type BreachReport, type HealthReport, type SentinelAlert } from "./api";
 
 /** Every alert, most serious first. */
-export const SENTINEL_ALERTS: SentinelAlert[] = ["breached", "compromised", "weak", "reused", "unsecured", "expiring", "two_factor"];
+export const SENTINEL_ALERTS: SentinelAlert[] = ["breached", "compromised", "weak", "reused", "unsecured", "expiring", "two_factor", "passkey", "duplicate"];
 
 /** What the online check covers: unknown until it ran. */
-export const ONLINE_ALERTS: SentinelAlert[] = ["breached", "compromised", "two_factor"];
+export const ONLINE_ALERTS: SentinelAlert[] = ["breached", "compromised", "two_factor", "passkey"];
 
 /** The title of each alert's list (translation key). */
 export const ALERT_TITLE: Record<SentinelAlert, string> = {
@@ -18,6 +18,8 @@ export const ALERT_TITLE: Record<SentinelAlert, string> = {
   unsecured: "sentinel.unsecured",
   expiring: "sentinel.expiring",
   two_factor: "sentinel.twoFactor",
+  passkey: "sentinel.passkey",
+  duplicate: "sentinel.duplicate",
 };
 
 /** What one alert says about one item. */
@@ -29,7 +31,7 @@ export interface AlertDetail {
   /** When the website was breached (YYYY-MM-DD), or the item expires (unix seconds). */
   date?: string | number;
   expired?: boolean;
-  /** Other items with the same password. */
+  /** Other items with the same password, or for the same account. */
   others?: number;
 }
 
@@ -76,12 +78,14 @@ export function issuesOf(report: HealthReport | null, breaches: BreachReport | n
   };
   for (const id of report.weak) add("weak", id);
   for (const group of report.reused) for (const id of group) add("reused", id, { others: group.length - 1 });
+  for (const group of report.duplicates) for (const id of group) add("duplicate", id, { others: group.length - 1 });
   for (const id of report.unsecured) add("unsecured", id);
   for (const e of report.expiring) add("expiring", e.id, { date: e.expiresAt, expired: e.expired });
   if (breaches) {
     for (const [id, seen] of breaches.breached) add("breached", id, { seen });
     for (const issue of breaches.compromised) add("compromised", issue.id, { site: issue.site, date: issue.date ?? undefined });
     for (const issue of breaches.twoFactor) add("two_factor", issue.id, { site: issue.site });
+    for (const issue of breaches.passkeys) add("passkey", issue.id, { site: issue.site });
   }
   return issues;
 }

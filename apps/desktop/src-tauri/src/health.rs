@@ -1,7 +1,7 @@
-//! Sentinel: weak, reused and breached passwords, websites without HTTPS,
-//! expiring cards and documents, websites breached since the password was
-//! last changed, and websites that offer two-factor authentication the item
-//! does not use.
+//! Sentinel: weak, reused and breached passwords, duplicate items, websites
+//! without HTTPS, expiring cards and documents, websites breached since the
+//! password was last changed, and websites that offer two-factor
+//! authentication or passkeys the item does not use.
 //!
 //! Everything runs on this device except the online check, which the user
 //! starts:
@@ -9,9 +9,11 @@
 //!   only the first 5 hex characters of each password's SHA-1 hash are sent,
 //!   and responses are padded, so the service never learns the password or
 //!   even which hash was looked up;
-//! - breached websites and two-factor support come from public lists (Have I
-//!   Been Pwned's breaches, 2fa.directory) downloaded whole and compared
-//!   here, so nothing about the items is sent.
+//! - breached websites, two-factor support and passkey support come from
+//!   public lists (Have I Been Pwned's breaches, 2fa.directory and its
+//!   Passkeys Directory) downloaded whole at each check, so they follow the
+//!   websites as they change, and compared here, so nothing about the items
+//!   is sent.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -63,6 +65,9 @@ pub struct HealthReport {
     pub weak: Vec<String>,
     /// Groups of item ids that share the same password.
     pub reused: Vec<Vec<String>>,
+    /// Groups of item ids for the same account: the same website and user
+    /// name.
+    pub duplicates: Vec<Vec<String>>,
     /// Items with a website on plain `http`.
     pub unsecured: Vec<String>,
     pub expiring: Vec<Expiry>,
@@ -90,6 +95,8 @@ pub struct BreachReport {
     pub compromised: Vec<SiteIssue>,
     /// Websites that offer two-factor codes the item does not have.
     pub two_factor: Vec<SiteIssue>,
+    /// Websites that accept passkeys, for items without one.
+    pub passkeys: Vec<SiteIssue>,
 }
 
 pub fn strength(password: &str, user_inputs: &[&str]) -> Strength {
@@ -134,6 +141,18 @@ impl Entry {
     /// replaced, or when the item was created.
     fn password_set_at(&self) -> i64 {
         self.details.password_history.iter().map(|h| h.changed_at).max().unwrap_or(self.created_at)
+    }
+
+    /// The user name, compared without case or surrounding spaces.
+    fn username(&self) -> Option<String> {
+        self.details
+            .field_by_purpose(FieldPurpose::Username)
+            .map(|f| f.value.trim().to_lowercase())
+            .filter(|u| !u.is_empty())
+    }
+
+    fn is_login(&self) -> bool {
+        matches!(self.category, Category::Login | Category::Password)
     }
 
     fn has_totp(&self) -> bool {
@@ -201,8 +220,22 @@ pub async fn report(state: &AppState) -> AppResult<HealthReport> {
         }
     }
     report.reused = by_password.into_values().filter(|ids| ids.len() > 1).collect();
+    report.duplicates = duplicate_accounts(&entries);
     report.expiring.sort_by_key(|e| e.expires_at);
     Ok(report)
+}
+
+/// Groups of logins for the same account: the first website's site and the
+/// user name. Grouped even when ignored, like reused passwords.
+fn duplicate_accounts(entries: &[Entry]) -> Vec<Vec<String>> {
+    let mut by_account: HashMap<(String, String), Vec<String>> = HashMap::new();
+    for entry in entries.iter().filter(|e| e.is_login()) {
+        let site = entry.urls.first().and_then(|u| url_host(&u.href)).map(|h| site_of(&h));
+        if let (Some(site), Some(user)) = (site, entry.username()) {
+            by_account.entry((site, user)).or_default().push(entry.id.clone());
+        }
+    }
+    by_account.into_values().filter(|ids| ids.len() > 1).collect()
 }
 
 /// A website on plain `http` that is not on this computer or the local
@@ -386,7 +419,14 @@ pub async fn breaches(state: &AppState) -> AppResult<BreachReport> {
             Vec::new()
         }
     };
-    Ok(BreachReport { checked: entries.iter().filter(|e| e.password().is_some()).count(), breached, compromised, two_factor })
+    let passkeys = match passkey_sites(&client).await {
+        Ok(sites) => missing_passkeys(&entries, &sites),
+        Err(err) => {
+            log::warn!("passkeys list: {err}");
+            Vec::new()
+        }
+    };
+    Ok(BreachReport { checked: entries.iter().filter(|e| e.password().is_some()).count(), breached, compromised, two_factor, passkeys })
 }
 
 async fn breached_passwords(client: &reqwest::Client, entries: &[Entry]) -> AppResult<Vec<(String, u64)>> {
@@ -501,10 +541,36 @@ fn sites_from_directory(list: &Value) -> HashSet<String> {
     sites
 }
 
+/// Sites (registrable domains) that accept passkeys, from the Passkeys
+/// Directory (passkeys.2fa.directory): `{domain: {passwordless, mfa, ...}}`,
+/// every website with some passkey support.
+async fn passkey_sites(client: &reqwest::Client) -> AppResult<HashSet<String>> {
+    let body = get_list(client, "https://passkeys-api.2fa.directory/v1/supported.json").await?;
+    let list: Value = serde_json::from_slice(&body)?;
+    Ok(sites_from_passkey_directory(&list))
+}
+
+fn sites_from_passkey_directory(list: &Value) -> HashSet<String> {
+    list.as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(domain, _)| url_host(domain))
+        .map(|host| site_of(&host))
+        .collect()
+}
+
+fn missing_passkeys(entries: &[Entry], sites: &HashSet<String>) -> Vec<SiteIssue> {
+    entries
+        .iter()
+        .filter(|e| e.is_login() && e.details.passkeys.is_empty() && !e.ignores("passkey"))
+        .filter_map(|e| e.sites().into_iter().find(|s| sites.contains(s)).map(|site| SiteIssue { id: e.id.clone(), site, date: None }))
+        .collect()
+}
+
 fn missing_two_factor(entries: &[Entry], sites: &HashSet<String>) -> Vec<SiteIssue> {
     entries
         .iter()
-        .filter(|e| matches!(e.category, Category::Login | Category::Password) && e.password().is_some() && !e.has_totp() && !e.ignores("two_factor"))
+        .filter(|e| e.is_login() && e.password().is_some() && !e.has_totp() && !e.ignores("two_factor"))
         .filter_map(|e| e.sites().into_iter().find(|s| sites.contains(s)).map(|site| SiteIssue { id: e.id.clone(), site, date: None }))
         .collect()
 }
@@ -612,5 +678,45 @@ mod tests {
         ];
         let found = missing_two_factor(&entries, &sites);
         assert_eq!(found.iter().map(|i| (i.id.as_str(), i.site.as_str())).collect::<Vec<_>>(), [("plain", "github.com")]);
+    }
+
+    #[test]
+    fn passkey_support() {
+        let list: Value = serde_json::from_str(r#"{"github.com":{"passwordless":"allowed"},"accounts.example.org":{"mfa":"allowed"}}"#).unwrap();
+        let sites = sites_from_passkey_directory(&list);
+        let mut saved = login("saved", "https://github.com", 0, None, false);
+        saved.details.passkeys.push(
+            serde_json::from_value(serde_json::json!({"credentialId": "Y3JlZA", "rpId": "github.com", "userHandle": "dQ", "key": "a2V5"})).unwrap(),
+        );
+        let entries = [
+            login("plain", "https://github.com/login", 0, None, false),
+            saved,
+            login("subdomain", "https://www.example.org", 0, None, false),
+            login("elsewhere", "https://example.com", 0, None, false),
+        ];
+        let mut found: Vec<(String, String)> = missing_passkeys(&entries, &sites).into_iter().map(|i| (i.id, i.site)).collect();
+        found.sort();
+        assert_eq!(found, [("plain".to_string(), "github.com".to_string()), ("subdomain".to_string(), "example.org".to_string())]);
+    }
+
+    #[test]
+    fn duplicate_items() {
+        let with_user = |id: &str, url: &str, user: &str| {
+            let mut entry = login(id, url, 0, None, false);
+            entry.details.fields.push(Field { id: "u".into(), label: "username".into(), kind: FieldKind::Text, value: user.into(), purpose: Some(FieldPurpose::Username) });
+            entry
+        };
+        let entries = [
+            with_user("a", "https://github.com/login", "Ana@Example.com"),
+            with_user("b", "https://www.github.com", " ana@example.com "),
+            with_user("c", "https://github.com", "bob@example.com"),
+            with_user("d", "https://gitlab.com", "ana@example.com"),
+            login("e", "https://github.com", 0, None, false),
+        ];
+        let mut groups = duplicate_accounts(&entries);
+        for group in &mut groups {
+            group.sort();
+        }
+        assert_eq!(groups, [vec!["a".to_string(), "b".to_string()]]);
     }
 }

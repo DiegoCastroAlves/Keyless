@@ -410,6 +410,8 @@ export interface HealthReport {
   checked: number;
   weak: string[];
   reused: string[][];
+  /** Groups of items for the same account (website and user name). */
+  duplicates: string[][];
   /** Items with a website on plain http. */
   unsecured: string[];
   expiring: { id: string; expiresAt: number; expired: boolean }[];
@@ -417,7 +419,7 @@ export interface HealthReport {
   ignored: [string, SentinelAlert][];
 }
 
-export type SentinelAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor";
+export type SentinelAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor" | "passkey" | "duplicate";
 
 export interface SiteIssue {
   id: string;
@@ -433,6 +435,8 @@ export interface BreachReport {
   compromised: SiteIssue[];
   /** Websites offering one-time codes the item does not have. */
   twoFactor: SiteIssue[];
+  /** Websites that accept passkeys, for items without one. */
+  passkeys: SiteIssue[];
 }
 
 /** Sentinel's last online check since Keyless started. */
