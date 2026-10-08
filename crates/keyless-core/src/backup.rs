@@ -5,7 +5,7 @@
 //! without the account or the Secret Key. It is a zip archive:
 //!
 //! ```text
-//! key          = Argon2id(NFKD(trim(password)), random salt[16], m, t, p)[32]
+//! key          = Argon2id(NFKD(trim(password)), random salt[16], 256 MiB, t = 3, p = 4)[32]
 //! backup.json  = { format, version: 2, kdf, salt,
 //!                  data: seal(key, padded JSON of the items, "backup/2") }
 //! files/<id>   = attachment <id>'s chunks, encrypted as the server keeps them
@@ -16,8 +16,12 @@
 //! (see `attachment`): files cannot be swapped, cut or changed unnoticed. The
 //! archive does show how many files there are and their approximate sizes.
 //!
-//! Version 1 backups (the JSON document alone, sealed with context "backup",
-//! without files) can still be restored.
+//! A backup has no Secret Key: its password alone resists offline guessing,
+//! so its Argon2id uses four times the account's memory (backups are made and
+//! restored rarely, on a computer), and the app asks for a very strong
+//! password. The parameters are stored in the file, and older backups (64 MiB)
+//! still open. Version 1 backups (the JSON document alone, sealed with context
+//! "backup", without files) can still be restored.
 
 use std::{
     collections::{HashMap, HashSet},
@@ -92,8 +96,13 @@ fn derive_key(password: &str, salt: &[u8], kdf: &KdfParams) -> Result<SymmetricK
     SymmetricKey::from_slice(key.as_ref())
 }
 
+/// Argon2id for new backups: 256 MiB, 3 passes, 4 lanes.
+pub fn backup_kdf() -> KdfParams {
+    KdfParams { m: 256 * 1024, ..KdfParams::recommended() }
+}
+
 fn seal_items(password: &str, data: &BackupData, version: u32, context: &[u8]) -> Result<Zeroizing<String>> {
-    let kdf = KdfParams::recommended();
+    let kdf = backup_kdf();
     let salt = random_array::<16>()?;
     let key = derive_key(password, salt.as_ref(), &kdf)?;
     let json = Zeroizing::new(serde_json::to_vec(data)?);
@@ -337,6 +346,11 @@ mod tests {
     #[test]
     fn roundtrip() {
         let file = backup(&sample(), &[]);
+        let mut archive = zip::ZipArchive::new(Cursor::new(&file)).unwrap();
+        let mut items = String::new();
+        archive.by_name(ITEMS_ENTRY).unwrap().read_to_string(&mut items).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&items).unwrap();
+        assert_eq!(parsed["kdf"]["m"], 256 * 1024);
         let text = String::from_utf8_lossy(&file);
         assert!(!text.contains("s3cret") && !text.contains("Example"));
         let restored = open_backup("backup password 1", Cursor::new(&file)).unwrap();

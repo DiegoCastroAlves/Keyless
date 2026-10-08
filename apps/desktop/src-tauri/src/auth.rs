@@ -498,8 +498,10 @@ pub async fn confirm_master_password(state: &AppState, master_password: Zeroizin
     }
 }
 
-/// Re-authenticates with the server when the stored session expired.
-pub async fn reauthenticate(app: &AppHandle, master_password: Zeroizing<String>) -> AppResult<()> {
+/// Re-authenticates with the server when the stored session expired, with
+/// the Secret Key this device keeps or, after the account was recovered on
+/// another device, the new one.
+pub async fn reauthenticate(app: &AppHandle, master_password: Zeroizing<String>, secret_key: Option<String>) -> AppResult<()> {
     let state = app.state::<AppState>();
     let email = state
         .session
@@ -508,7 +510,19 @@ pub async fn reauthenticate(app: &AppHandle, master_password: Zeroizing<String>)
         .as_ref()
         .map(|s| s.email.clone())
         .ok_or(AppError::Locked)?;
-    sign_in(app, &email, None, master_password).await
+    if secret_key.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+        return sign_in(app, &email, secret_key, master_password).await;
+    }
+    match sign_in(app, &email, None, master_password.clone()).await {
+        // The server refuses a password this device accepts: the master
+        // password was changed, or the account recovered (new Secret Key),
+        // on another device. Not a wrong guess.
+        Err(AppError::Auth(msg)) if msg.key == "invalid_credentials" && verify_master_password(&state, master_password).await.is_ok() => {
+            state.record_unlock_result(true);
+            Err(AppError::Invalid(Msg::new("credentials_changed")))
+        }
+        other => other,
+    }
 }
 
 pub async fn lock(app: &AppHandle) {

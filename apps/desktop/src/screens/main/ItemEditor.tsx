@@ -1,5 +1,4 @@
 import { Ban, ClipboardPaste, Crosshair, FileText, Globe, GripVertical, ImageIcon, Monitor, Paperclip, Plus, ScanQrCode, Trash, WandSparkles, X } from "lucide-react";
-import { Popover } from "radix-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -39,7 +38,7 @@ import { useFileDrop } from "../../lib/fileDrop";
 import { formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
-import { GeneratorPanel } from "./Generator";
+import { GeneratorButton } from "./Generator";
 
 export function ItemEditor() {
   const { t } = useTranslation();
@@ -397,7 +396,6 @@ function AddFieldButton({ onAdd }: { onAdd: (kind: FieldKind) => void }) {
 
 function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f: Field) => void; onRemove: () => void }) {
   const { t } = useTranslation();
-  const [generatorOpen, setGeneratorOpen] = useState(false);
   const secret = isSecretKind(field);
   // Not for an SSH private key: it is generated as a key, not a password.
   const canGenerate = (field.kind === "concealed" || field.purpose === "password") && !isFieldLabel(field.label, "private key");
@@ -450,24 +448,7 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
           <div className="min-w-0 flex-1">{valueInput}</div>
           {field.kind === "totp" && <ScanQrButton onRead={(value) => onChange({ ...field, value })} />}
           {canGenerate && (
-            <Popover.Root open={generatorOpen} onOpenChange={setGeneratorOpen}>
-              <Popover.Trigger asChild>
-                <IconButton label={t("editor.generate")} className="mt-0.5">
-                  <WandSparkles className="size-4" />
-                </IconButton>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content align="end" sideOffset={6} className="z-50 rounded-2xl border border-line bg-panel p-4 shadow-2xl animate-pop">
-                  <GeneratorPanel
-                    compact
-                    onUse={(password) => {
-                      onChange({ ...field, value: password });
-                      setGeneratorOpen(false);
-                    }}
-                  />
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
+            <GeneratorButton className="mt-0.5" onUse={(password) => onChange({ ...field, value: password })} />
           )}
           <IconButton label={t("editor.deleteField")} onClick={onRemove} className={cx("mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100")}>
             <Trash className="size-4" />

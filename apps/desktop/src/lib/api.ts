@@ -521,7 +521,8 @@ export const api = {
   unlockWithSystem: () => invoke<void>("unlock_with_system"),
   setSystemUnlock: (enabled: boolean, masterPassword: string | null) =>
     invoke<Settings>("set_system_unlock", { enabled, masterPassword }),
-  reauthenticate: (masterPassword: string) => invoke<void>("reauthenticate", { masterPassword }),
+  /** With `secretKey` when the account was recovered on another device. */
+  reauthenticate: (masterPassword: string, secretKey?: string) => invoke<void>("reauthenticate", { masterPassword, secretKey: secretKey || null }),
   lock: () => invoke<void>("lock"),
   signOut: () => invoke<void>("sign_out"),
   resendConfirmation: (email: string) => invoke<void>("resend_confirmation", { email }),

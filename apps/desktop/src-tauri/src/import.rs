@@ -41,6 +41,9 @@ use crate::{
     sync,
 };
 
+/// The zxcvbn score a backup password needs: the top one ("very strong"). A
+/// backup has no Secret Key, so its password alone resists offline guessing.
+pub const BACKUP_PASSWORD_SCORE: u8 = 4;
 /// CSV files larger than this are refused.
 const MAX_CSV_BYTES: u64 = 512 * 1024 * 1024;
 /// Progress of the attached files of an import or export.
@@ -513,8 +516,8 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
     if normalized.chars().count() < MIN_MASTER_PASSWORD_CHARS {
         return Err(AppError::Invalid(Msg::new("backup_password_too_short").with("min", MIN_MASTER_PASSWORD_CHARS)));
     }
-    if crate::health::strength(&normalized, &["keyless"]).score < crate::auth::MIN_MASTER_PASSWORD_SCORE {
-        return Err(AppError::Invalid(Msg::new("password_weak")));
+    if crate::health::strength(&normalized, &["keyless"]).score < BACKUP_PASSWORD_SCORE {
+        return Err(AppError::Invalid(Msg::new("backup_password_weak")));
     }
 
     let (mut data, vault_ids) = collect(&state).await?;

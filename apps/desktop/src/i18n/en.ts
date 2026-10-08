@@ -73,6 +73,7 @@ const en = {
     device_has_account: "This device already has an account. Sign out first.",
     device_other_account: "This device is set up for {{email}}. Sign out of that account first.",
     secret_key_invalid: "That Secret Key is not valid. Check it against your Emergency Kit.",
+    backup_password_weak: "Use a stronger backup password (every bar): a backup has no Secret Key, only its password protects it. The wand makes one.",
     recovery_key_invalid: "That recovery key is incomplete or has a typo.",
     recovery_failed: "Wrong email or recovery key.",
     recovery_throttled: "Too many tries with the recovery key. Try again in an hour.",
@@ -304,6 +305,9 @@ const en = {
     syncNow: "Sync now",
     reauthTitle: "Sign in again to sync",
     reauthBody: "Your session with the server expired. Enter your master password to resume syncing.",
+    credentialsChanged:
+      "Your master password opens this device, but the account changed on another one: the master password was changed or the account was recovered. Enter the current master password and, if the account was recovered, the new Secret Key from your Emergency Kit.",
+    newSecretKey: "New Secret Key (only if the account was recovered)",
   },
   time: {
     never: "never",
@@ -834,6 +838,8 @@ const en = {
       "Save a copy of every vault, with the attached files, in a file encrypted with a password you choose. Keep it somewhere safe: it can be restored even without this account.",
     exportMasterPassword: "Your master password",
     exportPassword: "Backup password",
+    exportPasswordHint: "It must be strong (every bar): a backup has no Secret Key, only this password protects it. The wand makes one.",
+    exportPasswordGenerated: "Password generated and filled in both fields. Keep it outside Keyless (written down or somewhere else safe): without it the backup won't open.",
     exportConfirm: "Confirm backup password",
     exportRun: "Export backup…",
     exported_one: "Exported {{count}} item",

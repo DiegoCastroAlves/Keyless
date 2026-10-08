@@ -1,4 +1,4 @@
-import { DatabaseBackup, FileArchive, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
+import { Copy, DatabaseBackup, FileArchive, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +8,7 @@ import { api, errorCode, errorMessage, events, type ExportOutcome, type ImportFo
 import { formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { GeneratorButton } from "./Generator";
 
 /** How far the attached files of an import or export are while `active`,
  * in percent; null until the first file starts. */
@@ -283,10 +284,23 @@ export function ExportPanel() {
   const [masterPassword, setMasterPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  // The password came from the generator (and is in both fields).
+  const [generated, setGenerated] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const strength = useStrength(password);
   const percent = useFilesProgress(busy);
+  // A backup has no Secret Key: its password must be the strongest kind.
+  const strongEnough = (strength?.score ?? 0) >= 4;
+
+  const copyPassword = async () => {
+    try {
+      const result = await api.copyText(password);
+      toast.copied(t("importer.exportPassword"), result.clearAfterSeconds);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -297,6 +311,7 @@ export function ExportPanel() {
       setMasterPassword("");
       setPassword("");
       setConfirm("");
+      setGenerated(false);
       exportedToast(outcome, t);
     } catch (err) {
       if (errorCode(err) !== "cancelled") setError(errorMessage(err));
@@ -317,8 +332,35 @@ export function ExportPanel() {
       </div>
       <div>
         <Label>{t("importer.exportPassword")}</Label>
-        <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">
+            <PasswordInput
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setGenerated(false);
+              }}
+            />
+          </div>
+          <GeneratorButton
+            onUse={(value) => {
+              setPassword(value);
+              setConfirm(value);
+              setGenerated(true);
+            }}
+          />
+        </div>
         <StrengthMeter strength={strength} />
+        {generated ? (
+          <div className="mt-2 flex items-start gap-2 rounded-lg bg-accent-soft px-3 py-2 text-xs leading-relaxed">
+            <span className="flex-1">{t("importer.exportPasswordGenerated")}</span>
+            <Button type="button" size="sm" onClick={copyPassword}>
+              <Copy className="size-3.5" /> {t("common.copy")}
+            </Button>
+          </div>
+        ) : (
+          <p className={cx("mt-1 text-xs leading-relaxed", password && !strongEnough ? "text-warning" : "text-subtle")}>{t("importer.exportPasswordHint")}</p>
+        )}
       </div>
       <div>
         <Label>{t("importer.exportConfirm")}</Label>
@@ -326,7 +368,7 @@ export function ExportPanel() {
       </div>
       <ErrorText>{error}</ErrorText>
       <FilesProgressLine percent={percent} />
-      <Button type="submit" loading={busy} disabled={!masterPassword || !password || password !== confirm || (strength?.score ?? 0) < 3}>
+      <Button type="submit" loading={busy} disabled={!masterPassword || !password || password !== confirm || !strongEnough}>
         {t("importer.exportRun")}
       </Button>
     </form>

@@ -95,8 +95,8 @@ pub async fn set_system_unlock(app: AppHandle, enabled: bool, master_password: O
 }
 
 #[tauri::command]
-pub async fn reauthenticate(app: AppHandle, master_password: String) -> AppResult<()> {
-    auth::reauthenticate(&app, Zeroizing::new(master_password)).await
+pub async fn reauthenticate(app: AppHandle, master_password: String, secret_key: Option<String>) -> AppResult<()> {
+    auth::reauthenticate(&app, Zeroizing::new(master_password), secret_key).await
 }
 
 #[tauri::command]

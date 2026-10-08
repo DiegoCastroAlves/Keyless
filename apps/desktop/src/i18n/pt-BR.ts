@@ -75,6 +75,7 @@ const ptBR: Translations = {
     device_has_account: "Este dispositivo já tem uma conta. Saia dela primeiro.",
     device_other_account: "Este dispositivo está configurado para {{email}}. Saia dessa conta primeiro.",
     secret_key_invalid: "Essa Chave Secreta não é válida. Confira com o seu Kit de Emergência.",
+    backup_password_weak: "Use uma senha mais forte para o backup (todas as barras): ele não tem a Chave Secreta, só a senha o protege. A varinha gera uma.",
     recovery_key_invalid: "Essa chave de recuperação está incompleta ou tem um erro de digitação.",
     recovery_failed: "E-mail ou chave de recuperação incorretos.",
     recovery_throttled: "Muitas tentativas com a chave de recuperação. Tente de novo em uma hora.",
@@ -307,6 +308,9 @@ const ptBR: Translations = {
     syncNow: "Sincronizar agora",
     reauthTitle: "Entre novamente para sincronizar",
     reauthBody: "Sua sessão com o servidor expirou. Digite sua senha mestra para retomar a sincronização.",
+    credentialsChanged:
+      "A senha mestra abre este dispositivo, mas a conta mudou em outro: a senha mestra foi trocada ou a conta foi recuperada. Digite a senha mestra atual e, se a conta foi recuperada, a nova Chave Secreta do Kit de Emergência.",
+    newSecretKey: "Nova Chave Secreta (só se a conta foi recuperada)",
   },
   time: {
     never: "nunca",
@@ -837,6 +841,8 @@ const ptBR: Translations = {
       "Salve uma cópia de todos os cofres, com os arquivos anexados, em um arquivo criptografado com uma senha que você escolher. Guarde-o em um lugar seguro: ele pode ser restaurado mesmo sem esta conta.",
     exportMasterPassword: "Sua senha mestra",
     exportPassword: "Senha do backup",
+    exportPasswordHint: "Precisa ser forte (todas as barras): o backup não tem a Chave Secreta, só esta senha o protege. A varinha gera uma.",
+    exportPasswordGenerated: "Senha gerada e preenchida nos dois campos. Guarde-a fora do Keyless (anotada ou em outro lugar seguro): sem ela o backup não abre.",
     exportConfirm: "Confirmar senha do backup",
     exportRun: "Exportar backup…",
     exported_one: "{{count}} item exportado",

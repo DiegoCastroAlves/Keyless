@@ -3,8 +3,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput } from "../../components/common";
-import { Button, Dialog, ErrorText } from "../../components/ui";
-import { api, errorMessage, type AccountInfo, type Category, type Vault } from "../../lib/api";
+import { Button, Dialog, ErrorText, Input } from "../../components/ui";
+import { api, errorCode, errorMessage, type AccountInfo, type Category, type Vault } from "../../lib/api";
 import { categoryInfo, templateFields } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -160,6 +160,10 @@ function DeletionBanner({ deleteAfter, onCancelled }: { deleteAfter: string; onC
 function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useTranslation();
   const [password, setPassword] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  // The server refused a password this device accepts: the account's
+  // credentials changed on another device.
+  const [changed, setChanged] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -168,13 +172,16 @@ function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
     setBusy(true);
     setError(null);
     try {
-      await api.reauthenticate(password);
+      await api.reauthenticate(password, secretKey.trim() || undefined);
       setPassword("");
+      setSecretKey("");
+      setChanged(false);
       onOpenChange(false);
       useApp.getState().setSyncStatus(await api.syncStatus());
       await useApp.getState().loadData();
     } catch (err) {
-      setError(errorMessage(err));
+      if (errorCode(err) === "credentials_changed") setChanged(true);
+      else setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -183,7 +190,18 @@ function ReauthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (op
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={t("sync.reauthTitle")} description={t("sync.reauthBody")}>
       <form onSubmit={submit} className="space-y-3">
+        {changed && <p className="rounded-lg bg-warning-soft px-3 py-2.5 text-xs leading-relaxed text-warning">{t("sync.credentialsChanged")}</p>}
         <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("common.masterPassword")} autoFocus />
+        {changed && (
+          <Input
+            value={secretKey}
+            onChange={(e) => setSecretKey(e.target.value.toUpperCase())}
+            placeholder={t("sync.newSecretKey")}
+            spellCheck={false}
+            autoComplete="off"
+            className="h-10 font-mono tracking-wide"
+          />
+        )}
         <ErrorText>{error}</ErrorText>
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={() => onOpenChange(false)}>

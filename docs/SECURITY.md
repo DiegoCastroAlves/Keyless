@@ -217,7 +217,10 @@ attachments a vault has and their sizes (not their names or contents).
 - A backup (`.keyless`) is a zip archive: the items, encrypted with a key
   derived with Argon2id from the backup password, and each attached file's
   encrypted chunks, which only that list's keys open (so files cannot be
-  swapped or altered). The archive shows how many files there are and
+  swapped or altered). A backup has no Secret Key, so its password alone
+  resists offline guessing: it must reach zxcvbn's top score (4), checked in
+  Rust, and its Argon2id uses 256 MiB (four times the account's; the
+  parameters are in the file, so older backups still open). The archive shows how many files there are and
   their sizes. Backups and exports are written to a hidden file that takes
   its name once complete.
 - An unencrypted export (CSV, JSON, or a ZIP with the JSON and the attached
@@ -248,8 +251,8 @@ attachments a vault has and their sizes (not their names or contents).
   Manager with local-only persistence, Secret Service on Linux). Without one,
   it falls back to a file readable only by the current user, and the app says
   so in Settings.
-- New master passwords and backup passwords must reach a zxcvbn score of 3
-  ("good"), checked in Rust, not only in the UI.
+- New master passwords must reach a zxcvbn score of 3 ("good") and backup
+  passwords a score of 4 ("strong"), checked in Rust, not only in the UI.
 - On Linux release builds the process is non-dumpable (no core dumps, no
   ptrace by other processes of the same user).
 - Strict Content Security Policy, no remote content, navigation locked to the

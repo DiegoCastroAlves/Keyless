@@ -1,5 +1,5 @@
-import { ArrowLeft, Copy, Eye, EyeOff, History, RefreshCw, Trash } from "lucide-react";
-import { Slider } from "radix-ui";
+import { ArrowLeft, Copy, Eye, EyeOff, History, RefreshCw, Trash, WandSparkles } from "lucide-react";
+import { Popover, Slider } from "radix-ui";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -69,6 +69,41 @@ function toOptions(p: Prefs): GeneratorOptions {
     case "pin":
       return { kind: "pin", length: p.pinLength };
   }
+}
+
+/** The wand next to a password field: opens the generator, and fills the
+ * field with what it makes. */
+export function GeneratorButton({ onUse, className }: { onUse: (password: string) => void; className?: string }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  // Modal, so it scrolls even inside a dialog (which blocks scrolling
+  // outside itself).
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen} modal>
+      <Popover.Trigger asChild>
+        <IconButton label={t("editor.generate")} className={className}>
+          <WandSparkles className="size-4" />
+        </IconButton>
+      </Popover.Trigger>
+      <Popover.Portal>
+        {/* Scrolls when the window is too short for it. */}
+        <Popover.Content
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
+          className="z-50 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl border border-line bg-panel p-4 shadow-2xl animate-pop"
+        >
+          <GeneratorPanel
+            compact
+            onUse={(password) => {
+              onUse(password);
+              setOpen(false);
+            }}
+          />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
 }
 
 export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) => void; compact?: boolean }) {

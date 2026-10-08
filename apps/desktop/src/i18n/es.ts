@@ -75,6 +75,7 @@ const es: Translations = {
     device_has_account: "Este dispositivo ya tiene una cuenta. Cierra sesión primero.",
     device_other_account: "Este dispositivo está configurado para {{email}}. Cierra sesión en esa cuenta primero.",
     secret_key_invalid: "Esa clave secreta no es válida. Compárala con tu Kit de emergencia.",
+    backup_password_weak: "Usa una contraseña más fuerte para la copia (todas las barras): no tiene la Clave Secreta, solo la contraseña la protege. La varita genera una.",
     recovery_key_invalid: "Esa clave de recuperación está incompleta o tiene un error de escritura.",
     recovery_failed: "Correo o clave de recuperación incorrectos.",
     recovery_throttled: "Demasiados intentos con la clave de recuperación. Inténtalo de nuevo en una hora.",
@@ -307,6 +308,9 @@ const es: Translations = {
     syncNow: "Sincronizar ahora",
     reauthTitle: "Inicia sesión de nuevo para sincronizar",
     reauthBody: "Tu sesión con el servidor caducó. Introduce tu contraseña maestra para reanudar la sincronización.",
+    credentialsChanged:
+      "La contraseña maestra abre este dispositivo, pero la cuenta cambió en otro: se cambió la contraseña maestra o se recuperó la cuenta. Escribe la contraseña maestra actual y, si la cuenta se recuperó, la Clave Secreta nueva del Kit de Emergencia.",
+    newSecretKey: "Clave Secreta nueva (solo si la cuenta se recuperó)",
   },
   time: {
     never: "nunca",
@@ -838,6 +842,8 @@ const es: Translations = {
       "Guarda una copia de todas tus bóvedas, con los archivos adjuntos, en un archivo cifrado con una contraseña que tú eliges. Guárdalo en un lugar seguro: se puede restaurar incluso sin esta cuenta.",
     exportMasterPassword: "Tu contraseña maestra",
     exportPassword: "Contraseña de la copia de seguridad",
+    exportPasswordHint: "Tiene que ser fuerte (todas las barras): la copia de seguridad no tiene la Clave Secreta, solo esta contraseña la protege. La varita genera una.",
+    exportPasswordGenerated: "Contraseña generada y escrita en los dos campos. Guárdala fuera de Keyless (anotada o en otro lugar seguro): sin ella la copia no se abre.",
     exportConfirm: "Confirmar contraseña de la copia de seguridad",
     exportRun: "Exportar copia de seguridad…",
     exported_one: "Se exportó {{count}} elemento",
