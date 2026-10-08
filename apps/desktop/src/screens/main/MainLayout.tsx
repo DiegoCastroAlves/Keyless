@@ -12,7 +12,8 @@ import { GeneratorDialog } from "./Generator";
 import { ExportDialog, ImportDialog } from "./ImportDialog";
 import { ItemDetail } from "./ItemDetail";
 import { ItemEditor } from "./ItemEditor";
-import { ItemList } from "./ItemList";
+import { ItemList, TopBar, type ItemListControl } from "./ItemList";
+import { ResizeHandle, usePaneWidths } from "./Panes";
 import { RecoveryOffer } from "./RecoveryKey";
 import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "./Sidebar";
@@ -20,6 +21,7 @@ import { VaultDialog } from "./VaultDialog";
 import { Watchtower } from "./Watchtower";
 
 export function MainLayout() {
+  const { t } = useTranslation();
   const view = useApp((s) => s.view);
   const editing = useApp((s) => s.editing);
   const syncStatus = useApp((s) => s.syncStatus);
@@ -31,6 +33,8 @@ export function MainLayout() {
   const [reauthOpen, setReauthOpen] = useState(false);
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const listControl = useRef<ItemListControl>(null);
+  const panes = usePaneWidths();
 
   useEffect(() => {
     api.accountInfo().then(setAccountInfo).catch(() => setAccountInfo(null));
@@ -99,21 +103,46 @@ export function MainLayout() {
         />
       )}
       <div className="flex min-h-0 flex-1">
-        <Sidebar
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenGenerator={() => setGeneratorOpen(true)}
-          onOpenImport={() => setImportOpen(true)}
-          onOpenExport={() => setExportOpen(true)}
-          onEditVault={(vault) => setVaultDialog({ open: true, vault })}
-        />
-        {view.kind === "watchtower" && !editing ? (
-          <Watchtower />
-        ) : (
-          <>
-            <ItemList onNewItem={newItem} searchRef={searchRef} />
-            {editing ? <ItemEditor key={editing.draft.id ?? "new"} /> : <ItemDetail />}
-          </>
-        )}
+        <div className="relative h-full shrink-0" style={{ width: panes.sidebar }}>
+          <Sidebar
+            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenGenerator={() => setGeneratorOpen(true)}
+            onOpenImport={() => setImportOpen(true)}
+            onOpenExport={() => setExportOpen(true)}
+            onEditVault={(vault) => setVaultDialog({ open: true, vault })}
+          />
+          <ResizeHandle
+            value={panes.sidebar}
+            min={panes.sidebarMin}
+            max={panes.sidebarMax}
+            label={t("panes.sidebar")}
+            onResize={(sidebar) => panes.set({ sidebar })}
+            onReset={() => panes.reset("sidebar")}
+          />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar searchRef={searchRef} onNewItem={newItem} onEnterList={() => listControl.current?.enter()} />
+          <div className="flex min-h-0 flex-1">
+            {view.kind === "watchtower" && !editing ? (
+              <Watchtower />
+            ) : (
+              <>
+                <div className="relative h-full shrink-0" style={{ width: panes.list }}>
+                  <ItemList onNewItem={newItem} controlRef={listControl} />
+                  <ResizeHandle
+                    value={panes.list}
+                    min={panes.listMin}
+                    max={panes.listMax}
+                    label={t("panes.list")}
+                    onResize={(list) => panes.set({ list })}
+                    onReset={() => panes.reset("list")}
+                  />
+                </div>
+                {editing ? <ItemEditor key={editing.draft.id ?? "new"} /> : <ItemDetail />}
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

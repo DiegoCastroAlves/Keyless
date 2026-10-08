@@ -915,6 +915,11 @@ const ptBR: Translations = {
       "Para usar a chave de recuperação, este dispositivo sai da conta primeiro. Alterações feitas sem internet e ainda não sincronizadas serão perdidas.",
     lockForgotRun: "Sair e recuperar",
   },
+  panes: {
+    resizeHint: "Arraste para mudar a largura; clique duas vezes para voltar ao padrão.",
+    sidebar: "Largura da barra lateral",
+    list: "Largura da lista de itens",
+  },
   vault: {
     newTitle: "Novo cofre",
     editTitle: "Renomear cofre",

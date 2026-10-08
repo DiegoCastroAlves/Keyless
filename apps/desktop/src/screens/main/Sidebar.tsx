@@ -177,7 +177,7 @@ export function Sidebar({
   const email = status?.email ?? "";
 
   return (
-    <aside className="flex h-full w-[248px] shrink-0 flex-col border-r border-line bg-app">
+    <aside className="flex h-full w-full flex-col border-r border-line bg-app">
       <div className="p-3 pb-1">
         <Menu>
           <MenuTrigger asChild>

@@ -911,6 +911,11 @@ const en = {
       "To use your recovery key, this device signs out first. Changes made offline and not synced yet will be lost.",
     lockForgotRun: "Sign out and recover",
   },
+  panes: {
+    resizeHint: "Drag to change the width; double-click to go back to the default.",
+    sidebar: "Sidebar width",
+    list: "Item list width",
+  },
   vault: {
     newTitle: "New vault",
     editTitle: "Rename vault",

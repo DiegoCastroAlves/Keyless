@@ -915,6 +915,11 @@ const es: Translations = {
       "Para usar la clave de recuperación, este dispositivo cierra la sesión primero. Los cambios hechos sin conexión y aún no sincronizados se perderán.",
     lockForgotRun: "Cerrar sesión y recuperar",
   },
+  panes: {
+    resizeHint: "Arrastra para cambiar el ancho; haz doble clic para volver al predeterminado.",
+    sidebar: "Ancho de la barra lateral",
+    list: "Ancho de la lista de elementos",
+  },
   vault: {
     newTitle: "Nueva bóveda",
     editTitle: "Renombrar bóveda",

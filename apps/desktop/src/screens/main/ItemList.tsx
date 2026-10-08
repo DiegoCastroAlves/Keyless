@@ -1,7 +1,7 @@
 import { Command } from "cmdk";
 import { Archive, ArrowDownWideNarrow, ArrowRightLeft, Copy, KeyRound, Pencil, Plus, RotateCcw, Search, Star, Trash, User } from "lucide-react";
 import { ContextMenu, Popover } from "radix-ui";
-import { forwardRef, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon } from "../../components/common";
@@ -24,17 +24,18 @@ import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../.
 import { toast } from "../../lib/toast";
 import { MoveItemsDialog } from "./MoveDialog";
 
-export interface ItemListHandle {
-  focusSearch: () => void;
+/** What the search box (outside the list) can do with it. */
+export interface ItemListControl {
+  /** Moves into the list, to the next item. */
+  enter: () => void;
 }
 
-export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Category) => void; searchRef: React.RefObject<HTMLInputElement | null> }) {
+export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Category) => void; controlRef: React.Ref<ItemListControl> }) {
   const { t } = useTranslation();
   const items = useApp((s) => s.items);
   const vaults = useApp((s) => s.vaults);
   const view = useApp((s) => s.view);
   const search = useApp((s) => s.search);
-  const setSearch = useApp((s) => s.setSearch);
   const selectedId = useApp((s) => s.selectedId);
   const select = useApp((s) => s.select);
   const editing = useApp((s) => s.editing);
@@ -66,6 +67,13 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
     listRef.current?.querySelector(`[data-id="${next.id}"]`)?.scrollIntoView({ block: "nearest" });
   };
 
+  useImperativeHandle(controlRef, () => ({
+    enter: () => {
+      listRef.current?.focus();
+      move(1);
+    },
+  }));
+
   const emptyTrash = async () => {
     try {
       await api.deleteItemsPermanently(visible.map((i) => i.id));
@@ -78,35 +86,8 @@ export function ItemList({ onNewItem, searchRef }: { onNewItem: (category: Categ
   };
 
   return (
-    <section className="flex h-full w-[340px] shrink-0 flex-col border-r border-line bg-panel">
-      <div className="flex items-center gap-2 border-b border-line p-3">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
-          <input
-            ref={searchRef}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "ArrowDown") {
-                e.preventDefault();
-                listRef.current?.focus();
-                move(1);
-              } else if (e.key === "Escape") {
-                setSearch("");
-              }
-            }}
-            placeholder={t("list.searchIn", { view: title })}
-            spellCheck={false}
-            className="h-9 w-full rounded-lg border border-transparent bg-panel-3 pl-8 pr-14 text-sm outline-none placeholder:text-subtle focus:border-accent focus:bg-panel focus:ring-3 focus:ring-accent-soft"
-          />
-          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
-            <Kbd>Ctrl F</Kbd>
-          </span>
-        </div>
-        {canCreate && <NewItemButton onPick={onNewItem} />}
-      </div>
-
-      <div className="flex h-10 items-center justify-between gap-2 pl-4 pr-2">
+    <section className="flex h-full w-full flex-col border-r border-line bg-panel">
+      <div className="flex h-11 items-center justify-between gap-2 pl-4 pr-2">
         <span className="truncate text-[13px] font-semibold">{title}</span>
         <div className="flex items-center gap-1">
           <span className="text-xs text-subtle">{t("list.count", { count: visible.length })}</span>
@@ -382,15 +363,64 @@ function CtxItem({ children, icon, onSelect, danger }: { children: ReactNode; ic
 }
 
 /** "New Item" button with a searchable category picker. */
+/** The search box and the new item button, above the list and the item. */
+export function TopBar({
+  searchRef,
+  onNewItem,
+  onEnterList,
+}: {
+  searchRef: React.RefObject<HTMLInputElement | null>;
+  onNewItem: (category: Category) => void;
+  onEnterList: () => void;
+}) {
+  const { t } = useTranslation();
+  const view = useApp((s) => s.view);
+  const vaults = useApp((s) => s.vaults);
+  const search = useApp((s) => s.search);
+  const setSearch = useApp((s) => s.setSearch);
+  const title = viewTitle(view, vaults);
+  return (
+    <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
+      <div className="relative min-w-0 flex-1">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+        <input
+          ref={searchRef}
+          value={search}
+          onChange={(e) => {
+            // Watchtower has no list to search: go to every item.
+            if (view.kind === "watchtower") useApp.getState().setView({ kind: "all" });
+            setSearch(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              onEnterList();
+            } else if (e.key === "Escape") {
+              setSearch("");
+            }
+          }}
+          placeholder={t("list.searchIn", { view: title })}
+          spellCheck={false}
+          className="h-9 w-full rounded-lg border border-transparent bg-panel-3 pl-8 pr-14 text-sm outline-none placeholder:text-subtle focus:border-accent focus:bg-panel focus:ring-3 focus:ring-accent-soft"
+        />
+        <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
+          <Kbd>Ctrl F</Kbd>
+        </span>
+      </div>
+      <NewItemButton onPick={onNewItem} />
+    </div>
+  );
+}
+
 export function NewItemButton({ onPick }: { onPick: (category: Category) => void }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <Button variant="primary" className="h-9 px-3" title={`${t("list.newItem")} (Ctrl N)`}>
+        <Button variant="primary" className="h-9 shrink-0 px-3" title={`${t("list.newItem")} (Ctrl N)`}>
           <Plus className="size-4" />
-          <span className="sr-only">{t("list.newItem")}</span>
+          {t("list.newItem")}
         </Button>
       </Popover.Trigger>
       <Popover.Portal>
