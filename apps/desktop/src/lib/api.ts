@@ -612,7 +612,8 @@ export const api = {
   lastBreaches: () => invoke<LastCheck | null>("last_breaches"),
   importPick: (format: ImportFormat, password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
-  exportBackup: (masterPassword: string, password: string) => invoke<ExportOutcome>("export_backup", { masterPassword, password }),
+  exportBackup: (masterPassword: string, password: string, includePasskeys: boolean) =>
+    invoke<ExportOutcome>("export_backup", { masterPassword, password, includePasskeys }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
   deletePasskey: (itemId: string, credentialId: string) => invoke<ItemSummary>("delete_passkey", { itemId, credentialId }),
   /** Asks for files to attach; throws "cancelled" if none was chosen. */

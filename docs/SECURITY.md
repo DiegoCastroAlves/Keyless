@@ -220,14 +220,18 @@ attachments a vault has and their sizes (not their names or contents).
   swapped or altered). A backup has no Secret Key, so its password alone
   resists offline guessing: it must reach zxcvbn's top score (4), checked in
   Rust, and its Argon2id uses 256 MiB (four times the account's; the
-  parameters are in the file, so older backups still open). The archive shows how many files there are and
+  parameters are in the file, so older backups still open). Passkeys are
+  included unless the user unticks them (for a backup handed to someone
+  else: with them, whoever imports it signs in as the user). The archive shows how many files there are and
   their sizes. Backups and exports are written to a hidden file that takes
   its name once complete.
 - An unencrypted export (CSV, JSON, or a ZIP with the JSON and the attached
   files, for moving to another password manager) also requires the master
   password and an explicit confirmation after a warning; the file is
   written readable only by the current user. Folders in the ZIP are named
-  after attachment ids only when they are ids Keyless makes. In the
+  after attachment ids only when they are ids Keyless makes. Passkeys are
+  never in it (as with 1Password): their private keys would be in plain
+  text, and no other password manager imports them. In the
   CSV, a cell a spreadsheet would run as a formula (a website chooses the
   title and user name of a login created with its passkey) starts with `'`,
   which Keyless's own import removes; passwords and notes are kept as they

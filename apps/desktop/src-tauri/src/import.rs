@@ -503,9 +503,10 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
     complete(written, &part, &path)
 }
 
-/// Exports every vault the user can read, with the attached files, into an
-/// encrypted `.keyless` file. Fails with `Cancelled` if no file was chosen.
-pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>) -> AppResult<ExportOutcome> {
+/// Exports every vault the user can read, with the attached files and, when
+/// `include_passkeys`, the passkeys, into an encrypted `.keyless` file.
+/// Fails with `Cancelled` if no file was chosen.
+pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>, include_passkeys: bool) -> AppResult<ExportOutcome> {
     let state = app.state::<AppState>();
     // A backup holds every secret in the vault: ask for the master password
     // even when the vault was unlocked another way.
@@ -522,6 +523,13 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
 
     let (mut data, vault_ids) = collect(&state).await?;
     let items = data.vaults.iter().map(|v| v.items.len()).sum();
+    // Left out for a backup handed to someone else: with them, whoever
+    // imports it signs in to those websites as the user.
+    if !include_passkeys {
+        for item in data.vaults.iter_mut().flat_map(|v| &mut v.items) {
+            item.details.passkeys.clear();
+        }
+    }
 
     let dialog = app
         .dialog()

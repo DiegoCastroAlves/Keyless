@@ -286,6 +286,7 @@ export function ExportPanel() {
   const [confirm, setConfirm] = useState("");
   // The password came from the generator (and is in both fields).
   const [generated, setGenerated] = useState(false);
+  const [includePasskeys, setIncludePasskeys] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const strength = useStrength(password);
@@ -307,7 +308,7 @@ export function ExportPanel() {
     setBusy(true);
     setError(null);
     try {
-      const outcome = await api.exportBackup(masterPassword, password);
+      const outcome = await api.exportBackup(masterPassword, password, includePasskeys);
       setMasterPassword("");
       setPassword("");
       setConfirm("");
@@ -366,6 +367,18 @@ export function ExportPanel() {
         <Label>{t("importer.exportConfirm")}</Label>
         <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} invalid={!!confirm && confirm !== password} />
       </div>
+      <label className="flex cursor-pointer items-start gap-2.5 text-[13px]">
+        <input
+          type="checkbox"
+          checked={includePasskeys}
+          onChange={(e) => setIncludePasskeys(e.target.checked)}
+          className="mt-0.5 size-4 accent-[var(--accent)]"
+        />
+        <span>
+          <span className="font-medium">{t("importer.includePasskeys")}</span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-muted">{t("importer.includePasskeysHint")}</span>
+        </span>
+      </label>
       <ErrorText>{error}</ErrorText>
       <FilesProgressLine percent={percent} />
       <Button type="submit" loading={busy} disabled={!masterPassword || !password || password !== confirm || !strongEnough}>
@@ -427,6 +440,7 @@ export function PlainExportPanel() {
           </button>
         ))}
       </div>
+      <p className="text-xs text-muted">{t("importer.plainNoPasskeys")}</p>
       <div>
         <Label>{t("importer.exportMasterPassword")}</Label>
         <PasswordInput value={masterPassword} onChange={(e) => setMasterPassword(e.target.value)} />

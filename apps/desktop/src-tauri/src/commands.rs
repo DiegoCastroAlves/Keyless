@@ -537,9 +537,15 @@ pub async fn import_pick(app: AppHandle, state: State<'_, AppState>, format: Imp
 }
 
 #[tauri::command]
-pub async fn export_backup(app: AppHandle, state: State<'_, AppState>, master_password: String, password: String) -> AppResult<import::ExportOutcome> {
+pub async fn export_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    master_password: String,
+    password: String,
+    include_passkeys: bool,
+) -> AppResult<import::ExportOutcome> {
     state.touch();
-    import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password)).await
+    import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password), include_passkeys).await
 }
 
 #[tauri::command]

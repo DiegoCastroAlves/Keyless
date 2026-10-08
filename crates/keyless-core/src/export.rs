@@ -10,6 +10,9 @@
 //!   files in `attachments/<attachment id>/<name>`, as Bitwarden lays them
 //!   out; each attachment in the JSON names its file.
 //!
+//! Passkeys are never exported (as with 1Password): their private keys would
+//! sit in plain text, and no other password manager imports Keyless's.
+//!
 //! Both hold every secret in plain text: the app asks for the master password
 //! and warns before writing one.
 //!
@@ -129,6 +132,9 @@ fn json_with_files(data: &BackupData, files: &HashMap<String, String>) -> Result
     // (`get_mut`, not indexing: indexing adds the key when it is missing.)
     for vault in value.get_mut("vaults").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
         for item in vault.get_mut("items").and_then(serde_json::Value::as_array_mut).into_iter().flatten() {
+            if let Some(details) = item.get_mut("details").and_then(serde_json::Value::as_object_mut) {
+                details.remove("passkeys");
+            }
             let attachments = item.get_mut("details").and_then(|d| d.get_mut("attachments")).and_then(serde_json::Value::as_array_mut);
             for attachment in attachments.into_iter().flatten() {
                 if let Some(entry) = attachment.as_object_mut() {
@@ -329,6 +335,20 @@ mod tests {
         assert!(attachment.get("file").is_none());
         // Items without attachments do not get an empty list.
         assert!(json["vaults"][0]["items"][1]["details"].get("attachments").is_none());
+    }
+
+    #[test]
+    fn passkeys_are_never_exported() {
+        let mut data = sample();
+        let passkey: crate::passkey::Passkey = serde_json::from_value(serde_json::json!({
+            "credentialId": "Y3JlZA", "rpId": "example.com", "userHandle": "dQ", "key": "secret-private-key"
+        }))
+        .unwrap();
+        data.vaults[0].items[0].details.passkeys.push(passkey);
+        let json = String::from_utf8(to_json(&data).unwrap()).unwrap();
+        assert!(!json.contains("passkeys") && !json.contains("secret-private-key"));
+        let csv = String::from_utf8(to_csv(&data).unwrap()).unwrap();
+        assert!(!csv.contains("secret-private-key"));
     }
 
     #[test]
