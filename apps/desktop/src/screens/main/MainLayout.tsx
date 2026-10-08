@@ -9,7 +9,7 @@ import { categoryInfo, templateFields } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { GeneratorDialog } from "./Generator";
-import { ImportDialog } from "./ImportDialog";
+import { ExportDialog, ImportDialog } from "./ImportDialog";
 import { ItemDetail } from "./ItemDetail";
 import { ItemEditor } from "./ItemEditor";
 import { ItemList } from "./ItemList";
@@ -26,6 +26,7 @@ export function MainLayout() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [vaultDialog, setVaultDialog] = useState<{ open: boolean; vault: Vault | null }>({ open: false, vault: null });
   const [reauthOpen, setReauthOpen] = useState(false);
   const [accountInfo, setAccountInfo] = useState<AccountInfo | null>(null);
@@ -102,6 +103,7 @@ export function MainLayout() {
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenGenerator={() => setGeneratorOpen(true)}
           onOpenImport={() => setImportOpen(true)}
+          onOpenExport={() => setExportOpen(true)}
           onEditVault={(vault) => setVaultDialog({ open: true, vault })}
         />
         {view.kind === "watchtower" && !editing ? (
@@ -117,6 +119,7 @@ export function MainLayout() {
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <GeneratorDialog open={generatorOpen} onOpenChange={setGeneratorOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />
       <VaultDialog open={vaultDialog.open} vault={vaultDialog.vault} onOpenChange={(open) => setVaultDialog((d) => ({ ...d, open }))} />
       <ReauthDialog open={reauthOpen} onOpenChange={setReauthOpen} />
       <RecoveryOffer />

@@ -474,7 +474,9 @@ export interface FilesProgress {
   total: number;
 }
 
-export type ImportTarget = { mode: "new_vaults" } | { mode: "vault"; vaultId: string };
+export type ImportFormat = "one_pux" | "csv" | "keyless_backup" | "keyless_export";
+
+export type ImportTarget = { mode: "new_vaults" } | { mode: "vault"; vaultId: string } | { mode: "new_vault"; name: string };
 
 export interface AccountInfo {
   email: string;
@@ -607,7 +609,7 @@ export const api = {
   passwordHealth: () => invoke<HealthReport>("password_health"),
   checkBreaches: () => invoke<BreachReport>("check_breaches"),
   lastBreaches: () => invoke<LastCheck | null>("last_breaches"),
-  importPick: (format: "one_pux" | "csv" | "keyless_backup", password?: string) =>
+  importPick: (format: ImportFormat, password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
   exportBackup: (masterPassword: string, password: string) => invoke<ExportOutcome>("export_backup", { masterPassword, password }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),

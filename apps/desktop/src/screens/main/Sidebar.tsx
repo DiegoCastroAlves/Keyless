@@ -20,6 +20,7 @@ import {
   Tag,
   Trash,
   TriangleAlert,
+  Upload,
   LockKeyhole as VaultIcon,
   WandSparkles,
 } from "lucide-react";
@@ -105,11 +106,13 @@ export function Sidebar({
   onOpenSettings,
   onOpenGenerator,
   onOpenImport,
+  onOpenExport,
   onEditVault,
 }: {
   onOpenSettings: () => void;
   onOpenGenerator: () => void;
   onOpenImport: () => void;
+  onOpenExport: () => void;
   onEditVault: (vault: Vault | null) => void;
 }) {
   const status = useApp((s) => s.status);
@@ -196,6 +199,9 @@ export function Sidebar({
             </MenuItem>
             <MenuItem icon={<Download className="size-4" />} onSelect={onOpenImport}>
               {t("sidebar.import")}
+            </MenuItem>
+            <MenuItem icon={<Upload className="size-4" />} onSelect={onOpenExport}>
+              {t("sidebar.export")}
             </MenuItem>
             <MenuItem icon={<Share2 className="size-4" />} onSelect={() => setSharesOpen(true)}>
               {t("share.listTitle")}

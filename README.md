@@ -32,7 +32,7 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Share links: a copy of an item that someone without Keyless opens in the
   browser, for up to 30 days or a single view; the key is only in the link
 - Import from 1Password (`.1pux`, with its attached files), Chrome, Edge,
-  Firefox, Bitwarden (CSV)
+  Firefox, Bitwarden (CSV), and Keyless's own backups and exports
 - Encrypted backups (`.keyless`, with the attached files) with a separate
   backup password, and an unencrypted CSV, JSON or ZIP (JSON and files)
   export for moving elsewhere

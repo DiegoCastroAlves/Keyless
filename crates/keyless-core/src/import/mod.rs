@@ -2,6 +2,7 @@
 //! encrypts the result and decides which vaults to put it in.
 
 pub mod csv;
+pub mod keyless;
 pub mod onepux;
 
 use std::io::{Read, Seek};

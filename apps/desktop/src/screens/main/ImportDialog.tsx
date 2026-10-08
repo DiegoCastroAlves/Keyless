@@ -1,10 +1,10 @@
-import { DatabaseBackup, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
+import { DatabaseBackup, FileArchive, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput, StrengthMeter, useStrength } from "../../components/common";
-import { Button, Combobox, Dialog, ErrorText, Label, cx } from "../../components/ui";
-import { api, errorCode, errorMessage, events, type ExportOutcome, type ImportSummary } from "../../lib/api";
+import { Button, Combobox, Dialog, ErrorText, Input, Label, cx } from "../../components/ui";
+import { api, errorCode, errorMessage, events, type ExportOutcome, type ImportFormat, type ImportSummary } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -50,15 +50,16 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   const vaults = useApp((s) => s.vaults);
   const [summary, setSummary] = useState<ImportSummary | null>(null);
   const [busy, setBusy] = useState<"pick" | "commit" | null>(null);
-  const [mode, setMode] = useState<"new_vaults" | "vault">("new_vaults");
+  const [mode, setMode] = useState<"new_vaults" | "new_vault" | "vault">("new_vaults");
+  const [newVaultName, setNewVaultName] = useState("");
   const writable = vaults.filter((v) => v.canWrite);
   const [vaultId, setVaultId] = useState<string>(writable[0]?.id ?? "");
   const [backupPrompt, setBackupPrompt] = useState(false);
   const [backupPassword, setBackupPassword] = useState("");
-  const [source, setSource] = useState<"one_pux" | "csv" | "keyless_backup">("one_pux");
+  const [source, setSource] = useState<ImportFormat>("one_pux");
   const percent = useFilesProgress(busy === "commit");
 
-  const pick = async (format: "one_pux" | "csv" | "keyless_backup", password?: string) => {
+  const pick = async (format: ImportFormat, password?: string) => {
     setBusy("pick");
     try {
       const result = await api.importPick(format, password);
@@ -67,6 +68,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
       setBackupPassword("");
       setSummary(result);
       setMode(result.vaults.length > 1 ? "new_vaults" : "vault");
+      setNewVaultName(result.vaults.length === 1 ? result.vaults[0][0] : t("importer.newVaultDefault"));
     } catch (err) {
       if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
     } finally {
@@ -77,7 +79,9 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   const commit = async () => {
     setBusy("commit");
     try {
-      const outcome = await api.importCommit(mode === "new_vaults" ? { mode: "new_vaults" } : { mode: "vault", vaultId });
+      const outcome = await api.importCommit(
+        mode === "new_vaults" ? { mode: "new_vaults" } : mode === "new_vault" ? { mode: "new_vault", name: newVaultName } : { mode: "vault", vaultId },
+      );
       const files = outcome.files > 0 ? ` · ${t("importer.filesAdded", { count: outcome.files })}` : "";
       toast.success(t("importer.done", { count: outcome.items }) + files);
       if (outcome.filesFailed > 0) toast.error(t("importer.filesFailed", { count: outcome.filesFailed }));
@@ -109,6 +113,13 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
             title={t("importer.csv")}
             hint={t("importer.csvHint")}
             onClick={() => pick("csv")}
+            busy={busy === "pick"}
+          />
+          <SourceCard
+            icon={<FileArchive className="size-5" />}
+            title={t("importer.keylessExport")}
+            hint={t("importer.keylessExportHint")}
+            onClick={() => pick("keyless_export")}
             busy={busy === "pick"}
           />
           <SourceCard
@@ -171,6 +182,15 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
             {t("importer.newVaults")}
           </label>
           <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+            <input type="radio" checked={mode === "new_vault"} onChange={() => setMode("new_vault")} className="accent-[var(--accent)]" />
+            {t("importer.newVault")}
+          </label>
+          {mode === "new_vault" && (
+            <div className="pl-6">
+              <Input value={newVaultName} onChange={(e) => setNewVaultName(e.target.value)} placeholder={t("vault.namePlaceholder")} autoFocus className="h-10" />
+            </div>
+          )}
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm">
             <input type="radio" checked={mode === "vault"} onChange={() => setMode("vault")} className="accent-[var(--accent)]" />
             {t("importer.existingVault")}
           </label>
@@ -197,7 +217,12 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
         >
           {t("common.cancel")}
         </Button>
-        <Button variant="primary" onClick={commit} loading={busy === "commit"} disabled={mode === "vault" && !vaultId}>
+        <Button
+          variant="primary"
+          onClick={commit}
+          loading={busy === "commit"}
+          disabled={(mode === "vault" && !vaultId) || (mode === "new_vault" && !newVaultName.trim())}
+        >
           {t("importer.run", { count: summary.total_items })}
         </Button>
       </div>
@@ -234,6 +259,21 @@ export function ImportDialog({ open, onOpenChange }: { open: boolean; onOpenChan
       width="max-w-lg"
     >
       <ImportPanel onDone={() => onOpenChange(false)} />
+    </Dialog>
+  );
+}
+
+/** Both exports, from the account menu. */
+export function ExportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { t } = useTranslation();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title={t("importer.exportDialogTitle")} width="max-w-lg">
+      <div className="space-y-8 pb-1">
+        <ExportPanel />
+        <div className="border-t border-line pt-6">
+          <PlainExportPanel />
+        </div>
+      </div>
     </Dialog>
   );
 }

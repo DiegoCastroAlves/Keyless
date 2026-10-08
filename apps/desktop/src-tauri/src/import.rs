@@ -1,5 +1,6 @@
-//! Importing from 1Password (.1pux), CSV exports and Keyless backups, and
-//! writing backups and unencrypted exports.
+//! Importing from 1Password (.1pux), CSV exports, Keyless backups and
+//! Keyless's own unencrypted exports (JSON or zip), and writing backups and
+//! unencrypted exports.
 //!
 //! Files are chosen in native dialogs opened from Rust, so the UI never
 //! supplies file paths. Parsed items are held in memory (wiped on lock)
@@ -22,7 +23,7 @@ use keyless_core::{
     attachment::{Attachment, CHUNK_OVERHEAD, CHUNK_SIZE},
     backup::{BackupData, BackupItem, BackupVault, BackupWriter, open_backup},
     export::ExportZip,
-    import::{ImportArchive, ImportResult, ImportSummary, ImportedFile, csv::parse_csv, onepux::parse_1pux},
+    import::{ImportArchive, ImportResult, ImportSummary, ImportedFile, csv::parse_csv, keyless::parse_keyless_export, onepux::parse_1pux},
     vault::VaultMeta,
 };
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,8 @@ pub enum ImportFormat {
     OnePux,
     Csv,
     KeylessBackup,
+    /// Keyless's unencrypted export: the JSON, or the zip with the files.
+    KeylessExport,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +66,8 @@ pub enum ImportTarget {
         #[serde(rename = "vaultId")]
         vault_id: String,
     },
+    /// Put everything into one new vault with this name.
+    NewVault { name: String },
 }
 
 /// An import waiting for the user to confirm it.
@@ -121,6 +126,7 @@ pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Opt
         ImportFormat::OnePux => dialog.add_filter("1Password export", &["1pux"]),
         ImportFormat::Csv => dialog.add_filter("CSV file", &["csv"]),
         ImportFormat::KeylessBackup => dialog.add_filter("Keyless backup", &["keyless"]),
+        ImportFormat::KeylessExport => dialog.add_filter("Keyless export", &["json", "zip"]),
     };
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
         .await
@@ -133,6 +139,7 @@ pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Opt
         let file = File::open(&path).map_err(unreadable)?;
         match format {
             ImportFormat::OnePux => Ok(PendingImport { result: parse_1pux(BufReader::new(file))?, file: Some(path) }),
+            ImportFormat::KeylessExport => Ok(PendingImport { result: parse_keyless_export(BufReader::new(file))?, file: Some(path) }),
             ImportFormat::Csv => {
                 if file.metadata().map(|m| m.len()).unwrap_or(0) > MAX_CSV_BYTES {
                     return Err(AppError::Invalid(Msg::new("file_too_large")));
@@ -193,6 +200,8 @@ pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<ImportOu
         _ => attachments::space(&state).await.ok().flatten(),
     };
     let mut outcome = ImportOutcome::default();
+    // The vault of ImportTarget::NewVault, once made.
+    let mut new_vault: Option<String> = None;
     for vault in result.vaults {
         if vault.items.is_empty() {
             continue;
@@ -202,6 +211,14 @@ pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<ImportOu
                 items::create_vault(app, VaultMeta { name: vault.name.clone(), ..Default::default() }).await?
             }
             ImportTarget::Vault { vault_id } => vault_id.clone(),
+            ImportTarget::NewVault { name } => match &new_vault {
+                Some(id) => id.clone(),
+                None => {
+                    let id = items::create_vault(app, VaultMeta { name: name.trim().to_string(), ..Default::default() }).await?;
+                    new_vault = Some(id.clone());
+                    id
+                }
+            },
         };
         {
             let guard = state.session.lock().await;
