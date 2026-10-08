@@ -1,5 +1,20 @@
 import { Command } from "cmdk";
-import { Archive, ArrowDownWideNarrow, ArrowRightLeft, Copy, KeyRound, Pencil, Plus, RotateCcw, Search, Star, Trash, User } from "lucide-react";
+import {
+  Archive,
+  ArrowDownWideNarrow,
+  ArrowLeft,
+  ArrowRight,
+  ArrowRightLeft,
+  Copy,
+  KeyRound,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Search,
+  Star,
+  Trash,
+  User,
+} from "lucide-react";
 import { ContextMenu, Popover } from "radix-ui";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -8,6 +23,7 @@ import { ItemIcon } from "../../components/common";
 import {
   Button,
   Dialog,
+  IconButton,
   Kbd,
   Menu,
   MenuContent,
@@ -67,7 +83,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
   useEffect(() => {
     if (editing?.isNew) return;
     if (!selectedId || !visible.some((i) => i.id === selectedId)) {
-      select(visible[0]?.id ?? null);
+      select(visible[0]?.id ?? null, true);
     }
   }, [visible, selectedId, select, editing]);
 
@@ -75,7 +91,9 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
     if (!visible.length) return;
     const index = visible.findIndex((i) => i.id === selectedId);
     const next = visible[Math.min(visible.length - 1, Math.max(0, index + delta))];
-    select(next.id);
+    // Moving with the arrow keys replaces the place rather than adding one
+    // to go back to for each item passed.
+    select(next.id, true);
     listRef.current?.querySelector(`[data-id="${next.id}"]`)?.scrollIntoView({ block: "nearest" });
   };
 
@@ -401,6 +419,7 @@ export function TopBar({
   const title = viewTitle(view, vaults);
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
+      <HistoryButtons />
       <div className="relative min-w-0 flex-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-subtle" />
         <input
@@ -428,6 +447,24 @@ export function TopBar({
         </span>
       </div>
       <NewItemButton onPick={onNewItem} />
+    </div>
+  );
+}
+
+/** Back and forward between the places visited (also Alt+arrows and the
+ * mouse's side buttons). Not while an item is being edited. */
+function HistoryButtons() {
+  const { t } = useTranslation();
+  const canGoBack = useApp((s) => s.past.length > 0 && !s.editing);
+  const canGoForward = useApp((s) => s.future.length > 0 && !s.editing);
+  return (
+    <div className="flex shrink-0 items-center">
+      <IconButton label={`${t("common.back")} (Alt+←)`} disabled={!canGoBack} onClick={() => useApp.getState().goBack()}>
+        <ArrowLeft className="size-[18px]" />
+      </IconButton>
+      <IconButton label={`${t("common.forward")} (Alt+→)`} disabled={!canGoForward} onClick={() => useApp.getState().goForward()}>
+        <ArrowRight className="size-[18px]" />
+      </IconButton>
     </div>
   );
 }

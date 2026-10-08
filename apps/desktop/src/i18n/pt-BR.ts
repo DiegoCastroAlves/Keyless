@@ -12,6 +12,7 @@ const ptBR: Translations = {
     done: "Concluído",
     continue: "Continuar",
     back: "Voltar",
+    forward: "Avançar",
     search: "Buscar",
     retry: "Tentar novamente",
     create: "Criar",

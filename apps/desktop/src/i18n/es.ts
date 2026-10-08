@@ -12,6 +12,7 @@ const es: Translations = {
     done: "Listo",
     continue: "Continuar",
     back: "Atrás",
+    forward: "Adelante",
     search: "Buscar",
     retry: "Reintentar",
     create: "Crear",

@@ -10,6 +10,7 @@ const en = {
     done: "Done",
     continue: "Continue",
     back: "Back",
+    forward: "Forward",
     search: "Search",
     retry: "Retry",
     create: "Create",

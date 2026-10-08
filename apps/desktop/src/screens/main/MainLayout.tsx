@@ -80,6 +80,36 @@ export function MainLayout() {
     });
   }, []);
 
+  // Back and forward: Alt+arrows and the mouse's side buttons (kept from
+  // the webview, which would try to navigate itself).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        useApp.getState().goBack();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        useApp.getState().goForward();
+      }
+    };
+    const onMouse = (e: MouseEvent) => {
+      if (e.button !== 3 && e.button !== 4) return;
+      e.preventDefault();
+      if (e.type !== "mouseup") return;
+      if (e.button === 3) useApp.getState().goBack();
+      else useApp.getState().goForward();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onMouse);
+    window.addEventListener("mouseup", onMouse);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onMouse);
+      window.removeEventListener("mouseup", onMouse);
+    };
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return;

@@ -30,6 +30,19 @@ export type View =
   /** Sentinel's overview, or the items with one alert (or ignored ones). */
   | { kind: "sentinel"; alert?: SentinelAlert | "ignored" };
 
+/** Where the user was: back and forward go between these. */
+export interface Place {
+  view: View;
+  selectedId: string | null;
+}
+
+/** How many places back is remembered. */
+const HISTORY_LIMIT = 100;
+
+function samePlace(a: Place, b: Place): boolean {
+  return a.selectedId === b.selectedId && JSON.stringify(a.view) === JSON.stringify(b.view);
+}
+
 export interface Editing {
   draft: ItemDraft;
   isNew: boolean;
@@ -61,9 +74,17 @@ interface AppStore {
   setSyncStatus: (s: SyncStatus) => void;
   setUpdate: (update: UpdateInfo | null) => void;
   setInstall: (install: { kind: InstallKind; needsPassword: boolean }) => void;
+  /** Places before the current one (latest last), and after it when the
+   * user went back. */
+  past: Place[];
+  future: Place[];
   setView: (view: View) => void;
   setSearch: (search: string) => void;
-  select: (id: string | null) => void;
+  /** Selects an item; `auto` when the app chose it (it then replaces the
+   * current place instead of adding one to go back to). */
+  select: (id: string | null, auto?: boolean) => void;
+  goBack: () => void;
+  goForward: () => void;
   startEditing: (editing: Editing) => void;
   stopEditing: () => void;
   bump: () => void;
@@ -113,9 +134,33 @@ export const useApp = create<AppStore>((set, get) => ({
   setSyncStatus: (syncStatus) => set({ syncStatus }),
   setUpdate: (update) => set({ update }),
   setInstall: (install) => set({ install }),
-  setView: (view) => set({ view, selectedId: null, editing: null }),
+  past: [],
+  future: [],
+  setView: (view) => {
+    const { view: current, selectedId, past } = get();
+    const here = { view: current, selectedId };
+    if (JSON.stringify(view) === JSON.stringify(current)) return set({ view, editing: null });
+    set({ view, selectedId: null, editing: null, past: [...past, here].slice(-HISTORY_LIMIT), future: [] });
+  },
   setSearch: (search) => set({ search }),
-  select: (selectedId) => set({ selectedId }),
+  select: (selectedId, auto = false) => {
+    const { view, selectedId: current, past } = get();
+    if (auto || selectedId === current || current === null) return set({ selectedId });
+    set({ selectedId, past: [...past, { view, selectedId: current }].slice(-HISTORY_LIMIT), future: [] });
+  },
+  goBack: () => {
+    const { view, selectedId, past, future, editing } = get();
+    const to = past[past.length - 1];
+    if (!to || editing) return;
+    const here = { view, selectedId };
+    set({ ...to, past: past.slice(0, -1), future: samePlace(to, here) ? future : [here, ...future] });
+  },
+  goForward: () => {
+    const { view, selectedId, past, future, editing } = get();
+    const to = future[0];
+    if (!to || editing) return;
+    set({ ...to, past: [...past, { view, selectedId }].slice(-HISTORY_LIMIT), future: future.slice(1) });
+  },
   startEditing: (editing) => set({ editing }),
   stopEditing: () => set({ editing: null }),
   bump: () => set({ revision: get().revision + 1 }),
@@ -127,6 +172,8 @@ export const useApp = create<AppStore>((set, get) => ({
       search: "",
       selectedId: null,
       editing: null,
+      past: [],
+      future: [],
     }),
 }));
 
