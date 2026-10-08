@@ -337,6 +337,7 @@ const en = {
     },
     neverUsed: "Never used",
     newItem: "New Item",
+    count_zero: "No items",
     count_one: "{{count}} item",
     count_other: "{{count}} items",
     emptyTitle: "No items here yet",

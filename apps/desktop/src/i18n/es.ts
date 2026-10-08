@@ -340,6 +340,7 @@ const es: Translations = {
     neverUsed: "Nunca usado",
     searchIn: "Buscar en {{view}}",
     newItem: "Nuevo elemento",
+    count_zero: "Ningún elemento",
     count_one: "{{count}} elemento",
     count_other: "{{count}} elementos",
     emptyTitle: "Todavía no hay elementos",
