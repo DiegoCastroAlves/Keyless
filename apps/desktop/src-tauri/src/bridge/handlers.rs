@@ -319,6 +319,13 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
         })
     });
     let mut logins: Vec<Value> = results.into_iter().take(MAX_RESULTS).map(|(_, _, v)| v).collect();
+    // Which have a one-time code (for the code's own fill and shortcut).
+    for login in &mut logins {
+        let id = login["id"].as_str().unwrap_or_default().to_string();
+        let totp = crate::items::load_details(&state, session, &id)
+            .is_ok_and(|(_, details)| details.all_fields().any(|f| f.kind == FieldKind::Totp && !f.value.trim().is_empty()));
+        login["totp"] = json!(totp);
+    }
     // Website icons the app has (see `site_icons`).
     let sites: Vec<String> = logins.iter().filter_map(|l| l["url"].as_str().filter(|u| !u.is_empty()).map(str::to_string)).collect();
     let icons = crate::site_icons::lookup(&state, session, &sites);

@@ -8,6 +8,8 @@
 //! the origin the browser reported, and signs here.
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use hkdf::Hkdf;
+use hmac::{Hmac, KeyInit, Mac};
 use p256::{
     ecdsa::{Signature, SigningKey, signature::Signer},
     pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey},
@@ -76,15 +78,15 @@ fn unb64(text: &str) -> Result<Vec<u8>> {
 }
 
 /// `clientDataJSON` as browsers write it: these members, in this order.
-pub fn client_data_json(kind: &str, challenge: &[u8], origin: &str, cross_origin: bool) -> String {
+/// `top_origin`: the page's origin, when the request comes from a frame of
+/// another origin inside it.
+pub fn client_data_json(kind: &str, challenge: &[u8], origin: &str, top_origin: Option<&str>) -> String {
     let quote = |s: &str| serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into());
-    format!(
-        "{{\"type\":{},\"challenge\":{},\"origin\":{},\"crossOrigin\":{}}}",
-        quote(kind),
-        quote(&b64(challenge)),
-        quote(origin),
-        cross_origin
-    )
+    let start = format!("{{\"type\":{},\"challenge\":{},\"origin\":{}", quote(kind), quote(&b64(challenge)), quote(origin));
+    match top_origin {
+        Some(top) => format!("{start},\"crossOrigin\":true,\"topOrigin\":{}}}", quote(top)),
+        None => format!("{start},\"crossOrigin\":false}}"),
+    }
 }
 
 // ----- CBOR (only what WebAuthn needs, in canonical order) ---------------------
@@ -227,6 +229,27 @@ pub fn assert(passkey: &Passkey, client_data_json: &str, user_verified: bool) ->
     })
 }
 
+/// WebAuthn's `prf` extension (CTAP's hmac-secret): for each input the site
+/// gives, a secret that is always the same for this passkey and this input,
+/// which sites use to encrypt data. The passkey's secret for it is derived
+/// from its private key, so every passkey has one and it goes wherever the
+/// passkey goes. The input is hashed as browsers hash it for authenticators.
+pub fn prf(passkey: &Passkey, input: &[u8]) -> Result<[u8; 32]> {
+    let der = Zeroizing::new(unb64(&passkey.key)?);
+    let key = SigningKey::from_pkcs8_der(&der).map_err(|_| Error::InvalidKey)?;
+    let scalar = Zeroizing::new(key.to_bytes().to_vec());
+    let mut secret = Zeroizing::new([0u8; 32]);
+    Hkdf::<Sha256>::new(Some(b"keyless/passkey/prf/v1"), &scalar)
+        .expand(passkey.credential_id.as_bytes(), secret.as_mut())
+        .map_err(|_| Error::InvalidKey)?;
+    let salt = Sha256::new().chain_update(b"WebAuthn PRF").chain_update([0u8]).chain_update(input).finalize();
+    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(secret.as_ref()).map_err(|_| Error::InvalidKey)?;
+    mac.update(&salt);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&mac.finalize().into_bytes());
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use p256::{
@@ -251,8 +274,12 @@ mod tests {
         // attestationObject: {"fmt": "none", "attStmt": {}, "authData": ...}.
         assert_eq!(&created.attestation_object[..18], b"\xa3cfmtdnonegattStmt");
 
-        let client_data = client_data_json("webauthn.get", b"challenge", "https://example.com", false);
+        let client_data = client_data_json("webauthn.get", b"challenge", "https://example.com", None);
         assert_eq!(client_data, r#"{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://example.com","crossOrigin":false}"#);
+        assert_eq!(
+            client_data_json("webauthn.get", b"challenge", "https://login.example.com", Some("https://shop.example")),
+            r#"{"type":"webauthn.get","challenge":"Y2hhbGxlbmdl","origin":"https://login.example.com","crossOrigin":true,"topOrigin":"https://shop.example"}"#
+        );
         let assertion = assert(&created.passkey, &client_data, false).unwrap();
         assert_eq!(assertion.authenticator_data.len(), 37);
         assert_eq!(assertion.authenticator_data[32], FLAG_UP | FLAG_BE | FLAG_BS);
@@ -268,6 +295,16 @@ mod tests {
         let json = serde_json::to_string(&created.passkey).unwrap();
         let back: Passkey = serde_json::from_str(&json).unwrap();
         assert_eq!(back, created.passkey);
+    }
+
+    #[test]
+    fn prf_outputs() {
+        let a = create("example.com", "", b"user-1", "", "", true, 1).unwrap().passkey;
+        let b = create("example.com", "", b"user-1", "", "", true, 1).unwrap().passkey;
+        // The same for the same passkey and input; different otherwise.
+        assert_eq!(prf(&a, b"salt").unwrap(), prf(&a, b"salt").unwrap());
+        assert_ne!(prf(&a, b"salt").unwrap(), prf(&a, b"other").unwrap());
+        assert_ne!(prf(&a, b"salt").unwrap(), prf(&b, b"salt").unwrap());
     }
 
     #[test]
