@@ -91,6 +91,9 @@
     font-family: var(--font-sans);
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
+    /* Interface text is not selectable, as in a native app; content is
+       (below). WebKitGTK, on Linux, only reads the prefixed property. */
+    -webkit-user-select: none;
     user-select: none;
     overflow: hidden;
   }
@@ -98,6 +101,7 @@
   input,
   textarea,
   .selectable {
+    -webkit-user-select: text;
     user-select: text;
   }
 
