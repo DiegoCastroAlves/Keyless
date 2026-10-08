@@ -1,63 +1,98 @@
-import { BellOff, BellRing, CalendarClock, CircleCheck, Globe, KeyRound, LockOpen, Repeat, ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  ArrowRight,
+  BellOff,
+  BellRing,
+  Binoculars,
+  CalendarClock,
+  Check,
+  ChevronDown,
+  CircleCheck,
+  ExternalLink,
+  Globe,
+  KeyRound,
+  LockOpen,
+  Repeat,
+  ShieldAlert,
+  ShieldCheck,
+  ShieldX,
+  type LucideIcon,
+} from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ItemIcon } from "../../components/common";
-import { Button, IconButton, Spinner, Switch, Tooltip, cx } from "../../components/ui";
-import { api, errorMessage, events, type BreachReport, type HealthReport, type ItemSummary, type SentinelAlert } from "../../lib/api";
+import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Spinner, Switch, cx } from "../../components/ui";
+import { api, errorMessage, type SentinelAlert } from "../../lib/api";
+import { ALERT_TITLE, ONLINE_ALERTS, SENTINEL_ALERTS, useIssues, useSentinel, type AlertDetail } from "../../lib/sentinel";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
+export const ALERT_ICONS: Record<SentinelAlert, LucideIcon> = {
+  breached: ShieldX,
+  compromised: Globe,
+  weak: ShieldAlert,
+  reused: Repeat,
+  unsecured: LockOpen,
+  expiring: CalendarClock,
+  two_factor: KeyRound,
+};
+
+type Tone = "danger" | "warning" | "info";
+
+const ALERT_TONE: Record<SentinelAlert, Tone> = {
+  breached: "danger",
+  compromised: "danger",
+  weak: "warning",
+  reused: "warning",
+  unsecured: "warning",
+  expiring: "warning",
+  two_factor: "info",
+};
+
+const ALERT_HINT: Record<SentinelAlert, string> = {
+  breached: "sentinel.breachedHint",
+  compromised: "sentinel.compromisedHint",
+  weak: "sentinel.weakHint",
+  reused: "sentinel.reusedHint",
+  unsecured: "sentinel.unsecuredHint",
+  expiring: "sentinel.expiringHint",
+  two_factor: "sentinel.twoFactorHint",
+};
+
+/** A date as the alerts show it: unix seconds, or YYYY-MM-DD (UTC). */
+function useDay() {
+  const { i18n } = useTranslation();
+  return (value: number | string) =>
+    new Date(typeof value === "number" ? value * 1000 : `${value}T00:00:00Z`).toLocaleDateString(i18n.language, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: typeof value === "number" ? undefined : "UTC",
+    });
+}
+
+/** Sentinel's overview: the score, a card per alert (each opens its items)
+ * and the online check. */
 export function Sentinel() {
   const { t, i18n } = useTranslation();
-  const items = useApp((s) => s.items);
-  const revision = useApp((s) => s.revision);
-  const [report, setReport] = useState<HealthReport | null>(null);
-  const [breaches, setBreaches] = useState<BreachReport | null>(null);
-  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const report = useSentinel((s) => s.report);
+  const breaches = useSentinel((s) => s.breaches);
+  const checkedAt = useSentinel((s) => s.checkedAt);
+  const issues = useIssues();
   const [checking, setChecking] = useState(false);
   const settings = useApp((s) => s.settings);
   const setSettings = useApp((s) => s.setSettings);
-
-  useEffect(() => {
-    api.passwordHealth().then(setReport).catch((err) => toast.error(errorMessage(err)));
-  }, [revision]);
-
-  // The last online check, also one made by itself in the background.
-  useEffect(() => {
-    const load = () =>
-      api
-        .lastBreaches()
-        .then((last) => {
-          if (!last) return;
-          setBreaches(last.report);
-          setCheckedAt(last.checkedAt);
-        })
-        .catch(() => undefined);
-    void load();
-    const unlisten = events.onSentinelUpdated(() => void load());
-    return () => void unlisten.then((stop) => stop());
-  }, []);
-
-  const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+  const setView = useApp((s) => s.setView);
 
   const checkBreaches = async () => {
     setChecking(true);
     try {
-      setBreaches(await api.checkBreaches());
+      useSentinel.getState().setBreaches(await api.checkBreaches(), Math.floor(Date.now() / 1000));
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
       setChecking(false);
     }
   };
-
-  const reusedIds = useMemo(() => {
-    const ignored = new Set(report?.ignored.filter(([, alert]) => alert === "reused").map(([id]) => id));
-    const map = new Map<string, number>();
-    for (const group of report?.reused ?? []) for (const id of group) if (!ignored.has(id)) map.set(id, group.length - 1);
-    return map;
-  }, [report]);
 
   if (!report) {
     return (
@@ -67,35 +102,13 @@ export function Sentinel() {
     );
   }
 
-  // The online results are from the last check: alerts ignored since are
-  // left out here.
-  const ignoredSet = new Set(report.ignored.map(([id, alert]) => `${id}:${alert}`));
-  const online = breaches && {
-    ...breaches,
-    breached: breaches.breached.filter(([id]) => !ignoredSet.has(`${id}:breached`)),
-    compromised: breaches.compromised.filter((issue) => !ignoredSet.has(`${issue.id}:compromised`)),
-    twoFactor: breaches.twoFactor.filter((issue) => !ignoredSet.has(`${issue.id}:two_factor`)),
-  };
-  const problems = new Set([
-    ...report.weak,
-    ...reusedIds.keys(),
-    ...report.unsecured,
-    ...(online?.breached.map(([id]) => id) ?? []),
-    ...(online?.compromised.map((issue) => issue.id) ?? []),
-  ]);
+  const problems = new Set(["breached", "compromised", "weak", "reused", "unsecured"].flatMap((a) => [...issues.get(a as SentinelAlert)!.keys()]));
   const score = report.checked ? Math.max(0, Math.round(((report.checked - problems.size) / report.checked) * 100)) : 100;
-  const day = (value: number | string) =>
-    new Date(typeof value === "number" ? value * 1000 : `${value}T00:00:00Z`).toLocaleDateString(i18n.language, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      timeZone: typeof value === "number" ? undefined : "UTC",
-    });
-  const anything = problems.size > 0 || report.expiring.length > 0 || (online?.twoFactor.length ?? 0) > 0;
+  const anything = SENTINEL_ALERTS.some((a) => issues.get(a)!.size > 0);
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-panel">
-      <div className="mx-auto w-full max-w-3xl px-8 py-8">
+      <div className="mx-auto w-full max-w-4xl px-8 py-8">
         <div className="flex items-center gap-5">
           <ScoreRing score={score} />
           <div>
@@ -105,30 +118,25 @@ export function Sentinel() {
           </div>
         </div>
 
-        <div className="mt-8 grid grid-cols-3 gap-3">
-          <StatCard
-            icon={<ShieldX className="size-5" />}
-            tone="danger"
-            label={t("sentinel.breached")}
-            value={online ? online.breached.length : null}
-            placeholder={t("sentinel.notChecked")}
-          />
-          <StatCard
-            icon={<Globe className="size-5" />}
-            tone="danger"
-            label={t("sentinel.compromised")}
-            value={online ? online.compromised.length : null}
-            placeholder={t("sentinel.notChecked")}
-          />
-          <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("sentinel.weak")} value={report.weak.length} />
-          <StatCard icon={<Repeat className="size-5" />} tone="warning" label={t("sentinel.reused")} value={reusedIds.size} />
-          <StatCard icon={<LockOpen className="size-5" />} tone="warning" label={t("sentinel.unsecured")} value={report.unsecured.length} />
-          <StatCard
-            icon={<KeyRound className="size-5" />}
+        <div className="mt-8 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+          {SENTINEL_ALERTS.map((alert) => (
+            <AlertCard
+              key={alert}
+              icon={ALERT_ICONS[alert]}
+              tone={ALERT_TONE[alert]}
+              label={t(ALERT_TITLE[alert])}
+              value={ONLINE_ALERTS.includes(alert) && !breaches ? null : issues.get(alert)!.size}
+              placeholder={t("sentinel.notChecked")}
+              onOpen={() => setView({ kind: "sentinel", alert })}
+            />
+          ))}
+          <AlertCard
+            icon={BellOff}
             tone="info"
-            label={t("sentinel.twoFactor")}
-            value={online ? online.twoFactor.length : null}
-            placeholder={t("sentinel.notChecked")}
+            muted
+            label={t("sentinel.ignoredTitle")}
+            value={report.ignored.length}
+            onOpen={() => setView({ kind: "sentinel", alert: "ignored" })}
           />
         </div>
 
@@ -168,130 +176,14 @@ export function Sentinel() {
           )}
         </div>
 
-        {!anything ? (
+        {!anything && (
           <div className="mt-10 flex flex-col items-center text-center">
             <CircleCheck className="size-10 text-success" />
             <p className="mt-3 text-sm font-medium">{t("sentinel.allGood")}</p>
           </div>
-        ) : (
-          <div className="mt-8 space-y-8">
-            {online && online.breached.length > 0 && (
-              <IssueList
-                alert="breached"
-                title={t("sentinel.breached")}
-                hint={t("sentinel.breachedHint")}
-                entries={online.breached.map(([id, count]) => ({
-                  item: byId.get(id),
-                  note: t("sentinel.breachedSeen", { count, formatted: count.toLocaleString(i18n.language) }),
-                }))}
-                tone="danger"
-              />
-            )}
-            {online && online.compromised.length > 0 && (
-              <IssueList
-                alert="compromised"
-                title={t("sentinel.compromised")}
-                hint={t("sentinel.compromisedHint")}
-                entries={online.compromised.map((issue) => ({
-                  item: byId.get(issue.id),
-                  note: t("sentinel.compromisedNote", { site: issue.site, date: issue.date ? day(issue.date) : "" }),
-                }))}
-                tone="danger"
-              />
-            )}
-            {report.weak.length > 0 && (
-              <IssueList
-                alert="weak"
-                title={t("sentinel.weak")}
-                hint={t("sentinel.weakHint")}
-                entries={report.weak.map((id) => ({ item: byId.get(id) }))}
-                tone="warning"
-              />
-            )}
-            {reusedIds.size > 0 && (
-              <IssueList
-                alert="reused"
-                title={t("sentinel.reused")}
-                hint={t("sentinel.reusedHint")}
-                entries={[...reusedIds.entries()].map(([id, others]) => ({ item: byId.get(id), note: t("sentinel.sharedWith", { count: others }) }))}
-                tone="warning"
-              />
-            )}
-            {report.unsecured.length > 0 && (
-              <IssueList
-                alert="unsecured"
-                title={t("sentinel.unsecured")}
-                hint={t("sentinel.unsecuredHint")}
-                entries={report.unsecured.map((id) => ({ item: byId.get(id) }))}
-                tone="warning"
-              />
-            )}
-            {report.expiring.length > 0 && (
-              <IssueList
-                alert="expiring"
-                title={t("sentinel.expiring")}
-                hint={t("sentinel.expiringHint")}
-                entries={report.expiring.map((e) => ({
-                  item: byId.get(e.id),
-                  note: t(e.expired ? "sentinel.expiredOn" : "sentinel.expiresOn", { date: day(e.expiresAt) }),
-                }))}
-                tone="warning"
-                icon={<CalendarClock className="size-4" />}
-              />
-            )}
-            {online && online.twoFactor.length > 0 && (
-              <IssueList
-                alert="two_factor"
-                title={t("sentinel.twoFactor")}
-                hint={t("sentinel.twoFactorHint")}
-                entries={online.twoFactor.map((issue) => ({ item: byId.get(issue.id), note: t("sentinel.twoFactorNote", { site: issue.site }) }))}
-                tone="info"
-              />
-            )}
-          </div>
         )}
-        {report.ignored.length > 0 && <IgnoredList ignored={report.ignored} byId={byId} />}
       </div>
     </section>
-  );
-}
-
-/** Alerts the user chose to ignore, which can be watched again. */
-function IgnoredList({ ignored, byId }: { ignored: [string, SentinelAlert][]; byId: Map<string, ItemSummary> }) {
-  const { t } = useTranslation();
-  const loadData = useApp((s) => s.loadData);
-  const [open, setOpen] = useState(false);
-  const watch = async (id: string, alert: SentinelAlert) => {
-    try {
-      await api.setSentinelIgnored(id, alert, false);
-      await loadData();
-    } catch (err) {
-      toast.error(errorMessage(err));
-    }
-  };
-  return (
-    <div className="mt-10">
-      <button className="text-xs font-medium text-muted hover:text-fg" onClick={() => setOpen(!open)}>
-        {t("sentinel.ignoredCount", { count: ignored.length })}
-      </button>
-      {open && (
-        <div className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line">
-          {ignored
-            .filter(([id]) => byId.has(id))
-            .map(([id, alert]) => (
-              <div key={`${id}-${alert}`} className="flex items-center gap-3 px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium">{byId.get(id)!.title}</div>
-                  <div className="truncate text-xs text-muted">{t(`sentinel.alert.${alert}`)}</div>
-                </div>
-                <Button size="sm" variant="ghost" onClick={() => watch(id, alert)}>
-                  <BellRing className="size-4" /> {t("sentinel.watchAgain")}
-                </Button>
-              </div>
-            ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -319,22 +211,32 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
-function StatCard({
-  icon,
+/** One alert's card: how many items have it; opens their list. */
+function AlertCard({
+  icon: Icon,
   label,
   value,
   tone,
+  muted = false,
   placeholder,
+  onOpen,
 }: {
-  icon: ReactNode;
+  icon: LucideIcon;
   label: string;
   value: number | null;
-  tone: "warning" | "danger" | "info";
+  tone: Tone;
+  muted?: boolean;
   placeholder?: string;
+  onOpen: () => void;
 }) {
-  const active = value !== null && value > 0;
+  const { t } = useTranslation();
+  const active = !muted && value !== null && value > 0;
   return (
-    <div className="rounded-xl border border-line p-4">
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group flex flex-col rounded-xl border border-line p-4 text-left transition-colors hover:border-line-strong hover:bg-panel-2"
+    >
       <div
         className={cx(
           "flex size-9 items-center justify-center rounded-lg",
@@ -347,83 +249,147 @@ function StatCard({
                 : "bg-warning-soft text-warning",
         )}
       >
-        {icon}
+        <Icon className="size-5" />
       </div>
       <div className="mt-3 text-2xl font-semibold tabular-nums">{value ?? "—"}</div>
       <div className="text-xs text-muted">{value === null ? placeholder : label}</div>
-    </div>
+      <div className="mt-3 flex items-center gap-1 text-xs font-medium text-accent opacity-80 group-hover:opacity-100">
+        {t("sentinel.viewItems")} <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+      </div>
+    </button>
   );
 }
 
-function IssueList({
-  alert,
-  title,
-  hint,
-  entries,
-  tone,
-  icon,
-}: {
-  alert: SentinelAlert;
-  title: string;
-  hint: string;
-  entries: { item: ItemSummary | undefined; note?: string }[];
-  tone: "warning" | "danger" | "info";
-  icon?: ReactNode;
-}) {
+/** Above a Sentinel list: which alert it shows, to switch to another (or
+ * back to the overview). */
+export function AlertPicker({ current }: { current: SentinelAlert | "ignored" }) {
   const { t } = useTranslation();
+  const issues = useIssues();
+  const report = useSentinel((s) => s.report);
+  const breaches = useSentinel((s) => s.breaches);
   const setView = useApp((s) => s.setView);
-  const select = useApp((s) => s.select);
+  const Icon = current === "ignored" ? BellOff : ALERT_ICONS[current];
+  const count = (alert: SentinelAlert) => (ONLINE_ALERTS.includes(alert) && !breaches ? "—" : String(issues.get(alert)!.size));
+  const mark = (alert: SentinelAlert | "ignored") => (alert === current ? <Check className="size-4 text-accent" /> : null);
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <button className="flex min-w-0 items-center gap-1.5 rounded-lg bg-accent-soft px-2.5 py-1 text-[13px] font-semibold text-accent hover:brightness-110">
+          <Icon className="size-4 shrink-0" />
+          <span className="truncate">{current === "ignored" ? t("sentinel.ignoredTitle") : t(ALERT_TITLE[current])}</span>
+          <ChevronDown className="size-3.5 shrink-0" />
+        </button>
+      </MenuTrigger>
+      <MenuContent align="start">
+        {SENTINEL_ALERTS.map((alert) => {
+          const AlertIcon = ALERT_ICONS[alert];
+          return (
+            <MenuItem key={alert} icon={mark(alert) ?? <AlertIcon className="size-4" />} shortcut={count(alert)} onSelect={() => setView({ kind: "sentinel", alert })}>
+              {t(ALERT_TITLE[alert])}
+            </MenuItem>
+          );
+        })}
+        <MenuSeparator />
+        <MenuItem icon={mark("ignored") ?? <BellOff className="size-4" />} shortcut={String(report?.ignored.length ?? 0)} onSelect={() => setView({ kind: "sentinel", alert: "ignored" })}>
+          {t("sentinel.ignoredTitle")}
+        </MenuItem>
+        <MenuItem icon={<Binoculars className="size-4" />} onSelect={() => setView({ kind: "sentinel" })}>
+          {t("sentinel.overview")}
+        </MenuItem>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/** At the top of an item: what Sentinel found about it, with what to do.
+ * In the list of ignored alerts, those alerts too, to watch again. */
+export function SentinelBanners({ itemId, hasUrl, canEdit }: { itemId: string; hasUrl: boolean; canEdit: boolean }) {
+  const { t, i18n } = useTranslation();
+  const issues = useIssues();
+  const report = useSentinel((s) => s.report);
+  const view = useApp((s) => s.view);
   const loadData = useApp((s) => s.loadData);
-  const ignore = async (id: string) => {
+  const day = useDay();
+
+  const active = SENTINEL_ALERTS.flatMap((alert) => {
+    const detail = issues.get(alert)!.get(itemId);
+    return detail ? [{ alert, detail }] : [];
+  });
+  const ignored =
+    view.kind === "sentinel" && view.alert === "ignored" ? (report?.ignored ?? []).filter(([id]) => id === itemId).map(([, alert]) => alert) : [];
+  if (!active.length && !ignored.length) return null;
+
+  const setIgnored = async (alert: SentinelAlert, value: boolean) => {
     try {
-      await api.setSentinelIgnored(id, alert, true);
+      await api.setSentinelIgnored(itemId, alert, value);
       await loadData();
     } catch (err) {
       toast.error(errorMessage(err));
     }
   };
+  const openSite = () => api.openItemUrl(itemId, 0).catch((err) => toast.error(errorMessage(err)));
+
+  const note = (alert: SentinelAlert, d: AlertDetail): string | null => {
+    switch (alert) {
+      case "breached":
+        return t("sentinel.breachedSeen", { count: d.seen ?? 0, formatted: (d.seen ?? 0).toLocaleString(i18n.language) });
+      case "compromised":
+        return t("sentinel.compromisedNote", { site: d.site, date: d.date ? day(d.date) : "" });
+      case "reused":
+        return t("sentinel.sharedWith", { count: d.others ?? 0 });
+      case "expiring":
+        return d.date ? t(d.expired ? "sentinel.expiredOn" : "sentinel.expiresOn", { date: day(d.date) }) : null;
+      case "two_factor":
+        return t("sentinel.twoFactorNote", { site: d.site });
+      default:
+        return null;
+    }
+  };
+
   return (
-    <div>
-      <h3
-        className={cx(
-          "flex items-center gap-1.5 text-sm font-semibold",
-          tone === "danger" ? "text-danger" : tone === "info" ? "text-accent" : "text-warning",
-        )}
-      >
-        {icon}
-        {title}
-      </h3>
-      <p className="mt-0.5 text-xs text-muted">{hint}</p>
-      <div className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line">
-        {entries
-          .filter((e) => e.item)
-          .map(({ item, note }) => (
-            <div key={item!.id} className="group flex items-center hover:bg-panel-2">
-              <button
-                onClick={() => {
-                  setView({ kind: "all" });
-                  select(item!.id);
-                }}
-                className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left"
-              >
-                <ItemIcon title={item!.title} category={item!.category} url={item!.urls[0]} size="sm" />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] font-medium">{item!.title}</div>
-                  <div className="truncate text-xs text-muted">{note ?? item!.subtitle}</div>
-                </div>
-              </button>
-              <Tooltip content={t("sentinel.ignore")}>
-                <IconButton
-                  label={t("sentinel.ignore")}
-                  onClick={() => void ignore(item!.id)}
-                  className="mr-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                >
-                  <BellOff className="size-4" />
-                </IconButton>
-              </Tooltip>
+    <div className="space-y-2">
+      {active.map(({ alert, detail }) => {
+        const tone = ALERT_TONE[alert];
+        const Icon = ALERT_ICONS[alert];
+        const line = note(alert, detail);
+        return (
+          <div
+            key={alert}
+            className={cx(
+              "flex items-start gap-3 rounded-xl border px-4 py-3",
+              tone === "danger" ? "border-danger/40 bg-danger-soft" : tone === "info" ? "border-accent/40 bg-accent-soft" : "border-warning/40 bg-warning-soft",
+            )}
+          >
+            <Icon className={cx("mt-0.5 size-4 shrink-0", tone === "danger" ? "text-danger" : tone === "info" ? "text-accent" : "text-warning")} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] font-semibold">{t(`sentinel.alert.${alert}`)}</div>
+              {line && <div className="mt-0.5 text-xs text-fg">{line}</div>}
+              <div className="mt-0.5 text-xs leading-relaxed text-muted">{t(ALERT_HINT[alert])}</div>
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                {hasUrl && alert !== "expiring" && (
+                  <Button size="sm" onClick={() => void openSite()}>
+                    <ExternalLink className="size-3.5" /> {t("sentinel.openSite")}
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => void setIgnored(alert, true)} disabled={!canEdit} title={t("sentinel.ignore")}>
+                  <BellOff className="size-3.5" /> {t("sentinel.ignoreShort")}
+                </Button>
+              </div>
             </div>
-          ))}
-      </div>
+          </div>
+        );
+      })}
+      {ignored.map((alert) => (
+        <div key={`ignored-${alert}`} className="flex items-center gap-3 rounded-xl border border-line bg-panel-2 px-4 py-3">
+          <BellOff className="size-4 shrink-0 text-subtle" />
+          <div className="min-w-0 flex-1 text-[13px]">
+            <span className="text-muted">{t("sentinel.ignoredAlert")}</span> <span className="font-medium">{t(`sentinel.alert.${alert}`)}</span>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => void setIgnored(alert, false)} disabled={!canEdit}>
+            <BellRing className="size-3.5" /> {t("sentinel.watchAgain")}
+          </Button>
+        </div>
+      ))}
     </div>
   );
 }

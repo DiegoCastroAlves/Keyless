@@ -20,9 +20,11 @@ import {
 } from "../../components/ui";
 import { api, errorMessage, type Category, type ItemSummary, type ListSort } from "../../lib/api";
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
+import { ONLINE_ALERTS, useIssues, useSentinel } from "../../lib/sentinel";
 import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { MoveItemsDialog } from "./MoveDialog";
+import { AlertPicker } from "./Sentinel";
 
 /** What the search box (outside the list) can do with it. */
 export interface ItemListControl {
@@ -47,7 +49,17 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
     () => ({ sort: settings?.list_sort ?? "title", desc: settings?.list_sort_desc ?? false }),
     [settings?.list_sort, settings?.list_sort_desc],
   );
-  const visible = useMemo(() => filterItems(items, view, search, order), [items, view, search, order]);
+  // Sentinel's lists: the items with the chosen alert.
+  const issues = useIssues();
+  const sentinelReport = useSentinel((s) => s.report);
+  const breaches = useSentinel((s) => s.breaches);
+  const alert = view.kind === "sentinel" ? view.alert : undefined;
+  const only = useMemo(() => {
+    if (!alert) return undefined;
+    if (alert === "ignored") return new Set((sentinelReport?.ignored ?? []).map(([id]) => id));
+    return new Set(issues.get(alert)!.keys());
+  }, [alert, issues, sentinelReport]);
+  const visible = useMemo(() => filterItems(items, view, search, order, only), [items, view, search, order, only]);
   const title = viewTitle(view, vaults);
   const canCreate = view.kind !== "trash" && view.kind !== "archive";
 
@@ -88,7 +100,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
   return (
     <section className="flex h-full w-full flex-col border-r border-line bg-panel">
       <div className="flex h-11 items-center justify-between gap-2 pl-4 pr-2">
-        <span className="truncate text-[13px] font-semibold">{title}</span>
+        {alert ? <AlertPicker current={alert} /> : <span className="truncate text-[13px] font-semibold">{title}</span>}
         <div className="flex items-center gap-1">
           <span className="text-xs text-subtle">{t("list.count", { count: visible.length })}</span>
           <SortMenu count={visible.length} order={order} />
@@ -119,7 +131,15 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         className="flex-1 overflow-y-auto px-2 pb-3 outline-none"
       >
         {visible.length === 0 ? (
-          <EmptyList query={search} canCreate={canCreate} onNewItem={() => onNewItem("login")} />
+          alert ? (
+            <p className="px-6 py-14 text-center text-sm text-subtle">
+              {alert !== "ignored" && ONLINE_ALERTS.includes(alert) && !breaches
+                ? t("sentinel.listNotChecked")
+                : t(alert === "ignored" ? "sentinel.ignoredEmpty" : "sentinel.listEmpty")}
+            </p>
+          ) : (
+            <EmptyList query={search} canCreate={canCreate} onNewItem={() => onNewItem("login")} />
+          )
         ) : (
           visible.map((item, index) => {
             const label = groupLabel(item, order.sort);
@@ -387,8 +407,8 @@ export function TopBar({
           ref={searchRef}
           value={search}
           onChange={(e) => {
-            // Sentinel has no list to search: go to every item.
-            if (view.kind === "sentinel") useApp.getState().setView({ kind: "all" });
+            // Sentinel's overview has no list to search: go to every item.
+            if (view.kind === "sentinel" && !view.alert) useApp.getState().setView({ kind: "all" });
             setSearch(e.target.value);
           }}
           onKeyDown={(e) => {

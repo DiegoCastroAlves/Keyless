@@ -2,7 +2,22 @@ import { create } from "zustand";
 
 import i18n from "../i18n";
 import { categoryLabel } from "./categories";
-import { api, errorMessage, type AppStatus, type ListSort, type Category, type ItemDraft, type ItemSummary, type InstallKind, type Settings, type SyncStatus, type UpdateInfo, type Vault } from "./api";
+import {
+  api,
+  errorMessage,
+  type AppStatus,
+  type ListSort,
+  type Category,
+  type ItemDraft,
+  type ItemSummary,
+  type InstallKind,
+  type SentinelAlert,
+  type Settings,
+  type SyncStatus,
+  type UpdateInfo,
+  type Vault,
+} from "./api";
+import { ALERT_TITLE } from "./sentinel";
 
 export type View =
   | { kind: "all" }
@@ -12,7 +27,8 @@ export type View =
   | { kind: "tag"; tag: string }
   | { kind: "archive" }
   | { kind: "trash" }
-  | { kind: "sentinel" };
+  /** Sentinel's overview, or the items with one alert (or ignored ones). */
+  | { kind: "sentinel"; alert?: SentinelAlert | "ignored" };
 
 export interface Editing {
   draft: ItemDraft;
@@ -131,7 +147,8 @@ export function viewTitle(view: View, vaults: Vault[]): string {
     case "trash":
       return i18n.t("sidebar.trash");
     case "sentinel":
-      return i18n.t("sidebar.sentinel");
+      if (!view.alert) return i18n.t("sidebar.sentinel");
+      return i18n.t(view.alert === "ignored" ? "sentinel.ignoredTitle" : ALERT_TITLE[view.alert]);
   }
 }
 
@@ -190,9 +207,18 @@ export function groupLabel(item: ItemSummary, sort: ListSort): string | null {
   }
 }
 
-export function filterItems(items: ItemSummary[], view: View, search: string, order: ListOrder = { sort: "title", desc: false }): ItemSummary[] {
+/** The items `view` shows, matching `search`; `only`, when given, limits
+ * them to those ids (Sentinel's lists). */
+export function filterItems(
+  items: ItemSummary[],
+  view: View,
+  search: string,
+  order: ListOrder = { sort: "title", desc: false },
+  only?: Set<string>,
+): ItemSummary[] {
   const q = search.trim().toLowerCase();
   const filtered = items.filter((item) => {
+    if (only && !only.has(item.id)) return false;
     if (view.kind === "trash") {
       if (item.trashedAt === null) return false;
     } else {

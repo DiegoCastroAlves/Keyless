@@ -28,6 +28,7 @@ import { toast } from "../../lib/toast";
 import { ItemVersionsDialog } from "./ItemVersions";
 import { MoveItemsDialog } from "./MoveDialog";
 import { ShareDialog } from "./ShareDialog";
+import { SentinelBanners } from "./Sentinel";
 
 export function ItemDetail() {
   const { t } = useTranslation();
@@ -224,6 +225,7 @@ export function ItemDetail() {
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-5">
+          {!trashed && <SentinelBanners itemId={item.id} hasUrl={item.urls.length > 0} canEdit={item.canEdit} />}
           {item.fields.some((f) => f.hasValue) && (
             <FieldCard>
               {item.fields.map((f) => (

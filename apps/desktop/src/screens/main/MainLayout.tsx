@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import { PasswordInput } from "../../components/common";
 import { Button, Dialog, ErrorText, Input } from "../../components/ui";
-import { api, errorCode, errorMessage, type AccountInfo, type Category, type Vault } from "../../lib/api";
+import { api, errorCode, errorMessage, events, type AccountInfo, type Category, type Vault } from "../../lib/api";
+import { useSentinel } from "../../lib/sentinel";
 import { categoryInfo, templateFields } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -35,6 +36,18 @@ export function MainLayout() {
   const searchRef = useRef<HTMLInputElement>(null);
   const listControl = useRef<ItemListControl>(null);
   const panes = usePaneWidths();
+  const items = useApp((s) => s.items);
+
+  // Sentinel's results, for its screens and the alerts on items: computed
+  // again when items change, and the online check whenever it runs.
+  useEffect(() => {
+    void useSentinel.getState().loadReport();
+  }, [items]);
+  useEffect(() => {
+    void useSentinel.getState().loadBreaches();
+    const unlisten = events.onSentinelUpdated(() => void useSentinel.getState().loadBreaches());
+    return () => void unlisten.then((stop) => stop());
+  }, []);
 
   useEffect(() => {
     api.accountInfo().then(setAccountInfo).catch(() => setAccountInfo(null));
@@ -73,7 +86,8 @@ export function MainLayout() {
       const key = e.key.toLowerCase();
       if (key === "f") {
         e.preventDefault();
-        if (useApp.getState().view.kind === "sentinel") useApp.getState().setView({ kind: "all" });
+        const current = useApp.getState().view;
+        if (current.kind === "sentinel" && !current.alert) useApp.getState().setView({ kind: "all" });
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (key === "n" && !useApp.getState().editing) {
         e.preventDefault();
@@ -123,7 +137,7 @@ export function MainLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar searchRef={searchRef} onNewItem={newItem} onEnterList={() => listControl.current?.enter()} />
           <div className="flex min-h-0 flex-1">
-            {view.kind === "sentinel" && !editing ? (
+            {view.kind === "sentinel" && !view.alert && !editing ? (
               <Sentinel />
             ) : (
               <>
