@@ -329,12 +329,16 @@ async function cycle() {
       continue;
     }
     plainEl.textContent = "";
-    cipherEl.textContent = "";
+    // Faint noise as long as the envelope keeps the box the same size while
+    // the text is typed.
+    cipherEl.textContent = noise(target.length);
+    cipherEl.classList.add("waiting");
     for (let i = 1; i <= text.length; i++) {
       plainEl.textContent = text.slice(0, i);
       await sleep(45 + Math.random() * 50);
     }
     await sleep(350);
+    cipherEl.classList.remove("waiting");
     // The envelope settles from left to right out of noise.
     for (let step = 3; step <= target.length; step += 3) {
       cipherEl.textContent = target.slice(0, step) + noise(target.length - step);
