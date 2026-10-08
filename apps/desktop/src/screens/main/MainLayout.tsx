@@ -39,13 +39,12 @@ export function MainLayout() {
   const items = useApp((s) => s.items);
 
   // Sentinel's results, for its screens and the alerts on items: computed
-  // again when items change, and the online check whenever it runs.
+  // again when items change, and when a check or a list download ends.
   useEffect(() => {
     void useSentinel.getState().loadReport();
   }, [items]);
   useEffect(() => {
-    void useSentinel.getState().loadBreaches();
-    const unlisten = events.onSentinelUpdated(() => void useSentinel.getState().loadBreaches());
+    const unlisten = events.onSentinelUpdated(() => void useSentinel.getState().loadReport());
     return () => void unlisten.then((stop) => stop());
   }, []);
 

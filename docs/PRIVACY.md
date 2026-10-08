@@ -1,6 +1,6 @@
 # Keyless privacy policy
 
-Last updated: October 6, 2026
+Last updated: October 8, 2026
 
 Keyless is a zero-knowledge password manager. Everything you store in your
 vaults is encrypted on your device before it is sent anywhere, with keys that
@@ -31,13 +31,15 @@ Key.
 
 - **Supabase** hosts the Keyless server (authentication and database).
 - **Have I Been Pwned** checks whether a password appears in known breaches
-  when you use Sentinel. Only the first 5 characters of the password's
-  SHA-1 hash are sent (k-anonymity); the password itself never leaves your
-  device.
+  for Sentinel: once a day and when you save a new password (you can turn
+  this off in Sentinel), or when you ask. Only the first 5 characters of the
+  password's SHA-1 hash are sent (k-anonymity); the password itself never
+  leaves your device.
 - **Have I Been Pwned** and **2fa.directory** publish the lists of breached
   websites, and of websites with two-factor codes or passkeys, that Sentinel
-  downloads whole to compare on your device. Nothing about your items is
-  sent to them.
+  downloads whole once a day and keeps on your device to compare there.
+  Nothing about your items is sent to them; like any download, they see the
+  request's IP address.
 
 Keyless has no ads, no analytics or tracking, and never sells or shares your
 data.

@@ -415,8 +415,34 @@ export interface HealthReport {
   /** Items with a website on plain http. */
   unsecured: string[];
   expiring: { id: string; expiresAt: number; expired: boolean }[];
+  /** Items whose password was seen in breaches, with how often. */
+  breached: [string, number][];
+  /** Websites breached after the item's password was set. */
+  compromised: SiteIssue[];
+  /** Websites offering one-time codes the item does not have. */
+  twoFactor: SiteIssue[];
+  /** Websites that accept passkeys, for items without one. */
+  passkeys: SiteIssue[];
+  /** Alerts not known yet: their list was never downloaded, or the passwords
+   * never checked online. */
+  pending: SentinelAlert[];
+  /** Passwords not checked online yet (new or changed since). */
+  unchecked: number;
+  /** When every password was last checked online (unix seconds). */
+  passwordsCheckedAt: number | null;
+  /** When the oldest list was downloaded (unix seconds). */
+  listsUpdatedAt: number | null;
   /** Alerts the user ignored: [item id, alert]. */
   ignored: [string, SentinelAlert][];
+  /** Item id -> its password's strength (0 to 4). */
+  scores: Record<string, number>;
+}
+
+/** The editor's check of a password being typed. */
+export interface PasswordCheck {
+  score: number;
+  /** Other items that already use it. */
+  reused: number;
 }
 
 export type SentinelAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor" | "passkey" | "duplicate";
@@ -426,24 +452,6 @@ export interface SiteIssue {
   site: string;
   /** Breach date (YYYY-MM-DD), for breached websites. */
   date?: string;
-}
-
-export interface BreachReport {
-  checked: number;
-  breached: [string, number][];
-  /** Websites breached after the item's password was set. */
-  compromised: SiteIssue[];
-  /** Websites offering one-time codes the item does not have. */
-  twoFactor: SiteIssue[];
-  /** Websites that accept passkeys, for items without one. */
-  passkeys: SiteIssue[];
-}
-
-/** Sentinel's last online check since Keyless started. */
-export interface LastCheck {
-  /** Unix seconds. */
-  checkedAt: number;
-  report: BreachReport;
 }
 
 export interface ImportSummary {
@@ -612,8 +620,9 @@ export const api = {
   /** One entry, or the whole history without an id. */
   deleteGenerated: (id?: string) => invoke<void>("delete_generated", { id: id ?? null }),
   passwordHealth: () => invoke<HealthReport>("password_health"),
-  checkBreaches: () => invoke<BreachReport>("check_breaches"),
-  lastBreaches: () => invoke<LastCheck | null>("last_breaches"),
+  checkBreaches: () => invoke<void>("check_breaches"),
+  checkItemPassword: (password: string, itemId: string | null, inputs: string[]) =>
+    invoke<PasswordCheck>("check_item_password", { password, itemId, inputs }),
   importPick: (format: ImportFormat, password?: string) =>
     invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
   exportBackup: (masterPassword: string, password: string, includePasskeys: boolean) =>

@@ -299,7 +299,7 @@ pub fn run() {
             commands::delete_generated,
             commands::password_health,
             commands::check_breaches,
-            commands::last_breaches,
+            commands::check_item_password,
             commands::import_pick,
             commands::import_commit,
             commands::import_cancel,

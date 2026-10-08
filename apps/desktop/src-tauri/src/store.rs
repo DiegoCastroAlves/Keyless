@@ -12,7 +12,7 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppResult;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 pub struct Store {
     conn: Connection,
@@ -184,6 +184,16 @@ impl Store {
                  );",
             )?;
         }
+        if version < 6 {
+            // Version 6: Sentinel's results (see `health`), encrypted. Local
+            // only.
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS sentinel (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL
+                 );",
+            )?;
+        }
         self.conn
             .execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
         Ok(())
@@ -281,7 +291,7 @@ impl Store {
     /// Removes every account-related row (sign out). Settings are kept.
     pub fn wipe_account_data(&self) -> AppResult<()> {
         self.conn.execute_batch(
-            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage; DELETE FROM site_icons; DELETE FROM generator_history;",
+            "DELETE FROM items; DELETE FROM vaults; DELETE FROM sync_cursors; DELETE FROM account; DELETE FROM bridge_peers; DELETE FROM item_usage; DELETE FROM site_icons; DELETE FROM generator_history; DELETE FROM sentinel;",
         )?;
         // Reclaim pages so deleted ciphertext does not linger in the file.
         let _ = self.conn.execute_batch("VACUUM;");
@@ -506,6 +516,19 @@ impl Store {
 
     pub fn clear_generated(&self) -> AppResult<()> {
         self.conn.execute("DELETE FROM generator_history", [])?;
+        Ok(())
+    }
+
+    /// Sentinel's encrypted results, by name.
+    pub fn sentinel_data(&self, id: &str) -> AppResult<Option<String>> {
+        Ok(self.conn.query_row("SELECT data FROM sentinel WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+    }
+
+    pub fn set_sentinel_data(&self, id: &str, data: &str) -> AppResult<()> {
+        self.conn.execute(
+            "INSERT INTO sentinel (id, data) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET data = excluded.data",
+            params![id, data],
+        )?;
         Ok(())
     }
 

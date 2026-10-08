@@ -36,7 +36,7 @@ import {
 } from "../../components/ui";
 import { api, errorMessage, type Category, type ItemSummary, type ListSort } from "../../lib/api";
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
-import { ONLINE_ALERTS, useIssues, useSentinel } from "../../lib/sentinel";
+import { isPending, useIssues, useSentinel } from "../../lib/sentinel";
 import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { MoveItemsDialog } from "./MoveDialog";
@@ -68,7 +68,6 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
   // Sentinel's lists: the items with the chosen alert.
   const issues = useIssues();
   const sentinelReport = useSentinel((s) => s.report);
-  const breaches = useSentinel((s) => s.breaches);
   const alert = view.kind === "sentinel" ? view.alert : undefined;
   const only = useMemo(() => {
     if (!alert) return undefined;
@@ -151,7 +150,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         {visible.length === 0 ? (
           alert ? (
             <p className="px-6 py-14 text-center text-sm text-subtle">
-              {alert !== "ignored" && ONLINE_ALERTS.includes(alert) && !breaches
+              {alert !== "ignored" && isPending(sentinelReport, alert)
                 ? t("sentinel.listNotChecked")
                 : t(alert === "ignored" ? "sentinel.ignoredEmpty" : "sentinel.listEmpty")}
             </p>

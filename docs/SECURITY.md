@@ -298,16 +298,27 @@ SSH keys kept in items; private keys never leave Keyless.
 - Weak and reused passwords, duplicate items (the same website and user
   name), unsecured (`http`) websites and expiring cards are found on this
   device, from the unlocked vault.
-- The online check sends nothing about items: passwords are looked up in
-  Have I Been Pwned with k-anonymity (only the first 5 characters of each
-  password's SHA-1 hash leave the device), and the public lists of breached
-  websites (Have I Been Pwned), of websites with two-factor codes
+- Nothing about items is sent to compare websites: the public lists of
+  breached websites (Have I Been Pwned), of websites with two-factor codes
   (2fa.directory) and of websites that accept passkeys (its Passkeys
-  Directory) are downloaded whole at each check, so they follow the websites
-  as they change, and compared here.
-- It runs when the user asks, or, if the user turns it on, by itself once a
-  day while Keyless is unlocked. Its results stay in memory (until sign-out)
-  and are shown only while unlocked.
+  Directory) are downloaded whole once a day while Keyless is unlocked, and
+  compared here. They are kept on disk (in the app's data folder, not
+  encrypted: they are public), so Sentinel works offline. A new copy
+  replaces the old one only once it downloaded whole, reads as the list it
+  should be and is not suspiciously short; it is written beside the old one
+  and renamed over it, so a failed or broken download keeps the old copy.
+- Passwords are looked up in Have I Been Pwned with k-anonymity: only the
+  first 5 characters of each password's SHA-1 hash leave the device, and
+  responses are padded. This runs when the user asks or, with the setting
+  (on by default), by itself: every password once a day, and new ones a few
+  seconds after they are saved. What it found is kept in the local database,
+  encrypted with a key derived from the account key, by a keyed hash of each
+  password (so a changed password is checked again and old ones are
+  dropped); it is deleted at sign-out and shown only while unlocked.
+- While a password is typed in the item editor, its strength and whether
+  other items already use it are checked on this device only; partial
+  passwords are never sent anywhere (a series of hash prefixes for a
+  password being typed could reveal it).
 - Ignored alerts are stored in the item's encrypted overview.
 
 ## Share links page

@@ -18,7 +18,7 @@ use crate::{
     clipboard,
     error::{AppError, AppResult, Msg},
     generator_history, item_versions,
-    health::{self, BreachReport, HealthReport, Strength},
+    health::{self, HealthReport, Strength},
     import::{self, ImportFormat, ImportTarget},
     items::{self, HistoryEntry, ItemDetailView, ItemDraft, ItemSummary, TotpCode, VaultDto},
     oauth,
@@ -509,25 +509,28 @@ pub async fn delete_generated(state: State<'_, AppState>, id: Option<String>) ->
 }
 
 #[tauri::command]
-pub async fn password_health(state: State<'_, AppState>) -> AppResult<HealthReport> {
+pub async fn password_health(app: AppHandle, state: State<'_, AppState>) -> AppResult<HealthReport> {
     state.touch();
-    health::report(&state).await
+    health::report(&app).await
 }
 
 #[tauri::command]
-pub async fn check_breaches(app: AppHandle, state: State<'_, AppState>) -> AppResult<BreachReport> {
+pub async fn check_item_password(
+    state: State<'_, AppState>,
+    password: String,
+    item_id: Option<String>,
+    inputs: Vec<String>,
+) -> AppResult<health::PasswordCheck> {
+    state.touch();
+    let password = Zeroizing::new(password);
+    let inputs: Vec<&str> = inputs.iter().map(String::as_str).filter(|s| !s.trim().is_empty()).take(8).collect();
+    health::check_password(&state, &password, item_id.as_deref(), &inputs).await
+}
+
+#[tauri::command]
+pub async fn check_breaches(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
     state.touch();
     health::check_online(&app).await
-}
-
-/// The last online check (also an automatic one), if any since Keyless
-/// started.
-#[tauri::command]
-pub async fn last_breaches(state: State<'_, AppState>) -> AppResult<Option<health::LastCheck>> {
-    if state.session.lock().await.is_none() {
-        return Err(AppError::Locked);
-    }
-    Ok(state.sentinel.last.lock().unwrap_or_else(|e| e.into_inner()).clone())
 }
 
 #[tauri::command]

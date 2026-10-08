@@ -2,7 +2,7 @@ import { Ban, ClipboardPaste, Crosshair, FileText, Globe, GripVertical, ImageIco
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ItemIcon, PasswordInput } from "../../components/common";
+import { ItemIcon, PasswordInput, StrengthBadge } from "../../components/common";
 import {
   Button,
   Combobox,
@@ -29,6 +29,7 @@ import {
   type FieldKind,
   type FileInfo,
   type ItemDraft,
+  type PasswordCheck,
   type Section,
   type SshKeyFields,
   type UrlFill,
@@ -51,6 +52,9 @@ export function ItemEditor() {
   const initial = useRef(JSON.stringify(editing.draft));
   const titleRef = useRef<HTMLInputElement>(null);
   const info = categoryInfo(draft.category);
+  // A password is weaker when it holds the item's own words.
+  const username = draft.fields.find((f) => f.purpose === "username")?.value ?? "";
+  const passwordContext = useMemo(() => ({ itemId: draft.id, inputs: [username, draft.title] }), [draft.id, username, draft.title]);
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -108,7 +112,8 @@ export function ItemEditor() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (!saving) void save();
-      } else if (e.key === "Escape" && !document.querySelector("[data-radix-popper-content-wrapper], [role=dialog]")) {
+      } else if (e.key === "Escape" && !e.defaultPrevented && !document.querySelector("[data-radix-popper-content-wrapper], [role=dialog]")) {
+        // Not when it closed a popover or menu (which marks it handled).
         e.preventDefault();
         cancel();
       }
@@ -169,7 +174,13 @@ export function ItemEditor() {
           <div className="space-y-2">
             {draft.category === "ssh_key" && <SshKeyTools draft={draft} onFields={(fields) => setDraft((d) => ({ ...d, fields }))} />}
             {draft.fields.map((field, i) => (
-              <FieldEditor key={field.id} field={field} onChange={(f) => setField(i, f)} onRemove={() => removeField(i)} />
+              <FieldEditor
+                key={field.id}
+                field={field}
+                passwordContext={passwordContext}
+                onChange={(f) => setField(i, f)}
+                onRemove={() => removeField(i)}
+              />
             ))}
             <AddFieldButton onAdd={(kind) => addField(kind)} />
           </div>
@@ -191,6 +202,7 @@ export function ItemEditor() {
                 <FieldEditor
                   key={field.id}
                   field={field}
+                  passwordContext={passwordContext}
                   onChange={(f) => setSection(si, { ...section, fields: section.fields.map((x, i) => (i === fi ? f : x)) })}
                   onRemove={() => setSection(si, { ...section, fields: section.fields.filter((_, i) => i !== fi) })}
                 />
@@ -394,7 +406,23 @@ function AddFieldButton({ onAdd }: { onAdd: (kind: FieldKind) => void }) {
   );
 }
 
-function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f: Field) => void; onRemove: () => void }) {
+interface PasswordContext {
+  itemId: string | null;
+  /** The item's own words, which make a password weaker. */
+  inputs: string[];
+}
+
+function FieldEditor({
+  field,
+  passwordContext,
+  onChange,
+  onRemove,
+}: {
+  field: Field;
+  passwordContext?: PasswordContext;
+  onChange: (f: Field) => void;
+  onRemove: () => void;
+}) {
   const { t } = useTranslation();
   const secret = isSecretKind(field);
   // Not for an SSH private key: it is generated as a key, not a password.
@@ -454,7 +482,36 @@ function FieldEditor({ field, onChange, onRemove }: { field: Field; onChange: (f
             <Trash className="size-4" />
           </IconButton>
         </div>
+        {passwordContext && field.purpose === "password" && field.value && <PasswordHints password={field.value} context={passwordContext} />}
       </div>
+    </div>
+  );
+}
+
+/** Under the password being typed: how strong it is, and whether other items
+ * already use it. Checked on this device only; whether it was in a breach is
+ * checked online once the item is saved (see Sentinel). */
+function PasswordHints({ password, context }: { password: string; context: PasswordContext }) {
+  const { t } = useTranslation();
+  const [check, setCheck] = useState<PasswordCheck | null>(null);
+  useEffect(() => {
+    let current = true;
+    const handle = setTimeout(() => {
+      api
+        .checkItemPassword(password, context.itemId, context.inputs)
+        .then((result) => current && setCheck(result))
+        .catch(() => current && setCheck(null));
+    }, 250);
+    return () => {
+      current = false;
+      clearTimeout(handle);
+    };
+  }, [password, context]);
+  if (!check) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-xs">
+      <StrengthBadge score={check.score} />
+      {check.reused > 0 && <span className="text-warning">{t("editor.reusedPassword", { count: check.reused })}</span>}
     </div>
   );
 }

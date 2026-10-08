@@ -145,6 +145,21 @@ export function useStrength(password: string, email?: string): Strength | null {
   return strength;
 }
 
+/** A password's strength in one line: four small bars and the word. */
+export function StrengthBadge({ score, className }: { score: number; className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <span className={cx("inline-flex items-center gap-1.5", className)}>
+      <span className="flex gap-0.5" aria-hidden>
+        {[0, 1, 2, 3].map((i) => (
+          <span key={i} className={cx("h-1 w-3 rounded-full", Math.max(score, 1) > i ? STRENGTH_COLORS[score] : "bg-panel-3")} />
+        ))}
+      </span>
+      <span className={cx("font-medium", score >= 3 ? "text-success" : score === 2 ? "text-warning" : "text-danger")}>{t(`strength.${score}`)}</span>
+    </span>
+  );
+}
+
 export function StrengthMeter({ strength }: { strength: Strength | null }) {
   const { t } = useTranslation();
   const score = strength?.score ?? -1;

@@ -24,7 +24,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Spinner, Switch, cx } from "../../components/ui";
 import { api, errorMessage, type SentinelAlert } from "../../lib/api";
-import { ALERT_TITLE, ONLINE_ALERTS, SENTINEL_ALERTS, useIssues, useSentinel, type AlertDetail } from "../../lib/sentinel";
+import { ALERT_TITLE, SENTINEL_ALERTS, isPending, useIssues, useSentinel, type AlertDetail } from "../../lib/sentinel";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
@@ -83,8 +83,6 @@ function useDay() {
 export function Sentinel() {
   const { t, i18n } = useTranslation();
   const report = useSentinel((s) => s.report);
-  const breaches = useSentinel((s) => s.breaches);
-  const checkedAt = useSentinel((s) => s.checkedAt);
   const issues = useIssues();
   const [checking, setChecking] = useState(false);
   const settings = useApp((s) => s.settings);
@@ -94,7 +92,8 @@ export function Sentinel() {
   const checkBreaches = async () => {
     setChecking(true);
     try {
-      useSentinel.getState().setBreaches(await api.checkBreaches(), Math.floor(Date.now() / 1000));
+      await api.checkBreaches();
+      await useSentinel.getState().loadReport();
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -113,6 +112,7 @@ export function Sentinel() {
   const problems = new Set(["breached", "compromised", "weak", "reused", "unsecured"].flatMap((a) => [...issues.get(a as SentinelAlert)!.keys()]));
   const score = report.checked ? Math.max(0, Math.round(((report.checked - problems.size) / report.checked) * 100)) : 100;
   const anything = SENTINEL_ALERTS.some((a) => issues.get(a)!.size > 0);
+  const when = (at: number) => new Date(at * 1000).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-panel">
@@ -133,7 +133,7 @@ export function Sentinel() {
               icon={ALERT_ICONS[alert]}
               tone={ALERT_TONE[alert]}
               label={t(ALERT_TITLE[alert])}
-              value={ONLINE_ALERTS.includes(alert) && !breaches ? null : issues.get(alert)!.size}
+              value={isPending(report, alert) ? null : issues.get(alert)!.size}
               placeholder={t("sentinel.notChecked")}
               onOpen={() => setView({ kind: "sentinel", alert })}
             />
@@ -166,20 +166,20 @@ export function Sentinel() {
                     void setSettings({ ...settings, sentinel_auto: on })
                       .then(() => {
                         // Turned on: the first check now rather than later.
-                        if (on && checkedAt === null) void checkBreaches();
+                        if (on && report.passwordsCheckedAt === null) void checkBreaches();
                       })
                       .catch((err) => toast.error(errorMessage(err)));
                   }}
                 />
                 {t("sentinel.autoCheck")}
               </label>
-              {checkedAt !== null && (
-                <span className="text-xs text-subtle">
-                  {t("sentinel.lastChecked", {
-                    when: new Date(checkedAt * 1000).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" }),
-                  })}
-                </span>
-              )}
+              <div className="flex flex-col items-end text-xs text-subtle">
+                {report.passwordsCheckedAt !== null && <span>{t("sentinel.lastChecked", { when: when(report.passwordsCheckedAt) })}</span>}
+                {report.listsUpdatedAt !== null && <span>{t("sentinel.listsUpdated", { when: when(report.listsUpdatedAt) })}</span>}
+                {report.passwordsCheckedAt !== null && report.unchecked > 0 && !checking && (
+                  <span className="text-warning">{t("sentinel.unchecked", { count: report.unchecked })}</span>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -274,10 +274,9 @@ export function AlertPicker({ current }: { current: SentinelAlert | "ignored" })
   const { t } = useTranslation();
   const issues = useIssues();
   const report = useSentinel((s) => s.report);
-  const breaches = useSentinel((s) => s.breaches);
   const setView = useApp((s) => s.setView);
   const Icon = current === "ignored" ? BellOff : ALERT_ICONS[current];
-  const count = (alert: SentinelAlert) => (ONLINE_ALERTS.includes(alert) && !breaches ? "—" : String(issues.get(alert)!.size));
+  const count = (alert: SentinelAlert) => (isPending(report, alert) ? "—" : String(issues.get(alert)!.size));
   const mark = (alert: SentinelAlert | "ignored") => (alert === current ? <Check className="size-4 text-accent" /> : null);
   return (
     <Menu>

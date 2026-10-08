@@ -582,7 +582,6 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     state.clipboard.clear_now();
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = None;
     crate::recovery::forget(&state);
-    *state.sentinel.last.lock().unwrap_or_else(|e| e.into_inner()) = None;
     state.set_sync_status(SyncStatus::default());
     let _ = app.emit(EVENT_LOCKED, ());
     Ok(())

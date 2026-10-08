@@ -2,7 +2,7 @@ import { Archive, ArrowRightLeft, Copy, Download, Ellipsis, ExternalLink, Eye, E
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ItemIcon, PasswordText } from "../../components/common";
+import { ItemIcon, PasswordText, StrengthBadge } from "../../components/common";
 import { Button, Dialog, IconButton, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Tooltip, cx } from "../../components/ui";
 import { fieldLabel } from "../../i18n";
 import {
@@ -23,6 +23,7 @@ import {
 import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatBytes, formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useFileDrop } from "../../lib/fileDrop";
+import { useSentinel } from "../../lib/sentinel";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { ItemVersionsDialog } from "./ItemVersions";
@@ -343,6 +344,7 @@ function FieldRow({ itemId, field }: { itemId: string; field: FieldView }) {
   const [revealed, setRevealed] = useState<string | null>(null);
   const secret = isSecretKind(field);
   const label = fieldLabel(field.label) || t("item.value");
+  const score = useSentinel((s) => (field.purpose === "password" ? s.report?.scores[itemId] : undefined));
 
   // Hide revealed values again after a while or when switching items.
   useEffect(() => {
@@ -398,7 +400,10 @@ function FieldRow({ itemId, field }: { itemId: string; field: FieldView }) {
   return (
     <div className="group flex items-center gap-3 px-4 py-2.5 hover:bg-panel-2">
       <button onClick={copy} className="min-w-0 flex-1 text-left" title={t("item.clickToCopy")}>
-        <div className="text-xs font-medium text-subtle">{label}</div>
+        <div className="flex items-center gap-2 text-xs font-medium text-subtle">
+          {label}
+          {score !== undefined && <StrengthBadge score={score} className="text-[11px]" />}
+        </div>
         <div className="mt-0.5 min-h-6">{value}</div>
       </button>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
