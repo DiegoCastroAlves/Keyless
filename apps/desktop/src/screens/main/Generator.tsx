@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordText } from "../../components/common";
-import { Button, Combobox, Dialog, IconButton, Switch, cx } from "../../components/ui";
+import { Button, Dialog, IconButton, Switch, cx } from "../../components/ui";
 import { api, errorMessage, type GeneratedEntry, type GeneratedPassword, type GeneratorOptions } from "../../lib/api";
 import { relativeTime } from "../../lib/format";
 import { toast } from "../../lib/toast";
@@ -91,7 +91,7 @@ export function GeneratorButton({ onUse, className }: { onUse: (password: string
           align="end"
           sideOffset={6}
           collisionPadding={8}
-          className="z-50 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-2xl border border-line bg-panel p-4 shadow-2xl animate-pop"
+          className="z-50 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-xl border border-line bg-panel p-3 shadow-2xl animate-pop"
         >
           <GeneratorPanel
             compact
@@ -147,19 +147,19 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
   const quality = bits >= 100 ? "bg-success" : bits >= 70 ? "bg-accent" : bits >= 45 ? "bg-warning" : "bg-danger";
 
   const separators = [
-    { value: "-", label: t("generator.sepHyphen") },
-    { value: " ", label: t("generator.sepSpace") },
-    { value: ".", label: t("generator.sepPeriod") },
-    { value: "_", label: t("generator.sepUnderscore") },
-    { value: ",", label: t("generator.sepComma") },
-    { value: "none", label: t("generator.sepNone") },
+    { value: "-", label: "-", title: t("generator.sepHyphen") },
+    { value: " ", label: "␣", title: t("generator.sepSpace") },
+    { value: ".", label: ".", title: t("generator.sepPeriod") },
+    { value: "_", label: "_", title: t("generator.sepUnderscore") },
+    { value: ",", label: ",", title: t("generator.sepComma") },
+    { value: "", label: "∅", title: t("generator.sepNone") },
   ];
 
   return (
-    <div className={cx("space-y-4", compact && "w-[360px]")}>
-      <div className="rounded-xl border border-line bg-panel-2 p-4">
-        <div className="flex items-start gap-2">
-          <div className="min-h-12 flex-1 text-[17px] leading-relaxed">
+    <div className={cx("space-y-3", compact && "w-[300px]")}>
+      <div className="rounded-lg border border-line bg-panel-2 px-3 py-2.5">
+        <div className="flex items-start gap-0.5">
+          <div className="min-h-10 flex-1 pt-0.5 text-[14px] leading-snug">
             {result ? <PasswordText value={result.password} /> : <span className="text-danger">{error}</span>}
           </div>
           <IconButton label={t("generator.regenerate")} onClick={() => regenerate(prefs)}>
@@ -169,21 +169,21 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
             <Copy className="size-4" />
           </IconButton>
         </div>
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <div className="h-1 flex-1 overflow-hidden rounded-full bg-panel-3">
             <div className={cx("h-full rounded-full transition-all", quality)} style={{ width: `${Math.min(100, (bits / 128) * 100)}%` }} />
           </div>
-          <span className="text-[11px] tabular-nums text-subtle">{t("generator.bits", { bits })}</span>
+          <span className="text-[10px] tabular-nums text-subtle">{t("generator.bits", { bits })}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-1 rounded-lg bg-panel-3 p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-panel-3 p-0.5">
         {(["random", "memorable", "pin"] as Mode[]).map((mode) => (
           <button
             key={mode}
             onClick={() => update({ mode })}
             className={cx(
-              "h-7 rounded-md text-[13px] font-medium transition-colors",
+              "h-6 rounded-md text-xs font-medium transition-colors",
               prefs.mode === mode ? "bg-panel text-fg shadow-sm" : "text-muted hover:text-fg",
             )}
           >
@@ -193,27 +193,26 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
       </div>
 
       {prefs.mode === "random" && (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <LengthSlider label={t("generator.length")} value={prefs.length} min={8} max={64} onChange={(length) => update({ length })} />
-          <Toggle label={t("generator.uppercase")} checked={prefs.uppercase} onChange={(uppercase) => update({ uppercase })} />
-          <Toggle label={t("generator.lowercase")} checked={prefs.lowercase} onChange={(lowercase) => update({ lowercase })} />
-          <Toggle label={t("generator.digits")} checked={prefs.digits} onChange={(digits) => update({ digits })} />
-          <Toggle label={t("generator.symbols")} checked={prefs.symbols} onChange={(symbols) => update({ symbols })} />
+          <div className="grid grid-cols-4 gap-1">
+            <Chip label="A-Z" title={t("generator.uppercase")} pressed={prefs.uppercase} onToggle={(uppercase) => update({ uppercase })} />
+            <Chip label="a-z" title={t("generator.lowercase")} pressed={prefs.lowercase} onToggle={(lowercase) => update({ lowercase })} />
+            <Chip label="0-9" title={t("generator.digits")} pressed={prefs.digits} onToggle={(digits) => update({ digits })} />
+            <Chip label="!@#" title={t("generator.symbols")} pressed={prefs.symbols} onToggle={(symbols) => update({ symbols })} />
+          </div>
           <Toggle label={t("generator.avoidAmbiguous")} checked={prefs.avoid_ambiguous} onChange={(avoid_ambiguous) => update({ avoid_ambiguous })} />
         </div>
       )}
       {prefs.mode === "memorable" && (
-        <div className="space-y-3">
+        <div className="space-y-2.5">
           <LengthSlider label={t("generator.words")} value={prefs.words} min={3} max={12} onChange={(words) => update({ words })} />
-          <div className="flex items-center justify-between gap-4">
-            <span className="text-[13px]">{t("generator.separator")}</span>
-            <div className="w-44">
-              <Combobox
-                value={prefs.separator === "" ? "none" : prefs.separator}
-                onChange={(v) => update({ separator: v === "none" ? "" : v })}
-                options={separators}
-                searchPlaceholder={t("common.searchPlaceholder")}
-              />
+          <div className="flex items-center gap-3">
+            <span className="w-16 shrink-0 text-xs text-muted">{t("generator.separator")}</span>
+            <div className="grid flex-1 grid-cols-6 gap-1">
+              {separators.map((sep) => (
+                <Chip key={sep.title} label={sep.label} title={sep.title} pressed={prefs.separator === sep.value} onToggle={() => update({ separator: sep.value })} />
+              ))}
             </div>
           </div>
           <Toggle label={t("generator.capitalize")} checked={prefs.capitalize} onChange={(capitalize) => update({ capitalize })} />
@@ -227,6 +226,7 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
       {onUse && result && (
         <Button
           variant="primary"
+          size="sm"
           className="w-full"
           onClick={() => {
             remember(result.password);
@@ -237,6 +237,25 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
         </Button>
       )}
     </div>
+  );
+}
+
+/** A character set or separator: short, with its name as a tooltip. */
+function Chip({ label, title, pressed, onToggle }: { label: string; title: string; pressed: boolean; onToggle: (pressed: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      aria-label={title}
+      title={title}
+      onClick={() => onToggle(!pressed)}
+      className={cx(
+        "h-7 rounded-md border font-mono text-xs transition-colors",
+        pressed ? "border-accent/40 bg-accent-soft font-semibold text-accent" : "border-line text-muted hover:bg-panel-2 hover:text-fg",
+      )}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -328,7 +347,7 @@ function GeneratorHistory() {
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-4 text-[13px]">
+    <label className="flex cursor-pointer items-center justify-between gap-4 text-xs text-muted">
       {label}
       <Switch checked={checked} onChange={onChange} label={label} />
     </label>
@@ -337,24 +356,22 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
 
 function LengthSlider({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   return (
-    <div>
-      <div className="mb-2 flex items-center justify-between text-[13px]">
-        <span>{label}</span>
-        <span className="rounded-md bg-panel-3 px-2 py-0.5 font-mono text-xs tabular-nums">{value}</span>
-      </div>
+    <div className="flex items-center gap-3">
+      <span className="w-16 shrink-0 text-xs text-muted">{label}</span>
       <Slider.Root
         value={[value]}
         min={min}
         max={max}
         step={1}
         onValueChange={([v]) => onChange(v)}
-        className="relative flex h-5 w-full touch-none select-none items-center"
+        className="relative flex h-5 flex-1 touch-none select-none items-center"
       >
         <Slider.Track className="relative h-1.5 grow overflow-hidden rounded-full bg-panel-3">
           <Slider.Range className="absolute h-full rounded-full bg-accent" />
         </Slider.Track>
         <Slider.Thumb aria-label={label} className="block size-4 rounded-full border-2 border-accent bg-panel shadow outline-none focus-visible:ring-4 focus-visible:ring-accent-soft" />
       </Slider.Root>
+      <span className="w-7 text-right font-mono text-xs tabular-nums">{value}</span>
     </div>
   );
 }
