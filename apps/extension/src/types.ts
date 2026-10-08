@@ -10,6 +10,8 @@ export interface Login {
   /** For a login form in a frame from another site inside the page: that
    * frame's host. */
   frame?: string;
+  /** It has a one-time code. */
+  totp?: boolean;
 }
 
 export interface Status {
@@ -32,6 +34,12 @@ export interface PageState {
   card?: boolean;
   /** Open the list when the user clicks a login field. */
   autoOpen?: boolean;
+  /** Logins for the page with a one-time code. */
+  codes?: number;
+  /** Passkeys the page offers in its fields (it is waiting for one). */
+  passkeys?: number;
+  /** This frame: the page itself, or a frame of its site or another. */
+  frame?: "top" | "same-site" | "cross-site";
 }
 
 export type FormKind = "card" | "identity";
@@ -43,6 +51,18 @@ export interface FieldInfo {
   maxLength: number | null;
   /** A payment or address form field. */
   form?: FormKind | null;
+  /** A field for a one-time code: logins fill only their code. */
+  code?: boolean;
+  /** A field that asks for passkeys (autocomplete "webauthn"). */
+  passkeys?: boolean;
+}
+
+/** A passkey the page's field can sign in with. */
+export interface PasskeyEntry {
+  itemId: string;
+  credentialId: string;
+  title: string;
+  userName: string;
 }
 
 export interface CardSummary {
@@ -104,6 +124,8 @@ export interface InlineState {
   url: string | null;
   host: string | null;
   logins: Login[];
+  /** Passkeys for the frame's fields, while the page waits for one. */
+  passkeys?: PasskeyEntry[];
 }
 
 export interface Credentials {

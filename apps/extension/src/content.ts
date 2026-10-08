@@ -3,10 +3,16 @@
 // password in sign-up forms), the sign-in card at the top of the page and
 // the "Save login?" prompt.
 //
-// In frames inside the page it shows nothing: it only tells the background
-// whether the frame has a login form (so the popup can fill it), fills when
-// asked, and reports logins sent from the frame. Sandboxed frames, with no
-// origin of their own, are left alone.
+// In frames inside the page it also tells the background whether the frame
+// has a login form (so the popup and the shortcuts can fill it) or, when
+// asked, card and address fields (filled with the page's), and shows the
+// button and the menu
+// for the frame's own address: in frames of the page's site, and in other
+// sites' frames only where the browser can tell the menu is really seen
+// (IntersectionObserver v2, in Chromium), since the page around such a frame
+// could hide or cover it unnoticed. The sign-in card and the "Save login?"
+// prompt are the page's only. Sandboxed frames, with no origin of their own,
+// are left alone.
 //
 // The menus are extension pages (inline.html) in
 // iframes inside a closed shadow root: the page cannot read the logins they
@@ -189,12 +195,24 @@ function setSplit(first: HTMLInputElement, value: string) {
   setValue(first, value);
 }
 
-function fill(anchor: HTMLInputElement | null, credentials: Credentials) {
+/** Fills a login; `codeOnly`: only its one-time code. The code goes into
+ * the field the user is in when it asks for one, otherwise the form's (also
+ * one asked next to the password). Returns the fields filled. */
+function fill(anchor: HTMLInputElement | null, credentials: Credentials, codeOnly = false) {
   const fields = loginFields(anchor);
-  if (fields.username && credentials.username) setValue(fields.username, credentials.username);
-  if (fields.password && credentials.password) setValue(fields.password, credentials.password);
-  if (fields.otp && credentials.totp && !fields.password) setSplit(fields.otp, credentials.totp);
-  return fields;
+  if (anchor && fieldKind(anchor) === "otp" && viewable(anchor)) fields.otp = anchor;
+  if (!codeOnly) {
+    if (fields.username && credentials.username) setValue(fields.username, credentials.username);
+    if (fields.password && credentials.password) setValue(fields.password, credentials.password);
+  }
+  const otp = fields.otp && credentials.totp ? fields.otp : null;
+  if (otp && credentials.totp) setSplit(otp, credentials.totp);
+  return codeOnly ? { username: null, password: null, otp } : { ...fields, otp };
+}
+
+/** A field that offers passkeys (autocomplete "username webauthn"). */
+function wantsPasskey(input: HTMLInputElement): boolean {
+  return (input.autocomplete || "").toLowerCase().split(/\s+/).includes("webauthn");
 }
 
 function hintsOf(input: HTMLInputElement): string {
@@ -325,19 +343,45 @@ function formParts(anchor: Element | null, kind: FormKind, check: (el: HTMLEleme
   return parts;
 }
 
+/** A payment service's frame holding one or a few of a card's fields (each
+ * often in a frame of its own). */
+function hostedFields(): boolean {
+  return !TOP && document.querySelectorAll("input").length <= 4;
+}
+
 /** A payment or address form field. A hint in its name alone is not
- * enough: the form must ask for at least two such things. */
+ * enough: the form must ask for at least two such things (a card field in a
+ * payment service's frame is enough on its own). */
 function formKindOf(control: FormControl): FormKind | null {
   const part = partOf(control);
   if (!part) return null;
-  return formParts(control, part[0], visible).size >= 2 ? part[0] : null;
+  const needed = part[0] === "card" && hostedFields() ? 1 : 2;
+  return formParts(control, part[0], visible).size >= needed ? part[0] : null;
+}
+
+/** The kinds of payment and address fields this frame shows: for cards,
+ * also a single field the page marks as one (the name on the card next to a
+ * payment service's frames). */
+function formKinds(): { card: boolean; identity: boolean } {
+  const found = { card: 0, identity: 0, marked: 0 };
+  for (const control of document.querySelectorAll<FormControl>("input, select")) {
+    if (control.disabled || !visible(control) || (control instanceof HTMLInputElement && fieldKind(control))) continue;
+    const part = partOf(control);
+    if (!part) continue;
+    found[part[0]]++;
+    if (part[0] === "card" && /\bcc-/.test((control.autocomplete || "").toLowerCase())) found.marked++;
+  }
+  return { card: found.marked >= 1 || found.card >= (hostedFields() ? 1 : 2), identity: found.identity >= 2 };
 }
 
 function fieldInfo(input: HTMLInputElement): FieldInfo {
+  const kind = fieldKind(input);
   return {
     newPassword: isNewPassword(input),
     maxLength: input.maxLength > 0 ? input.maxLength : null,
-    form: fieldKind(input) ? null : formKindOf(input),
+    form: kind ? null : formKindOf(input),
+    code: kind === "otp",
+    passkeys: kind === "username" && wantsPasskey(input),
   };
 }
 
@@ -402,6 +446,13 @@ function hasLoginForm(): boolean {
   return inputs.some((input) => fieldKind(input) === "username" && (input.autocomplete || "").toLowerCase().includes("username"));
 }
 
+/** True when the page asks only for a one-time code (the sign-in's next
+ * step). */
+function hasCodeForm(): boolean {
+  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter(visible);
+  return !inputs.some((input) => fieldKind(input) === "password") && inputs.some((input) => fieldKind(input) === "otp");
+}
+
 function submitButton(field: HTMLInputElement): HTMLElement | null {
   const scope: ParentNode = field.form ?? document;
   const candidates = Array.from(
@@ -453,6 +504,7 @@ iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0;
 @media (prefers-color-scheme: dark) { iframe { color-scheme: dark; } }
 iframe.open { visibility: visible; pointer-events: auto; }
 iframe.card { top: 0; left: max(0px, calc(50% - ${(CARD_WIDTH + 2 * PAD) / 2}px)); }
+iframe.detached { top: 0; left: max(0px, calc(50% - ${(MENU_WIDTH + 2 * PAD) / 2}px)); }
 iframe.save { top: 0; right: 12px; }
 `;
 
@@ -484,10 +536,25 @@ let buttonKind: ButtonKind | null = null;
 /** Something for the menu to offer in this field. */
 function offers(state: PageState | null, field: HTMLInputElement | null): boolean {
   if (state?.state !== "ready" || !field) return false;
-  const form = fieldKind(field) ? null : formKindOf(field);
+  const kind = fieldKind(field);
+  const form = kind ? null : formKindOf(field);
   if (form === "card") return (state.cards ?? 0) > 0;
   if (form === "identity") return (state.identities ?? 0) > 0;
+  if (kind === "otp") return (state.codes ?? 0) > 0;
+  if (wantsPasskey(field) && (state.passkeys ?? 0) > 0) return true;
   return state.count > 0 || isNewPassword(field);
+}
+
+/** Visibility the browser checks (IntersectionObserver v2, Chromium). */
+const tracksVisibility = typeof IntersectionObserverEntry !== "undefined" && "isVisible" in IntersectionObserverEntry.prototype;
+
+/** The button and the menu may show in this frame: the page itself, a
+ * frame of its site, or another site's frame where the menu can tell it is
+ * really seen. */
+function inlineAllowed(state: PageState | null): boolean {
+  if (TOP) return true;
+  if (SANDBOXED || !state?.frame) return false;
+  return state.frame === "same-site" || (state.frame === "cross-site" && tracksVisibility);
 }
 
 function kindFor(state: PageState | null, field: HTMLInputElement | null = current): ButtonKind {
@@ -552,7 +619,7 @@ function raise() {
   below = pageTopLayer();
   // Chrome stops updating the menus' view of their visibility after this:
   // they start watching it again.
-  for (const frame of [menu, card, saveFrame]) if (frame?.open) frame.post({ type: "recheck" });
+  for (const frame of openFrames()) if (frame?.open) frame.post({ type: "recheck" });
 }
 
 /** The page's own shadow root of `el`, also a closed one where the browser
@@ -601,8 +668,8 @@ function outranked(): boolean {
  * through (which only Chrome notices on its own): the menus refuse clicks,
  * are put back on top, and wait to have been seen a moment again. */
 function covered() {
-  if (![menu, card, saveFrame].some((f) => f?.open)) return;
-  for (const frame of [menu, card, saveFrame]) {
+  if (!openFrames().some((f) => f?.open)) return;
+  for (const frame of openFrames()) {
     if (!frame?.open) continue;
     lastSafe.set(frame, false);
     frame.post({ type: "safety", safe: false });
@@ -636,10 +703,10 @@ const guard = new MutationObserver(() => {
 });
 const removal = new MutationObserver(() => {
   // Removed by the page: put back while something is shown.
-  if (!host.isConnected && (button.style.display !== "none" || [menu, card, saveFrame].some((f) => f?.open))) mount();
+  if (!host.isConnected && (button.style.display !== "none" || openFrames().some((f) => f?.open))) mount();
 });
 host.addEventListener("toggle", (event) => {
-  if ((event as ToggleEvent).newState === "closed" && [menu, card, saveFrame].some((f) => f?.open)) raise();
+  if ((event as ToggleEvent).newState === "closed" && openFrames().some((f) => f?.open)) raise();
 });
 
 /** What the menus' element must look like (computed): anything else may hide,
@@ -697,14 +764,14 @@ function uncovered(frame: Frame): boolean {
 const lastSafe = new Map<Frame, boolean>();
 /** Tells the open menus whether they can be trusted to be seen. */
 function reportSafety() {
-  if (topLayer && [menu, card, saveFrame].some((f) => f?.open)) {
+  if (topLayer && openFrames().some((f) => f?.open)) {
     const now = pageTopLayer();
     if ([...now].some((el) => !below.has(el))) return covered();
     // Closed since: shown again, they are new.
     below = now;
   }
   const style = untouched();
-  for (const frame of [menu, card, saveFrame]) {
+  for (const frame of openFrames()) {
     if (!frame?.open || frame.height === 0) continue;
     const safe = style && uncovered(frame);
     if (lastSafe.get(frame) === safe) continue;
@@ -712,7 +779,7 @@ function reportSafety() {
     frame.post({ type: "safety", safe });
   }
 }
-setInterval(() => [menu, card, saveFrame].some((f) => f?.open) && reportSafety(), 250);
+setInterval(() => openFrames().some((f) => f?.open) && reportSafety(), 250);
 
 function send<T>(message: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
   // Rejects when the extension was updated or reloaded under this page.
@@ -737,14 +804,20 @@ window.addEventListener("pageshow", (event) => {
 /** A Keyless menu: inline.html in an iframe. */
 class Frame {
   readonly iframe = document.createElement("iframe");
+  /** The token the menu presents: this script's, or a small frame's (see
+   * `detached`). */
+  token = token;
   private loading: Promise<void> | null = null;
   /** What the menu was last shown for, to set it up again if it reloads. */
   private details: { activate: boolean; field: FieldInfo | null } = { activate: false, field: null };
   open = false;
   height = 0;
 
-  constructor(readonly mode: "menu" | "card" | "save") {
-    this.iframe.className = mode;
+  constructor(
+    readonly mode: "menu" | "card" | "save",
+    className: string = mode,
+  ) {
+    this.iframe.className = className;
     this.iframe.title = "Keyless";
     const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH }[mode];
     this.iframe.style.width = `${width + 2 * PAD}px`;
@@ -801,12 +874,20 @@ class Frame {
   }
 
   post(message: Record<string, unknown>) {
-    this.iframe.contentWindow?.postMessage({ ...message, keyless: token }, EXTENSION_ORIGIN);
+    this.iframe.contentWindow?.postMessage({ ...message, keyless: this.token }, EXTENSION_ORIGIN);
   }
 }
 
 let current: HTMLInputElement | null = null;
 let menu: Frame | null = null;
+/** The page's menu for a field in a frame too small to show one (a payment
+ * service's card field, a small sign-in box): at the top of the page, acting
+ * for that frame with its token. */
+let detached: Frame | null = null;
+
+function openFrames(): (Frame | null)[] {
+  return [menu, card, saveFrame, detached];
+}
 let card: Frame | null = null;
 let cardDismissed = false;
 let filling = false;
@@ -828,6 +909,14 @@ function place() {
   button.style.top = `${rect.top + (rect.height - 24) / 2}px`;
   button.style.left = `${rect.right - (button.offsetWidth || 24) - 6}px`;
   if (menu?.open) {
+    const below = rect.bottom + 4 + menu.height - 2 * PAD <= window.innerHeight;
+    const above = rect.top - menu.height > 0;
+    if (!TOP && menu.height > 0 && !below && !above) {
+      // Cut off by the frame's edges, it could not be trusted to be seen
+      // (and Chromium refuses clicks on it): the page shows it instead.
+      menuElsewhere(current);
+      return;
+    }
     const width = Math.min(MENU_WIDTH, window.innerWidth - 16);
     const outer = width + 2 * PAD;
     let top = rect.bottom + 4 - PAD;
@@ -848,8 +937,21 @@ function place() {
 /** Keeps the open menu under its field when the page layout moves. */
 let follow: ReturnType<typeof setInterval> | undefined;
 
+/** A frame too small for the menu under its field. */
+function tooSmall(): boolean {
+  return !TOP && (innerHeight < 220 || innerWidth < 260);
+}
+
+/** The page shows the menu for this frame (see `detached`). */
+function menuElsewhere(field: HTMLInputElement, activate = false) {
+  closeMenu();
+  const info = fieldInfo(field);
+  void register().then(() => send({ type: "menu_elsewhere", field: info, activate }));
+}
+
 function openMenu(activate = false) {
   if (!current) return;
+  if (tooSmall()) return menuElsewhere(current, activate);
   menu ??= new Frame("menu");
   menu.show({ activate, field: fieldInfo(current) });
   place();
@@ -877,7 +979,7 @@ function closeMenu(refocus = false) {
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
   if (field !== current || document.activeElement !== field || menu?.open || !userWentTo(field)) return;
-  if (!fieldKind(field) || !offers(state, field) || state?.autoOpen === false || state?.hidden) return;
+  if (!fieldKind(field) || !offers(state, field) || state?.autoOpen === false || state?.hidden || !inlineAllowed(state)) return;
   openMenu();
 }
 
@@ -919,26 +1021,34 @@ function onState(state: Status["state"]) {
   }
 }
 
-let reportedLogin = false;
-/** Tells the background whether this frame has a login form. */
-function reportLoginForm() {
-  const login = !SANDBOXED && hasLoginForm();
-  if (login === reportedLogin) return;
-  reportedLogin = login;
-  void send({ type: "frame_login", login });
+let reportedLogin = "";
+/** Tells the background whether this frame has a login form (or asks for a
+ * one-time code). */
+function reportForms() {
+  if (SANDBOXED) return;
+  const code = !hasLoginForm() && hasCodeForm();
+  const login = code ? "code" : hasLoginForm() ? "login" : "";
+  if (login !== reportedLogin) {
+    reportedLogin = login;
+    void send({ type: "frame_login", login: login !== "", code });
+  }
 }
 
-/** Shows the sign-in card on login pages with saved logins. */
+/** Shows the sign-in card on login pages with saved logins, and on pages
+ * asking for a one-time code that a login for the page has. */
 async function scan() {
-  reportLoginForm();
+  reportForms();
   if (!TOP) return;
+  const login = hasLoginForm();
+  const code = !login && hasCodeForm();
   // Signed in without leaving the page: the card has nothing left to fill.
-  if (card?.open && !hasLoginForm()) card.hide();
-  if (cardDismissed || card?.open || !hasLoginForm()) return;
+  if (card?.open && !login && !code) card.hide();
+  if (cardDismissed || card?.open || (!login && !code)) return;
   const state = await getPageState();
-  if (cardDismissed || card?.open || state?.state !== "ready" || state.count === 0 || state.card === false) return;
+  if (cardDismissed || card?.open || state?.state !== "ready" || state.card === false) return;
+  if (code ? (state.codes ?? 0) === 0 : state.count === 0 && (state.passkeys ?? 0) === 0) return;
   card ??= new Frame("card");
-  card.show();
+  card.show({ field: { newPassword: false, maxLength: null, code } });
 }
 
 function dismissCard() {
@@ -962,15 +1072,14 @@ button.addEventListener("mousedown", (e) => e.preventDefault());
 document.addEventListener(
   "focusin",
   (e) => {
-    // No Keyless button in frames inside the page.
-    if (!TOP) return;
     const target = e.target;
-    if (!(target instanceof HTMLInputElement) || !visible(target) || !(fieldKind(target) || formKindOf(target))) return;
+    if (SANDBOXED || !(target instanceof HTMLInputElement) || !visible(target) || !(fieldKind(target) || formKindOf(target))) return;
     if (current !== target) closeMenu();
     current = target;
     void getPageState().then((state) => {
-      // Shown once Keyless knows the site, unless the user hid it there.
-      if (current !== target || state?.hidden) return;
+      // Shown once Keyless knows the site, unless the user hid it there, and
+      // in frames only where it may be (see inlineAllowed).
+      if (current !== target || state?.hidden || !inlineAllowed(state)) return;
       mount();
       button.style.display = "flex";
       renderButton(kindFor(state));
@@ -996,6 +1105,7 @@ document.addEventListener(
     // Clicks inside the menus happen in their own frames and never get here.
     if (e.composedPath().includes(host) || e.target === current) return;
     closeMenu();
+    detached?.hide();
     button.style.display = "none";
     current = null;
   },
@@ -1039,7 +1149,7 @@ window.addEventListener("focus", () => {
 // Messages from the menus. Only their frames can be the source; the page
 // cannot pretend to be them.
 window.addEventListener("message", (event) => {
-  const frame = [menu, card, saveFrame].find((f) => f && event.source === f.iframe.contentWindow) ?? null;
+  const frame = openFrames().find((f) => f && event.source === f.iframe.contentWindow) ?? null;
   if (!frame || event.origin !== EXTENSION_ORIGIN) return;
   const data = event.data;
   switch (data?.type) {
@@ -1204,18 +1314,51 @@ setTimeout(() => {
   void send<boolean>({ type: "save_pending", loginForm: hasLoginForm() }).then((reply) => reply.ok && reply.data && showSavePrompt());
 }, 700);
 
-// Fill requested from a Keyless menu, the popup or the keyboard shortcut;
-// Keyless locked or unlocked; a login to offer saving.
-chrome.runtime.onMessage.addListener((message, sender) => {
-  if (sender.id !== chrome.runtime.id) return;
-  // Frames inside the page only fill logins.
-  if (SANDBOXED || (!TOP && message?.type !== "keyless-fill")) return;
+// Fill requested from a Keyless menu, the popup or the keyboard shortcuts;
+// Keyless locked or unlocked; passkeys the page now offers in its fields; a
+// login to offer saving (the page only).
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (sender.id !== chrome.runtime.id || SANDBOXED) return;
   if (message?.type === "keyless-state" && typeof message.state === "string") {
     onState(message.state);
     return;
   }
+  if (message?.type === "keyless-forms" && typeof message.nonce === "string") {
+    // Which frames have card or address fields, for a card being filled.
+    const forms = formKinds();
+    if (forms.card || forms.identity) void send({ type: "frame_form", nonce: message.nonce, ...forms });
+    return;
+  }
+  if (message?.type === "keyless-passkeys" && typeof message.count === "number") {
+    void getPageState().then((state) => {
+      if (state) state.passkeys = message.count;
+      renderButton(kindFor(state));
+      // Signed in with one, or the page stopped offering them.
+      if (menu?.open) {
+        if (message.count === 0 && current && wantsPasskey(current) && !offers(state, current)) closeMenu();
+        else menu.post({ type: "refresh" });
+      }
+      // The card at the top offers the passkey first.
+      if (card?.open) card.post({ type: "refresh" });
+      if (detached?.open) detached.post({ type: "refresh" });
+      void scan();
+    });
+    return;
+  }
   if (message?.type === "keyless-save") {
-    showSavePrompt();
+    if (TOP) showSavePrompt();
+    return;
+  }
+  if (message?.type === "keyless-menu-for" && typeof message.token === "string" && message.token.length >= 32) {
+    // A small frame's menu, shown here for it.
+    if (!TOP) return;
+    if (detached && detached.token !== message.token) {
+      detached.iframe.remove();
+      detached = null;
+    }
+    detached ??= new Frame("menu", "detached");
+    detached.token = message.token;
+    detached.show({ activate: message.activate === true, field: message.field });
     return;
   }
   if (message?.type === "keyless-fill-form" && (message.kind === "card" || message.kind === "identity")) {
@@ -1234,14 +1377,16 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   filling = true;
   let fields;
   try {
-    fields = fill(anchor, message);
+    fields = fill(anchor, message, message.codeOnly === true);
   } finally {
     filling = false;
   }
   // Submitting it unchanged is no reason to offer saving it.
-  filledKey = `${message.username ?? ""}\n${message.password ?? ""}`;
+  if (message.codeOnly !== true) filledKey = `${message.username ?? ""}\n${message.password ?? ""}`;
   closeMenu();
   if (card?.open) dismissCard();
+  // The background copies the code when it was not filled here.
+  sendResponse({ otp: fields.otp !== null });
   const target = fields.password ?? fields.username ?? fields.otp;
   if (message.submit && target) void submitAfterFill(target);
 });

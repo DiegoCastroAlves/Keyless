@@ -403,5 +403,32 @@
   },
   "setPasskeys": {
     "message": "Save and use passkeys with Keyless"
+  },
+  "commandFillCode": {
+    "message": "Fill the verification code on this page"
+  },
+  "passkeys": {
+    "message": "Passkeys"
+  },
+  "passkey": {
+    "message": "Passkey"
+  },
+  "signInPasskey": {
+    "message": "Sign in with passkey"
+  },
+  "fillCode": {
+    "message": "Fill code"
+  },
+  "noCodes": {
+    "message": "No login for this site has a verification code."
+  },
+  "pkInFrame": {
+    "message": "Asked from inside $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "shop.example"
+      }
+    }
   }
 }

@@ -26,14 +26,17 @@ const base = {
     // Also in frames inside pages, for login forms there (see src/content.ts).
     { matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: true },
     // Passkeys: the page's WebAuthn calls (webauthn-page.ts, in the page's
-    // world) relayed to Keyless (webauthn.ts). Secure pages only.
-    { matches: ["https://*/*", "http://localhost/*"], js: ["webauthn-page.js"], run_at: "document_start", world: "MAIN" },
-    { matches: ["https://*/*", "http://localhost/*"], js: ["webauthn.js"], run_at: "document_start" },
+    // world) relayed to Keyless (webauthn.ts). Secure pages only, and the
+    // frames in them (webauthn.ts checks what the page allows them).
+    { matches: ["https://*/*", "http://localhost/*"], js: ["webauthn-page.js"], run_at: "document_start", world: "MAIN", all_frames: true },
+    { matches: ["https://*/*", "http://localhost/*"], js: ["webauthn.js"], run_at: "document_start", all_frames: true },
   ],
   // The Keyless menus shown inside pages (see src/inline.ts).
   web_accessible_resources: [{ resources: ["inline.html"], matches: ["http://*/*", "https://*/*"] }],
   commands: {
     "fill-login": { suggested_key: { default: "Ctrl+Shift+L", mac: "Command+Shift+L" }, description: "__MSG_commandFill__" },
+    // No key of its own by default (set one in the browser's shortcuts page).
+    "fill-code": { description: "__MSG_commandFillCode__" },
   },
   content_security_policy: { extension_pages: "script-src 'self'; object-src 'none'; base-uri 'none'" },
 };

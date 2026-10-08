@@ -14,7 +14,7 @@
 // the content script reports what the page did to the menu.
 
 import { avatar } from "./avatar";
-import type { FieldInfo, FormItems, InlineState, Login, SaveState } from "./types";
+import type { FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
 const mode: "menu" | "card" | "save" = location.hash === "#card" ? "card" : location.hash === "#save" ? "save" : "menu";
@@ -115,6 +115,7 @@ const ICON_CLOSE = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" 
 const ICON_CHEVRON = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`;
 const ICON_REFRESH = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>`;
 const ICON_WAND = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 4 1.5 1.5M19 8l1.5 1.5M18 3v2M21 6h-2M4 20 15 9l1 1L5 21z"/></svg>`;
+const ICON_PASSKEY = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="7" r="4"/><path d="M2 21a7 7 0 0 1 11.5-5.4"/><circle cx="18" cy="15" r="2.5"/><path d="M18 17.5V22M18 20h2"/></svg>`;
 const ICON_KEY = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M15 8l2 2"/></svg>`;
 
 /** Icon for a login; matches show the icon of the page they are for. */
@@ -157,8 +158,10 @@ function unlockError(code: string | undefined): string {
 
 // ----- Actions ------------------------------------------------------------------
 
+/** In a field for a one-time code (or the card on such a page), a login
+ * fills only its code. */
 async function fillLogin(login: Login, submit: boolean) {
-  const reply = await send({ type: "fill", id: login.id, submit });
+  const reply = await send({ type: "fill", id: login.id, submit, code: field.code === true });
   if (reply.ok) return; // The content script closes the menu.
   if (reply.error === "locked") await refresh();
   else showError(t("fillFailed"));
@@ -169,6 +172,40 @@ function loginRow(login: Login, options: { submit: boolean }): HTMLButtonElement
   if (mode === "card") row.append(svg(ICON_KEY));
   row.addEventListener("click", () => void fillLogin(login, options.submit));
   return row;
+}
+
+/** Signs in with a passkey the page offers in its fields: the page gets it
+ * at once, nothing is typed. */
+async function usePasskey(key: PasskeyEntry) {
+  const reply = await send({ type: "passkey_pick", credentialId: key.credentialId });
+  if (reply.ok) return toParent("close");
+  if (reply.error === "locked") await refresh();
+  else showError(t("pkFailed"));
+}
+
+function passkeyLogin(key: PasskeyEntry): Login {
+  return { id: key.itemId, title: key.title, username: key.userName, url: state?.url ?? "", vault: "", favorite: false };
+}
+
+function passkeyRow(key: PasskeyEntry): HTMLButtonElement {
+  const login = passkeyLogin(key);
+  const row = el(
+    "button",
+    { className: "row", type: "button" },
+    avatar(login, state?.url ?? undefined),
+    el("span", { className: "text" }, el("span", { className: "title", textContent: key.title }), el("span", { className: "sub", textContent: key.userName || t("passkey") })),
+    el("span", { className: "badge" }, svg(ICON_PASSKEY), el("span", { textContent: t("passkey") })),
+  );
+  row.addEventListener("click", () => void usePasskey(key));
+  return row;
+}
+
+/** What the menu and the card offer: the page's logins (only those with a
+ * code, in a field for one) and the passkeys its field asks for. */
+function offered(): { logins: Login[]; passkeys: PasskeyEntry[] } {
+  const logins = (state?.logins ?? []).filter((login) => !field.code || login.totp);
+  const passkeys = field.code ? [] : mode === "card" || field.passkeys ? (state?.passkeys ?? []) : [];
+  return { logins, passkeys };
 }
 
 function rows(): HTMLElement[] {
@@ -357,12 +394,17 @@ function renderMenu() {
     return;
   }
   if (!state || state.state === "ready") {
-    const logins = state?.logins ?? [];
+    const { logins, passkeys } = offered();
+    if (passkeys.length > 0) {
+      box.append(el("div", { className: "head", textContent: t("passkeys") }));
+      passkeys.forEach((key) => box.append(passkeyRow(key)));
+      if (logins.length > 0 || field.newPassword) box.append(el("div", { className: "head", textContent: t("savedLogins") }));
+    }
     if (field.newPassword) {
       box.append(generatorView());
-      if (logins.length > 0) box.append(el("div", { className: "head", textContent: t("savedLogins") }));
-    } else if (logins.length === 0) {
-      box.append(el("p", { className: "note", textContent: t("noMatches") }));
+      if (logins.length > 0 && passkeys.length === 0) box.append(el("div", { className: "head", textContent: t("savedLogins") }));
+    } else if (logins.length === 0 && passkeys.length === 0) {
+      box.append(el("p", { className: "note", textContent: field.code ? t("noCodes") : t("noMatches") }));
     }
     logins.forEach((login) => box.append(loginRow(login, { submit: false })));
   } else if (state.state === "locked") {
@@ -374,25 +416,32 @@ function renderMenu() {
   app.replaceChildren(box);
 }
 
+/** The card at the top of a login page: sign in with the best login (or a
+ * passkey the page offers in its fields); on a page asking for a one-time
+ * code, fill the code of the best login that has one. */
 function renderCard() {
-  if (state?.state !== "ready" || state.logins.length === 0) {
+  const { logins, passkeys } = offered();
+  if (state?.state !== "ready" || (logins.length === 0 && passkeys.length === 0)) {
     // Locked meanwhile, or nothing left to offer.
     app.replaceChildren();
     toParent("hide");
     return;
   }
-  if (expanded) return renderSearch(state);
-  const best = state.logins[0];
-  const signIn = el("button", { className: "signin", type: "button", textContent: t("signIn") });
-  signIn.addEventListener("click", () => void fillLogin(best, true));
+  if (expanded) return renderSearch({ ...state, logins });
+  const key = passkeys[0];
+  const best = key ? passkeyLogin(key) : logins[0];
+  const label = key ? t("signInPasskey") : field.code ? t("fillCode") : t("signIn");
+  const signIn = el("button", { className: "signin", type: "button", textContent: label });
+  signIn.addEventListener("click", () => void (key ? usePasskey(key) : fillLogin(best, true)));
   const others = el("button", { className: "others", type: "button" }, el("span", { textContent: t("otherLogins") }), svg(ICON_CHEVRON));
   others.addEventListener("click", () => {
     expanded = true;
     render();
   });
+  const head = key ? avatar(best, state.url ?? undefined) : icon(best);
   app.replaceChildren(
-    el("div", { className: "box card" }, icon(best), texts(best), signIn, closeButton(() => toParent("close"))),
-    others,
+    el("div", { className: "box card" }, head, texts(best), signIn, closeButton(() => toParent("close"))),
+    ...(logins.length > 0 ? [others] : []),
   );
 }
 

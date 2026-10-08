@@ -2,7 +2,8 @@
 // separate browser window, so the page can neither cover it nor click in it.
 // The user saves a passkey for the site (in a new login or one already saved
 // for it), signs in with one, or hands the request back to the browser
-// ("another device": a security key or a phone).
+// ("another device": a security key or a phone; closing the window does the
+// same). A request from a frame of another site says which page it is in.
 
 import { avatar } from "./avatar";
 import type { Login } from "./types";
@@ -33,6 +34,8 @@ interface View {
   passkeys?: PasskeyEntry[];
   /** The site already has a passkey of this account in Keyless. */
   exists?: boolean;
+  /** Asked from a frame inside this page (another site). */
+  topHost?: string;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
@@ -84,7 +87,10 @@ function render(view: View | null, waiting = false, error?: string) {
     if (waiting) app.querySelectorAll("button").forEach((b) => (b.disabled = true));
     return;
   }
-  const errorNode = error ? [el("p", { className: "error", textContent: error })] : [];
+  const errorNode = [
+    ...(view.topHost ? [el("p", { className: "muted", textContent: t("pkInFrame", view.topHost) })] : []),
+    ...(error ? [el("p", { className: "error", textContent: error })] : []),
+  ];
   if (view.locked) {
     return shell(t("pkLocked"), t("pkLockedHint", view.rpId), ...errorNode, footer(button(t("unlockApp"), "primary", () => void act("passkey_unlock"))));
   }

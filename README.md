@@ -84,7 +84,10 @@ It registers itself with your browsers when it starts (Settings > Browser).
 
 Click the Keyless icon in the toolbar, choose *Connect* and approve the
 browser in the app after checking that both show the same code. Then click
-the Keyless button inside a login field, or press `Ctrl+Shift+L`.
+the Keyless button inside a login field, or press `Ctrl+Shift+L`. Filling
+only a verification code has a shortcut too, with no key by default: set one
+in the browser's extension shortcuts page (`chrome://extensions/shortcuts`,
+or *Manage Extension Shortcuts* in Firefox's add-ons page).
 
 ## Repository layout
 

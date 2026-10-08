@@ -391,13 +391,22 @@ must be running, for what it needs.
   what protects Firefox, which lacks IntersectionObserver v2. The list opens by itself
   only in a field the user clicked or reached with Tab, never in card or
   address forms.
-- **Login forms in frames.** Frames inside a page get no Keyless button or
-  menu; they only report whether they have a login form, and are filled from
-  the popup (or the keyboard shortcut). A login is matched against the
-  address of the frame that receives it, never only the tab's, and a frame
-  from another site than the page is filled only after the user confirms a
-  warning naming both sites (the shortcut skips it). Sandboxed frames are
-  never filled, and a frame that navigated meanwhile refuses the fill.
+- **Frames.** A frame's button and menu act for that frame only: its menus
+  present the token its content script registered, tied to the frame and
+  its address as the browser reports them, and list, fill and save only for
+  that address. They show in frames of the page's site, and in another
+  site's frames only where the browser reports whether the menu is really
+  seen (IntersectionObserver v2, in Chromium): the page around such a frame
+  could make it see-through or cover it without the frame noticing, which
+  Firefox could not detect, so there frames from other sites are filled only
+  from the popup or the keyboard shortcuts. A menu that would be cut off by
+  its frame's edges (a payment service's one-field frame, a small sign-in
+  box) is shown by the page at its top instead, still acting only for the
+  frame. The popup fills a frame from another site than the page only after
+  the user confirms a warning naming both sites (the shortcut skips such
+  frames). The sign-in card and the "Save login?" prompt are the page's
+  only. Sandboxed frames are never filled, and a frame that navigated
+  meanwhile refuses the fill.
 - **Only visible fields are filled.** A field that is tiny, transparent
   (counting its parents' opacity), clipped away, moved off the page or out
   of a box that hides its overflow, or covered by something else ("honeypot"
@@ -442,32 +451,63 @@ must be running, for what it needs.
 - **Cards and addresses.** Menus list credit cards with only their last
   four digits; the full card goes to the page only after the user picks it,
   and only on secure pages (`https`, or the local computer). Identities fill
-  address forms the same way.
+  address forms the same way. Shops often have a payment service hold the
+  card's fields in frames of its own (one per field, often): a card picked
+  in a frame's menu also goes to the tab's frames with card fields that are
+  of the same site as that frame or the page, or of a known payment service
+  (a short list: Stripe, Braintree, Adyen, PayPal, Mercado Pago and the
+  like), asked right then which have such fields; never to other sites'
+  frames, like ads, that happen to ask for a card.
 - **Passkeys.** A script in the page's own world replaces
   `navigator.credentials.create/get` and only relays the request; the
-  extension takes the page's origin from the browser (the page itself only,
-  https or localhost; frames are left to the browser), and the app checks the
-  relying party id against it: the page's host or a parent domain, never a
-  public suffix (Public Suffix List, private entries included), an IP
-  address or a single label. The user decides in a separate Keyless browser
-  window, which the page can neither cover nor script, and can hand the
-  request back to the browser ("another device"). A site that names another
-  site's relying party is refused before that window opens. The window
-  opens even when Keyless has no passkey for the site (as in Bitwarden), so
-  a page cannot learn without the user whether Keyless has one. Keys are ES256, created
-  and used in the app, stored in the item like any other secret; responses
-  use "none" attestation, a counter that stays 0 and the backup flags of a
-  synced passkey. User verification is reported because Keyless is unlocked
-  and the user chose in its window (Bitwarden does the same); Keyless does
-  not ask for the master password again. Not supported yet: passkeys offered in
-  the page's fields (conditional mediation), frames, and WebAuthn
-  extensions. Keyless versions before passkeys drop them when they edit the
-  item, and the same goes for per-website fill rules; versions since then
-  keep whatever a later version added to an item (wiped from memory like
-  the rest) when they edit it.
+  extension takes the origin from the browser (https or localhost), and the
+  app checks the relying party id against it: the host or a parent domain,
+  never a public suffix (Public Suffix List, private entries included), an
+  IP address or a single label. The user decides in a separate Keyless
+  browser window, which the page can neither cover nor script, and can hand
+  the request back to the browser ("another device", or closing the window,
+  as in Bitwarden); Cancel refuses it. A site that names another site's
+  relying party is refused before that window opens. The window opens even
+  when Keyless has no passkey for the site (as in Bitwarden), so a page
+  cannot learn without the user whether Keyless has one. Keys are ES256,
+  created and used in the app, stored in the item like any other secret;
+  responses use "none" attestation, a counter that stays 0 and the backup
+  flags of a synced passkey. User verification is reported because Keyless
+  is unlocked and the user chose in its window or menu (Bitwarden does the
+  same); Keyless does not ask for the master password again.
+  - *In frames*, the request is the frame's, checked against the frame's
+    origin. A frame of another origin than the page (or than any frame
+    between them) may sign in only where the page allows passkeys in it
+    (its Permissions Policy, read where the page's scripts cannot change
+    it); `clientDataJSON` then says so (`crossOrigin`, `topOrigin`) and the
+    window names the page. Creating a passkey in such a frame, and anything
+    where the browser cannot tell what the page allows (Firefox), is left to
+    the browser.
+  - *Offered in the page's fields* (conditional mediation): no window opens;
+    the passkeys are listed in the Keyless menu under fields that ask for
+    them (autocomplete "webauthn") and in the sign-in card, with the same
+    protection against clickjacking as any menu, while the browser's own
+    suggestions stay available; whichever the user picks wins, and the other
+    is called off. Passkeys made quietly after a password sign-in
+    (conditional create) are left to the browser.
+  - *Extensions*: `credProps` is answered (always discoverable) and `prf` is
+    supported: for each input the site gives, an HMAC-SHA-256 over the input
+    hashed as browsers do (`"WebAuthn PRF" || 0 || input`), keyed with a
+    secret derived (HKDF) from the passkey's private key and id, so every
+    passkey has one and it goes wherever the passkey goes. Others are not
+    supported.
+  Keyless versions before passkeys drop them when they edit the item, and
+  the same goes for per-website fill rules; versions since then keep
+  whatever a later version added to an item (wiped from memory like the
+  rest) when they edit it.
 - **Pinned app key.** If the app answers with a different key than the one
   pinned at pairing, the extension refuses to talk to it until the user pairs
   again.
+- **One-time codes** are filled into the field the page asks for them
+  (next to the password, or on the sign-in's next step, also from the card
+  and a keyboard shortcut of their own); when a login is filled where no
+  field asks for its code yet, the code is copied instead, ready for the
+  next step.
 - **Copying** from the popup, and of the one-time password after filling a
   login, is done by the app, so the clipboard is kept out of history and
   cleared automatically.

@@ -403,5 +403,32 @@
   },
   "setPasskeys": {
     "message": "Salvar e usar chaves de acesso com o Keyless"
+  },
+  "commandFillCode": {
+    "message": "Preencher o código de verificação desta página"
+  },
+  "passkeys": {
+    "message": "Chaves de acesso"
+  },
+  "passkey": {
+    "message": "Chave de acesso"
+  },
+  "signInPasskey": {
+    "message": "Entrar com chave de acesso"
+  },
+  "fillCode": {
+    "message": "Preencher código"
+  },
+  "noCodes": {
+    "message": "Nenhum login deste site tem código de verificação."
+  },
+  "pkInFrame": {
+    "message": "Pedido de dentro de $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1",
+        "example": "shop.example"
+      }
+    }
   }
 }

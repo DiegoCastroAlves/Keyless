@@ -18,7 +18,7 @@
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
 import { loadSettings, siteKey, updateSettings } from "./settings";
-import type { BrowserManager, Credentials, FormItems, InlineState, Login, PageState, SaveCandidate, SaveState, Status, Vault } from "./types";
+import type { BrowserManager, Credentials, FormItems, InlineState, Login, PageState, PasskeyEntry, SaveCandidate, SaveState, Status, Vault } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
@@ -224,10 +224,13 @@ async function showState(state: Status["state"]): Promise<void> {
   }
   for (const tab of await chrome.tabs.query({}).catch(() => [])) {
     if (tab.id !== undefined && isWebPage(tab.url)) {
-      chrome.tabs.sendMessage(tab.id, { type: "keyless-state", state }, { frameId: 0 }).catch(() => undefined);
+      // Every frame: they show the Keyless button too.
+      chrome.tabs.sendMessage(tab.id, { type: "keyless-state", state }).catch(() => undefined);
     }
   }
   await chrome.storage.session.set({ lockState: { locked, at: Date.now() } }).catch(() => undefined);
+  // Passkeys waiting in pages' fields can be listed now.
+  if (!locked) void refreshConditional();
 }
 
 /** Full status for the popup, including the pairing code. */
@@ -318,54 +321,78 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
   return tab;
 }
 
-/** Fills a login into the top frame of a tab. The content script checks that
- * the page is still on the origin the credentials were checked against. */
 /** Fills a login into a frame of the tab (the page itself by default). The
- * app checks the login against `url`, the address of that frame. */
+ * app checks the login against `url`, the address of that frame, and the
+ * content script that the frame is still on that origin. `code`: only its
+ * one-time code. */
 async function fillTab(
   tabId: number,
   url: string,
   id: string,
-  options: { submit?: boolean; anySite?: boolean; frameId?: number } = {},
+  options: { submit?: boolean; anySite?: boolean; frameId?: number; code?: boolean } = {},
 ): Promise<void> {
   const settings = await loadSettings();
   const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
-  await chrome.tabs.sendMessage(
+  const filled = (await chrome.tabs.sendMessage(
     tabId,
-    { type: "keyless-fill", ...credentials, origin: new URL(url).origin, submit: Boolean(options.submit) && settings.autoSubmit },
+    {
+      type: "keyless-fill",
+      ...credentials,
+      origin: new URL(url).origin,
+      submit: Boolean(options.submit) && settings.autoSubmit,
+      codeOnly: Boolean(options.code),
+    },
     { frameId: options.frameId ?? 0 },
-  );
-  // Ready to paste on the next step of the sign-in. Copied by the app, which
-  // clears the clipboard after a while.
-  if (settings.copyTotp && credentials.totp) await call("copy", { id, field: "totp" }).catch(() => undefined);
+  )) as { otp?: boolean } | undefined;
+  // Not filled now (it is asked on the next step of the sign-in): ready to
+  // paste. Copied by the app, which clears the clipboard after a while.
+  if (credentials.totp && !filled?.otp && (settings.copyTotp || options.code)) await call("copy", { id, field: "totp" }).catch(() => undefined);
+}
+
+/** Frames report at the same time: updates of what is kept for a tab (read,
+ * change, write) run one at a time, or one would undo another. */
+let storageQueue: Promise<unknown> = Promise.resolve();
+function serially<T>(task: () => Promise<T>): Promise<T> {
+  const run = storageQueue.then(task, task);
+  storageQueue = run.catch(() => undefined);
+  return run;
 }
 
 // ----- Login forms in frames ----------------------------------------------------
 //
-// Content scripts in every frame report whether their frame has a login form.
-// Frames inside the page show no Keyless button or menu; the popup and the
-// keyboard shortcut fill them. A login is always matched against the address
-// of the frame that receives it, never the tab's, and a frame from another
-// site than the page is filled only after the user confirms in the popup.
+// Content scripts in every frame report whether their frame has a login form
+// (or asks for a one-time code). The popup and the keyboard shortcuts fill
+// them; frames also show the Keyless button and menu (see content.ts). A
+// login is always matched against the address of the frame that receives it,
+// never the tab's, and the popup fills a frame from another site than the
+// page only after the user confirms.
 
 const framesKey = (tabId: number) => `loginFrames:${tabId}`;
 
 interface LoginFrame {
   frameId: number;
   url: string;
+  /** It asks only for a one-time code (the sign-in's next step). */
+  code?: boolean;
 }
 
+/** Stored as the frame's address, with "#code" for a frame asking only for a
+ * one-time code. */
 async function loginFrames(tabId: number): Promise<LoginFrame[]> {
   const frames = (await sessionGet<Record<string, string>>(framesKey(tabId))) ?? {};
   return Object.entries(frames)
-    .map(([frameId, url]) => ({ frameId: Number(frameId), url }))
+    .map(([frameId, value]) => ({ frameId: Number(frameId), url: value.replace(/#code$/, ""), code: value.endsWith("#code") }))
     .sort((a, b) => a.frameId - b.frameId);
 }
 
-async function setLoginFrame(tabId: number, frameId: number, url: string | null): Promise<void> {
+function setLoginFrame(tabId: number, frameId: number, url: string | null, code = false): Promise<void> {
+  return serially(() => saveLoginFrame(tabId, frameId, url, code));
+}
+
+async function saveLoginFrame(tabId: number, frameId: number, url: string | null, code: boolean): Promise<void> {
   const key = framesKey(tabId);
   const frames = (await sessionGet<Record<string, string>>(key)) ?? {};
-  if (url) frames[frameId] = url;
+  if (url) frames[frameId] = code ? `${url.replace(/#.*$/, "")}#code` : url;
   else delete frames[frameId];
   await chrome.storage.session.set({ [key]: frames });
 }
@@ -380,8 +407,9 @@ chrome.tabs.onRemoved.addListener((tabId) => void chrome.storage.session.remove(
  * form first (the page itself before frames inside it), then the page.
  * Logins for a frame from another site carry that frame's host. */
 async function tabLogins(tab: chrome.tabs.Tab & { url: string; id: number }): Promise<{ login: Login; frame: LoginFrame }[]> {
-  const top: LoginFrame = { frameId: 0, url: tab.url };
-  const withForms = (await loginFrames(tab.id)).filter((f) => isWebPage(f.url)).map((f) => (f.frameId === 0 ? top : f));
+  const reported = await loginFrames(tab.id);
+  const top: LoginFrame = { frameId: 0, url: tab.url, code: reported.find((f) => f.frameId === 0)?.code };
+  const withForms = reported.filter((f) => isWebPage(f.url)).map((f) => (f.frameId === 0 ? top : f));
   const frames = withForms.some((f) => f.frameId === 0) ? withForms : [...withForms, top];
   const seen = new Set<string>();
   const result: { login: Login; frame: LoginFrame }[] = [];
@@ -404,24 +432,51 @@ async function fillTarget(tab: chrome.tabs.Tab & { url: string; id: number }, id
 
 // ----- Menus inside pages -------------------------------------------------------
 
-const tokenKey = (tabId: number) => `frame:${tabId}`;
+// Each frame's content script registers a random token, which its menus
+// present: a menu acts only for its own frame, with that frame's address
+// (from the browser, never from the page).
 
-async function validToken(tabId: number, token: unknown): Promise<boolean> {
-  if (typeof token !== "string" || token.length < 32) return false;
-  const key = tokenKey(tabId);
-  const stored = (await chrome.storage.session.get(key))[key];
-  return typeof stored === "string" && stored === token;
+const tokenKey = (tabId: number) => `frames:${tabId}`;
+
+interface Registration {
+  frameId: number;
+  url: string;
+}
+
+/** Frames of a tab with menus, by token. */
+async function registrations(tabId: number): Promise<Record<string, Registration>> {
+  return (await sessionGet<Record<string, Registration>>(tokenKey(tabId))) ?? {};
+}
+
+/** The frame a menu's token was registered by. */
+async function registration(tabId: number, token: unknown): Promise<Registration | null> {
+  if (typeof token !== "string" || token.length < 32) return null;
+  return (await registrations(tabId))[token] ?? null;
+}
+
+function register(tabId: number, frameId: number, url: string, token: string): Promise<void> {
+  return serially(() => saveRegistration(tabId, frameId, url, token));
+}
+
+async function saveRegistration(tabId: number, frameId: number, url: string, token: string): Promise<void> {
+  const all = await registrations(tabId);
+  // A new page in the frame: its old token goes.
+  for (const [other, reg] of Object.entries(all)) if (reg.frameId === frameId) delete all[other];
+  const entries = Object.entries(all).slice(-63);
+  await chrome.storage.session.set({ [tokenKey(tabId)]: Object.fromEntries([...entries, [token, { frameId, url }]]) });
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void chrome.storage.session.remove(tokenKey(tabId)).catch(() => undefined);
 });
 
-async function inlineState(url: string | null): Promise<InlineState> {
+async function inlineState(url: string | null, tabId: number, frameId: number): Promise<InlineState> {
   const host = url ? new URL(url).hostname.replace(/^www\./, "") : null;
   const current = await quickStatus();
   if (current.state !== "ready" || !url) return { state: current.state, url, host, logins: [] };
-  return { state: "ready", url, host, logins: await call<Login[]>("match", { url }) };
+  const waiting = conditionalRequests.get(frameKey(tabId, frameId));
+  const passkeys = waiting ? await conditionalPasskeys(waiting) : [];
+  return { state: "ready", url, host, logins: await call<Login[]>("match", { url }), passkeys };
 }
 
 // ----- Cards and identities ---------------------------------------------------------
@@ -443,6 +498,85 @@ function getFormItems(): Promise<FormItems> {
 function isSecurePage(url: string): boolean {
   const { protocol, hostname } = new URL(url);
   return protocol === "https:" || ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
+}
+
+/** Payment services whose frames hold a shop's card fields (one frame per
+ * field, often): filled with the card along with the shop's own fields. */
+const PAYMENT_SITES = new Set([
+  "stripe.com",
+  "stripe.network",
+  "braintreegateway.com",
+  "braintree-api.com",
+  "adyen.com",
+  "adyenpayments.com",
+  "paypal.com",
+  "squareup.com",
+  "squarecdn.com",
+  "checkout.com",
+  "mercadopago.com",
+  "mercadopago.com.br",
+  "pagar.me",
+  "pagseguro.com.br",
+  "recurly.com",
+  "chargebee.com",
+  "spreedly.com",
+  "shopifyinc.com",
+  "worldpay.com",
+  "authorize.net",
+  "cybersource.com",
+  "ebanx.com",
+  "iugu.com",
+  "cielo.com.br",
+  "getnet.com.br",
+  "paddle.com",
+  "razorpay.com",
+  "mollie.com",
+  "bluesnap.com",
+  "nuvei.com",
+  "globalpay.com",
+  "vgs.io",
+  "verygoodvault.com",
+  "evervault.com",
+  "basistheory.com",
+]);
+
+interface FormFrame {
+  frameId: number;
+  url: string;
+  card: boolean;
+  identity: boolean;
+}
+
+/** Answers to "which frames have card or address fields?", by question. */
+const formAnswers = new Map<string, FormFrame[]>();
+
+/** Asks every frame of the tab, now, which have card or address fields
+ * (frames come and go: nothing is kept between fills). */
+async function formFrames(tabId: number): Promise<FormFrame[]> {
+  const nonce = crypto.randomUUID();
+  formAnswers.set(nonce, []);
+  await chrome.tabs.sendMessage(tabId, { type: "keyless-forms", nonce }).catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  const frames = formAnswers.get(nonce) ?? [];
+  formAnswers.delete(nonce);
+  return frames;
+}
+
+/** Where a card or an identity picked in a frame's menu goes: that frame,
+ * and the tab's other frames with such fields that are of its site or the
+ * page's, or (cards) a payment service's. Never other sites' frames (ads,
+ * widgets) that happen to ask for a card. Cards only on encrypted pages. */
+async function formTargets(tabId: number, tabUrl: string, from: Registration, kind: "card" | "identity"): Promise<Registration[]> {
+  const targets: Registration[] = [from];
+  const others = (await formFrames(tabId)).filter((frame) => frame.frameId !== from.frameId && frame[kind]);
+  if (others.length === 0) return targets;
+  const [fromSite, topSite, ...sites] = await sitesOf(from.url, tabUrl, ...others.map((frame) => frame.url));
+  others.forEach((frame, i) => {
+    const site = sites[i];
+    const related = site !== "" && (site === fromSite || site === topSite || (kind === "card" && PAYMENT_SITES.has(site)));
+    if (related && (kind !== "card" || isSecurePage(frame.url))) targets.push({ frameId: frame.frameId, url: frame.url });
+  });
+  return targets;
 }
 
 // ----- Saving logins --------------------------------------------------------------
@@ -710,24 +844,41 @@ chrome.permissions.onAdded.addListener(() => void applyBrowserManager().catch(()
 // here while the user decides in a Keyless window (passkey.html): a separate
 // browser window the page can neither cover nor script. The page's origin
 // comes from the browser; the app checks it against the relying party.
-// "Use another device" hands the request back to the browser's own WebAuthn,
-// which also happens silently when Keyless cannot help (not connected, turned
-// off, or hidden on the site). The window opens even when there is no
-// passkey to sign in with: answering at once would tell any page, without
-// the user doing anything, whether Keyless has a passkey for it.
+// "Use another device", or closing the window, hands the request back to the
+// browser's own WebAuthn (like Bitwarden), which also happens silently when
+// Keyless cannot help (not connected, turned off, or hidden on the site).
+// Cancel refuses it. The window opens even when there is no passkey to sign
+// in with: answering at once would tell any page, without the user doing
+// anything, whether Keyless has a passkey for it.
+//
+// Frames: the request is the frame's (its origin, from the browser). For a
+// frame of another origin than the page, which webauthn.ts lets through only
+// where the page allows passkeys in it, the app also names the page, and the
+// window says the request comes from inside it.
+//
+// Passkeys offered in the page's fields (conditional mediation) open no
+// window: the request waits here, and the frame's Keyless menu lists the
+// passkeys under fields that ask for them (autocomplete "webauthn"). Picking
+// one there signs in.
 
 interface PasskeyRequest {
   id: string;
   tabId: number;
+  frameId: number;
   origin: string;
   host: string;
+  /** The page's origin, for a frame of another origin inside it. */
+  topOrigin: string | null;
   request: any;
   port: chrome.runtime.Port;
   windowId: number | null;
-  timer: ReturnType<typeof setTimeout>;
+  timer: ReturnType<typeof setTimeout> | undefined;
 }
 
 const passkeyRequests = new Map<string, PasskeyRequest>();
+/** Waiting for a pick in a Keyless menu, by frame (see `frameKey`). */
+const conditionalRequests = new Map<string, PasskeyRequest>();
+const frameKey = (tabId: number, frameId: number) => `${tabId}:${frameId}`;
 
 function finishPasskey(entry: PasskeyRequest, answer: unknown) {
   if (!passkeyRequests.delete(entry.id)) return;
@@ -738,6 +889,42 @@ function finishPasskey(entry: PasskeyRequest, answer: unknown) {
     // The page went away.
   }
   if (entry.windowId !== null) void chrome.windows.remove(entry.windowId).catch(() => undefined);
+}
+
+/** Ends a request waiting in the page's fields; `null`: the page ended it. */
+function finishConditional(entry: PasskeyRequest, answer: unknown) {
+  const key = frameKey(entry.tabId, entry.frameId);
+  if (conditionalRequests.get(key) !== entry) return;
+  conditionalRequests.delete(key);
+  if (answer !== null) {
+    try {
+      entry.port.postMessage(answer);
+    } catch {
+      // The page went away.
+    }
+  }
+  void tellFrame(entry, 0);
+}
+
+/** The passkeys a request waiting in the page's fields can sign in with
+ * (none while locked). */
+async function conditionalPasskeys(entry: PasskeyRequest): Promise<PasskeyEntry[]> {
+  if ((await quickStatus()).state !== "ready") return [];
+  return call<PasskeyEntry[]>("passkey_list", {
+    origin: entry.origin,
+    rpId: entry.request.rpId,
+    allowCredentials: entry.request.allowCredentials,
+  }).catch(() => []);
+}
+
+/** Tells the frame's content script how many passkeys its fields offer. */
+async function tellFrame(entry: PasskeyRequest, count: number) {
+  await chrome.tabs.sendMessage(entry.tabId, { type: "keyless-passkeys", count }, { frameId: entry.frameId }).catch(() => undefined);
+}
+
+/** Unlocked: the requests waiting in pages now have passkeys to offer. */
+async function refreshConditional() {
+  for (const entry of conditionalRequests.values()) await tellFrame(entry, (await conditionalPasskeys(entry)).length);
 }
 
 /** A page where passkeys may be used: https, or the local computer. */
@@ -754,64 +941,95 @@ function passkeyOrigin(url: string | undefined): { origin: string; host: string 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "keyless-webauthn") return;
   const sender = port.sender;
-  // Only the page itself (no frames), on a page where passkeys may be used.
+  // A page (or a frame in it) where passkeys may be used.
   const page = passkeyOrigin(sender?.url);
-  if (sender?.id !== chrome.runtime.id || sender.frameId !== 0 || sender.tab?.id === undefined || !page) {
+  if (sender?.id !== chrome.runtime.id || sender.frameId === undefined || sender.tab?.id === undefined || !page) {
     port.postMessage({ fallback: true });
     return;
   }
   const tabId = sender.tab.id;
-  port.onMessage.addListener((request) => void startPasskey(port, tabId, page, request));
+  const frameId = sender.frameId;
+  const tabUrl = sender.tab.url;
+  let started = false;
+  port.onMessage.addListener((request) => {
+    // The first message is the request; the ones after it keep this awake.
+    if (started) return;
+    started = true;
+    let topOrigin: string | null = null;
+    if (frameId !== 0 && request?.crossOrigin === true) {
+      const top = passkeyOrigin(tabUrl);
+      if (!top) return port.postMessage({ fallback: true });
+      topOrigin = top.origin;
+    }
+    void startPasskey(port, { tabId, frameId, ...page, topOrigin }, request);
+  });
 });
 
-async function startPasskey(port: chrome.runtime.Port, tabId: number, page: { origin: string; host: string }, request: any) {
+async function startPasskey(
+  port: chrome.runtime.Port,
+  where: { tabId: number; frameId: number; origin: string; host: string; topOrigin: string | null },
+  request: any,
+) {
   const fallback = () => port.postMessage({ fallback: true });
   if (request?.kind !== "create" && request?.kind !== "get") return fallback();
   const settings = await loadSettings();
-  const site = siteKey(page.origin);
-  if (!settings.passkeys || (site && settings.hidden.includes(site))) return fallback();
+  const sites = [siteKey(where.origin), siteKey(where.topOrigin)].filter((site): site is string => site !== null);
+  if (!settings.passkeys || sites.some((site) => settings.hidden.includes(site))) return fallback();
+  const conditional = request.kind === "get" && request.conditional === true;
   const current = await quickStatus();
-  if (current.state !== "ready" && current.state !== "locked") return fallback();
-  // A site that names another site's relying party is refused before the
-  // user sees anything.
-  try {
-    await call("passkey_check", { origin: page.origin, rpId: request.rpId });
-  } catch (err) {
-    const code = err instanceof BridgeError ? err.message : "error";
-    if (code === "rp_id_mismatch" || code === "insecure_page") return port.postMessage({ ok: false, error: "security" });
-    return fallback();
+  const connected = current.state === "ready" || current.state === "locked";
+  // Passkeys for the page's fields wait even while Keyless cannot be reached
+  // (the browser just started, the app is opening): they are offered once it
+  // can, and the app checks the site when it lists them and signs.
+  if (!connected && !conditional) return fallback();
+  if (connected) {
+    // A site that names another site's relying party is refused before the
+    // user sees anything.
+    try {
+      await call("passkey_check", { origin: where.origin, rpId: request.rpId });
+    } catch (err) {
+      const code = err instanceof BridgeError ? err.message : "error";
+      if (code === "rp_id_mismatch" || code === "insecure_page") return port.postMessage({ ok: false, error: "security" });
+      if (!conditional) return fallback();
+    }
   }
-  // One request per tab, like the browser.
+  const entry: PasskeyRequest = { id: crypto.randomUUID(), ...where, request, port, windowId: null, timer: undefined };
+  if (conditional) return startConditional(entry);
+
+  // One request per tab, like the browser. Passkeys offered in the page's
+  // fields stay: pages call those off themselves first (the browser
+  // requires it), and may offer them again after.
   for (const other of passkeyRequests.values()) {
-    if (other.tabId === tabId) finishPasskey(other, { ok: false, error: "cancelled" });
+    if (other.tabId === where.tabId) finishPasskey(other, { ok: false, error: "cancelled" });
   }
-  const id = crypto.randomUUID();
   const ms = Math.min(Math.max(Number(request.timeout) || 300_000, 30_000), 600_000);
-  const entry: PasskeyRequest = {
-    id,
-    tabId,
-    origin: page.origin,
-    host: page.host,
-    request,
-    port,
-    windowId: null,
-    timer: setTimeout(() => finishPasskey(entry, { ok: false, error: "cancelled" }), ms),
-  };
-  passkeyRequests.set(id, entry);
+  entry.timer = setTimeout(() => finishPasskey(entry, { ok: false, error: "cancelled" }), ms);
+  passkeyRequests.set(entry.id, entry);
   port.onDisconnect.addListener(() => finishPasskey(entry, null));
   const window = await chrome.windows
-    .create({ url: chrome.runtime.getURL(`passkey.html#${id}`), type: "popup", width: 440, height: 560, focused: true })
+    .create({ url: chrome.runtime.getURL(`passkey.html#${entry.id}`), type: "popup", width: 440, height: 560, focused: true })
     .catch(() => null);
   if (!window?.id) return finishPasskey(entry, { fallback: true });
   entry.windowId = window.id;
 }
 
+/** A request for the page's fields: waits for a pick in the frame's menu. No
+ * time limit: the page ends it (or leaves). */
+async function startConditional(entry: PasskeyRequest) {
+  const key = frameKey(entry.tabId, entry.frameId);
+  const previous = conditionalRequests.get(key);
+  if (previous) finishConditional(previous, { ok: false, error: "cancelled" });
+  conditionalRequests.set(key, entry);
+  entry.port.onDisconnect.addListener(() => finishConditional(entry, null));
+  await tellFrame(entry, (await conditionalPasskeys(entry)).length);
+}
+
 chrome.windows.onRemoved.addListener((windowId) => {
-  // Closing the Keyless window cancels.
+  // Closing the Keyless window hands the request to the browser.
   for (const entry of passkeyRequests.values()) {
     if (entry.windowId === windowId) {
       entry.windowId = null;
-      finishPasskey(entry, { ok: false, error: "cancelled" });
+      finishPasskey(entry, { fallback: true });
     }
   }
 });
@@ -819,7 +1037,14 @@ chrome.windows.onRemoved.addListener((windowId) => {
 /** What the Keyless window shows. */
 async function passkeyView(entry: PasskeyRequest) {
   const locked = (await quickStatus()).state !== "ready";
-  const base = { kind: entry.request.kind, host: entry.host, rpId: entry.request.rpId ?? entry.host, locked };
+  const base = {
+    kind: entry.request.kind,
+    host: entry.host,
+    rpId: entry.request.rpId ?? entry.host,
+    locked,
+    // Asked from a frame of another site inside this page.
+    topHost: entry.topOrigin ? new URL(entry.topOrigin).hostname : undefined,
+  };
   if (locked) return base;
   if (entry.request.kind === "create") {
     const logins = await call<Login[]>("match", { url: entry.origin }).catch(() => []);
@@ -836,6 +1061,19 @@ async function passkeyView(entry: PasskeyRequest) {
     allowCredentials: entry.request.allowCredentials,
   }).catch(() => []);
   return { ...base, passkeys };
+}
+
+/** Signs in with a passkey the user picked, for a request. */
+function passkeyGet(entry: PasskeyRequest, credentialId: string) {
+  const r = entry.request;
+  return call("passkey_get", {
+    origin: entry.origin,
+    topOrigin: entry.topOrigin ?? undefined,
+    rpId: r.rpId,
+    challenge: r.challenge,
+    credentialId,
+    prf: r.prf,
+  });
 }
 
 async function handlePasskeyWindow(message: any): Promise<Reply> {
@@ -861,6 +1099,7 @@ async function handlePasskeyWindow(message: any): Promise<Reply> {
           r.kind === "create"
             ? await call("passkey_create", {
                 origin: entry.origin,
+                topOrigin: entry.topOrigin ?? undefined,
                 rpId: r.rpId,
                 rpName: r.rpName,
                 userId: r.userId,
@@ -869,9 +1108,10 @@ async function handlePasskeyWindow(message: any): Promise<Reply> {
                 challenge: r.challenge,
                 algorithms: r.algorithms,
                 excludeCredentials: r.excludeCredentials,
+                prf: r.prf,
                 itemId: typeof message.itemId === "string" ? message.itemId : "",
               })
-            : await call("passkey_get", { origin: entry.origin, rpId: r.rpId, challenge: r.challenge, credentialId: String(message.credentialId ?? "") });
+            : await passkeyGet(entry, String(message.credentialId ?? ""));
         finishPasskey(entry, { ok: true, credential });
         if (r.kind === "create") await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
         return { ok: true };
@@ -956,19 +1196,32 @@ async function handlePopup(message: any): Promise<Reply> {
 
 async function handleInline(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
   const tab = sender.tab;
-  if (tab?.id === undefined || !(await validToken(tab.id, message.token))) return { ok: false, error: "forbidden" };
-  const url = isWebPage(tab.url) ? tab.url : null;
+  const reg = tab?.id === undefined ? null : await registration(tab.id, message.token);
+  if (tab?.id === undefined || !reg) return { ok: false, error: "forbidden" };
+  // The frame's address; the page's own stays current (single-page apps).
+  const frameUrl = reg.frameId === 0 ? tab.url : reg.url;
+  const url = isWebPage(frameUrl) ? frameUrl : null;
+  // The "Save login?" prompt and the sign-in card are the page's only.
+  if (reg.frameId !== 0 && ["save_state", "save", "dismiss_save", "never_save"].includes(message.type)) return { ok: false, error: "forbidden" };
   switch (message.type) {
     case "hello":
       return { ok: true };
     case "state":
-      return { ok: true, data: await inlineState(url) };
+      return { ok: true, data: await inlineState(url, tab.id, reg.frameId) };
     case "fill":
-      // Only the page's own logins: a login saved for another site is filled
+      // Only the frame's own logins: a login saved for another site is filled
       // from the toolbar popup, which a page cannot cover or fake.
       if (!url) return { ok: false, error: "no_tab" };
-      await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit) });
+      await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), frameId: reg.frameId, code: message.code === true });
       return { ok: true };
+    case "passkey_pick": {
+      // A passkey from the menu under a field that asks for one.
+      const entry = conditionalRequests.get(frameKey(tab.id, reg.frameId));
+      if (!entry) return { ok: false, error: "expired" };
+      const credential = await passkeyGet(entry, String(message.credentialId ?? ""));
+      finishConditional(entry, { ok: true, credential });
+      return { ok: true };
+    }
     case "unlock":
       await requestUnlock();
       return { ok: true };
@@ -995,10 +1248,15 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
     case "form_items":
       return { ok: true, data: await getFormItems() };
     case "fill_form": {
-      if (!url) return { ok: false, error: "no_tab" };
+      if (!url || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
       const data = await call<{ kind: string }>("form_details", { id: String(message.id ?? "") });
+      if (data.kind !== "card" && data.kind !== "identity") return { ok: false, error: "bad_request" };
       if (data.kind === "card" && !isSecurePage(url)) return { ok: false, error: "insecure_page" };
-      await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-form", ...data, origin: new URL(url).origin }, { frameId: 0 });
+      // Also the frames a payment service holds the card's fields in.
+      for (const target of await formTargets(tab.id, tab.url, { frameId: reg.frameId, url }, data.kind)) {
+        const message = { type: "keyless-fill-form", ...data, origin: new URL(target.url).origin };
+        await chrome.tabs.sendMessage(tab.id, message, { frameId: target.frameId }).catch(() => undefined);
+      }
       return { ok: true };
     }
     case "dismiss_save":
@@ -1026,7 +1284,7 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       const password = await sessionGet<string>(suggestionKey(tab.id));
       if (typeof password !== "string") return { ok: false, error: "expired" };
       await chrome.storage.session.remove(suggestionKey(tab.id));
-      await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-new", password, origin: new URL(url).origin }, { frameId: 0 });
+      await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-new", password, origin: new URL(url).origin }, { frameId: reg.frameId });
       // In the app's generator history, in case the sign-up is never saved.
       await call("remember_generated", { password, url }).catch(() => undefined);
       // Not lost if the form's submission is missed: offered on the next page.
@@ -1049,8 +1307,9 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
   }
 }
 
-/** What content scripts in frames inside the page may ask. */
-const FRAME_MESSAGES = new Set(["frame_login", "capture", "capture_done"]);
+/** What content scripts in frames inside the page may ask (their menus act
+ * for them, see `registration`). */
+const FRAME_MESSAGES = new Set(["frame_login", "frame_form", "capture", "capture_done", "register", "page_state", "unlock", "menu_elsewhere"]);
 
 async function handleContent(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
   // Regular web pages; frames inside them only for a few things.
@@ -1058,12 +1317,31 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
   if (sender.frameId !== 0 && !FRAME_MESSAGES.has(message?.type)) return { ok: false, error: "forbidden" };
   switch (message.type) {
     case "frame_login":
-      await setLoginFrame(sender.tab.id, sender.frameId, message.login === true ? sender.url : null);
+      await setLoginFrame(sender.tab.id, sender.frameId, message.login === true ? sender.url : null, message.code === true);
       return { ok: true };
+    case "menu_elsewhere": {
+      // A frame too small for the menu: the page shows it for the frame,
+      // with the frame's token (so it acts for the frame's address only).
+      if (sender.frameId === 0) return { ok: false, error: "bad_request" };
+      const frameId = sender.frameId;
+      const token = Object.entries(await registrations(sender.tab.id)).find(([, reg]) => reg.frameId === frameId)?.[0];
+      if (!token) return { ok: false, error: "forbidden" };
+      const field = message.field && typeof message.field === "object" ? message.field : null;
+      await chrome.tabs.sendMessage(sender.tab.id, { type: "keyless-menu-for", token, field, activate: message.activate === true }, { frameId: 0 });
+      return { ok: true };
+    }
+    case "frame_form": {
+      // An answer to `formFrames`.
+      const answers = formAnswers.get(String(message.nonce ?? ""));
+      if (answers && !answers.some((frame) => frame.frameId === sender.frameId)) {
+        answers.push({ frameId: sender.frameId, url: sender.url, card: message.card === true, identity: message.identity === true });
+      }
+      return { ok: true };
+    }
     case "register":
-      // The token the page's Keyless menus will present.
+      // The token the frame's Keyless menus will present.
       if (typeof message.token !== "string" || message.token.length < 32) return { ok: false, error: "bad_request" };
-      await chrome.storage.session.set({ [tokenKey(sender.tab.id)]: message.token });
+      await register(sender.tab.id, sender.frameId, sender.url, message.token);
       return { ok: true };
     case "unlock":
       // Keyless asks for the password in its own window or the system's:
@@ -1091,10 +1369,15 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       const settings = await loadSettings();
       const site = siteKey(sender.url);
       const hidden = site !== null && settings.hidden.includes(site);
-      const data: PageState = { state: current.state, count: 0, hidden, card: settings.signInCard && !hidden, autoOpen: settings.autoOpen };
+      const frame = sender.frameId === 0 ? "top" : (await sameSites(sender.url, sender.tab.url)) ? "same-site" : "cross-site";
+      const data: PageState = { state: current.state, count: 0, hidden, card: settings.signInCard && !hidden, autoOpen: settings.autoOpen, frame };
       if (hidden) return { ok: true, data };
       if (current.state === "ready") {
-        data.count = (await call<Login[]>("match", { url: sender.url })).length;
+        const logins = await call<Login[]>("match", { url: sender.url });
+        data.count = logins.length;
+        data.codes = logins.filter((login) => login.totp).length;
+        const waiting = conditionalRequests.get(frameKey(sender.tab.id, sender.frameId));
+        data.passkeys = waiting ? (await conditionalPasskeys(waiting)).length : 0;
         const items = await getFormItems().catch(() => null);
         data.cards = items?.cards.length ?? 0;
         data.identities = items?.identities.length ?? 0;
@@ -1129,16 +1412,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Keyboard shortcut: fill the best match into the current page.
+// Keyboard shortcuts: fill the best match into the current page, or only
+// its one-time code (copied when the page has no field for it yet).
 chrome.commands?.onCommand.addListener(async (command) => {
-  if (command !== "fill-login") return;
+  if (command !== "fill-login" && command !== "fill-code") return;
   const tab = await activeTab();
   if (!tab?.id || !isWebPage(tab.url)) return;
   try {
     // The page's best login, or one for a login form in a frame of the same
     // site (another site's needs the popup, to confirm).
-    const best = (await tabLogins({ ...tab, id: tab.id, url: tab.url })).find((entry) => !entry.login.frame);
-    if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId });
+    const entries = (await tabLogins({ ...tab, id: tab.id, url: tab.url })).filter((entry) => !entry.login.frame);
+    // On a page asking only for the code, the login's code.
+    const code = command === "fill-code" || entries[0]?.frame.code === true;
+    const best = entries.find((entry) => !code || entry.login.totp);
+    if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId, code });
   } catch {
     // Not connected or locked: the popup explains what to do.
   }
