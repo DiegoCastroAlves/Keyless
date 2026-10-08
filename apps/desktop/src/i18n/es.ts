@@ -269,7 +269,7 @@ const es: Translations = {
   sidebar: {
     allItems: "Todos los elementos",
     favorites: "Favoritos",
-    watchtower: "Vigilancia",
+    sentinel: "Centinela",
     vaults: "Bóvedas",
     newVault: "Nueva bóveda",
     categories: "Categorías",
@@ -643,8 +643,8 @@ const es: Translations = {
     sepComma: "Coma ( , )",
     sepNone: "Ninguno",
   },
-  watchtower: {
-    title: "Vigilancia",
+  sentinel: {
+    title: "Centinela",
     subtitle: "Encuentra contraseñas débiles, repetidas o filtradas, sitios que corregir y tarjetas o documentos por vencer. Solo la comprobación en línea sale de este dispositivo.",
     score: "Salud de las contraseñas",
     checked_one: "{{count}} contraseña revisada",

@@ -269,7 +269,7 @@ const ptBR: Translations = {
   sidebar: {
     allItems: "Todos os itens",
     favorites: "Favoritos",
-    watchtower: "Watchtower",
+    sentinel: "Sentinela",
     vaults: "Cofres",
     newVault: "Novo cofre",
     categories: "Categorias",
@@ -643,8 +643,8 @@ const ptBR: Translations = {
     sepComma: "Vírgula ( , )",
     sepNone: "Nenhum",
   },
-  watchtower: {
-    title: "Watchtower",
+  sentinel: {
+    title: "Sentinela",
     subtitle: "Encontre senhas fracas, reutilizadas e vazadas, sites a corrigir e cartões ou documentos perto de vencer. Só a verificação online sai deste dispositivo.",
     score: "Saúde das senhas",
     checked_one: "{{count}} senha verificada",

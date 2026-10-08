@@ -127,11 +127,11 @@ pub struct ItemOverview {
     /// two documents of different versions cannot be mixed.
     #[serde(default)]
     pub content_id: String,
-    /// Watchtower alerts the user chose to ignore for this item ("weak",
+    /// Sentinel alerts the user chose to ignore for this item ("weak",
     /// "reused", "breached", "compromised", "unsecured", "expiring",
     /// "two_factor").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub watchtower_ignored: Vec<String>,
+    pub sentinel_ignored: Vec<String>,
     #[serde(flatten)]
     pub unknown: Unknown,
 }

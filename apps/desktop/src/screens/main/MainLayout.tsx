@@ -18,7 +18,7 @@ import { RecoveryOffer } from "./RecoveryKey";
 import { SettingsDialog } from "./SettingsDialog";
 import { Sidebar } from "./Sidebar";
 import { VaultDialog } from "./VaultDialog";
-import { Watchtower } from "./Watchtower";
+import { Sentinel } from "./Sentinel";
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -46,7 +46,7 @@ export function MainLayout() {
     const preferred = current.kind === "vault" ? writable.find((v) => v.id === current.id) : undefined;
     const vault = preferred ?? writable.find((v) => v.role === "owner") ?? writable[0];
     if (!vault) return;
-    if (current.kind === "watchtower" || current.kind === "trash" || current.kind === "archive") {
+    if (current.kind === "sentinel" || current.kind === "trash" || current.kind === "archive") {
       useApp.getState().setView({ kind: "all" });
     }
     select(null);
@@ -73,7 +73,7 @@ export function MainLayout() {
       const key = e.key.toLowerCase();
       if (key === "f") {
         e.preventDefault();
-        if (useApp.getState().view.kind === "watchtower") useApp.getState().setView({ kind: "all" });
+        if (useApp.getState().view.kind === "sentinel") useApp.getState().setView({ kind: "all" });
         requestAnimationFrame(() => searchRef.current?.focus());
       } else if (key === "n" && !useApp.getState().editing) {
         e.preventDefault();
@@ -123,8 +123,8 @@ export function MainLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar searchRef={searchRef} onNewItem={newItem} onEnterList={() => listControl.current?.enter()} />
           <div className="flex min-h-0 flex-1">
-            {view.kind === "watchtower" && !editing ? (
-              <Watchtower />
+            {view.kind === "sentinel" && !editing ? (
+              <Sentinel />
             ) : (
               <>
                 <div className="relative h-full shrink-0" style={{ width: panes.list }}>

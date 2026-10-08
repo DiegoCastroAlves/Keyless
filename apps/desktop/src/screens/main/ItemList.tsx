@@ -387,8 +387,8 @@ export function TopBar({
           ref={searchRef}
           value={search}
           onChange={(e) => {
-            // Watchtower has no list to search: go to every item.
-            if (view.kind === "watchtower") useApp.getState().setView({ kind: "all" });
+            // Sentinel has no list to search: go to every item.
+            if (view.kind === "sentinel") useApp.getState().setView({ kind: "all" });
             setSearch(e.target.value);
           }}
           onKeyDown={(e) => {

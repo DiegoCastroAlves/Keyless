@@ -61,13 +61,13 @@ pub struct Settings {
     pub site_icons: bool,
     /// Run the SSH agent (see `ssh_agent`).
     pub ssh_agent: bool,
-    /// Run Watchtower's online check by itself once a day (see `health`).
-    pub watchtower_auto: bool,
+    /// Run Sentinel's online check by itself once a day (see `health`).
+    pub sentinel_auto: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, watchtower_auto: false }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_auto: false }
     }
 }
 
@@ -235,8 +235,8 @@ pub struct AppState {
     pub unlock_reason: Mutex<crate::unlock_prompt::Reason>,
     /// The SSH agent: its task, approvals waiting and given.
     pub ssh: crate::ssh_agent::SshState,
-    /// Watchtower's last online check.
-    pub watchtower: crate::health::WatchtowerState,
+    /// Sentinel's last online check.
+    pub sentinel: crate::health::SentinelState,
 }
 
 impl AppState {

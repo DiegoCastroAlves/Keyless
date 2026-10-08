@@ -115,8 +115,8 @@ export interface Settings {
   /** Show website icons, downloaded from each site and kept encrypted here. */
   site_icons: boolean;
   ssh_agent: boolean;
-  /** Run Watchtower's online check by itself once a day. */
-  watchtower_auto: boolean;
+  /** Run Sentinel's online check by itself once a day. */
+  sentinel_auto: boolean;
 }
 
 export interface SiteIcon {
@@ -414,10 +414,10 @@ export interface HealthReport {
   unsecured: string[];
   expiring: { id: string; expiresAt: number; expired: boolean }[];
   /** Alerts the user ignored: [item id, alert]. */
-  ignored: [string, WatchtowerAlert][];
+  ignored: [string, SentinelAlert][];
 }
 
-export type WatchtowerAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor";
+export type SentinelAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor";
 
 export interface SiteIssue {
   id: string;
@@ -435,7 +435,7 @@ export interface BreachReport {
   twoFactor: SiteIssue[];
 }
 
-/** Watchtower's last online check since Keyless started. */
+/** Sentinel's last online check since Keyless started. */
 export interface LastCheck {
   /** Unix seconds. */
   checkedAt: number;
@@ -591,8 +591,8 @@ export const api = {
   copyText: (text: string) => invoke<CopyResult>("copy_text", { text }),
   openItemUrl: (itemId: string, index: number) => invoke<void>("open_item_url", { itemId, index }),
   setFavorite: (itemId: string, favorite: boolean) => invoke<void>("set_favorite", { itemId, favorite }),
-  setWatchtowerIgnored: (itemId: string, alert: WatchtowerAlert, ignored: boolean) =>
-    invoke<void>("set_watchtower_ignored", { itemId, alert, ignored }),
+  setSentinelIgnored: (itemId: string, alert: SentinelAlert, ignored: boolean) =>
+    invoke<void>("set_sentinel_ignored", { itemId, alert, ignored }),
   setArchived: (itemId: string, archived: boolean) => invoke<void>("set_archived", { itemId, archived }),
   trashItem: (itemId: string) => invoke<void>("trash_item", { itemId }),
   restoreItem: (itemId: string) => invoke<void>("restore_item", { itemId }),
@@ -649,7 +649,7 @@ export const events = {
   onLocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://locked", () => cb()),
   onAttachmentProgress: (cb: (progress: AttachmentProgress) => void): Promise<UnlistenFn> =>
     listen<AttachmentProgress>("keyless://attachment-progress", (e) => cb(e.payload)),
-  onWatchtowerUpdated: (cb: () => void): Promise<UnlistenFn> => listen("keyless://watchtower-updated", () => cb()),
+  onSentinelUpdated: (cb: () => void): Promise<UnlistenFn> => listen("keyless://sentinel-updated", () => cb()),
   onFilesProgress: (cb: (progress: FilesProgress) => void): Promise<UnlistenFn> =>
     listen<FilesProgress>("keyless://files-progress", (e) => cb(e.payload)),
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),

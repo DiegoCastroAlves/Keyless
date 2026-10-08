@@ -655,7 +655,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
 
         let mut created_at = now;
         let mut archived = false;
-        let watchtower_ignored = existing.as_ref().map(|(_, _, o)| o.watchtower_ignored.clone()).unwrap_or_default();
+        let sentinel_ignored = existing.as_ref().map(|(_, _, o)| o.sentinel_ignored.clone()).unwrap_or_default();
         // What a later version added to the item stays.
         let unknown = existing.as_ref().map(|(_, _, o)| o.unknown.clone()).unwrap_or_default();
         if let Some((_, old_details, _)) = &existing {
@@ -705,7 +705,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
             trashed_at: None,
             created_at,
             updated_at: now,
-            watchtower_ignored,
+            sentinel_ignored,
             unknown,
             ..Default::default()
         };
@@ -762,16 +762,16 @@ async fn update_overview(app: &AppHandle, item_id: &str, change: impl FnOnce(&mu
     Ok(())
 }
 
-/// Ignores (or watches again) a Watchtower alert for the item.
-pub async fn set_watchtower_ignored(app: &AppHandle, item_id: &str, alert: &str, ignored: bool) -> AppResult<()> {
+/// Ignores (or watches again) a Sentinel alert for the item.
+pub async fn set_sentinel_ignored(app: &AppHandle, item_id: &str, alert: &str, ignored: bool) -> AppResult<()> {
     const ALERTS: [&str; 7] = ["weak", "reused", "breached", "compromised", "unsecured", "expiring", "two_factor"];
     if !ALERTS.contains(&alert) {
         return Err(AppError::Invalid(Msg::new("invalid_request")));
     }
     update_overview(app, item_id, |o| {
-        o.watchtower_ignored.retain(|a| a != alert);
+        o.sentinel_ignored.retain(|a| a != alert);
         if ignored {
-            o.watchtower_ignored.push(alert.to_string());
+            o.sentinel_ignored.push(alert.to_string());
         }
     })
     .await

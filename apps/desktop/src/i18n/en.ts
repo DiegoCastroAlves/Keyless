@@ -267,7 +267,7 @@ const en = {
   sidebar: {
     allItems: "All Items",
     favorites: "Favorites",
-    watchtower: "Watchtower",
+    sentinel: "Sentinel",
     vaults: "Vaults",
     newVault: "New vault",
     categories: "Categories",
@@ -640,8 +640,8 @@ const en = {
     sepComma: "Comma ( , )",
     sepNone: "None",
   },
-  watchtower: {
-    title: "Watchtower",
+  sentinel: {
+    title: "Sentinel",
     subtitle: "Find weak, reused and breached passwords, sites to fix and cards or documents about to expire. Only the online check leaves this device.",
     score: "Password health",
     checked_one: "{{count}} password checked",

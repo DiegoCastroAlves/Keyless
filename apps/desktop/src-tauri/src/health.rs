@@ -1,4 +1,4 @@
-//! Watchtower: weak, reused and breached passwords, websites without HTTPS,
+//! Sentinel: weak, reused and breached passwords, websites without HTTPS,
 //! expiring cards and documents, websites breached since the password was
 //! last changed, and websites that offer two-factor authentication the item
 //! does not use.
@@ -163,7 +163,7 @@ async fn entries(state: &AppState) -> AppResult<Vec<Entry>> {
         let Ok(details) = vault.key.open_details(&local.vault_id, id, enc) else { continue };
         out.push(Entry {
             id: id.clone(),
-            ignored: o.watchtower_ignored.clone(),
+            ignored: o.sentinel_ignored.clone(),
             category: o.category,
             urls: o.urls.clone(),
             created_at: o.created_at,
@@ -300,7 +300,7 @@ pub struct LastCheck {
 }
 
 #[derive(Default)]
-pub struct WatchtowerState {
+pub struct SentinelState {
     pub last: std::sync::Mutex<Option<LastCheck>>,
     /// No automatic check before this, after one failed (offline).
     retry_at: std::sync::Mutex<Option<std::time::Instant>>,
@@ -312,14 +312,14 @@ pub struct WatchtowerState {
 const AUTO_EVERY: i64 = 24 * 3600;
 /// How long it waits after a check failed.
 const AUTO_RETRY: std::time::Duration = std::time::Duration::from_secs(3600);
-pub const EVENT_UPDATED: &str = "keyless://watchtower-updated";
+pub const EVENT_UPDATED: &str = "keyless://sentinel-updated";
 
 /// Runs the online check and keeps its result.
 pub async fn check_online(app: &AppHandle) -> AppResult<BreachReport> {
     let state = app.state::<AppState>();
-    let _busy = state.watchtower.busy.lock().await;
+    let _busy = state.sentinel.busy.lock().await;
     let report = breaches(&state).await?;
-    *state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastCheck { checked_at: now_secs(), report: report.clone() });
+    *state.sentinel.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(LastCheck { checked_at: now_secs(), report: report.clone() });
     let _ = app.emit(EVENT_UPDATED, ());
     Ok(report)
 }
@@ -345,8 +345,8 @@ pub fn init(app: &AppHandle) {
             }
             let state = app.state::<AppState>();
             if let Err(err) = check_online(&app).await {
-                log::info!("automatic Watchtower check: {err}");
-                *state.watchtower.retry_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now() + AUTO_RETRY);
+                log::info!("automatic Sentinel check: {err}");
+                *state.sentinel.retry_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now() + AUTO_RETRY);
             }
         }
     });
@@ -354,13 +354,13 @@ pub fn init(app: &AppHandle) {
 
 async fn due(app: &AppHandle) -> bool {
     let state = app.state::<AppState>();
-    if !state.settings().watchtower_auto || state.session.lock().await.is_none() {
+    if !state.settings().sentinel_auto || state.session.lock().await.is_none() {
         return false;
     }
-    if state.watchtower.retry_at.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|at| std::time::Instant::now() < at) {
+    if state.sentinel.retry_at.lock().unwrap_or_else(|e| e.into_inner()).is_some_and(|at| std::time::Instant::now() < at) {
         return false;
     }
-    state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|last| now_secs() - last.checked_at >= AUTO_EVERY)
+    state.sentinel.last.lock().unwrap_or_else(|e| e.into_inner()).as_ref().is_none_or(|last| now_secs() - last.checked_at >= AUTO_EVERY)
 }
 
 /// The online check: breached passwords, breached websites and two-factor

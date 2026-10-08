@@ -22,7 +22,7 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
   and Secret Key still protect the vault)
 - An optional recovery key, like 1Password's, for a forgotten master password
   or a lost Secret Key
-- Watchtower: weak, reused and breached passwords (Have I Been Pwned,
+- Sentinel: weak, reused and breached passwords (Have I Been Pwned,
   k-anonymity), websites breached since the password was set, websites
   offering two-factor codes the item lacks, websites without HTTPS, and cards
   or documents about to expire; any alert can be ignored per item, and the

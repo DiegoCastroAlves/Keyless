@@ -12,7 +12,7 @@ export type View =
   | { kind: "tag"; tag: string }
   | { kind: "archive" }
   | { kind: "trash" }
-  | { kind: "watchtower" };
+  | { kind: "sentinel" };
 
 export interface Editing {
   draft: ItemDraft;
@@ -130,8 +130,8 @@ export function viewTitle(view: View, vaults: Vault[]): string {
       return i18n.t("sidebar.archive");
     case "trash":
       return i18n.t("sidebar.trash");
-    case "watchtower":
-      return i18n.t("sidebar.watchtower");
+    case "sentinel":
+      return i18n.t("sidebar.sentinel");
   }
 }
 

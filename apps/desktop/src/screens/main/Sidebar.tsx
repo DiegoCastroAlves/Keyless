@@ -1,6 +1,7 @@
 import {
   Archive,
   ArrowRightLeft,
+  Binoculars,
   ChevronDown,
   CircleArrowUp,
   Cloud,
@@ -15,7 +16,6 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   Share2,
-  ShieldCheck,
   Star,
   Tag,
   Trash,
@@ -221,7 +221,7 @@ export function Sidebar({
         <div className="space-y-0.5">
           <NavItem icon={<LayoutGrid className="size-4" />} label={t("sidebar.allItems")} count={active.length} view={{ kind: "all" }} />
           <NavItem icon={<Star className="size-4" />} label={t("sidebar.favorites")} count={favorites} view={{ kind: "favorites" }} />
-          <NavItem icon={<ShieldCheck className="size-4" />} label={t("sidebar.watchtower")} view={{ kind: "watchtower" }} />
+          <NavItem icon={<Binoculars className="size-4" />} label={t("sidebar.sentinel")} view={{ kind: "sentinel" }} />
         </div>
 
         <SectionHeader

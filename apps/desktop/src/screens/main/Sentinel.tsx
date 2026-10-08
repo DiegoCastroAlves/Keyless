@@ -4,11 +4,11 @@ import { useTranslation } from "react-i18next";
 
 import { ItemIcon } from "../../components/common";
 import { Button, IconButton, Spinner, Switch, Tooltip, cx } from "../../components/ui";
-import { api, errorMessage, events, type BreachReport, type HealthReport, type ItemSummary, type WatchtowerAlert } from "../../lib/api";
+import { api, errorMessage, events, type BreachReport, type HealthReport, type ItemSummary, type SentinelAlert } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
-export function Watchtower() {
+export function Sentinel() {
   const { t, i18n } = useTranslation();
   const items = useApp((s) => s.items);
   const revision = useApp((s) => s.revision);
@@ -35,7 +35,7 @@ export function Watchtower() {
         })
         .catch(() => undefined);
     void load();
-    const unlisten = events.onWatchtowerUpdated(() => void load());
+    const unlisten = events.onSentinelUpdated(() => void load());
     return () => void unlisten.then((stop) => stop());
   }, []);
 
@@ -99,9 +99,9 @@ export function Watchtower() {
         <div className="flex items-center gap-5">
           <ScoreRing score={score} />
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">{t("watchtower.title")}</h2>
-            <p className="mt-1 max-w-md text-[13px] leading-relaxed text-muted">{t("watchtower.subtitle")}</p>
-            <p className="mt-1 text-xs text-subtle">{t("watchtower.checked", { count: report.checked })}</p>
+            <h2 className="text-xl font-semibold tracking-tight">{t("sentinel.title")}</h2>
+            <p className="mt-1 max-w-md text-[13px] leading-relaxed text-muted">{t("sentinel.subtitle")}</p>
+            <p className="mt-1 text-xs text-subtle">{t("sentinel.checked", { count: report.checked })}</p>
           </div>
         </div>
 
@@ -109,45 +109,45 @@ export function Watchtower() {
           <StatCard
             icon={<ShieldX className="size-5" />}
             tone="danger"
-            label={t("watchtower.breached")}
+            label={t("sentinel.breached")}
             value={online ? online.breached.length : null}
-            placeholder={t("watchtower.notChecked")}
+            placeholder={t("sentinel.notChecked")}
           />
           <StatCard
             icon={<Globe className="size-5" />}
             tone="danger"
-            label={t("watchtower.compromised")}
+            label={t("sentinel.compromised")}
             value={online ? online.compromised.length : null}
-            placeholder={t("watchtower.notChecked")}
+            placeholder={t("sentinel.notChecked")}
           />
-          <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("watchtower.weak")} value={report.weak.length} />
-          <StatCard icon={<Repeat className="size-5" />} tone="warning" label={t("watchtower.reused")} value={reusedIds.size} />
-          <StatCard icon={<LockOpen className="size-5" />} tone="warning" label={t("watchtower.unsecured")} value={report.unsecured.length} />
+          <StatCard icon={<ShieldAlert className="size-5" />} tone="warning" label={t("sentinel.weak")} value={report.weak.length} />
+          <StatCard icon={<Repeat className="size-5" />} tone="warning" label={t("sentinel.reused")} value={reusedIds.size} />
+          <StatCard icon={<LockOpen className="size-5" />} tone="warning" label={t("sentinel.unsecured")} value={report.unsecured.length} />
           <StatCard
             icon={<KeyRound className="size-5" />}
             tone="info"
-            label={t("watchtower.twoFactor")}
+            label={t("sentinel.twoFactor")}
             value={online ? online.twoFactor.length : null}
-            placeholder={t("watchtower.notChecked")}
+            placeholder={t("sentinel.notChecked")}
           />
         </div>
 
         <div className="mt-4 rounded-xl border border-line bg-panel-2 p-4">
           <div className="flex items-center gap-3">
             <ShieldCheck className="size-5 shrink-0 text-accent" />
-            <p className="flex-1 text-xs leading-relaxed text-muted">{t("watchtower.breachPrivacy")}</p>
+            <p className="flex-1 text-xs leading-relaxed text-muted">{t("sentinel.breachPrivacy")}</p>
             <Button size="sm" onClick={checkBreaches} loading={checking}>
-              {checking ? t("watchtower.checkingBreaches") : t("watchtower.checkBreaches")}
+              {checking ? t("sentinel.checkingBreaches") : t("sentinel.checkBreaches")}
             </Button>
           </div>
           {settings && (
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 pl-8">
               <label className="flex flex-1 items-center gap-2.5 text-xs">
                 <Switch
-                  checked={settings.watchtower_auto}
-                  label={t("watchtower.autoCheck")}
+                  checked={settings.sentinel_auto}
+                  label={t("sentinel.autoCheck")}
                   onChange={(on) => {
-                    void setSettings({ ...settings, watchtower_auto: on })
+                    void setSettings({ ...settings, sentinel_auto: on })
                       .then(() => {
                         // Turned on: the first check now rather than later.
                         if (on && checkedAt === null) void checkBreaches();
@@ -155,11 +155,11 @@ export function Watchtower() {
                       .catch((err) => toast.error(errorMessage(err)));
                   }}
                 />
-                {t("watchtower.autoCheck")}
+                {t("sentinel.autoCheck")}
               </label>
               {checkedAt !== null && (
                 <span className="text-xs text-subtle">
-                  {t("watchtower.lastChecked", {
+                  {t("sentinel.lastChecked", {
                     when: new Date(checkedAt * 1000).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" }),
                   })}
                 </span>
@@ -171,18 +171,18 @@ export function Watchtower() {
         {!anything ? (
           <div className="mt-10 flex flex-col items-center text-center">
             <CircleCheck className="size-10 text-success" />
-            <p className="mt-3 text-sm font-medium">{t("watchtower.allGood")}</p>
+            <p className="mt-3 text-sm font-medium">{t("sentinel.allGood")}</p>
           </div>
         ) : (
           <div className="mt-8 space-y-8">
             {online && online.breached.length > 0 && (
               <IssueList
                 alert="breached"
-                title={t("watchtower.breached")}
-                hint={t("watchtower.breachedHint")}
+                title={t("sentinel.breached")}
+                hint={t("sentinel.breachedHint")}
                 entries={online.breached.map(([id, count]) => ({
                   item: byId.get(id),
-                  note: t("watchtower.breachedSeen", { count, formatted: count.toLocaleString(i18n.language) }),
+                  note: t("sentinel.breachedSeen", { count, formatted: count.toLocaleString(i18n.language) }),
                 }))}
                 tone="danger"
               />
@@ -190,11 +190,11 @@ export function Watchtower() {
             {online && online.compromised.length > 0 && (
               <IssueList
                 alert="compromised"
-                title={t("watchtower.compromised")}
-                hint={t("watchtower.compromisedHint")}
+                title={t("sentinel.compromised")}
+                hint={t("sentinel.compromisedHint")}
                 entries={online.compromised.map((issue) => ({
                   item: byId.get(issue.id),
-                  note: t("watchtower.compromisedNote", { site: issue.site, date: issue.date ? day(issue.date) : "" }),
+                  note: t("sentinel.compromisedNote", { site: issue.site, date: issue.date ? day(issue.date) : "" }),
                 }))}
                 tone="danger"
               />
@@ -202,8 +202,8 @@ export function Watchtower() {
             {report.weak.length > 0 && (
               <IssueList
                 alert="weak"
-                title={t("watchtower.weak")}
-                hint={t("watchtower.weakHint")}
+                title={t("sentinel.weak")}
+                hint={t("sentinel.weakHint")}
                 entries={report.weak.map((id) => ({ item: byId.get(id) }))}
                 tone="warning"
               />
@@ -211,17 +211,17 @@ export function Watchtower() {
             {reusedIds.size > 0 && (
               <IssueList
                 alert="reused"
-                title={t("watchtower.reused")}
-                hint={t("watchtower.reusedHint")}
-                entries={[...reusedIds.entries()].map(([id, others]) => ({ item: byId.get(id), note: t("watchtower.sharedWith", { count: others }) }))}
+                title={t("sentinel.reused")}
+                hint={t("sentinel.reusedHint")}
+                entries={[...reusedIds.entries()].map(([id, others]) => ({ item: byId.get(id), note: t("sentinel.sharedWith", { count: others }) }))}
                 tone="warning"
               />
             )}
             {report.unsecured.length > 0 && (
               <IssueList
                 alert="unsecured"
-                title={t("watchtower.unsecured")}
-                hint={t("watchtower.unsecuredHint")}
+                title={t("sentinel.unsecured")}
+                hint={t("sentinel.unsecuredHint")}
                 entries={report.unsecured.map((id) => ({ item: byId.get(id) }))}
                 tone="warning"
               />
@@ -229,11 +229,11 @@ export function Watchtower() {
             {report.expiring.length > 0 && (
               <IssueList
                 alert="expiring"
-                title={t("watchtower.expiring")}
-                hint={t("watchtower.expiringHint")}
+                title={t("sentinel.expiring")}
+                hint={t("sentinel.expiringHint")}
                 entries={report.expiring.map((e) => ({
                   item: byId.get(e.id),
-                  note: t(e.expired ? "watchtower.expiredOn" : "watchtower.expiresOn", { date: day(e.expiresAt) }),
+                  note: t(e.expired ? "sentinel.expiredOn" : "sentinel.expiresOn", { date: day(e.expiresAt) }),
                 }))}
                 tone="warning"
                 icon={<CalendarClock className="size-4" />}
@@ -242,9 +242,9 @@ export function Watchtower() {
             {online && online.twoFactor.length > 0 && (
               <IssueList
                 alert="two_factor"
-                title={t("watchtower.twoFactor")}
-                hint={t("watchtower.twoFactorHint")}
-                entries={online.twoFactor.map((issue) => ({ item: byId.get(issue.id), note: t("watchtower.twoFactorNote", { site: issue.site }) }))}
+                title={t("sentinel.twoFactor")}
+                hint={t("sentinel.twoFactorHint")}
+                entries={online.twoFactor.map((issue) => ({ item: byId.get(issue.id), note: t("sentinel.twoFactorNote", { site: issue.site }) }))}
                 tone="info"
               />
             )}
@@ -257,13 +257,13 @@ export function Watchtower() {
 }
 
 /** Alerts the user chose to ignore, which can be watched again. */
-function IgnoredList({ ignored, byId }: { ignored: [string, WatchtowerAlert][]; byId: Map<string, ItemSummary> }) {
+function IgnoredList({ ignored, byId }: { ignored: [string, SentinelAlert][]; byId: Map<string, ItemSummary> }) {
   const { t } = useTranslation();
   const loadData = useApp((s) => s.loadData);
   const [open, setOpen] = useState(false);
-  const watch = async (id: string, alert: WatchtowerAlert) => {
+  const watch = async (id: string, alert: SentinelAlert) => {
     try {
-      await api.setWatchtowerIgnored(id, alert, false);
+      await api.setSentinelIgnored(id, alert, false);
       await loadData();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -272,7 +272,7 @@ function IgnoredList({ ignored, byId }: { ignored: [string, WatchtowerAlert][]; 
   return (
     <div className="mt-10">
       <button className="text-xs font-medium text-muted hover:text-fg" onClick={() => setOpen(!open)}>
-        {t("watchtower.ignoredCount", { count: ignored.length })}
+        {t("sentinel.ignoredCount", { count: ignored.length })}
       </button>
       {open && (
         <div className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line">
@@ -282,10 +282,10 @@ function IgnoredList({ ignored, byId }: { ignored: [string, WatchtowerAlert][]; 
               <div key={`${id}-${alert}`} className="flex items-center gap-3 px-3 py-2">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-medium">{byId.get(id)!.title}</div>
-                  <div className="truncate text-xs text-muted">{t(`watchtower.alert.${alert}`)}</div>
+                  <div className="truncate text-xs text-muted">{t(`sentinel.alert.${alert}`)}</div>
                 </div>
                 <Button size="sm" variant="ghost" onClick={() => watch(id, alert)}>
-                  <BellRing className="size-4" /> {t("watchtower.watchAgain")}
+                  <BellRing className="size-4" /> {t("sentinel.watchAgain")}
                 </Button>
               </div>
             ))}
@@ -363,7 +363,7 @@ function IssueList({
   tone,
   icon,
 }: {
-  alert: WatchtowerAlert;
+  alert: SentinelAlert;
   title: string;
   hint: string;
   entries: { item: ItemSummary | undefined; note?: string }[];
@@ -376,7 +376,7 @@ function IssueList({
   const loadData = useApp((s) => s.loadData);
   const ignore = async (id: string) => {
     try {
-      await api.setWatchtowerIgnored(id, alert, true);
+      await api.setSentinelIgnored(id, alert, true);
       await loadData();
     } catch (err) {
       toast.error(errorMessage(err));
@@ -412,9 +412,9 @@ function IssueList({
                   <div className="truncate text-xs text-muted">{note ?? item!.subtitle}</div>
                 </div>
               </button>
-              <Tooltip content={t("watchtower.ignore")}>
+              <Tooltip content={t("sentinel.ignore")}>
                 <IconButton
-                  label={t("watchtower.ignore")}
+                  label={t("sentinel.ignore")}
                   onClick={() => void ignore(item!.id)}
                   className="mr-2 opacity-0 group-hover:opacity-100 focus:opacity-100"
                 >

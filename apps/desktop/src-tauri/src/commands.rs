@@ -436,9 +436,9 @@ pub async fn open_item_url(app: AppHandle, state: State<'_, AppState>, item_id: 
 }
 
 #[tauri::command]
-pub async fn set_watchtower_ignored(app: AppHandle, state: State<'_, AppState>, item_id: String, alert: String, ignored: bool) -> AppResult<()> {
+pub async fn set_sentinel_ignored(app: AppHandle, state: State<'_, AppState>, item_id: String, alert: String, ignored: bool) -> AppResult<()> {
     state.touch();
-    items::set_watchtower_ignored(&app, &item_id, &alert, ignored).await
+    items::set_sentinel_ignored(&app, &item_id, &alert, ignored).await
 }
 
 #[tauri::command]
@@ -527,7 +527,7 @@ pub async fn last_breaches(state: State<'_, AppState>) -> AppResult<Option<healt
     if state.session.lock().await.is_none() {
         return Err(AppError::Locked);
     }
-    Ok(state.watchtower.last.lock().unwrap_or_else(|e| e.into_inner()).clone())
+    Ok(state.sentinel.last.lock().unwrap_or_else(|e| e.into_inner()).clone())
 }
 
 #[tauri::command]

@@ -31,7 +31,7 @@ Key.
 
 - **Supabase** hosts the Keyless server (authentication and database).
 - **Have I Been Pwned** checks whether a password appears in known breaches
-  when you use Watchtower. Only the first 5 characters of the password's
+  when you use Sentinel. Only the first 5 characters of the password's
   SHA-1 hash are sent (k-anonymity); the password itself never leaves your
   device.
 

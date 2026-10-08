@@ -167,7 +167,7 @@ pub fn run() {
                 unlock_prompt: Mutex::new(Vec::new()),
                 lock_state: tokio::sync::watch::Sender::new(true),
                 ssh: Default::default(),
-                watchtower: Default::default(),
+                sentinel: Default::default(),
                 unlock_reason: Default::default(),
             });
 
@@ -316,7 +316,7 @@ pub fn run() {
             commands::share_create,
             commands::share_list,
             commands::share_revoke,
-            commands::set_watchtower_ignored,
+            commands::set_sentinel_ignored,
             commands::ssh_import_key,
             commands::ssh_request,
             commands::ssh_request_ready,

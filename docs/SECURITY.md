@@ -293,7 +293,7 @@ SSH keys kept in items; private keys never leave Keyless.
   malicious program of the same user; the approval is a guard against
   surprise use, not against malware already running as the user.
 
-## Watchtower
+## Sentinel
 
 - Weak, reused and unsecured (`http`) websites and expiring cards are found
   on this device, from the unlocked vault.
