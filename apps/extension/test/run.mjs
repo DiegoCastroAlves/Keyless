@@ -1,8 +1,10 @@
 // Field-detection tests: builds the harness, generates the test pages, and
-// checks each one in a headless Chromium (its own, throwaway profile).
+// checks each one in a headless Chromium or Firefox (its own, throwaway
+// profile).
 //
 //   node test/run.mjs              all generated pages
 //   node test/run.mjs 012 145      only these
+//   node test/run.mjs --firefox    in Firefox (headless, WebDriver BiDi)
 //   node test/run.mjs --survey urls.txt   what Keyless finds on real pages
 //                                          (read only: nothing is typed)
 //
@@ -24,37 +26,50 @@ const surveyFile = args[0] === "--survey" ? args[1] : null;
 
 await build({ entryPoints: [join(HERE, "harness.ts")], bundle: true, format: "iife", target: "chrome120", outfile: join(HERE, "dist/harness.js"), logLevel: "warning" });
 
-// ----- Chromium over CDP --------------------------------------------------------------
+// ----- The browser: Chromium over CDP, or Firefox over WebDriver BiDi -----------------
 
+const firefox = args.includes("--firefox");
 const profile = mkdtempSync(join(tmpdir(), "keyless-fields-"));
 const port = 9500 + Math.floor(Math.random() * 400);
-const browser = spawn(
-  process.env.CHROMIUM ?? "chromium",
-  [
-    `--remote-debugging-port=${port}`,
-    "--headless=new",
-    "--disable-gpu",
-    "--no-first-run",
-    "--no-default-browser-check",
-    `--user-data-dir=${profile}`,
-    "--window-size=1280,1000",
-    // CI runners refuse the user namespaces Chromium's sandbox needs; the
-    // pages there are only the generated ones.
-    ...(process.env.CI ? ["--no-sandbox"] : []),
-    "about:blank",
-  ],
-  { stdio: ["ignore", "ignore", "pipe"] },
-);
-/** The end of what Chromium wrote, to tell why it did not start. */
-let chromiumErrors = "";
-browser.stderr.on("data", (chunk) => (chromiumErrors = (chromiumErrors + chunk).slice(-4000)));
+if (firefox) {
+  // Quiet first start; the profile's folder stands in for the home folder.
+  writeFileSync(
+    join(profile, "user.js"),
+    ['user_pref("browser.shell.checkDefaultBrowser", false);', 'user_pref("datareporting.policy.dataSubmissionEnabled", false);', 'user_pref("toolkit.telemetry.reportingpolicy.firstRun", false);', 'user_pref("app.update.enabled", false);'].join("\n"),
+  );
+}
+const browser = firefox
+  ? spawn(process.env.FIREFOX ?? "firefox", ["--headless", "--no-remote", "--new-instance", "--profile", profile, "--remote-debugging-port", String(port), "--width", "1280", "--height", "1000", "about:blank"], {
+      stdio: ["ignore", "ignore", "pipe"],
+      env: { ...process.env, HOME: profile, XDG_CONFIG_HOME: join(profile, ".config"), MOZ_ENABLE_WAYLAND: "0" },
+    })
+  : spawn(
+      process.env.CHROMIUM ?? "chromium",
+      [
+        `--remote-debugging-port=${port}`,
+        "--headless=new",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-default-browser-check",
+        `--user-data-dir=${profile}`,
+        "--window-size=1280,1000",
+        // CI runners refuse the user namespaces Chromium's sandbox needs; the
+        // pages there are only the generated ones.
+        ...(process.env.CI ? ["--no-sandbox"] : []),
+        "about:blank",
+      ],
+      { stdio: ["ignore", "ignore", "pipe"] },
+    );
+/** The end of what the browser wrote, to tell why it did not start. */
+let browserErrors = "";
+browser.stderr.on("data", (chunk) => (browserErrors = (browserErrors + chunk).slice(-4000)));
 
 /** On GitHub Actions, failures also become annotations (readable without
  * the full log). */
 function annotate(message) {
   if (process.env.GITHUB_ACTIONS) console.log(`::error::${String(message).replace(/%/g, "%25").replace(/\r?\n/g, "%0A")}`);
 }
-/** Closes Chromium and deletes its profile (it grows with every site). */
+/** Closes the browser and deletes its profile (it grows with every site). */
 async function finish(code) {
   if (browser.exitCode === null) {
     const exited = new Promise((r) => browser.once("exit", r));
@@ -69,28 +84,37 @@ process.on("SIGTERM", () => void finish(143));
 for (const event of ["uncaughtException", "unhandledRejection"]) {
   process.on(event, (err) => {
     console.error(err);
-    annotate(`${err?.stack ?? err}\n${chromiumErrors}`);
+    annotate(`${err?.stack ?? err}\n${browserErrors}`);
     void finish(1);
   });
 }
 
-async function target() {
-  // A first start on a fresh machine can take a while.
+/** The address to talk to the browser at, once it is up. A first start on a
+ * fresh machine can take a while. */
+async function endpoint() {
   for (let i = 0; i < 300; i++) {
     try {
+      if (firefox) {
+        const socket = new WebSocket(`ws://127.0.0.1:${port}/session`);
+        await new Promise((resolve, reject) => ((socket.onopen = resolve), (socket.onerror = reject)));
+        return socket;
+      }
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const page = list.find((t) => t.type === "page");
-      if (page) return page.webSocketDebuggerUrl;
+      if (page) {
+        const socket = new WebSocket(page.webSocketDebuggerUrl);
+        await new Promise((r) => (socket.onopen = r));
+        return socket;
+      }
     } catch {
       // Not up yet.
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error("chromium did not start");
+  throw new Error(`${firefox ? "firefox" : "chromium"} did not start`);
 }
 
-const ws = new WebSocket(await target());
-await new Promise((r) => (ws.onopen = r));
+const ws = await endpoint();
 let id = 0;
 const waiters = new Map();
 const events = new Map();
@@ -118,24 +142,48 @@ const once = (method, ms) =>
       resolve(params);
     });
   });
-await send("Page.enable");
-await send("Runtime.enable");
+
+/** Firefox: the tab everything happens in. */
+let context = null;
+if (firefox) {
+  const started = await send("session.new", { capabilities: {} });
+  if (started.type !== "success") throw new Error(`session.new: ${started.message}`);
+  context = (await send("browsingContext.getTree", {})).result.contexts[0].context;
+} else {
+  await send("Page.enable");
+  await send("Runtime.enable");
+}
 
 async function visit(url, waitMs) {
-  const loaded = once("Page.loadEventFired", 20_000);
-  await send("Page.navigate", { url });
-  await loaded;
+  if (firefox) {
+    await send("browsingContext.navigate", { context, url, wait: "complete" });
+  } else {
+    const loaded = once("Page.loadEventFired", 20_000);
+    await send("Page.navigate", { url });
+    await loaded;
+  }
   await new Promise((r) => setTimeout(r, waitMs));
 }
 
+/** The value of an expression in the page (passed through JSON). */
 async function evaluate(expression) {
-  const r = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+  const json = `(async () => JSON.stringify(await (${expression})))()`;
+  if (firefox) {
+    const r = await send("script.evaluate", { expression: json, target: { context }, awaitPromise: true });
+    if (r.type !== "success") throw new Error(r.message);
+    if (r.result.type === "exception") throw new Error(r.result.exceptionDetails.text);
+    const value = r.result.result;
+    return value.type === "string" ? JSON.parse(value.value) : undefined;
+  }
+  const r = await send("Runtime.evaluate", { expression: json, returnByValue: true, awaitPromise: true });
   if (r.result?.exceptionDetails) throw new Error(r.result.exceptionDetails.exception?.description ?? r.result.exceptionDetails.text);
-  return r.result?.result?.value;
+  const value = r.result?.result?.value;
+  return typeof value === "string" ? JSON.parse(value) : undefined;
 }
 
 // ----- Real pages ---------------------------------------------------------------------
 
+if (surveyFile && firefox) throw new Error("--survey runs in Chromium only");
 if (surveyFile) {
   // As a regular Chrome: many sites turn "HeadlessChrome" away.
   const version = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json();
@@ -190,7 +238,7 @@ await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
 const index = JSON.parse(readFileSync(join(HERE, "pages/index.json"), "utf8"));
-const only = new Set(args);
+const only = new Set(args.filter((a) => !a.startsWith("--")));
 const failures = [];
 const byKind = {};
 for (const page of index) {

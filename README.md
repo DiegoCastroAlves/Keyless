@@ -119,6 +119,7 @@ cd apps/extension
 pnpm install
 pnpm build            # dist/chrome and dist/firefox
 pnpm test             # field detection on generated pages (headless Chromium)
+pnpm test:firefox     # the same in headless Firefox
 
 cd apps/site
 pnpm install

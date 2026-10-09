@@ -3,8 +3,9 @@
 // says it expects (a JSON script with id "expect", and data-k on fields).
 //
 // Closed shadow roots: the extension sees them through the browser's
-// chrome.dom API, which plain pages lack; here attachShadow keeps them so a
-// stand-in for that API can hand them back.
+// chrome.dom API (Chromium) or the openOrClosedShadowRoot property (Firefox),
+// which plain pages lack; here attachShadow keeps them so a stand-in for the
+// browser's own can hand them back.
 
 import { composedParent, deepQuery, fieldKind, hasCodeForm, hasLoginForm, isNewPassword, loginFields, partOf, readyToSubmit, setSplit, setValue, signals, viewable, visible } from "../src/fields";
 
@@ -15,7 +16,11 @@ Element.prototype.attachShadow = function (init: ShadowRootInit) {
   roots.set(this, root);
   return root;
 };
-(globalThis as unknown as { chrome: unknown }).chrome = { dom: { openOrClosedShadowRoot: (el: Element) => roots.get(el) ?? null } };
+if (navigator.userAgent.includes("Firefox")) {
+  Object.defineProperty(Element.prototype, "openOrClosedShadowRoot", { get: function (this: Element) { return roots.get(this) ?? null; }, configurable: true });
+} else {
+  (globalThis as unknown as { chrome: unknown }).chrome = { dom: { openOrClosedShadowRoot: (el: Element) => roots.get(el) ?? null } };
+}
 
 interface Expect {
   /** data-k -> "username" | "password" | "new-password" | "otp" | "none" | "card:<part>" | "identity:<part>" | "hidden" */

@@ -7,7 +7,8 @@
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "test:firefox": "node test/run.mjs --firefox"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",

@@ -40,8 +40,9 @@ export function shadowOf(el: Element): ShadowRoot | null {
   try {
     const dom = (globalThis as { chrome?: { dom?: { openOrClosedShadowRoot?: (el: HTMLElement) => ShadowRoot | null } } }).chrome?.dom;
     if (dom?.openOrClosedShadowRoot) return el instanceof HTMLElement ? dom.openOrClosedShadowRoot(el) : el.shadowRoot;
-    const firefox = (el as Element & { openOrClosedShadowRoot?: () => ShadowRoot | null }).openOrClosedShadowRoot;
-    return firefox ? firefox.call(el) : el.shadowRoot;
+    // Firefox: a property (not a function) that only extensions see.
+    if ("openOrClosedShadowRoot" in el) return (el as Element & { openOrClosedShadowRoot: ShadowRoot | null }).openOrClosedShadowRoot;
+    return el.shadowRoot;
   } catch {
     return el.shadowRoot;
   }
@@ -293,8 +294,11 @@ export function signals(control: HTMLInputElement | HTMLSelectElement): Signals 
   return value;
 }
 
-function tokens(autocomplete: string): string[] {
-  return (autocomplete || "").toLowerCase().split(/\s+/).filter(Boolean);
+/** The field's autocomplete tokens, as the page wrote them: Firefox's
+ * `autocomplete` property leaves out the ones it does not know (such as
+ * "one-time-code" and "webauthn"). */
+function tokens(el: Element): string[] {
+  return (el.getAttribute("autocomplete") ?? "").toLowerCase().split(/\s+/).filter(Boolean);
 }
 
 // ----- Login fields -------------------------------------------------------------------
@@ -370,7 +374,7 @@ const NEWSLETTER_BOX = /newsletter|subscri|assin|inscrev|suscr|search|busca|pesq
 export function fieldKind(input: HTMLInputElement): Kind | null {
   if (input.disabled || input.readOnly) return null;
   const type = (input.type || "text").toLowerCase();
-  const autocomplete = tokens(input.autocomplete);
+  const autocomplete = tokens(input);
   if (type === "password") {
     // Some pages mask one-time codes, card codes and PINs too.
     if (autocomplete.includes("one-time-code")) return "otp";
@@ -437,7 +441,7 @@ export function fieldKind(input: HTMLInputElement): Kind | null {
 
 /** A field that offers passkeys (autocomplete "username webauthn"). */
 export function wantsPasskey(input: HTMLInputElement): boolean {
-  return tokens(input.autocomplete).includes("webauthn");
+  return tokens(input).includes("webauthn");
 }
 
 const NEW_PASSWORD_HINT = /new|confirm|repeat|again|retype|regist|sign.?up|create|nova|novo|nueva|nuevo|confirma|repit|repet|cadastr|crear|escolha|choose/i;
@@ -449,7 +453,7 @@ const SIGNUP_BOX = /sign ?up|regist|creat|criar|cadastr|crear|join|inscrev|cr[eÃ
 /** A password being chosen (sign-up, change password), not typed from memory. */
 export function isNewPassword(input: HTMLInputElement): boolean {
   if (fieldKind(input) !== "password") return false;
-  const autocomplete = tokens(input.autocomplete);
+  const autocomplete = tokens(input);
   const passwords = () => deepQuery<HTMLInputElement>(scopeOf(input), 'input[type="password"]').filter((p) => visible(p) && fieldKind(p) === "password");
   if (autocomplete.includes("new-password")) {
     // Some sign-in pages mark their only password "new" to keep browsers
@@ -486,7 +490,7 @@ export function loginFields(anchor: HTMLInputElement | null) {
 /** A username field that names an account (email, user name), not only a
  * phone number. */
 function namesAccount(input: HTMLInputElement): boolean {
-  const autocomplete = tokens(input.autocomplete);
+  const autocomplete = tokens(input);
   return input.type === "email" || autocomplete.includes("username") || autocomplete.includes("email") || USERNAME_WORDS.test(signals(input).strong);
 }
 
@@ -503,7 +507,7 @@ export function hasLoginForm(): boolean {
   if (passwords.length > 0) return passwords.some((input) => !isNewPassword(input));
   // A first step that asks only for the username: one that says so, or the
   // only field in its box.
-  return inputs.some((input) => fieldKind(input) === "username" && (tokens(input.autocomplete).some((t) => t === "username" || t === "webauthn") || aloneIn(input, boxOf(input))));
+  return inputs.some((input) => fieldKind(input) === "username" && (tokens(input).some((t) => t === "username" || t === "webauthn") || aloneIn(input, boxOf(input))));
 }
 
 /** True when the page asks only for a one-time code (the sign-in's next
@@ -580,7 +584,7 @@ const IDENTITY_HINTS: [string, RegExp][] = [
 
 /** What a field of a payment or address form asks for. */
 export function partOf(control: FormControl): [FormKind, string] | null {
-  const autocomplete = tokens(control.autocomplete);
+  const autocomplete = tokens(control);
   const explicit = AUTOCOMPLETE_PARTS[autocomplete[autocomplete.length - 1] ?? ""];
   if (explicit) return explicit;
   if (control instanceof HTMLInputElement && !["text", "tel", "number", "month", "date", ""].includes(control.type)) return null;
@@ -604,7 +608,7 @@ export function formParts(anchor: Element | null, kind: FormKind, check: (el: HT
     let part: string | null = null;
     if (control instanceof HTMLInputElement && fieldKind(control)) {
       // Login fields stay login fields; an address form's email is filled too.
-      const email = control.type === "email" || tokens(control.autocomplete).includes("email");
+      const email = control.type === "email" || tokens(control).includes("email");
       if (kind === "identity" && email) part = "email";
     } else {
       const found = partOf(control);
@@ -644,7 +648,7 @@ export function formKinds(): { card: boolean; identity: boolean } {
     const part = partOf(control);
     if (!part) continue;
     found[part[0]]++;
-    if (part[0] === "card" && /\bcc-/.test((control.autocomplete || "").toLowerCase())) found.marked++;
+    if (part[0] === "card" && tokens(control).some((t) => t.startsWith("cc-"))) found.marked++;
   }
   return { card: found.marked >= 1 || found.card >= (hostedFields() ? 1 : 2), identity: found.identity >= 2 };
 }
