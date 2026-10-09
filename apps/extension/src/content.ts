@@ -571,6 +571,14 @@ let menu: Frame | null = null;
  * service's card field, a small sign-in box): at the top of the page, acting
  * for that frame with its token. */
 let detached: Frame | null = null;
+/** Where the detached menu's field is on this page (null: unknown, the menu
+ * goes to the top of the page). */
+let detachedAnchor: DOMRect | null = null;
+/** This frame's menu was never seen whole (see inline.ts): the page shows
+ * it from then on. */
+let unseen = false;
+/** The page shows this frame's menu now: the field's keys go to it. */
+let elsewhere = false;
 /** A site's passkey request (see background.ts). */
 let passkeyFrame: Frame | null = null;
 
@@ -638,16 +646,68 @@ function tooSmall(): boolean {
   return !TOP && (innerHeight < 220 || innerWidth < 260);
 }
 
-/** The page shows the menu for this frame (see `detached`). */
+/** The page shows the menu for this frame (see `detached`), under the
+ * field when it can tell where the frame is. */
 function menuElsewhere(field: HTMLInputElement, activate = false) {
   closeMenu();
+  elsewhere = true;
   const info = fieldInfo(field);
-  void register().then(() => send({ type: "menu_elsewhere", field: info, activate }));
+  const r = field.getBoundingClientRect();
+  const rect = { x: r.x, y: r.y, width: r.width, height: r.height, frameWidth: innerWidth, frameHeight: innerHeight };
+  void register().then(() => send({ type: "menu_elsewhere", field: info, activate, rect }));
+}
+
+/** Closes the menu the page shows for this frame. */
+function closeElsewhere() {
+  if (!elsewhere) return;
+  elsewhere = false;
+  void send({ type: "menu_elsewhere_key", key: "close" });
+}
+
+/** On the page: where a frame's field is, from where the frame says it is in
+ * its own window. Only for a frame of the page itself, found by its address
+ * and size; otherwise null. */
+function frameFieldRect(origin: string, rect: Record<string, number>): DOMRect | null {
+  const numbers = ["x", "y", "width", "height", "frameWidth", "frameHeight"].map((k) => Number(rect[k]));
+  if (numbers.some((n) => !Number.isFinite(n))) return null;
+  const [x, y, width, height, frameWidth, frameHeight] = numbers;
+  const frames = deepQuery<HTMLIFrameElement>(document, "iframe").filter((frame) => {
+    try {
+      if (new URL(frame.src, location.href).origin !== origin || !visible(frame)) return false;
+    } catch {
+      return false;
+    }
+    return Math.abs(frame.clientWidth - frameWidth) <= 2 && Math.abs(frame.clientHeight - frameHeight) <= 2;
+  });
+  if (frames.length !== 1) return null;
+  const frame = frames[0];
+  const box = frame.getBoundingClientRect();
+  const style = getComputedStyle(frame);
+  const left = box.left + frame.clientLeft + parseFloat(style.paddingLeft);
+  const top = box.top + frame.clientTop + parseFloat(style.paddingTop);
+  return new DOMRect(left + x, top + y, width, height);
+}
+
+/** Puts the detached menu under its field (or above it), like `place`. */
+function placeDetached() {
+  if (!detached?.open || !detachedAnchor || detached.height === 0) return;
+  const rect = detachedAnchor;
+  const width = Math.min(MENU_WIDTH, window.innerWidth - 16);
+  const outer = width + 2 * PAD;
+  let top = rect.bottom + 4 - PAD;
+  if (rect.bottom + 4 + detached.height - 2 * PAD > window.innerHeight && rect.top - detached.height > 0) {
+    top = rect.top - 4 - detached.height + PAD;
+  }
+  const left = Math.max(0, Math.min(rect.left - PAD, window.innerWidth - outer));
+  const moved = Math.abs(parseFloat(detached.iframe.style.top) - top) > 2 || Math.abs(parseFloat(detached.iframe.style.left) - left) > 2;
+  detached.iframe.style.top = `${top}px`;
+  detached.iframe.style.left = `${left}px`;
+  if (moved) detached.post({ type: "moved" });
 }
 
 function openMenu(activate = false) {
   if (!current) return;
-  if (tooSmall()) return menuElsewhere(current, activate);
+  if (tooSmall() || unseen) return menuElsewhere(current, activate);
   menu ??= new Frame("menu");
   menu.show({ activate, field: fieldInfo(current) });
   place();
@@ -808,6 +868,7 @@ document.addEventListener(
     // Clicks inside the menus happen in their own frames and never get here.
     if (e.composedPath().includes(host) || eventTarget(e) === current) return;
     closeMenu();
+    elsewhere = false;
     detached?.hide();
     button.style.display = "none";
     current = null;
@@ -819,7 +880,17 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   (e) => {
-    if (!menu?.open || eventTarget(e) !== current) return;
+    if (eventTarget(e) !== current) return;
+    if (!menu?.open) {
+      if (!elsewhere) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        void send({ type: "menu_elsewhere_key", key: "focus" });
+      } else if (e.key === "Escape" || e.key === "Tab") {
+        closeElsewhere();
+      }
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       menu.iframe.focus();
@@ -835,7 +906,10 @@ document.addEventListener(
   "input",
   (e) => {
     // Typing by hand: the menu would only be in the way.
-    if (e.isTrusted && eventTarget(e) === current && !filling) closeMenu();
+    if (e.isTrusted && eventTarget(e) === current && !filling) {
+      closeMenu();
+      closeElsewhere();
+    }
   },
   true,
 );
@@ -859,6 +933,14 @@ window.addEventListener("message", (event) => {
   switch (data?.type) {
     case "size":
       frame.resize(Math.max(0, Math.min(Number(data.height) || 0, 640)));
+      if (frame === detached) placeDetached();
+      break;
+    case "unseen":
+      // See inline.ts.
+      if (frame === menu && !TOP && current) {
+        unseen = true;
+        menuElsewhere(current);
+      }
       break;
     case "close":
       if (frame === menu) closeMenu(Boolean(data.refocus));
@@ -1089,7 +1171,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     detached ??= new Frame("menu", "detached");
     detached.token = message.token;
+    detachedAnchor = typeof message.origin === "string" && message.rect && typeof message.rect === "object" ? frameFieldRect(message.origin, message.rect) : null;
+    if (!detachedAnchor) {
+      detached.iframe.style.top = "";
+      detached.iframe.style.left = "";
+    }
     detached.show({ activate: message.activate === true, field: message.field });
+    placeDetached();
+    return;
+  }
+  if (message?.type === "keyless-menu-key") {
+    // Keys from the field of the frame the detached menu is for.
+    if (!TOP || !detached?.open || detached.token !== message.token) return;
+    if (message.key === "focus") {
+      detached.iframe.focus();
+      detached.post({ type: "focus" });
+    } else if (message.key === "close") {
+      detached.hide();
+    }
     return;
   }
   if (message?.type === "keyless-fill-form" && (message.kind === "card" || message.kind === "identity")) {

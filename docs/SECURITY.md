@@ -401,8 +401,11 @@ must be running, for what it needs.
   Firefox could not detect, so there frames from other sites are filled only
   from the popup or the keyboard shortcuts. A menu that would be cut off by
   its frame's edges (a payment service's one-field frame, a small sign-in
-  box) is shown by the page at its top instead, still acting only for the
-  frame. The popup fills a frame from another site than the page only after
+  box), or that the browser never reports as seen whole (the page around
+  the frame blurs or fades it, as iCloud's does with Apple's sign-in), is
+  shown by the page instead, still acting only for the frame and taking
+  clicks only as the page's own menus do: where the frame can be found by
+  its address and size, under its field, otherwise at the top. The popup fills a frame from another site than the page only after
   the user confirms a warning naming both sites (the shortcut skips such
   frames). The sign-in card and the "Save login?" prompt are the page's
   only. Sandboxed frames are never filled, and a frame that navigated

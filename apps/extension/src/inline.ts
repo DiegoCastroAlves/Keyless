@@ -88,6 +88,17 @@ function settle() {
   quietUntil = Date.now() + SETTLE_MS;
 }
 
+/** A menu in a frame the browser never sees whole (the page around the
+ * frame blurs or fades it) would never take a click: it tells the content
+ * script, and the page shows it instead (where the same checks apply). */
+const UNSEEN_MS = 1200;
+let unseenTimer: ReturnType<typeof setTimeout> | undefined;
+function watchUnseen() {
+  clearTimeout(unseenTimer);
+  if (!tracksVisibility || mode !== "menu") return;
+  unseenTimer = setTimeout(() => seenSince === null && toParent("unseen"), UNSEEN_MS);
+}
+
 function clickable(): boolean {
   const now = Date.now();
   if (!pageSafe || now < quietUntil) return false;
@@ -164,7 +175,9 @@ function unlockError(code: string | undefined): string {
  * fills only its code. */
 async function fillLogin(login: Login, submit: boolean) {
   const reply = await send({ type: "fill", id: login.id, submit, code: field.code === true });
-  if (reply.ok) return; // The content script closes the menu.
+  // The content script closes the menu, but not one the page shows for its
+  // frame (see content.ts, `detached`).
+  if (reply.ok) return toParent("close");
   if (reply.error === "locked") await refresh();
   else showError(t("fillFailed"));
 }
@@ -809,6 +822,7 @@ window.addEventListener("message", async (event) => {
       token = data.keyless;
       if (data.field) field = data.field;
       await refresh(true);
+      watchUnseen();
       if (data.activate) void activate(true);
     }
     return;
@@ -839,6 +853,7 @@ window.addEventListener("message", async (event) => {
         field = data.field;
       }
       await refresh(true);
+      watchUnseen();
       if (data.activate) void activate(true);
       break;
     case "activate":

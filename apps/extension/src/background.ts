@@ -1338,7 +1338,7 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
 
 /** What content scripts in frames inside the page may ask (their menus act
  * for them, see `registration`). */
-const FRAME_MESSAGES = new Set(["frame_login", "frame_form", "capture", "capture_done", "register", "page_state", "unlock", "menu_elsewhere"]);
+const FRAME_MESSAGES = new Set(["frame_login", "frame_form", "capture", "capture_done", "register", "page_state", "unlock", "menu_elsewhere", "menu_elsewhere_key"]);
 
 async function handleContent(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
   // Regular web pages; frames inside them only for a few things.
@@ -1349,14 +1349,28 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       await setLoginFrame(sender.tab.id, sender.frameId, message.login === true ? sender.url : null, message.code === true);
       return { ok: true };
     case "menu_elsewhere": {
-      // A frame too small for the menu: the page shows it for the frame,
+      // A frame too small for the menu, or one the browser cannot vouch
+      // for (see inline.ts): the page shows it for the frame,
       // with the frame's token (so it acts for the frame's address only).
       if (sender.frameId === 0) return { ok: false, error: "bad_request" };
       const frameId = sender.frameId;
       const token = Object.entries(await registrations(sender.tab.id)).find(([, reg]) => reg.frameId === frameId)?.[0];
       if (!token) return { ok: false, error: "forbidden" };
       const field = message.field && typeof message.field === "object" ? message.field : null;
-      await chrome.tabs.sendMessage(sender.tab.id, { type: "keyless-menu-for", token, field, activate: message.activate === true }, { frameId: 0 });
+      // Where the field is in the frame, so the page can show the menu under
+      // it; the frame's address, from the browser, to find the frame.
+      const rect = message.rect && typeof message.rect === "object" ? message.rect : null;
+      const origin = sender.url ? new URL(sender.url).origin : null;
+      await chrome.tabs.sendMessage(sender.tab.id, { type: "keyless-menu-for", token, field, activate: message.activate === true, rect, origin }, { frameId: 0 });
+      return { ok: true };
+    }
+    case "menu_elsewhere_key": {
+      // The arrow, Escape or Tab in that frame's field.
+      if (sender.frameId === 0 || (message.key !== "focus" && message.key !== "close")) return { ok: false, error: "bad_request" };
+      const frameId = sender.frameId;
+      const token = Object.entries(await registrations(sender.tab.id)).find(([, reg]) => reg.frameId === frameId)?.[0];
+      if (!token) return { ok: false, error: "forbidden" };
+      await chrome.tabs.sendMessage(sender.tab.id, { type: "keyless-menu-key", token, key: message.key }, { frameId: 0 });
       return { ok: true };
     }
     case "frame_form": {
