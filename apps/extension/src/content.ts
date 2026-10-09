@@ -356,11 +356,15 @@ function mount() {
   if (host.parentNode !== parent) {
     // Moved without reloading the menus where the browser can; otherwise
     // they reload and are set up again (see Frame).
+    const reload = () => {
+      for (const frame of openFrames()) frame?.reloading();
+      parent.appendChild(host);
+    };
     try {
       if (host.isConnected && parent.moveBefore) parent.moveBefore(host, null);
-      else parent.appendChild(host);
+      else reload();
     } catch {
-      parent.appendChild(host);
+      reload();
     }
     guard.observe(host, { attributes: true });
     removal.disconnect();
@@ -557,7 +561,11 @@ class Frame {
    * `detached`). */
   token = token;
   private loading: Promise<void> | null = null;
-  /** What the menu was last shown for, to set it up again if it reloads. */
+  /** Its page has loaded: until then its window is still a blank page of
+   * the page's origin, and messages for it are not sent. */
+  private ready = false;
+  /** What the menu is shown for, told when it loads (again after a reload,
+   * see mount). */
   private details: { activate: boolean; field: FieldInfo | null } = { activate: false, field: null };
   open = false;
   height = 0;
@@ -588,24 +596,34 @@ class Frame {
     this.details = { activate: false, field: details.field };
     // Told again once it has its size (see resize).
     lastSafe.delete(this);
-    if (this.loading) {
+    if (this.ready) {
+      this.details = { activate: false, field: details.field };
       this.post({ type: "show", ...details });
       if (this.height > 0) this.iframe.classList.add("open");
       return;
     }
+    // Told once it has loaded.
+    this.details = details;
+    if (this.loading) return;
     this.loading = register().then(
       () =>
         new Promise<void>((resolve) => {
-          let first = true;
           // Also when it reloads after being moved (see mount).
           this.iframe.addEventListener("load", () => {
-            this.post({ type: "init", ...(first ? details : this.details) });
-            first = false;
+            this.ready = true;
+            this.post({ type: "init", ...this.details });
+            // Reloaded, it is set up again, not activated again.
+            this.details = { activate: false, field: this.details.field };
             resolve();
           });
           this.iframe.src = chrome.runtime.getURL(`inline.html#${this.mode}`);
         }),
     );
+  }
+
+  /** The page put the menus back: they load again. */
+  reloading() {
+    this.ready = false;
   }
 
   hide() {
@@ -623,6 +641,7 @@ class Frame {
   }
 
   post(message: Record<string, unknown>) {
+    if (!this.ready) return;
     this.iframe.contentWindow?.postMessage({ ...message, keyless: this.token }, EXTENSION_ORIGIN);
   }
 }
