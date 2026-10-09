@@ -489,7 +489,7 @@ async function tabLogins(tab: chrome.tabs.Tab & { url: string; id: number }): Pr
     for (const login of await call<Login[]>("match", { url: frame.url })) {
       if (seen.has(login.id)) continue;
       seen.add(login.id);
-      const other = frame.frameId !== 0 && !(await sameSites(frame.url, tab.url));
+      const other = frame.frameId !== 0 && !(await sameOwner(frame.url, tab.url));
       result.push({ login: other ? { ...login, frame: new URL(frame.url).hostname } : login, frame });
     }
   }
@@ -751,6 +751,33 @@ async function sitesOf(...urls: (string | undefined)[]): Promise<string[]> {
 async function sameSites(a: string | undefined, b: string | undefined): Promise<boolean> {
   const [first, second] = await sitesOf(a, b);
   return first !== "" && first === second;
+}
+
+const ownerCache = new Map<string, boolean>();
+/** Pages of one service: the same site, or sites that share one account (as
+ * the app knows them, from the list it bundles). A frame of one inside a
+ * page of the other is the service's own, like Apple's sign-in on iCloud:
+ * the page could be given the frame's logins in its own fields anyway. */
+async function sameOwner(a: string | undefined, b: string | undefined): Promise<boolean> {
+  if (await sameSites(a, b)) return true;
+  let key: string;
+  try {
+    key = `${new URL(a ?? "").hostname} ${new URL(b ?? "").hostname}`;
+  } catch {
+    return false;
+  }
+  const known = ownerCache.get(key);
+  if (known !== undefined) return known;
+  let same = false;
+  try {
+    same = (await call<boolean>("same_owner", { a, b })) === true;
+  } catch {
+    // An app from before this: only the same site.
+    return false;
+  }
+  if (ownerCache.size > 500) ownerCache.clear();
+  ownerCache.set(key, same);
+  return same;
 }
 
 /** "accounts.google.com" -> "Google" (the app suggests the same). */
@@ -1254,7 +1281,7 @@ async function handlePopup(message: any): Promise<Reply> {
       if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
       const id = String(message.id);
       const frame = message.anySite ? null : await fillTarget({ ...tab, id: tab.id, url: tab.url }, id);
-      if (frame && frame.frameId !== 0 && message.frameConfirmed !== true && !(await sameSites(frame.url, tab.url))) {
+      if (frame && frame.frameId !== 0 && message.frameConfirmed !== true && !(await sameOwner(frame.url, tab.url))) {
         // A sign-in form from another site inside this page.
         return { ok: false, error: "cross_site_frame" };
       }
@@ -1509,7 +1536,9 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       const settings = await loadSettings();
       const site = siteKey(sender.url);
       const hidden = site !== null && settings.hidden.includes(site);
-      const frame = sender.frameId === 0 ? "top" : (await sameSites(sender.url, sender.tab.url)) ? "same-site" : "cross-site";
+      // A frame of the page's site or service shows the Keyless button and
+      // menu wherever the page itself does.
+      const frame = sender.frameId === 0 ? "top" : (await sameOwner(sender.url, sender.tab.url)) ? "same-site" : "cross-site";
       const data: PageState = { state: current.state, count: 0, hidden, card: settings.signInCard && !hidden, autoOpen: settings.autoOpen, frame };
       if (hidden) return { ok: true, data };
       if (current.state === "ready") {

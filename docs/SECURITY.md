@@ -394,9 +394,11 @@ must be running, for what it needs.
 - **Frames.** A frame's button and menu act for that frame only: its menus
   present the token its content script registered, tied to the frame and
   its address as the browser reports them, and list, fill and save only for
-  that address. They show in frames of the page's site, and in another
-  site's frames only where the browser reports whether the menu is really
-  seen (IntersectionObserver v2, in Chromium): the page around such a frame
+  that address. They show in frames of the page's site (or of a site that
+  shares one account with it, by the same bundled list as below: Apple's
+  sign-in frame on iCloud is Apple's own, and the page could be offered its
+  logins anyway), and in another site's frames only where the browser
+  reports whether the menu is really seen (IntersectionObserver v2, in Chromium): the page around such a frame
   could make it see-through or cover it without the frame noticing, which
   Firefox could not detect, so there frames from other sites are filled only
   from the popup or the keyboard shortcuts. A menu that would be cut off by

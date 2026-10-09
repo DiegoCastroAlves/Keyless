@@ -63,6 +63,12 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             }
             Ok(hosts.iter().map(|host| Value::String(host.as_str().map(|h| site_of(&h.to_ascii_lowercase())).unwrap_or_default())).collect())
         }
+        "same_owner" => {
+            // Whether two pages are of one service (the same site, or sites
+            // that share one account), for frames of one inside the other.
+            let site = |key: &str| args.get(key).and_then(Value::as_str).and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.host_str().map(|h| site_of(&h.to_ascii_lowercase()))).unwrap_or_default();
+            Ok(Value::Bool(super::shared_sites::same_owner(&site("a"), &site("b"))))
+        }
         "vaults" => super::logins::vaults(app).await,
         "form_items" => super::forms::list(app).await,
         "form_details" => {

@@ -100,6 +100,13 @@ pub fn shares_account(item_site: &str, page_site: &str) -> bool {
     table().get(item_site).is_some_and(|sites| sites.contains(page_site))
 }
 
+/// Two registrable domains of one service, as far as Keyless knows: the
+/// same, or sharing one account either way (a frame of one inside a page of
+/// the other is the service's own, as for iCloud's sign-in from apple.com).
+pub fn same_owner(a: &str, b: &str) -> bool {
+    !a.is_empty() && (a == b || shares_account(a, b) || shares_account(b, a))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,5 +125,15 @@ mod tests {
         assert!(!shares_account("icloud.com", "google.com"));
         assert!(!shares_account("example.com", "example.org"));
         assert!(table().len() > 100);
+    }
+
+    #[test]
+    fn same_owners() {
+        assert!(same_owner("apple.com", "apple.com"));
+        assert!(same_owner("icloud.com", "apple.com"));
+        // One-way entries still name one service.
+        assert!(same_owner("mercadolivre.com", "mercadopago.com.br"));
+        assert!(!same_owner("apple.com", "example.com"));
+        assert!(!same_owner("", ""));
     }
 }
