@@ -50,6 +50,12 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
+      - name: Browser extension field detection tests
+        working-directory: apps/extension
+        env:
+          CHROMIUM: google-chrome
+        run: pnpm test
+
       - name: Site type check and build
         working-directory: apps/site
         run: |

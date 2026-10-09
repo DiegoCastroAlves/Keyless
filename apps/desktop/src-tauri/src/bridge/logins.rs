@@ -8,6 +8,7 @@
 
 use keyless_core::{
     generator::{GeneratorOptions, generate},
+    password_rules,
     item::{Category, Field, FieldKind, FieldPurpose, ItemUrl, new_field_id},
 };
 use serde_json::{Value, json};
@@ -221,8 +222,22 @@ fn save_error(err: crate::error::AppError) -> &'static str {
 }
 
 /// A strong random password; `max_length` and `symbols` follow the form.
-pub fn suggest(max_length: Option<u64>, symbols: bool) -> Result<Value, &'static str> {
+/// A password for a sign-up or change-password form: within the field's
+/// maximum length, and following the website's password rules, those the
+/// page states (its `passwordrules` attribute) or the known ones for its
+/// site (see `keyless_core::password_rules`).
+pub fn suggest(max_length: Option<u64>, symbols: bool, page_rules: &str, url: &str) -> Result<Value, &'static str> {
     let length = max_length.map_or(SUGGESTED_LENGTH, |max| (max as usize).clamp(8, SUGGESTED_LENGTH));
+    let rules = password_rules::parse(page_rules).or_else(|| password_rules::rules_for(&page_host(url)));
+    if let Some(mut rules) = rules {
+        // The field itself may allow less than the site says.
+        if let Some(max) = max_length {
+            rules.max_length = Some(rules.max_length.map_or(max as usize, |m| m.min(max as usize)));
+        }
+        if let Ok(generated) = password_rules::generate(&rules, SUGGESTED_LENGTH, symbols) {
+            return Ok(json!({ "password": generated.password.as_str() }));
+        }
+    }
     let options = GeneratorOptions::Random { length, uppercase: true, lowercase: true, digits: true, symbols, avoid_ambiguous: true };
     let generated = generate(&options).map_err(|_| "error")?;
     Ok(json!({ "password": generated.password.as_str() }))
@@ -243,8 +258,22 @@ mod tests {
     }
 
     #[test]
+    fn suggestions_follow_the_site() {
+        let password = |rules: &str, url: &str, max| suggest(max, true, rules, url).unwrap()["password"].as_str().unwrap().to_string();
+        // The page's own rules.
+        let digits = password("minlength: 6; maxlength: 6; allowed: digit;", "https://bank.example", None);
+        assert!(digits.len() == 6 && digits.chars().all(|c| c.is_ascii_digit()));
+        // Known rules for the site (Apple: at most 32 characters, no more
+        // than 3 alike in a row).
+        let apple = password("", "https://appleid.apple.com/account", None);
+        assert!(apple.len() <= 32 && !apple.is_empty());
+        // The field's limit wins over a longer one.
+        assert_eq!(password("maxlength: 30;", "https://x.example", Some(10)).len(), 10);
+    }
+
+    #[test]
     fn suggestions_follow_the_form() {
-        let password = |max, symbols| suggest(max, symbols).unwrap()["password"].as_str().unwrap().to_string();
+        let password = |max, symbols| suggest(max, symbols, "", "").unwrap()["password"].as_str().unwrap().to_string();
         assert_eq!(password(None, true).len(), SUGGESTED_LENGTH);
         assert_eq!(password(Some(12), true).len(), 12);
         assert!(password(None, false).chars().all(|c| c.is_ascii_alphanumeric()));

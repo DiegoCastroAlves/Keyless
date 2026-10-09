@@ -118,6 +118,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cd apps/extension
 pnpm install
 pnpm build            # dist/chrome and dist/firefox
+pnpm test             # field detection on generated pages (headless Chromium)
 
 cd apps/site
 pnpm install

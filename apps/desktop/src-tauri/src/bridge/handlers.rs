@@ -96,7 +96,9 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
         "suggest_password" => {
             let max_length = args.get("maxLength").and_then(Value::as_u64).filter(|&n| n > 0);
             let symbols = args.get("symbols").and_then(Value::as_bool).unwrap_or(true);
-            super::logins::suggest(max_length, symbols)
+            let rules = args.get("rules").and_then(Value::as_str).unwrap_or("");
+            let url = args.get("url").and_then(Value::as_str).unwrap_or("");
+            super::logins::suggest(max_length, symbols, rules, url)
         }
         // Passkeys, after the user chose in the extension's window.
         "passkey_check" => super::passkeys::check(args),

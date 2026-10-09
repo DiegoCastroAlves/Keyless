@@ -6,7 +6,8 @@
   "packageManager": "pnpm@12.5.1",
   "scripts": {
     "build": "tsc --noEmit && node build.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node test/run.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",

@@ -31,6 +31,31 @@
 // inline.ts). Only fields the user can see are filled, so hidden "honeypot"
 // fields get nothing.
 
+import {
+  composedParent,
+  focusedField,
+  deepQuery,
+  eventTarget,
+  fieldInfo,
+  fieldKind,
+  formKindOf,
+  formKinds,
+  formParts,
+  hasCodeForm,
+  hasLoginForm,
+  isNewPassword,
+  loginFields,
+  setOwnElement,
+  setUserField,
+  setSplit,
+  setValue,
+  shadowOf,
+  submitButton,
+  viewable,
+  visible,
+  wantsPasskey,
+  type FormControl,
+} from "./fields";
 import type { Credentials, FieldInfo, FormKind, PageState, Status } from "./types";
 
 const t = (key: string) => chrome.i18n.getMessage(key) || key;
@@ -52,153 +77,8 @@ const SANDBOXED = location.origin === "null";
  * crypto.randomUUID: that needs a secure context, and http pages are not. */
 const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
 
-const USERNAME_HINT = /user|email|e-mail|login|account|identifier|usuario|correo|cpf/i;
-const OTP_HINT = /otp|totp|2fa|mfa|one.?time|verification|token|c[oó]digo|code/i;
-/** Password fields that are not a login's: card codes, PINs, one-time codes. */
-const NOT_LOGIN_PASSWORD = /cvv|cvc|csc|security.?code|\bpin\b|otp|token|one.?time|verification|c[oó]digo|card|cart[aã]o|tarjeta/i;
-const SUBMIT_TEXT = /^(log ?in|sign ?in|entrar|acessar|iniciar sesi[oó]n|ingresar|continue|continuar|next|avan[cç]ar|pr[oó]ximo|siguiente)$/i;
-/** Buttons that send a login, sign-up or change-password form. */
 const SEND_TEXT =
   /\b(log ?in|sign ?in|sign ?up|entrar|acessar|iniciar sesi[oó]n|ingresar|continu[ea]r?|next|avan[cç]ar|pr[oó]ximo|siguiente|register|registr\w*|cadastr\w*|criar|create|crear|join|save|salvar|guardar|change|alterar|cambiar|update|atualizar|actualizar|submit|enviar)\b/i;
-/** Password fields for a new password, and for the current one. */
-const NEW_PASSWORD_HINT = /new|confirm|repeat|again|retype|regist|sign.?up|create|nova|novo|nueva|nuevo|confirma|cadastr|crear/i;
-const CURRENT_PASSWORD_HINT = /current|old|existing|atual|actual|anterior/i;
-
-type Kind = "username" | "password" | "otp";
-
-function fieldKind(input: HTMLInputElement): Kind | null {
-  if (input.disabled || input.readOnly) return null;
-  const type = (input.type || "text").toLowerCase();
-  const autocomplete = (input.autocomplete || "").toLowerCase();
-  const hints = `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute("aria-label") ?? ""}`;
-  if (type === "password") {
-    // Some pages mask one-time codes, card codes and PINs too.
-    if (autocomplete.includes("one-time-code")) return "otp";
-    if (autocomplete.includes("cc-")) return null;
-    const text = `${hints} ${input.labels ? Array.from(input.labels, (l) => l.textContent ?? "").join(" ") : ""}`;
-    if (NOT_LOGIN_PASSWORD.test(text)) return OTP_HINT.test(text) && input.maxLength > 0 && input.maxLength <= 10 ? "otp" : null;
-    // A short numeric secret.
-    if (input.maxLength > 0 && input.maxLength <= 6 && /numeric|decimal|tel/.test(input.inputMode)) return null;
-    return "password";
-  }
-  if (autocomplete.includes("one-time-code")) return "otp";
-  if (!["text", "email", "tel", ""].includes(type)) return null;
-  if (autocomplete.includes("username") || autocomplete.includes("email") || type === "email") return "username";
-  if (OTP_HINT.test(hints) && input.maxLength > 0 && input.maxLength <= 10) return "otp";
-  if (USERNAME_HINT.test(hints)) return "username";
-  return null;
-}
-
-function visible(el: HTMLElement): boolean {
-  const rect = el.getBoundingClientRect();
-  const style = getComputedStyle(el);
-  return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-}
-
-/** clip-path values that leave nothing of an element to see. */
-const CLIPPED_AWAY = /^(inset\((50|100)%\)|circle\(0(px)?( at .*)?\)|polygon\((0(px)? 0(px)?,? ?){3,}0(px)? 0(px)?\))$/;
-
-/** A field the user can actually see: not tiny, not transparent or clipped
- * away, not moved out of the page or out of a box that hides what
- * overflows it, and not covered where it is on screen. Pages hide
- * "honeypot" fields to collect what a password manager fills into them. */
-function viewable(el: HTMLElement): boolean {
-  const rect = el.getBoundingClientRect();
-  if (rect.width < 10 || rect.height < 10) return false;
-  // Outside the page, where no scrolling brings it.
-  const root = document.documentElement;
-  if (rect.right + scrollX <= 0 || rect.bottom + scrollY <= 0) return false;
-  if (rect.left + scrollX >= root.scrollWidth || rect.top + scrollY >= root.scrollHeight) return false;
-  if (el.checkVisibility && !el.checkVisibility({ opacityProperty: true, visibilityProperty: true, contentVisibilityAuto: true })) return false;
-  let opacity = 1;
-  // Whether a box that hides its overflow still clips the field on each
-  // axis: not once a scrolling box is passed (the user can scroll to it),
-  // and not the boxes an absolutely positioned field escapes.
-  let clipX = true;
-  let clipY = true;
-  /** Positioned out of the boxes up to its containing block, which are
-   * skipped. */
-  let escaping: "" | "absolute" | "fixed" = "";
-  for (let node: Element | null = el; node; node = node.parentElement) {
-    const style = getComputedStyle(node);
-    if (style.display === "none" || style.visibility !== "visible") return false;
-    opacity *= Number(style.opacity);
-    if (opacity < 0.1 || CLIPPED_AWAY.test(style.clipPath)) return false;
-    if (escaping) {
-      const holdsFixed =
-        style.transform !== "none" || style.perspective !== "none" || style.filter !== "none" || /paint|layout|strict|content/.test(style.contain);
-      if (holdsFixed || (escaping === "absolute" && style.position !== "static")) escaping = "";
-      else continue;
-    }
-    if (node !== el && node !== root && node !== document.body && style.display !== "contents") {
-      const box = node.getBoundingClientRect();
-      if (clipX && /hidden|clip/.test(style.overflowX) && (rect.right <= box.left || rect.left >= box.right)) return false;
-      if (clipY && /hidden|clip/.test(style.overflowY) && (rect.bottom <= box.top || rect.top >= box.bottom)) return false;
-      if (/auto|scroll/.test(style.overflowX)) clipX = false;
-      if (/auto|scroll/.test(style.overflowY)) clipY = false;
-    }
-    if (style.position === "absolute" || style.position === "fixed") escaping = style.position;
-  }
-  const fixed = escaping === "fixed";
-  // The window: a fixed field off screen, or a page that cannot be scrolled
-  // to where the field is.
-  const view = getComputedStyle(root).overflow !== "visible" ? getComputedStyle(root) : document.body ? getComputedStyle(document.body) : null;
-  const offX = rect.right <= 0 || rect.left >= innerWidth;
-  const offY = rect.bottom <= 0 || rect.top >= innerHeight;
-  if (fixed && (offX || offY)) return false;
-  if (view && clipX && /hidden|clip/.test(view.overflowX) && offX) return false;
-  if (view && clipY && /hidden|clip/.test(view.overflowY) && offY) return false;
-  const x = rect.left + rect.width / 2;
-  const y = rect.top + rect.height / 2;
-  if (x >= 0 && y >= 0 && x < innerWidth && y < innerHeight) {
-    const top = document.elementFromPoint(x, y);
-    // A floating label drawn over its own field does not hide it.
-    const label = top?.closest("label");
-    const ownLabel = label !== null && label !== undefined && Array.from((el as HTMLInputElement).labels ?? []).includes(label);
-    if (top && top !== el && !el.contains(top) && top !== host && !ownLabel) return false;
-  }
-  return true;
-}
-
-/** Sets a value the way frameworks (React, Vue, Angular) notice. */
-function setValue(input: HTMLInputElement, value: string) {
-  input.focus();
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-  setter?.call(input, value);
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  input.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
-function loginFields(anchor: HTMLInputElement | null) {
-  const scope: ParentNode = anchor?.form ?? document;
-  const inputs = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter(viewable);
-  const password = inputs.find((i) => i.type === "password") ?? null;
-  let username: HTMLInputElement | null = null;
-  if (password) {
-    const before = inputs.slice(0, inputs.indexOf(password)).filter((i) => fieldKind(i) === "username");
-    username = before[before.length - 1] ?? null;
-  }
-  if (!username) username = inputs.find((i) => fieldKind(i) === "username") ?? null;
-  const otp = inputs.find((i) => fieldKind(i) === "otp") ?? null;
-  return { username, password, otp };
-}
-
-/** Fills a value split over several boxes when the page asks for it that
- * way (a one-time code in 6 boxes, a card number in 4). */
-function setSplit(first: HTMLInputElement, value: string) {
-  const size = first.maxLength;
-  if (size > 0 && size < value.length) {
-    const scope = first.parentElement?.parentElement ?? first.parentElement ?? document;
-    const all = Array.from(scope.querySelectorAll<HTMLInputElement>("input")).filter((i) => i.maxLength === size && viewable(i));
-    const boxes = all.slice(Math.max(0, all.indexOf(first)));
-    if (boxes.length * size >= value.length) {
-      boxes.slice(0, Math.ceil(value.length / size)).forEach((box, i) => setValue(box, value.slice(i * size, (i + 1) * size)));
-      return;
-    }
-  }
-  setValue(first, value);
-}
-
 /** Fills a login; `codeOnly`: only its one-time code. The code goes into
  * the field the user is in when it asks for one, otherwise the form's (also
  * one asked next to the password). Returns the fields filled. */
@@ -214,80 +94,7 @@ function fill(anchor: HTMLInputElement | null, credentials: Credentials, codeOnl
   return codeOnly ? { username: null, password: null, otp } : { ...fields, otp };
 }
 
-/** A field that offers passkeys (autocomplete "username webauthn"). */
-function wantsPasskey(input: HTMLInputElement): boolean {
-  return (input.autocomplete || "").toLowerCase().split(/\s+/).includes("webauthn");
-}
-
-function hintsOf(input: HTMLInputElement): string {
-  return `${input.name} ${input.id} ${input.placeholder} ${input.getAttribute("aria-label") ?? ""}`;
-}
-
-/** A password being chosen (sign-up, change password), not typed from memory. */
-function isNewPassword(input: HTMLInputElement): boolean {
-  if (fieldKind(input) !== "password") return false;
-  const autocomplete = (input.autocomplete || "").toLowerCase();
-  if (autocomplete.includes("new-password")) return true;
-  if (autocomplete.includes("current-password") || CURRENT_PASSWORD_HINT.test(hintsOf(input))) return false;
-  if (NEW_PASSWORD_HINT.test(hintsOf(input))) return true;
-  // Password and confirmation (sign-up); current, new and confirmation.
-  const scope: ParentNode = input.form ?? document;
-  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(
-    (p) => visible(p) && fieldKind(p) === "password",
-  );
-  return passwords.length === 2 || (passwords.length >= 3 && passwords.indexOf(input) > 0);
-}
-
 // ----- Payment and address forms --------------------------------------------------
-
-type FormControl = HTMLInputElement | HTMLSelectElement;
-
-const AUTOCOMPLETE_PARTS: Record<string, [FormKind, string]> = {
-  "cc-number": ["card", "number"],
-  "cc-name": ["card", "holder"],
-  "cc-csc": ["card", "code"],
-  "cc-exp": ["card", "exp"],
-  "cc-exp-month": ["card", "expMonth"],
-  "cc-exp-year": ["card", "expYear"],
-  "cc-type": ["card", "brand"],
-  "given-name": ["identity", "firstName"],
-  "family-name": ["identity", "lastName"],
-  name: ["identity", "name"],
-  tel: ["identity", "phone"],
-  "tel-national": ["identity", "phone"],
-  "street-address": ["identity", "street"],
-  "address-line1": ["identity", "street"],
-  "address-line2": ["identity", "line2"],
-  "address-level2": ["identity", "city"],
-  "address-level1": ["identity", "state"],
-  "postal-code": ["identity", "zip"],
-  country: ["identity", "country"],
-  "country-name": ["identity", "country"],
-  organization: ["identity", "company"],
-  bday: ["identity", "birthDate"],
-};
-
-const CARD_HINTS: [string, RegExp][] = [
-  ["number", /card.?num|cc.?num|cardnumber|n[uú]mero.?(do|de)?.?cart[aã]o|n[uú]mero.?(de)?.?tarjeta/i],
-  ["holder", /card.?holder|holder.?name|name.?on.?card|cc.?name|titular|nome.?(no|do|impresso)?.?cart[aã]o|nombre.?(en|del)?.?tarjeta/i],
-  ["code", /cvv|cvc|csc|security.?code|card.?code|c[oó]digo.?(de)?.?seguran|c[oó]d.?seg/i],
-  ["expMonth", /exp.*(month|m[eê]s)|(month|m[eê]s).*(exp|valid)/i],
-  ["expYear", /exp.*(year|ano|a[ñn]o)|(year|ano|a[ñn]o).*(exp|valid)/i],
-  ["exp", /expir|exp.?date|valid|validade|vencim|mm.?\/?.?(yy|aa)/i],
-];
-
-const IDENTITY_HINTS: [string, RegExp][] = [
-  ["firstName", /first.?name|given.?name|fname|primeiro.?nome/i],
-  ["lastName", /last.?name|surname|family.?name|lname|sobrenome|apellido/i],
-  ["zip", /zip|postal|\bcep\b|c[oó]digo.?postal/i],
-  ["city", /city|cidade|ciudad|munic[ií]pio|localidad/i],
-  ["state", /\bstate\b|province|estado|provincia|\buf\b|region/i],
-  ["country", /country|pa[ií]s/i],
-  ["line2", /address.?(line)?.?2|complemento|apartment|apto/i],
-  ["street", /address|street|endere[cç]o|logradouro|\brua\b|direcci[oó]n|calle/i],
-  ["phone", /phone|telefone|celular|tel[eé]fono|mobile/i],
-  ["company", /company|empresa|organi[sz]ation/i],
-];
 
 const MONTHS = [
   ["jan", "january", "janeiro", "enero"],
@@ -303,91 +110,6 @@ const MONTHS = [
   ["nov", "november", "novembro", "noviembre"],
   ["dec", "december", "dezembro", "diciembre", "dez", "dic"],
 ];
-
-function labelText(control: FormControl): string {
-  return control.labels ? Array.from(control.labels, (label) => label.textContent ?? "").join(" ") : "";
-}
-
-/** What a field of a payment or address form asks for. */
-function partOf(control: FormControl): [FormKind, string] | null {
-  const tokens = (control.autocomplete || "").toLowerCase().split(/\s+/).filter(Boolean);
-  const explicit = AUTOCOMPLETE_PARTS[tokens[tokens.length - 1] ?? ""];
-  if (explicit) return explicit;
-  if (control instanceof HTMLInputElement && !["text", "tel", "number", "month", "date", ""].includes(control.type)) return null;
-  const hints = `${control.name} ${control.id} ${control.getAttribute("placeholder") ?? ""} ${control.getAttribute("aria-label") ?? ""} ${labelText(control)}`;
-  for (const [part, pattern] of CARD_HINTS) if (pattern.test(hints)) return ["card", part];
-  for (const [part, pattern] of IDENTITY_HINTS) if (pattern.test(hints)) return ["identity", part];
-  return null;
-}
-
-/** The form's fields of this kind, with what each asks for: the first
- * visible field for each thing asked. */
-function formParts(anchor: Element | null, kind: FormKind, check: (el: HTMLElement) => boolean = viewable): Map<FormControl, string> {
-  const scope: ParentNode = (anchor as FormControl | null)?.form ?? document;
-  const parts = new Map<FormControl, string>();
-  const taken = new Set<string>();
-  for (const control of scope.querySelectorAll<FormControl>("input, select")) {
-    // Selects are often hidden under a page's own drop-down: only inputs
-    // can be "honeypots" worth worrying about.
-    if (control.disabled || !(control instanceof HTMLSelectElement ? visible(control) : check(control))) continue;
-    let part: string | null = null;
-    if (control instanceof HTMLInputElement && fieldKind(control)) {
-      // Login fields stay login fields; an address form's email is filled too.
-      const email = control.type === "email" || (control.autocomplete || "").toLowerCase().includes("email");
-      if (kind === "identity" && email) part = "email";
-    } else {
-      const found = partOf(control);
-      if (found?.[0] === kind) part = found[1];
-    }
-    if (part && !taken.has(part)) {
-      taken.add(part);
-      parts.set(control, part);
-    }
-  }
-  return parts;
-}
-
-/** A payment service's frame holding one or a few of a card's fields (each
- * often in a frame of its own). */
-function hostedFields(): boolean {
-  return !TOP && document.querySelectorAll("input").length <= 4;
-}
-
-/** A payment or address form field. A hint in its name alone is not
- * enough: the form must ask for at least two such things (a card field in a
- * payment service's frame is enough on its own). */
-function formKindOf(control: FormControl): FormKind | null {
-  const part = partOf(control);
-  if (!part) return null;
-  const needed = part[0] === "card" && hostedFields() ? 1 : 2;
-  return formParts(control, part[0], visible).size >= needed ? part[0] : null;
-}
-
-/** The kinds of payment and address fields this frame shows: for cards,
- * also a single field the page marks as one (the name on the card next to a
- * payment service's frames). */
-function formKinds(): { card: boolean; identity: boolean } {
-  const found = { card: 0, identity: 0, marked: 0 };
-  for (const control of document.querySelectorAll<FormControl>("input, select")) {
-    if (control.disabled || !visible(control) || (control instanceof HTMLInputElement && fieldKind(control))) continue;
-    const part = partOf(control);
-    if (!part) continue;
-    found[part[0]]++;
-    if (part[0] === "card" && /\bcc-/.test((control.autocomplete || "").toLowerCase())) found.marked++;
-  }
-  return { card: found.marked >= 1 || found.card >= (hostedFields() ? 1 : 2), identity: found.identity >= 2 };
-}
-
-function fieldInfo(input: HTMLInputElement): FieldInfo {
-  const kind = fieldKind(input);
-  return {
-    newPassword: isNewPassword(input),
-    maxLength: input.maxLength > 0 ? input.maxLength : null,
-    form: kind ? null : formKindOf(input),
-    code: kind === "otp",
-    passkeys: kind === "username" && wantsPasskey(input),
-  };
-}
 
 function valuesFor(kind: FormKind, part: string, data: Record<string, unknown>, control: FormControl): string[] {
   const text = (key: string) => (typeof data[key] === "string" ? (data[key] as string) : "");
@@ -441,37 +163,6 @@ function fillForm(kind: FormKind, data: Record<string, unknown>) {
   closeMenu();
 }
 
-/** True when the page shows a form to sign in (not just any email field,
- * and not a sign-up form). */
-function hasLoginForm(): boolean {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter(visible);
-  const passwords = inputs.filter((input) => fieldKind(input) === "password");
-  if (passwords.length > 0) return passwords.some((input) => !isNewPassword(input));
-  return inputs.some((input) => fieldKind(input) === "username" && (input.autocomplete || "").toLowerCase().includes("username"));
-}
-
-/** True when the page asks only for a one-time code (the sign-in's next
- * step). */
-function hasCodeForm(): boolean {
-  const inputs = Array.from(document.querySelectorAll<HTMLInputElement>("input")).filter(visible);
-  return !inputs.some((input) => fieldKind(input) === "password") && inputs.some((input) => fieldKind(input) === "otp");
-}
-
-function submitButton(field: HTMLInputElement): HTMLElement | null {
-  const scope: ParentNode = field.form ?? document;
-  const candidates = Array.from(
-    scope.querySelectorAll<HTMLElement>('button, input[type="submit"], input[type="image"], [role="button"]'),
-  ).filter(visible);
-  const label = (el: HTMLElement) => (el instanceof HTMLInputElement ? el.value : el.textContent ?? "").trim();
-  // Outside a form, a submit button could belong to anything (a search box):
-  // only one that reads like signing in will do.
-  return (
-    (field.form ? candidates.find((el) => (el as HTMLButtonElement).type === "submit") : undefined) ??
-    candidates.find((el) => SUBMIT_TEXT.test(label(el))) ??
-    null
-  );
-}
-
 /** Signs in after filling: clicks the form's button once the page enabled it. */
 async function submitAfterFill(field: HTMLInputElement) {
   let button: HTMLElement | null = null;
@@ -522,6 +213,7 @@ const topLayer = typeof host.showPopover === "function";
  * it: anything else the page shows may be above them. */
 let below = new Set<Element>();
 if (topLayer) host.popover = "manual";
+setOwnElement(host);
 const root = host.attachShadow({ mode: "closed" });
 root.innerHTML = `<style>${STYLE}</style>`;
 const button = document.createElement("button");
@@ -629,20 +321,6 @@ function raise() {
   // Chrome stops updating the menus' view of their visibility after this:
   // they start watching it again.
   for (const frame of openFrames()) if (frame?.open) frame.post({ type: "recheck" });
-}
-
-/** The page's own shadow root of `el`, also a closed one where the browser
- * lets extensions see it. */
-function shadowOf(el: Element): ShadowRoot | null {
-  if (el === host) return null;
-  try {
-    const dom = (globalThis as { chrome?: { dom?: { openOrClosedShadowRoot?: (el: HTMLElement) => ShadowRoot | null } } }).chrome?.dom;
-    if (dom?.openOrClosedShadowRoot) return el instanceof HTMLElement ? dom.openOrClosedShadowRoot(el) : el.shadowRoot;
-    const firefox = (el as Element & { openOrClosedShadowRoot?: () => ShadowRoot | null }).openOrClosedShadowRoot;
-    return firefox ? firefox.call(el) : el.shadowRoot;
-  } catch {
-    return el.shadowRoot;
-  }
 }
 
 /** What the page has in the top layer (dialogs, popovers, full screen),
@@ -996,19 +674,23 @@ function closeMenu(refocus = false) {
  * shows a padlock instead, like 1Password. */
 async function autoOpen(field: HTMLInputElement) {
   const state = await getPageState();
-  if (field !== current || document.activeElement !== field || menu?.open || !userWentTo(field)) return;
+  if (field !== current || focusedField() !== field || menu?.open || !userWentTo(field)) return;
   if (!fieldKind(field) || !offers(state, field) || state?.autoOpen === false || state?.hidden || !inlineAllowed(state)) return;
   openMenu();
 }
 
 let lastPointer: { target: EventTarget | null; at: number } = { target: null, at: 0 };
 let lastTab = 0;
-document.addEventListener("pointerdown", (e) => e.isTrusted && (lastPointer = { target: e.target, at: Date.now() }), true);
+document.addEventListener("pointerdown", (e) => e.isTrusted && (lastPointer = { target: eventTarget(e), at: Date.now() }), true);
 document.addEventListener("keydown", (e) => e.isTrusted && e.key === "Tab" && (lastTab = Date.now()), true);
 
-/** The user clicked the field or reached it with Tab just now. */
+/** The user clicked the field or reached it with Tab just now. A click in
+ * a closed shadow root shows only its host (and the focus has not moved
+ * yet), so a click on a host of the field counts. */
 function userWentTo(field: HTMLInputElement): boolean {
-  return (lastPointer.target === field && Date.now() - lastPointer.at < 1500) || Date.now() - lastTab < 1000;
+  let clicked = false;
+  for (let node: Element | null = field; node && !clicked; node = composedParent(node)) clicked = lastPointer.target === node;
+  return (clicked && Date.now() - lastPointer.at < 1500) || Date.now() - lastTab < 1000;
 }
 
 /** The padlock button: Keyless asks for the password itself (the system's
@@ -1022,7 +704,7 @@ async function unlockFromButton() {
   pageState = null;
   const state = await getPageState();
   renderButton(kindFor(state));
-  if (current && document.activeElement === current && state?.state === "ready" && state.count > 0) openMenu();
+  if (current && focusedField() === current && state?.state === "ready" && state.count > 0) openMenu();
   void scan();
 }
 
@@ -1091,10 +773,12 @@ button.addEventListener("mousedown", (e) => e.preventDefault());
 document.addEventListener(
   "focusin",
   (e) => {
-    const target = e.target;
+    const target = eventTarget(e);
     if (SANDBOXED || !(target instanceof HTMLInputElement) || !visible(target) || !(fieldKind(target) || formKindOf(target))) return;
+    watchRoot(target);
     if (current !== target) closeMenu();
     current = target;
+    setUserField(target);
     void getPageState().then((state) => {
       // Shown once Keyless knows the site, unless the user hid it there, and
       // in frames only where it may be (see inlineAllowed).
@@ -1113,7 +797,7 @@ document.addEventListener(
 document.addEventListener(
   "click",
   (e) => {
-    if (e.isTrusted && current && e.target === current && !menu?.open && !filling) void autoOpen(current);
+    if (e.isTrusted && current && eventTarget(e) === current && !menu?.open && !filling) void autoOpen(current);
   },
   true,
 );
@@ -1122,11 +806,12 @@ document.addEventListener(
   "mousedown",
   (e) => {
     // Clicks inside the menus happen in their own frames and never get here.
-    if (e.composedPath().includes(host) || e.target === current) return;
+    if (e.composedPath().includes(host) || eventTarget(e) === current) return;
     closeMenu();
     detached?.hide();
     button.style.display = "none";
     current = null;
+    setUserField(null);
   },
   true,
 );
@@ -1134,7 +819,7 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   (e) => {
-    if (!menu?.open || e.target !== current) return;
+    if (!menu?.open || eventTarget(e) !== current) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       menu.iframe.focus();
@@ -1150,7 +835,7 @@ document.addEventListener(
   "input",
   (e) => {
     // Typing by hand: the menu would only be in the way.
-    if (e.isTrusted && e.target === current && !filling) closeMenu();
+    if (e.isTrusted && eventTarget(e) === current && !filling) closeMenu();
   },
   true,
 );
@@ -1227,7 +912,7 @@ function capture(anchor: HTMLInputElement | null) {
   const scope: ParentNode = anchor?.form ?? document;
   // Payment forms are not logins.
   if (formParts(anchor, "card").size >= 2) return;
-  const passwords = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter(isLoginPassword);
+  const passwords = deepQuery<HTMLInputElement>(scope, 'input[type="password"]').filter(isLoginPassword);
   // Sign-up and change-password forms: the new password, and the current one.
   let chosen = passwords.find(isNewPassword) ?? null;
   let currentPassword = passwords.find((p) => !isNewPassword(p) && p.value !== chosen?.value) ?? null;
@@ -1280,7 +965,7 @@ function watchOutcome(field: HTMLInputElement) {
 /** Fills a password Keyless suggested into the new-password fields. */
 function fillNewPassword(password: string) {
   const scope: ParentNode = current?.form ?? document;
-  const targets = Array.from(scope.querySelectorAll<HTMLInputElement>('input[type="password"]')).filter((i) => viewable(i) && isNewPassword(i));
+  const targets = deepQuery<HTMLInputElement>(scope, 'input[type="password"]').filter((i) => viewable(i) && isNewPassword(i));
   if (targets.length === 0 && current?.type === "password") targets.push(current);
   filling = true;
   try {
@@ -1292,29 +977,36 @@ function fillNewPassword(password: string) {
   closeMenu();
 }
 
-document.addEventListener(
-  "submit",
-  (e) => {
-    // A page script submitting a form is not the user signing in.
-    if (!e.isTrusted) return;
-    const form = e.target instanceof HTMLFormElement ? e.target : null;
-    if (form) capture(form.querySelector<HTMLInputElement>('input[type="password"]') ?? form.querySelector<HTMLInputElement>("input"));
-  },
-  true,
-);
+function onSubmit(e: Event) {
+  // A page script submitting a form is not the user signing in.
+  if (!e.isTrusted) return;
+  const form = e.target instanceof HTMLFormElement ? e.target : null;
+  if (form) capture(deepQuery<HTMLInputElement>(form, 'input[type="password"]')[0] ?? deepQuery<HTMLInputElement>(form, "input")[0] ?? null);
+}
+document.addEventListener("submit", onSubmit, true);
+
+/** Forms inside shadow roots: their submit events stay there. */
+const watchedFieldRoots = new WeakSet<ShadowRoot>();
+function watchRoot(field: Element) {
+  const root = field.getRootNode();
+  if (!(root instanceof ShadowRoot) || watchedFieldRoots.has(root)) return;
+  watchedFieldRoots.add(root);
+  root.addEventListener("submit", onSubmit, true);
+}
 
 // Many sign-in pages never submit a form: a click on their button, or Enter.
 document.addEventListener(
   "click",
   (e) => {
-    if (!e.isTrusted || !(e.target instanceof Element)) return;
-    const control = e.target.closest<HTMLElement>('button, input[type="submit"], input[type="button"], [role="button"]');
+    const origin = e.composedPath()[0];
+    if (!e.isTrusted || !(origin instanceof Element)) return;
+    const control = origin.closest<HTMLElement>('button, input[type="submit"], input[type="button"], [role="button"]');
     if (!control || e.composedPath().includes(host)) return;
     const label = (control instanceof HTMLInputElement ? control.value : (control.textContent ?? control.getAttribute("aria-label") ?? "")).trim();
     if (label.length > 40 || !SEND_TEXT.test(label)) return;
     const form = control.closest("form");
-    const password = (form ?? document).querySelector<HTMLInputElement>('input[type="password"]');
-    if (password || form) capture(password ?? form?.querySelector<HTMLInputElement>("input") ?? null);
+    const password = deepQuery<HTMLInputElement>(form ?? document, 'input[type="password"]')[0];
+    if (password || form) capture(password ?? (form ? (deepQuery<HTMLInputElement>(form, "input")[0] ?? null) : null));
   },
   true,
 );
@@ -1322,7 +1014,8 @@ document.addEventListener(
 document.addEventListener(
   "keydown",
   (e) => {
-    if (e.isTrusted && e.key === "Enter" && e.target instanceof HTMLInputElement && fieldKind(e.target)) capture(e.target);
+    const target = eventTarget(e);
+    if (e.isTrusted && e.key === "Enter" && target instanceof HTMLInputElement && fieldKind(target)) capture(target);
   },
   true,
 );
@@ -1411,7 +1104,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // The credentials were checked against this origin; the tab may have
   // navigated since.
   if (message.origin !== location.origin) return;
-  const anchor = current?.isConnected ? current : document.activeElement instanceof HTMLInputElement ? document.activeElement : null;
+  const focused = focusedField();
+  const anchor = current?.isConnected ? current : focused instanceof HTMLInputElement ? focused : null;
   filling = true;
   let fields;
   try {

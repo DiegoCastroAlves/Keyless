@@ -55,6 +55,9 @@ export interface FieldInfo {
   code?: boolean;
   /** A field that asks for passkeys (autocomplete "webauthn"). */
   passkeys?: boolean;
+  /** The page's own password rules for a new password (its
+   * `passwordrules` attribute). */
+  rules?: string;
 }
 
 /** A passkey the page's field can sign in with. */

@@ -12,5 +12,5 @@
     "noUnusedParameters": true,
     "types": ["chrome"]
   },
-  "include": ["src"]
+  "include": ["src", "test/harness.ts"]
 }
