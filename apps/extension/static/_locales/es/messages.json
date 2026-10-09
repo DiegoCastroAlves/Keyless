@@ -277,7 +277,7 @@
     "message": "Abrir la lista al hacer clic en un campo de acceso"
   },
   "setAutoSubmit": {
-    "message": "\"Iniciar sesión\" en la tarjeta también envía el formulario"
+    "message": "Iniciar sesión después de rellenar (y rellenar los pasos siguientes)"
   },
   "setCopyTotp": {
     "message": "Copiar la contraseña de un solo uso después de rellenar"

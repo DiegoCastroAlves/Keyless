@@ -178,52 +178,59 @@ const KINDS = {
     const emailish = /mail|correo/i.test(userLabel);
     const u = field({ key: "u", label: userLabel, type: emailish && rand() < 0.6 ? "email" : "text", meaningful: emailish ? "email" : pick(["username", "login", "user", "identifier"]), autocomplete: rand() < 0.5 ? "username" : null, labeling });
     const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", autocomplete: rand() < 0.5 ? "current-password" : null, labeling });
-    return { inner: u + p + button(w.signin), expect: { fields: { u: "username", p: "password" }, login: { username: "u", password: "p" }, loginForm: true } };
+    return { inner: u + p + button(w.signin), expect: { fields: { u: "username", p: "password" }, login: { username: "u", password: "p" }, loginForm: true, submit: true } };
   },
   step1(w, labeling) {
     const userLabel = pick(w.user);
     const emailish = /mail|correo/i.test(userLabel);
     const u = field({ key: "u", label: userLabel, type: emailish ? "email" : "text", meaningful: emailish ? "email" : "username", autocomplete: "username", labeling });
-    return { inner: u + button(w.next), expect: { fields: { u: "username" }, login: { username: "u", password: null }, loginForm: true } };
+    return { inner: u + button(w.next), expect: { fields: { u: "username" }, login: { username: "u", password: null }, loginForm: true, submit: true } };
   },
   // A first step that asks for a document number (gov.br's CPF): a tel
   // field marked "new-password", in a form with a captcha's hidden textarea.
   idStep(w, labeling) {
     const u = field({ key: "u", label: pick(w.idNumber), type: "tel", meaningful: "accountId", autocomplete: "new-password", labeling, attrs: 'inputmode="numeric"' });
     const captcha = `<textarea name="h-captcha-response" style="display:none"></textarea>`;
-    return { inner: u + captcha + button(w.next), expect: { fields: { u: "username" }, login: { username: "u", password: null }, loginForm: true } };
+    return { inner: u + captcha + button(w.next), expect: { fields: { u: "username" }, login: { username: "u", password: null }, loginForm: true, submit: true } };
+  },
+  // A sign-in that also asks for a captcha: filled, not sent.
+  loginCaptcha(w, labeling) {
+    const u = field({ key: "u", label: pick(w.user), type: "text", meaningful: "username", autocomplete: "username", labeling });
+    const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", autocomplete: "current-password", labeling });
+    const c = field({ key: "cap", label: pick(w.captcha), meaningful: "captcha", labeling, attrs: 'maxlength="6"' });
+    return { inner: u + p + `<img alt="captcha" width="120" height="40">` + c + button(w.signin), expect: { fields: { u: "username", p: "password", cap: "none" }, login: { username: "u", password: "p" }, submit: false } };
   },
   step2(w, labeling) {
     const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", autocomplete: rand() < 0.5 ? "current-password" : null, labeling });
-    return { inner: `<p>ana@example.com</p>` + p + button(w.signin), expect: { fields: { p: "password" }, login: { username: null, password: "p" }, loginForm: true } };
+    return { inner: `<p>ana@example.com</p>` + p + button(w.signin), expect: { fields: { p: "password" }, login: { username: null, password: "p" }, loginForm: true, submit: true } };
   },
   signup(w, labeling) {
     const e = field({ key: "e", label: pick(w.user.filter((l) => /mail|correo/i.test(l))), type: "email", meaningful: "email", autocomplete: rand() < 0.5 ? "email" : null, labeling });
     const p1 = field({ key: "p1", label: pick(w.newPass), type: "password", meaningful: pick(["password", "new_password", "pass1"]), autocomplete: rand() < 0.5 ? "new-password" : null, labeling });
     const p2 = field({ key: "p2", label: pick(w.confirm), type: "password", meaningful: pick(["confirm", "password_confirmation", "pass2"]), autocomplete: rand() < 0.5 ? "new-password" : null, labeling });
-    return { inner: e + p1 + p2 + button(w.signup), expect: { fields: { e: "username", p1: "new-password", p2: "new-password" }, loginForm: false } };
+    return { inner: e + p1 + p2 + button(w.signup), expect: { fields: { e: "username", p1: "new-password", p2: "new-password" }, loginForm: false, submit: false } };
   },
   change(w, labeling) {
     const c = field({ key: "c", label: pick(w.current), type: "password", meaningful: "current_password", autocomplete: rand() < 0.5 ? "current-password" : null, labeling });
     const n = field({ key: "n", label: pick(w.newPass), type: "password", meaningful: "new_password", autocomplete: rand() < 0.5 ? "new-password" : null, labeling });
     const r = field({ key: "r", label: pick(w.confirm), type: "password", meaningful: "confirm_password", autocomplete: rand() < 0.5 ? "new-password" : null, labeling });
-    return { inner: c + n + r + button("OK"), expect: { fields: { c: "password", n: "new-password", r: "new-password" }, login: { username: null, password: "c" }, loginForm: true } };
+    return { inner: c + n + r + button("OK"), expect: { fields: { c: "password", n: "new-password", r: "new-password" }, login: { username: null, password: "c" }, loginForm: true, submit: false } };
   },
   otp(w, labeling) {
     const ac = rand() < 0.4 ? "one-time-code" : null;
     const o = field({ key: "o", label: pick(w.otp), type: pick(["text", "text", "tel", "number"]), meaningful: pick(["code", "otp", "token", "verification_code", "mfa_code"]), autocomplete: ac, labeling, attrs: `${rand() < 0.7 ? 'maxlength="6"' : ""} ${rand() < 0.6 ? 'inputmode="numeric"' : ""}` });
-    return { inner: o + button(w.next), expect: { fields: { o: "otp" }, codeForm: true } };
+    return { inner: o + button(w.next), expect: { fields: { o: "otp" }, codeForm: true, submit: true } };
   },
   split(w) {
     const boxes = Array.from({ length: 6 }, (_, i) => `<input data-k="d${i}" type="text" maxlength="1" inputmode="numeric" aria-label="${esc(`${pick(w.otp)} ${i + 1}`)}" style="display:inline-block;width:40px;margin:2px">`).join("");
     const fields = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`d${i}`, "otp"]));
-    return { inner: `<p>${esc(pick(w.otp))}</p><div class="boxes">${boxes}</div>` + button(w.next), expect: { fields, codeForm: true } };
+    return { inner: `<p>${esc(pick(w.otp))}</p><div class="boxes">${boxes}</div>` + button(w.next), expect: { fields, codeForm: true, submit: true } };
   },
   otpPass(w, labeling) {
     const u = field({ key: "u", label: pick(w.user), type: "text", meaningful: "username", autocomplete: "username", labeling });
     const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", autocomplete: "current-password", labeling });
     const o = field({ key: "o", label: pick(w.otp), type: "text", meaningful: "otp", autocomplete: rand() < 0.5 ? "one-time-code" : null, labeling, attrs: 'maxlength="6" inputmode="numeric"' });
-    return { inner: u + p + o + button(w.signin), expect: { fields: { u: "username", p: "password", o: "otp" }, login: { username: "u", password: "p", otp: "o" } } };
+    return { inner: u + p + o + button(w.signin), expect: { fields: { u: "username", p: "password", o: "otp" }, login: { username: "u", password: "p", otp: "o" }, submit: true } };
   },
   card(w, labeling) {
     const ac = rand() < 0.5;
@@ -282,7 +289,7 @@ const KINDS = {
     const u = field({ key: "u", label: pick(w.user), type: "text", meaningful: "username", labeling });
     const p = field({ key: "p", label: pick(signIn ? w.pass : w.newPass), type: "password", meaningful: "password", autocomplete: "new-password", labeling });
     return signIn
-      ? { inner: u + p + button(w.signin), expect: { fields: { u: "username", p: "password" }, login: { username: "u", password: "p" }, loginForm: true } }
+      ? { inner: u + p + button(w.signin), expect: { fields: { u: "username", p: "password" }, login: { username: "u", password: "p" }, loginForm: true, submit: true } }
       : { inner: u + p + button(w.signup), expect: { fields: { u: "username", p: "new-password" }, loginForm: false } };
   },
   // A field kept transparent until the user is in it (Airbnb): seen once
@@ -297,7 +304,7 @@ const KINDS = {
     const e = field({ key: "e", label: pick(w.user.filter((l) => /mail|correo/i.test(l))), type: "email", meaningful: "email", labeling });
     const t = field({ key: "t", label: w.address.phone, type: "tel", meaningful: "phone", autocomplete: "tel", labeling });
     const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", autocomplete: "current-password", labeling });
-    return { inner: e + t + p + button(w.signin), expect: { fields: { e: "username", p: "password" }, login: { username: "e", password: "p" } } };
+    return { inner: e + t + p + button(w.signin), expect: { fields: { e: "username", p: "password" }, login: { username: "e", password: "p" }, submit: false } };
   },
   honeypot(w, labeling) {
     const hiders = ["hp", "hp2", "hp3", "hp4"];
@@ -305,7 +312,7 @@ const KINDS = {
     const u = field({ key: "u", label: pick(w.user), type: "text", meaningful: "login", autocomplete: "username", labeling });
     const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", labeling });
     const before = rand() < 0.5;
-    return { inner: (before ? hp : "") + u + p + (before ? "" : hp) + button(w.signin), expect: { fields: { trap: "hidden", u: "username", p: "password" }, login: { username: "u", password: "p" } } };
+    return { inner: (before ? hp : "") + u + p + (before ? "" : hp) + button(w.signin), expect: { fields: { trap: "hidden", u: "username", p: "password" }, login: { username: "u", password: "p" }, submit: true } };
   },
 };
 
@@ -314,6 +321,7 @@ const PLAN = [
   ["login", 66],
   ["step1", 18],
   ["idStep", 9],
+  ["loginCaptcha", 9],
   ["step2", 12],
   ["signup", 30],
   ["change", 15],

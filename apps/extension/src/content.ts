@@ -45,6 +45,8 @@ import {
   hasLoginForm,
   isNewPassword,
   loginFields,
+  nextStepField,
+  readyToSubmit,
   setOwnElement,
   setUserField,
   setSplit,
@@ -92,6 +94,17 @@ function fill(anchor: HTMLInputElement | null, credentials: Credentials, codeOnl
   const otp = fields.otp && credentials.totp ? fields.otp : null;
   if (otp && credentials.totp) setSplit(otp, credentials.totp);
   return codeOnly ? { username: null, password: null, otp } : { ...fields, otp };
+}
+
+/** Fills one step of a sign-in that asks one thing at a time (see
+ * `continuing`): the password or the one-time code, into its empty field. */
+function fillStep(step: "password" | "otp", credentials: Credentials) {
+  const field = nextStepField(step);
+  const value = step === "password" ? credentials.password : credentials.totp;
+  if (!field || !value) return { username: null, password: null, otp: null };
+  if (step === "password") setValue(field, value);
+  else setSplit(field, value);
+  return { username: null, password: step === "password" ? field : null, otp: step === "otp" ? field : null };
 }
 
 // ----- Payment and address forms --------------------------------------------------
@@ -176,6 +189,55 @@ async function submitAfterFill(field: HTMLInputElement) {
     }
   }
   if (!button && field.form) field.form.requestSubmit();
+}
+
+// ----- Sign-ins in steps ----------------------------------------------------------
+//
+// Sites that ask for the username, then the password, then a one-time code,
+// each on its own page or view: after filling a step, the background keeps
+// which login it was and what is left, for a short while (see background.ts,
+// `Continuation`). This frame asks for a step once its field shows up,
+// empty; each step is filled once, and typing in a login field ends it.
+
+let continuing: { needs: Set<"password" | "otp">; until: number } | null = null;
+let continueTimer: ReturnType<typeof setInterval> | undefined;
+/** Fields a step was already asked for. */
+const askedFor = new WeakSet<HTMLInputElement>();
+
+function startContinuation(needs: unknown, until: unknown) {
+  const steps = Array.isArray(needs) ? needs.filter((n): n is "password" | "otp" => n === "password" || n === "otp") : [];
+  const end = Math.min(Number(until) || 0, Date.now() + 60_000);
+  if (steps.length === 0 || end <= Date.now()) return stopContinuation();
+  continuing = { needs: new Set(steps), until: end };
+  continueTimer ??= setInterval(checkContinuation, 400);
+  checkContinuation();
+}
+
+function stopContinuation() {
+  continuing = null;
+  clearInterval(continueTimer);
+  continueTimer = undefined;
+}
+
+function checkContinuation() {
+  if (!continuing || Date.now() > continuing.until) return stopContinuation();
+  for (const step of continuing.needs) {
+    const field = nextStepField(step);
+    if (!field || askedFor.has(field)) continue;
+    askedFor.add(field);
+    void send({ type: "continue_fill", step });
+    return;
+  }
+}
+
+/** Asked once per address: is a sign-in waiting for this page's step? */
+let askedContinuation = "";
+function askContinuation() {
+  if (askedContinuation === location.href || SANDBOXED) return;
+  askedContinuation = location.href;
+  void send<{ needs: string[]; until: number }>({ type: "continuation" }).then((reply) => {
+    if (reply.ok && reply.data) startContinuation(reply.data.needs, reply.data.until);
+  });
 }
 
 // ----- UI ---------------------------------------------------------------------
@@ -788,6 +850,7 @@ function reportForms() {
   if (SANDBOXED) return;
   const code = !hasLoginForm() && hasCodeForm();
   const login = code ? "code" : hasLoginForm() ? "login" : "";
+  if (login) askContinuation();
   if (login !== reportedLogin) {
     reportedLogin = login;
     void send({ type: "frame_login", login: login !== "", code });
@@ -910,6 +973,12 @@ document.addEventListener(
       closeMenu();
       closeElsewhere();
     }
+    // The user took over the sign-in: Keyless fills no more of its steps.
+    const target = eventTarget(e);
+    if (e.isTrusted && continuing && !filling && target instanceof HTMLInputElement && fieldKind(target)) {
+      stopContinuation();
+      void send({ type: "continue_cancel" });
+    }
   },
   true,
 );
@@ -974,7 +1043,7 @@ void scan();
 
 let saveFrame: Frame | null = null;
 /** What Keyless filled, and the password it suggested here. */
-let filledKey = "";
+let filledKeys = new Set<string>();
 let suggested = "";
 let lastCapture = { key: "", at: 0 };
 
@@ -1013,7 +1082,7 @@ function capture(anchor: HTMLInputElement | null) {
   const password = field?.value ?? "";
   if (!password && !username) return;
   const key = `${username}\n${password}`;
-  if (key === filledKey || (key === lastCapture.key && Date.now() - lastCapture.at < 5000)) return;
+  if (filledKeys.has(key) || (key === lastCapture.key && Date.now() - lastCapture.at < 5000)) return;
   lastCapture = { key, at: Date.now() };
   void send({
     type: "capture",
@@ -1180,6 +1249,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     placeDetached();
     return;
   }
+  if (message?.type === "keyless-continue") {
+    startContinuation(message.needs, message.until);
+    return;
+  }
   if (message?.type === "keyless-menu-key") {
     // Keys from the field of the frame the detached menu is for.
     if (!TOP || !detached?.open || detached.token !== message.token) return;
@@ -1205,19 +1278,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.origin !== location.origin) return;
   const focused = focusedField();
   const anchor = current?.isConnected ? current : focused instanceof HTMLInputElement ? focused : null;
+  const step = message.step === "password" || message.step === "otp" ? (message.step as "password" | "otp") : null;
   filling = true;
   let fields;
   try {
-    fields = fill(anchor, message, message.codeOnly === true);
+    fields = step ? fillStep(step, message) : fill(anchor, message, message.codeOnly === true);
   } finally {
     filling = false;
   }
-  // Submitting it unchanged is no reason to offer saving it.
-  if (message.codeOnly !== true) filledKey = `${message.username ?? ""}\n${message.password ?? ""}`;
+  // Submitting it unchanged is no reason to offer saving it (on a password
+  // step, the page may no longer show the username).
+  if (message.codeOnly !== true) {
+    filledKeys = new Set([`${message.username ?? ""}\n${message.password ?? ""}`, `\n${message.password ?? ""}`]);
+  }
   closeMenu();
+  closeElsewhere();
   if (card?.open) dismissCard();
-  // The background copies the code when it was not filled here.
-  sendResponse({ otp: fields.otp !== null });
-  const target = fields.password ?? fields.username ?? fields.otp;
-  if (message.submit && target) void submitAfterFill(target);
+  // What was filled: the background copies the code when it was not, and
+  // waits for the next step of the sign-in.
+  sendResponse({ username: fields.username !== null && Boolean(message.username), password: fields.password !== null && Boolean(message.password), otp: fields.otp !== null });
+  const filled = [fields.username, fields.password, fields.otp].filter((f): f is HTMLInputElement => f !== null);
+  if (message.submit && filled.length > 0 && readyToSubmit(filled)) void submitAfterFill(fields.password ?? fields.otp ?? filled[0]);
 });

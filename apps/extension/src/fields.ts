@@ -663,6 +663,33 @@ export function fieldInfo(input: HTMLInputElement): FieldInfo {
   };
 }
 
+// ----- Signing in ---------------------------------------------------------------------
+
+const TYPED = new Set(["text", "email", "password", "tel", "number", "search", "url"]);
+
+/** After filling a login: the form can be sent as it is. Not when a field
+ * the user can see is still empty (a captcha, a password the login lacks),
+ * nor in a sign-up or change-password form. */
+export function readyToSubmit(filled: HTMLInputElement[]): boolean {
+  const anchor = filled[0];
+  if (!anchor) return false;
+  const scope: ParentNode = anchor.form ?? boxOf(anchor) ?? composedParent(anchor) ?? document;
+  const inputs = deepQuery<HTMLInputElement>(scope, "input").filter((i) => !i.disabled && !i.readOnly && viewable(i));
+  if (inputs.some((i) => fieldKind(i) === "password" && isNewPassword(i))) return false;
+  return !inputs.some((i) => TYPED.has(i.type || "text") && !filled.includes(i) && i.value === "");
+}
+
+/** The field of a sign-in's next step, once the page shows it: the password
+ * after the username, the one-time code after the password. Only an empty
+ * one the user can see. */
+export function nextStepField(step: "password" | "otp"): HTMLInputElement | null {
+  const fields = loginFields(null);
+  const field = step === "password" ? fields.password : fields.otp;
+  if (!field || field.value !== "" || field.disabled || field.readOnly) return null;
+  if (step === "password" && isNewPassword(field)) return null;
+  return field;
+}
+
 // ----- Filling -----------------------------------------------------------------------
 
 /** Sets a value the way frameworks (React, Vue, Angular) notice. */

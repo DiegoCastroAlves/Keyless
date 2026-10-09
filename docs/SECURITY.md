@@ -441,6 +441,21 @@ must be running, for what it needs.
   the page list only the page's own logins. Before typing, the content
   script checks that the page is still on the origin the credentials were
   checked against.
+- **Signing in after filling, and sign-ins in steps.** With "Sign in after
+  filling" on (the default), a filled login form is sent with its own
+  button, only when no other field the user can see is still empty (a
+  captcha, say) and never in a sign-up or change-password form. When the
+  page asked only for part of the login (the username first, the password
+  or a one-time code on the next page or view), the background keeps which
+  login it was, the address it was filled into and what is left, for 30
+  seconds; only the item id, never a secret. A frame of the same site asks
+  for the next step once its field shows up, empty and visible; the app
+  checks the login against that frame's address again, as for any fill.
+  Each step is filled once (a page that shows the password field again
+  after a wrong password gets nothing more), and the user typing in a login
+  field, the tab going to another site or the time running out ends it.
+  Logins of another site, filled from the popup after its warning, never
+  continue.
 - **Unlocking from the browser.** The extension never sees the master
   password. When it asks Keyless to unlock, the app asks the user itself: the
   operating system's password prompt when "Unlock with the computer password"

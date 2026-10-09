@@ -277,7 +277,7 @@
     "message": "Open the list when you click a login field"
   },
   "setAutoSubmit": {
-    "message": "\"Sign in\" on the card also submits the form"
+    "message": "Sign in after filling (and fill the next steps)"
   },
   "setCopyTotp": {
     "message": "Copy the one-time password after filling a login"

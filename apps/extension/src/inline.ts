@@ -422,7 +422,7 @@ function renderMenu() {
     } else if (logins.length === 0 && passkeys.length === 0) {
       box.append(el("p", { className: "note", textContent: field.code ? t("noCodes") : t("noMatches") }));
     }
-    logins.forEach((login) => box.append(loginRow(login, { submit: false })));
+    logins.forEach((login) => box.append(loginRow(login, { submit: true })));
   } else if (state.state === "locked") {
     box.append(lockedView());
   } else {

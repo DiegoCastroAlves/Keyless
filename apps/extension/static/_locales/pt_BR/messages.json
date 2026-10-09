@@ -277,7 +277,7 @@
     "message": "Abrir a lista ao clicar em um campo de login"
   },
   "setAutoSubmit": {
-    "message": "\"Entrar\" no cartão também envia o formulário"
+    "message": "Entrar sozinho depois de preencher (e preencher as próximas etapas)"
   },
   "setCopyTotp": {
     "message": "Copiar a senha de uso único depois de preencher"

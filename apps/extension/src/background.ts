@@ -329,25 +329,97 @@ async function fillTab(
   tabId: number,
   url: string,
   id: string,
-  options: { submit?: boolean; anySite?: boolean; frameId?: number; code?: boolean } = {},
+  options: { submit?: boolean; anySite?: boolean; frameId?: number; code?: boolean; step?: Step } = {},
 ): Promise<void> {
   const settings = await loadSettings();
   const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
+  const submit = Boolean(options.submit) && settings.autoSubmit;
   const filled = (await chrome.tabs.sendMessage(
     tabId,
     {
       type: "keyless-fill",
       ...credentials,
       origin: new URL(url).origin,
-      submit: Boolean(options.submit) && settings.autoSubmit,
+      submit,
       codeOnly: Boolean(options.code),
+      step: options.step,
     },
     { frameId: options.frameId ?? 0 },
-  )) as { otp?: boolean } | undefined;
+  )) as { username?: boolean; password?: boolean; otp?: boolean } | undefined;
   // Not filled now (it is asked on the next step of the sign-in): ready to
   // paste. Copied by the app, which clears the clipboard after a while.
-  if (credentials.totp && !filled?.otp && (settings.copyTotp || options.code)) await call("copy", { id, field: "totp" }).catch(() => undefined);
+  if (credentials.totp && !filled?.otp && !options.step && (settings.copyTotp || options.code)) await call("copy", { id, field: "totp" }).catch(() => undefined);
+  // Another site's login (after the user confirmed it) or signing in by
+  // hand: no next steps.
+  if (options.anySite || !settings.autoSubmit) return;
+  // What is left for the next steps.
+  let needs: Step[] = [];
+  if (options.step) {
+    const pending = await getContinuation(tabId);
+    needs = (pending?.id === id ? pending.needs : []).filter((step) => !filled?.[step]);
+  } else if (!options.code && (filled?.username || filled?.password)) {
+    if (credentials.password && !filled.password) needs.push("password");
+    if (credentials.totp && !filled.otp) needs.push("otp");
+  }
+  await setContinuation(tabId, needs.length > 0 ? { id, url, needs, until: Date.now() + CONTINUE_MS, submit } : null);
+  if (needs.length > 0 || options.step) {
+    // The frame that was filled and the page: the next step shows in one of
+    // them, often without loading a new page (nothing left: they stop).
+    const push = { type: "keyless-continue", needs, until: Date.now() + CONTINUE_MS };
+    for (const frameId of new Set([options.frameId ?? 0, 0])) await chrome.tabs.sendMessage(tabId, push, { frameId }).catch(() => undefined);
+  }
 }
+
+// ----- Sign-ins in steps -----------------------------------------------------------
+//
+// Sites that ask for the username, then the password, then a one-time code:
+// after a fill that left the password or the code out (their fields were not
+// on the page), the tab keeps which login it was and what is left, for a
+// short while. A frame of the same site asks for a step once its field
+// shows up (see content.ts); the app checks the login against that frame's
+// address again, as for any fill. Each step is filled once; the user typing
+// in a login field, or the tab leaving the site, ends it. Only the item id
+// is kept, never a secret.
+
+type Step = "password" | "otp";
+/** How long a sign-in waits for its next step. */
+const CONTINUE_MS = 30_000;
+const continueKey = (tabId: number) => `continue:${tabId}`;
+
+interface Continuation {
+  id: string;
+  /** The address the login was filled into. */
+  url: string;
+  needs: Step[];
+  until: number;
+  submit: boolean;
+}
+
+async function getContinuation(tabId: number): Promise<Continuation | null> {
+  const pending = await sessionGet<Continuation>(continueKey(tabId));
+  return pending && Date.now() <= pending.until ? pending : null;
+}
+
+async function setContinuation(tabId: number, pending: Continuation | null): Promise<void> {
+  if (pending) await chrome.storage.session.set({ [continueKey(tabId)]: pending });
+  else await chrome.storage.session.remove(continueKey(tabId));
+}
+
+/** What a frame of the tab may ask for: the steps left, if it is of the
+ * site the login was filled into. */
+async function continuationFor(tabId: number, frameUrl: string | undefined): Promise<Continuation | null> {
+  const pending = await getContinuation(tabId);
+  return pending && isWebPage(frameUrl) && (await sameSites(frameUrl, pending.url)) ? pending : null;
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => void chrome.storage.session.remove(continueKey(tabId)).catch(() => undefined));
+chrome.tabs.onUpdated.addListener((tabId, change) => {
+  // Left the site: whatever was waiting is not for the new one.
+  if (!change.url) return;
+  void getContinuation(tabId).then(async (pending) => {
+    if (pending && !(await sameSites(change.url, pending.url))) await setContinuation(tabId, null);
+  });
+});
 
 /** Frames report at the same time: updates of what is kept for a tab (read,
  * change, write) run one at a time, or one would undo another. */
@@ -1186,7 +1258,7 @@ async function handlePopup(message: any): Promise<Reply> {
         // A sign-in form from another site inside this page.
         return { ok: false, error: "cross_site_frame" };
       }
-      await fillTab(tab.id, frame?.url ?? tab.url, id, { anySite: Boolean(message.anySite), frameId: frame?.frameId ?? 0 });
+      await fillTab(tab.id, frame?.url ?? tab.url, id, { anySite: Boolean(message.anySite), frameId: frame?.frameId ?? 0, submit: true });
       return { ok: true };
     }
     case "copy":
@@ -1338,7 +1410,7 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
 
 /** What content scripts in frames inside the page may ask (their menus act
  * for them, see `registration`). */
-const FRAME_MESSAGES = new Set(["frame_login", "frame_form", "capture", "capture_done", "register", "page_state", "unlock", "menu_elsewhere", "menu_elsewhere_key"]);
+const FRAME_MESSAGES = new Set(["frame_login", "frame_form", "capture", "capture_done", "register", "page_state", "unlock", "menu_elsewhere", "menu_elsewhere_key", "continuation", "continue_fill", "continue_cancel"]);
 
 async function handleContent(message: any, sender: chrome.runtime.MessageSender): Promise<Reply> {
   // Regular web pages; frames inside them only for a few things.
@@ -1364,6 +1436,31 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       await chrome.tabs.sendMessage(sender.tab.id, { type: "keyless-menu-for", token, field, activate: message.activate === true, rect, origin }, { frameId: 0 });
       return { ok: true };
     }
+    case "continuation": {
+      const pending = await continuationFor(sender.tab.id, sender.url);
+      return { ok: true, data: pending ? { needs: pending.needs, until: pending.until } : null };
+    }
+    case "continue_fill": {
+      // A step's field showed up, empty, in this frame.
+      const step = message.step;
+      if (step !== "password" && step !== "otp") return { ok: false, error: "bad_request" };
+      const pending = await continuationFor(sender.tab.id, sender.url);
+      if (!pending?.needs.includes(step) || !sender.url) return { ok: false, error: "expired" };
+      // Once: taken off before filling, so a page that shows the field
+      // again (a wrong password) gets nothing more.
+      await setContinuation(sender.tab.id, { ...pending, needs: pending.needs.filter((n) => n !== step) });
+      try {
+        await fillTab(sender.tab.id, sender.url, pending.id, { frameId: sender.frameId, step, submit: pending.submit });
+      } catch {
+        // Locked meanwhile, or the login is not for this address.
+        await setContinuation(sender.tab.id, null);
+        return { ok: false, error: "expired" };
+      }
+      return { ok: true };
+    }
+    case "continue_cancel":
+      await setContinuation(sender.tab.id, null);
+      return { ok: true };
     case "menu_elsewhere_key": {
       // The arrow, Escape or Tab in that frame's field.
       if (sender.frameId === 0 || (message.key !== "focus" && message.key !== "close")) return { ok: false, error: "bad_request" };
@@ -1468,7 +1565,7 @@ chrome.commands?.onCommand.addListener(async (command) => {
     // On a page asking only for the code, the login's code.
     const code = command === "fill-code" || entries[0]?.frame.code === true;
     const best = entries.find((entry) => !code || entry.login.totp);
-    if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId, code });
+    if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId, code, submit: true });
   } catch {
     // Not connected or locked: the popup explains what to do.
   }

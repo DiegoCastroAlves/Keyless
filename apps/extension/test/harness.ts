@@ -6,7 +6,7 @@
 // chrome.dom API, which plain pages lack; here attachShadow keeps them so a
 // stand-in for that API can hand them back.
 
-import { composedParent, deepQuery, fieldKind, hasCodeForm, hasLoginForm, isNewPassword, loginFields, partOf, signals, viewable, visible } from "../src/fields";
+import { composedParent, deepQuery, fieldKind, hasCodeForm, hasLoginForm, isNewPassword, loginFields, partOf, readyToSubmit, setSplit, setValue, signals, viewable, visible } from "../src/fields";
 
 const roots = new WeakMap<Element, ShadowRoot>();
 const attach = Element.prototype.attachShadow;
@@ -23,6 +23,8 @@ interface Expect {
   login?: { username: string | null; password: string | null; otp?: string | null };
   loginForm?: boolean;
   codeForm?: boolean;
+  /** After filling the login's fields, the form is sent. */
+  submit?: boolean;
 }
 
 function keyOf(el: Element | null): string | null {
@@ -66,6 +68,16 @@ function check(): { ok: boolean; problems: string[]; seen: Record<string, string
   }
   if (expect.loginForm !== undefined && hasLoginForm() !== expect.loginForm) problems.push(`loginForm: expected ${expect.loginForm}`);
   if (expect.codeForm !== undefined && hasCodeForm() !== expect.codeForm) problems.push(`codeForm: expected ${expect.codeForm}`);
+  if (expect.submit !== undefined) {
+    // Filled as the extension fills them (last: it changes the page).
+    const fields = loginFields(null);
+    if (fields.username) setValue(fields.username, "ana@example.com");
+    if (fields.password) setValue(fields.password, "correct horse");
+    if (fields.otp) setSplit(fields.otp, "123456");
+    const filled = [fields.username, fields.password, fields.otp].filter((f): f is HTMLInputElement => f !== null);
+    const got = readyToSubmit(filled);
+    if (got !== expect.submit) problems.push(`submit: expected ${expect.submit}, got ${got}`);
+  }
   return { ok: problems.length === 0, problems, seen };
 }
 
