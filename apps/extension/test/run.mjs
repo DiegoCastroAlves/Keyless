@@ -43,8 +43,17 @@ const browser = spawn(
     ...(process.env.CI ? ["--no-sandbox"] : []),
     "about:blank",
   ],
-  { stdio: "ignore" },
+  { stdio: ["ignore", "ignore", "pipe"] },
 );
+/** The end of what Chromium wrote, to tell why it did not start. */
+let chromiumErrors = "";
+browser.stderr.on("data", (chunk) => (chromiumErrors = (chromiumErrors + chunk).slice(-4000)));
+
+/** On GitHub Actions, failures also become annotations (readable without
+ * the full log). */
+function annotate(message) {
+  if (process.env.GITHUB_ACTIONS) console.log(`::error::${String(message).replace(/%/g, "%25").replace(/\r?\n/g, "%0A")}`);
+}
 /** Closes Chromium and deletes its profile (it grows with every site). */
 async function finish(code) {
   if (browser.exitCode === null) {
@@ -57,13 +66,17 @@ async function finish(code) {
 }
 process.on("SIGINT", () => void finish(130));
 process.on("SIGTERM", () => void finish(143));
-process.on("uncaughtException", (err) => {
-  console.error(err);
-  void finish(1);
-});
+for (const event of ["uncaughtException", "unhandledRejection"]) {
+  process.on(event, (err) => {
+    console.error(err);
+    annotate(`${err?.stack ?? err}\n${chromiumErrors}`);
+    void finish(1);
+  });
+}
 
 async function target() {
-  for (let i = 0; i < 50; i++) {
+  // A first start on a fresh machine can take a while.
+  for (let i = 0; i < 300; i++) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
       const page = list.find((t) => t.type === "page");
@@ -200,6 +213,7 @@ server.close();
 ws.close();
 
 for (const f of failures) console.log(`FAIL ${f.name} ${f.kind} [${f.lang} ${f.labeling} ${f.container}]: ${f.problems.join("; ")}`);
+for (const f of failures.slice(0, 10)) annotate(`FAIL ${f.name} ${f.kind} [${f.lang} ${f.labeling} ${f.container}]: ${f.problems.join("; ")}`);
 console.log("\nby kind:", Object.entries(byKind).map(([k, s]) => `${k} ${s.pass}/${s.pass + s.fail}`).join(", "));
 const total = Object.values(byKind).reduce((a, s) => a + s.pass + s.fail, 0);
 console.log(`${total - failures.length}/${total} pages pass`);
