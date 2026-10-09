@@ -94,10 +94,35 @@ fn page_host(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default()
 }
 
+/// Names written their own way.
+const BRANDS: &[(&str, &str)] = &[
+    ("icloud", "iCloud"),
+    ("github", "GitHub"),
+    ("gitlab", "GitLab"),
+    ("youtube", "YouTube"),
+    ("linkedin", "LinkedIn"),
+    ("paypal", "PayPal"),
+    ("whatsapp", "WhatsApp"),
+    ("tiktok", "TikTok"),
+    ("ifood", "iFood"),
+    ("openai", "OpenAI"),
+    ("chatgpt", "ChatGPT"),
+    ("playstation", "PlayStation"),
+    ("digitalocean", "DigitalOcean"),
+    ("ebay", "eBay"),
+    ("mercadolivre", "Mercado Livre"),
+    ("mercadopago", "Mercado Pago"),
+    ("mercadolibre", "Mercado Libre"),
+    ("itau", "Itaú"),
+];
+
 /// "accounts.google.com" -> "Google".
-fn suggested_title(host: &str) -> String {
+pub(crate) fn suggested_title(host: &str) -> String {
     let site = site_of(host.trim_start_matches("www."));
     let name = site.split('.').next().unwrap_or(&site);
+    if let Some((_, brand)) = BRANDS.iter().find(|(key, _)| *key == name) {
+        return brand.to_string();
+    }
     let mut chars = name.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
@@ -212,6 +237,8 @@ mod tests {
         assert_eq!(suggested_title("accounts.google.com"), "Google");
         assert_eq!(suggested_title("www.instagram.com"), "Instagram");
         assert_eq!(suggested_title("nubank.com.br"), "Nubank");
+        assert_eq!(suggested_title("www.icloud.com"), "iCloud");
+        assert_eq!(suggested_title("mercadolivre.com.br"), "Mercado Livre");
         assert_eq!(origin("https://www.instagram.com/accounts/login/?next=%2F#x").unwrap(), "https://www.instagram.com");
     }
 

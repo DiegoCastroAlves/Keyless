@@ -265,6 +265,7 @@ pub fn run() {
             commands::recovery_cancel,
             commands::delete_account,
             commands::password_strength,
+            commands::suggest_title,
             commands::heartbeat,
             commands::get_settings,
             commands::update_settings,

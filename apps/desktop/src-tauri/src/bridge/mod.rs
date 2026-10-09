@@ -22,6 +22,7 @@ pub mod host;
 pub mod install;
 pub mod logins;
 pub mod server;
+pub mod shared_sites;
 
 use std::{
     collections::{HashMap, VecDeque},

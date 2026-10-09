@@ -142,6 +142,14 @@ export function ItemEditor() {
         sections: draft.sections.map((s, i) => (i === sectionIndex ? { ...s, fields: [...s.fields, field] } : s)),
       });
   };
+  // An item still without a title takes one from its website ("Google").
+  const nameFromWebsite = (href: string) => {
+    if (draft.title.trim() || !href.trim()) return;
+    api
+      .suggestTitle(href)
+      .then((title) => title && setDraft((d) => (d.title.trim() ? d : { ...d, title })))
+      .catch(() => undefined);
+  };
   const setSection = (index: number, section: Section) =>
     update({ sections: draft.sections.map((s, i) => (i === index ? section : s)) });
 
@@ -245,6 +253,7 @@ export function ItemEditor() {
                   <Input
                     value={url.href}
                     onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
+                    onBlur={(e) => nameFromWebsite(e.target.value)}
                     placeholder={t("editor.websitePlaceholder")}
                     autoFocus={i === focusUrl}
                   />

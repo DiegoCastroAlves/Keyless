@@ -225,7 +225,7 @@ fn is_https(url: &str) -> bool {
     url.trim().get(..8).is_some_and(|s| s.eq_ignore_ascii_case("https://"))
 }
 
-/// 2 = same host, 1 = same site, 0 = no match. A login saved for an https
+/// 2 = same host, 1 = same site (or one sharing its accounts), 0 = no match. A login saved for an https
 /// address is never offered to a plain http page, where anyone on the network
 /// could read it. The address's fill rule narrows this: only its exact host
 /// (and port, when it has one), or nowhere.
@@ -241,10 +241,10 @@ pub fn match_score(page: &Page, item_url: &ItemUrl) -> u8 {
         if exact && item_port.is_some() && item_port != page.port { 0 } else { 2 }
     } else if exact || USER_CONTENT_HOSTS.contains(&page.host.as_str()) || USER_CONTENT_HOSTS.contains(&item_host.as_str()) {
         0
-    } else if site_of(&item_host) == site_of(&page.host) {
-        1
     } else {
-        0
+        let (item_site, page_site) = (site_of(&item_host), site_of(&page.host));
+        // The same site, or sites that share one account (see shared_sites).
+        u8::from(item_site == page_site || super::shared_sites::shares_account(&item_site, &page_site))
     }
 }
 
@@ -419,6 +419,12 @@ mod tests {
         // Pages anyone can publish under a big site's domain.
         assert_eq!(match_score(&page("https://script.google.com/macros/s/x"), &url("https://accounts.google.com")), 0);
         assert_eq!(match_score(&page("https://script.google.com"), &url("https://script.google.com")), 2);
+        // Sites that share one account: iCloud signs in in a frame of
+        // apple.com; not for an exact-host rule, nor onto plain http.
+        assert_eq!(match_score(&page("https://idmsa.apple.com/appleauth"), &url("https://www.icloud.com")), 1);
+        let exact = ItemUrl { href: "https://www.icloud.com".into(), fill: UrlMatch::Host, ..Default::default() };
+        assert_eq!(match_score(&page("https://idmsa.apple.com"), &exact), 0);
+        assert_eq!(match_score(&page("http://apple.com"), &url("https://icloud.com")), 0);
     }
 
     #[test]

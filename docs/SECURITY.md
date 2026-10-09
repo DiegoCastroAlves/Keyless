@@ -416,7 +416,13 @@ must be running, for what it needs.
   URL from the browser (not from the page), and the app returns credentials
   only if that URL matches the item's website (same registrable domain, using
   the Public Suffix List; numeric addresses and hosts where anyone can
-  publish pages, like script.google.com, must match exactly). Each website of
+  publish pages, like script.google.com, must match exactly). Websites that
+  share one account count as the same site: iCloud signs in on apple.com,
+  for example. They come from Apple's password-manager-resources list
+  (curated by password managers together, bundled with the app, never
+  downloaded) plus a few big services it leaves out (Apple, Google,
+  Microsoft, Amazon and the like), and never apply to an exact-host rule or
+  to a plain `http` page. Each website of
   an item can be narrowed to its exact host, or set to never fill. A login
   saved for an `https` address is never
   offered to, or filled into, a plain `http` page. Filling a login saved for

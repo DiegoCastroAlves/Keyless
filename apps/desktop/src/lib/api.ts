@@ -625,6 +625,7 @@ export const api = {
   deleteGenerated: (id?: string) => invoke<void>("delete_generated", { id: id ?? null }),
   passwordHealth: () => invoke<HealthReport>("password_health"),
   checkBreaches: () => invoke<void>("check_breaches"),
+  suggestTitle: (url: string) => invoke<string | null>("suggest_title", { url }),
   checkItemPassword: (password: string, itemId: string | null, inputs: string[]) =>
     invoke<PasswordCheck>("check_item_password", { password, itemId, inputs }),
   importPick: (format: ImportFormat, password?: string) =>

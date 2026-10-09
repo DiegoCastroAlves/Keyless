@@ -235,6 +235,14 @@ pub async fn delete_account(app: AppHandle, master_password: String) -> AppResul
     auth::delete_account(&app, Zeroizing::new(master_password)).await
 }
 
+/// A title for an item from its website ("accounts.google.com" -> "Google"),
+/// for an item still without one.
+#[tauri::command]
+pub fn suggest_title(url: String) -> Option<String> {
+    let host = crate::bridge::handlers::url_host(&url)?;
+    Some(crate::bridge::logins::suggested_title(&host))
+}
+
 #[tauri::command]
 pub fn password_strength(password: String, email: Option<String>) -> Strength {
     let password = Zeroizing::new(password);
