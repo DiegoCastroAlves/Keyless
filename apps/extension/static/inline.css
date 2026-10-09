@@ -632,3 +632,36 @@ button {
   background: var(--panel);
   color: var(--accent);
 }
+
+/* ----- Passkey prompt ----- */
+
+.passkey .list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -4px;
+}
+
+.passkey .save-item > .svg,
+.passkey .row > .svg {
+  margin-left: auto;
+  color: var(--accent);
+}
+
+.passkey-other {
+  margin: 8px 0 -4px -6px;
+}
+
+.passkey-other .link {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.passkey-other .link:hover {
+  color: var(--text);
+}
+
+.note.small.top {
+  margin: -4px 2px 8px;
+}

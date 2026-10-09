@@ -430,5 +430,20 @@
         "example": "shop.example"
       }
     }
+  },
+  "ok": {
+    "message": "Aceptar"
+  },
+  "pkSaveShort": {
+    "message": "¿Guardar llave de acceso?"
+  },
+  "pkSignInShort": {
+    "message": "Iniciar sesión con llave de acceso"
+  },
+  "pkSaveIn": {
+    "message": "Guardar en"
+  },
+  "pkCloseHint": {
+    "message": "Cerrar (el navegador se encarga)"
   }
 }

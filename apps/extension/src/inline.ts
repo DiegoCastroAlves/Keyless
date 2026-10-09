@@ -1,6 +1,7 @@
 // The Keyless menus shown inside web pages, in an iframe the content script
-// creates: the list below a login field (#menu) and the sign-in card at the
-// top of the page (#card).
+// creates: the list below a login field (#menu), the sign-in card at the
+// top of the page (#card), the "Save login?" prompt (#save) and the prompt
+// for a site's passkey request (#passkey).
 //
 // This is an extension page, isolated from the web page: the page can
 // neither read it nor script it. It only works with the token its content
@@ -17,7 +18,8 @@ import { avatar } from "./avatar";
 import type { FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
-const mode: "menu" | "card" | "save" = location.hash === "#card" ? "card" : location.hash === "#save" ? "save" : "menu";
+const mode: "menu" | "card" | "save" | "passkey" =
+  location.hash === "#card" ? "card" : location.hash === "#save" ? "save" : location.hash === "#passkey" ? "passkey" : "menu";
 document.documentElement.dataset.mode = mode;
 const app = document.getElementById("app")!;
 /** Same as in the content script. */
@@ -232,7 +234,8 @@ document.addEventListener("keydown", (e) => {
     } else focusRow(index - 1);
   } else if (e.key === "Escape") {
     e.preventDefault();
-    if (mode === "menu") toParent("close", { refocus: true });
+    if (mode === "passkey") closePasskey();
+    else if (mode === "menu") toParent("close", { refocus: true });
     else if (expanded) {
       expanded = false;
       render();
@@ -638,16 +641,148 @@ function renderSave() {
   app.replaceChildren(box);
 }
 
+// ----- Passkey prompt -------------------------------------------------------------
+//
+// A site asked to save a passkey or to sign in with one (see background.ts):
+// shown at the top of the page like the "Save login?" prompt, over the page
+// dimmed, with the same guard against clicks the user did not mean. The
+// background knows the request (the one waiting in this tab); this page
+// only shows it and passes on what the user chose. Closing it hands the
+// request to the browser, like closing the Keyless window.
+
+interface PasskeyView {
+  kind: "create" | "get";
+  host: string;
+  rpId: string;
+  locked: boolean;
+  rpName?: string;
+  userName?: string;
+  logins?: Login[];
+  passkeys?: PasskeyEntry[];
+  /** The site already has a passkey of this account in Keyless. */
+  exists?: boolean;
+  /** Asked from a frame of another site inside the page. */
+  topHost?: string;
+}
+
+let passkey: PasskeyView | null = null;
+/** Where a new passkey goes: a new login, or a login's id. */
+let passkeyTarget = "";
+let passkeyError: string | null = null;
+
+async function loadPasskey() {
+  const reply = await send<PasskeyView>({ type: "passkey_view" });
+  if (!reply.ok || !reply.data) return toParent("close");
+  passkey = reply.data;
+  render();
+}
+
+async function passkeyAction(type: string, extra: Record<string, unknown> = {}) {
+  if (busy) return;
+  busy = true;
+  render();
+  const reply = await send<PasskeyView>({ type, ...extra });
+  busy = false;
+  if (type === "passkey_unlock" && reply.ok && reply.data) {
+    passkey = reply.data;
+    return render();
+  }
+  // Done (the background also closes this), or gone meanwhile.
+  if (reply.ok || reply.error === "expired") return toParent("close");
+  passkeyError = reply.error === "exists" ? t("pkExists") : t("pkFailed");
+  await loadPasskey();
+}
+
+/** The close button and Escape: the browser takes the request, unless the
+ * account already has a passkey here (the site is told so). */
+function closePasskey() {
+  if (passkey?.kind === "create" && passkey.exists) void passkeyAction("passkey_cancel", { exists: true });
+  else void passkeyAction("passkey_fallback");
+}
+
+function primaryButton(label: string, run: () => void): HTMLButtonElement {
+  const button = el("button", { type: "button", className: "primary", textContent: label, disabled: busy });
+  button.addEventListener("click", run);
+  return button;
+}
+
+function renderPasskey() {
+  const v = passkey!;
+  const close = closeButton(closePasskey);
+  close.title = t("pkCloseHint");
+  const title = v.locked ? t("pkLocked") : v.kind === "create" ? t("pkSaveShort") : t("pkSignInShort");
+  const box = el("div", { className: "box save passkey" }, el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: title }), close));
+  if (v.topHost) box.append(el("p", { className: "note small top", textContent: t("pkInFrame", v.topHost) }));
+  if (passkeyError) box.append(el("p", { className: "error", textContent: passkeyError }));
+  const site = `https://${v.host}`;
+  const other = el("button", { type: "button", className: "link", textContent: t("pkOtherDevice"), disabled: busy });
+  other.addEventListener("click", () => void passkeyAction("passkey_fallback"));
+
+  if (v.locked) {
+    box.append(el("p", { className: "note", textContent: t("pkLockedHint", v.rpId) }));
+    box.append(el("div", { className: "save-foot" }, other, primaryButton(t("unlockApp"), () => void passkeyAction("passkey_unlock"))));
+  } else if (v.kind === "create") {
+    const login: Login = { id: "", title: v.rpName || v.rpId, username: v.userName ?? "", url: site, vault: "", favorite: false };
+    box.append(
+      el(
+        "div",
+        { className: "save-item" },
+        avatar(login, site),
+        el("span", { className: "text" }, el("span", { className: "title", textContent: v.rpId }), el("span", { className: "sub", textContent: v.userName || v.rpName || "" })),
+        svg(ICON_PASSKEY),
+      ),
+    );
+    if (v.exists) {
+      box.append(el("p", { className: "note small", textContent: t("pkExists") }));
+      box.append(el("div", { className: "save-foot" }, el("span"), primaryButton(t("ok"), closePasskey)));
+    } else {
+      const foot = el("div", { className: "save-foot" });
+      if ((v.logins ?? []).length > 0) {
+        // A login already saved for the site can take it.
+        const select = el("select", { title: t("pkSaveIn") });
+        select.append(el("option", { value: "", textContent: t("pkNewLogin"), selected: passkeyTarget === "" }));
+        for (const l of v.logins ?? []) select.append(el("option", { value: l.id, textContent: l.username ? `${l.title} · ${l.username}` : l.title, selected: l.id === passkeyTarget }));
+        select.addEventListener("change", () => (passkeyTarget = select.value));
+        foot.append(select);
+      } else {
+        foot.append(el("span", { className: "vault", textContent: t("pkNewLogin") }));
+      }
+      foot.append(primaryButton(t("save"), () => void passkeyAction("passkey_choose", { itemId: passkeyTarget })));
+      box.append(foot);
+      box.append(el("div", { className: "passkey-other" }, other));
+    }
+  } else {
+    const keys = v.passkeys ?? [];
+    if (keys.length === 0) {
+      box.append(el("p", { className: "note", textContent: t("pkNone") }));
+      box.append(el("div", { className: "save-foot" }, el("span", { className: "vault", textContent: t("pkNoneHint") }), primaryButton(t("pkOtherDevice"), () => void passkeyAction("passkey_fallback"))));
+    } else {
+      const list = el("div", { className: "list" });
+      for (const key of keys) {
+        const login: Login = { id: key.itemId, title: key.title, username: key.userName, url: site, vault: "", favorite: false };
+        const row = el("button", { className: "row", type: "button", disabled: busy }, avatar(login, site), texts(login), svg(ICON_PASSKEY));
+        row.addEventListener("click", () => void passkeyAction("passkey_choose", { credentialId: key.credentialId }));
+        list.append(row);
+      }
+      box.append(list, el("div", { className: "passkey-other" }, other));
+    }
+  }
+  app.replaceChildren(box);
+}
+
 function render() {
   if (mode === "menu") renderMenu();
   else if (mode === "card") renderCard();
-  else if (saving) renderSave();
+  else if (mode === "passkey") {
+    if (passkey) renderPasskey();
+  } else if (saving) renderSave();
   report();
 }
 
 let lastRendered = "";
 async function refresh(force = false) {
   if (mode === "save") return loadSave();
+  if (mode === "passkey") return loadPasskey();
   const reply = await send<InlineState>({ type: "state" });
   state = reply.ok && reply.data ? reply.data : { state: "error", url: null, host: null, logins: [] };
   if (mode === "menu" && field.newPassword && state.state === "ready" && suggestion === null) await newSuggestion();
@@ -696,6 +831,9 @@ window.addEventListener("message", async (event) => {
       settle();
       pageSafe = false;
       expanded = false;
+      // A new passkey request.
+      passkeyError = null;
+      passkeyTarget = "";
       if (data.field) {
         if (data.field.newPassword !== field.newPassword || data.field.maxLength !== field.maxLength) suggestion = null;
         field = data.field;

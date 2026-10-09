@@ -463,13 +463,18 @@ must be running, for what it needs.
   extension takes the origin from the browser (https or localhost), and the
   app checks the relying party id against it: the host or a parent domain,
   never a public suffix (Public Suffix List, private entries included), an
-  IP address or a single label. The user decides in a separate Keyless
-  browser window, which the page can neither cover nor script, and can hand
-  the request back to the browser ("another device", or closing the window,
-  as in Bitwarden); Cancel refuses it. A site that names another site's
-  relying party is refused before that window opens. The window opens even
-  when Keyless has no passkey for the site (as in Bitwarden), so a page
-  cannot learn without the user whether Keyless has one. Keys are ES256,
+  IP address or a single label. The user decides in Keyless's prompt at the
+  top of the page, over the page dimmed (like 1Password's): an extension
+  page the web page cannot read or drive, protected against clickjacking
+  like the menus that fill passwords (see above), which only shows the
+  request the background holds for that tab and passes on the choice. Where
+  the page cannot show it, a separate Keyless window does. The user can
+  hand the request back to the browser ("another device", or closing the
+  prompt or window, as in Bitwarden); the window's Cancel refuses it. A
+  site that names another site's relying party is refused before the
+  prompt opens. It opens even when Keyless has no passkey for the site (as
+  in Bitwarden), so a page cannot learn without the user whether Keyless
+  has one. Keys are ES256,
   created and used in the app, stored in the item like any other secret;
   responses use "none" attestation, a counter that stays 0 and the backup
   flags of a synced passkey. User verification is reported because Keyless
@@ -480,7 +485,7 @@ must be running, for what it needs.
     between them) may sign in only where the page allows passkeys in it
     (its Permissions Policy, read where the page's scripts cannot change
     it); `clientDataJSON` then says so (`crossOrigin`, `topOrigin`) and the
-    window names the page. Creating a passkey in such a frame, and anything
+    prompt names the page. Creating a passkey in such a frame, and anything
     where the browser cannot tell what the page allows (Firefox), is left to
     the browser.
   - *Offered in the page's fields* (conditional mediation): no window opens;

@@ -430,5 +430,20 @@
         "example": "shop.example"
       }
     }
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "pkSaveShort": {
+    "message": "Save passkey?"
+  },
+  "pkSignInShort": {
+    "message": "Sign in with a passkey"
+  },
+  "pkSaveIn": {
+    "message": "Save in"
+  },
+  "pkCloseHint": {
+    "message": "Close (the browser takes over)"
   }
 }

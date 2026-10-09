@@ -430,5 +430,20 @@
         "example": "shop.example"
       }
     }
+  },
+  "ok": {
+    "message": "OK"
+  },
+  "pkSaveShort": {
+    "message": "Salvar chave de acesso?"
+  },
+  "pkSignInShort": {
+    "message": "Entrar com chave de acesso"
+  },
+  "pkSaveIn": {
+    "message": "Salvar em"
+  },
+  "pkCloseHint": {
+    "message": "Fechar (o navegador assume)"
   }
 }

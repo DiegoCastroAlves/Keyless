@@ -14,6 +14,9 @@
 // prompt are the page's only. Sandboxed frames, with no origin of their own,
 // are left alone.
 //
+// It also shows the prompt for a site's passkey request (save one, or sign
+// in with one), at the top of the page with the page dimmed.
+//
 // The menus are extension pages (inline.html) in
 // iframes inside a closed shadow root: the page cannot read the logins they
 // list, and only they (or the popup) can ask Keyless to fill or save. This
@@ -38,6 +41,7 @@ const PAD = 10;
 const MENU_WIDTH = 320;
 const CARD_WIDTH = 400;
 const SAVE_WIDTH = 380;
+const PASSKEY_WIDTH = 380;
 
 /** The page itself, not a frame inside it. */
 const TOP = window === window.top;
@@ -505,7 +509,9 @@ iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0;
 iframe.open { visibility: visible; pointer-events: auto; }
 iframe.card { top: 0; left: max(0px, calc(50% - ${(CARD_WIDTH + 2 * PAD) / 2}px)); }
 iframe.detached { top: 0; left: max(0px, calc(50% - ${(MENU_WIDTH + 2 * PAD) / 2}px)); }
-iframe.save { top: 0; right: 12px; }
+iframe.save, iframe.passkey { top: 0; right: 12px; }
+/* Dims the page behind the passkey prompt; clicks on the page wait. */
+.scrim { position: fixed; z-index: 2147483645; inset: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,.42); display: none; }
 `;
 
 /** A random tag: page styles cannot target it by name. */
@@ -526,6 +532,9 @@ button.innerHTML = LOGO;
 button.title = "Keyless";
 button.style.display = "none";
 root.append(button);
+const scrim = document.createElement("div");
+scrim.className = "scrim";
+root.append(scrim);
 
 const LOCK = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>`;
 const CHEVRON = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>`;
@@ -814,12 +823,12 @@ class Frame {
   height = 0;
 
   constructor(
-    readonly mode: "menu" | "card" | "save",
+    readonly mode: "menu" | "card" | "save" | "passkey",
     className: string = mode,
   ) {
     this.iframe.className = className;
     this.iframe.title = "Keyless";
-    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH }[mode];
+    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH, passkey: PASSKEY_WIDTH }[mode];
     this.iframe.style.width = `${width + 2 * PAD}px`;
     root.append(this.iframe);
   }
@@ -884,9 +893,18 @@ let menu: Frame | null = null;
  * service's card field, a small sign-in box): at the top of the page, acting
  * for that frame with its token. */
 let detached: Frame | null = null;
+/** A site's passkey request (see background.ts). */
+let passkeyFrame: Frame | null = null;
 
 function openFrames(): (Frame | null)[] {
-  return [menu, card, saveFrame, detached];
+  return [menu, card, saveFrame, detached, passkeyFrame];
+}
+
+function hidePasskey() {
+  passkeyFrame?.hide();
+  scrim.style.display = "none";
+  // The sign-in card comes back if the page still wants it.
+  void scan();
 }
 let card: Frame | null = null;
 let cardDismissed = false;
@@ -1038,7 +1056,8 @@ function reportForms() {
  * asking for a one-time code that a login for the page has. */
 async function scan() {
   reportForms();
-  if (!TOP) return;
+  // Not over the passkey prompt; it comes back after.
+  if (!TOP || passkeyFrame?.open) return;
   const login = hasLoginForm();
   const code = !login && hasCodeForm();
   // Signed in without leaving the page: the card has nothing left to fill.
@@ -1159,10 +1178,12 @@ window.addEventListener("message", (event) => {
     case "close":
       if (frame === menu) closeMenu(Boolean(data.refocus));
       else if (frame === card) dismissCard();
+      else if (frame === passkeyFrame) hidePasskey();
       else frame.hide();
       break;
     case "hide":
-      frame.hide();
+      if (frame === passkeyFrame) hidePasskey();
+      else frame.hide();
       break;
     case "unlocked":
       pageState = null;
@@ -1347,6 +1368,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === "keyless-save") {
     if (TOP) showSavePrompt();
+    return;
+  }
+  if (message?.type === "keyless-passkey-prompt") {
+    // The page's own prompt; the background opens its window instead when
+    // this cannot show.
+    if (!TOP || !document.documentElement) return;
+    passkeyFrame ??= new Frame("passkey");
+    // Nothing else of Keyless's on top of the dimmed page.
+    closeMenu();
+    card?.hide();
+    scrim.style.display = "block";
+    passkeyFrame.show();
+    sendResponse(true);
+    return;
+  }
+  if (message?.type === "keyless-passkey-close") {
+    if (TOP) hidePasskey();
     return;
   }
   if (message?.type === "keyless-menu-for" && typeof message.token === "string" && message.token.length >= 32) {

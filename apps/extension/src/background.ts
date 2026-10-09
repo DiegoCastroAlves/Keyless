@@ -841,15 +841,17 @@ chrome.permissions.onAdded.addListener(() => void applyBrowserManager().catch(()
 // ----- Passkeys -----------------------------------------------------------------
 //
 // A site's passkey request (webauthn-page.ts, relayed by webauthn.ts) waits
-// here while the user decides in a Keyless window (passkey.html): a separate
-// browser window the page can neither cover nor script. The page's origin
-// comes from the browser; the app checks it against the relying party.
-// "Use another device", or closing the window, hands the request back to the
-// browser's own WebAuthn (like Bitwarden), which also happens silently when
-// Keyless cannot help (not connected, turned off, or hidden on the site).
-// Cancel refuses it. The window opens even when there is no passkey to sign
-// in with: answering at once would tell any page, without the user doing
-// anything, whether Keyless has a passkey for it.
+// here while the user decides in Keyless's prompt at the top of the page
+// (inline.html#passkey, like 1Password's), with the same protection against
+// clickjacking as the menus that fill passwords; where the page cannot show
+// it, in a Keyless window (passkey.html). The page's origin comes from the
+// browser; the app checks it against the relying party. "Use another
+// device", or closing the prompt, hands the request back to the browser's
+// own WebAuthn (like Bitwarden), which also happens silently when Keyless
+// cannot help (not connected, turned off, or hidden on the site). The
+// window's Cancel refuses it. The prompt opens even when there is no passkey
+// to sign in with: answering at once would tell any page, without the user
+// doing anything, whether Keyless has a passkey for it.
 //
 // Frames: the request is the frame's (its origin, from the browser). For a
 // frame of another origin than the page, which webauthn.ts lets through only
@@ -872,6 +874,8 @@ interface PasskeyRequest {
   request: any;
   port: chrome.runtime.Port;
   windowId: number | null;
+  /** Shown in the page's own prompt (not a window). */
+  inPage: boolean;
   timer: ReturnType<typeof setTimeout> | undefined;
 }
 
@@ -889,6 +893,7 @@ function finishPasskey(entry: PasskeyRequest, answer: unknown) {
     // The page went away.
   }
   if (entry.windowId !== null) void chrome.windows.remove(entry.windowId).catch(() => undefined);
+  if (entry.inPage) void chrome.tabs.sendMessage(entry.tabId, { type: "keyless-passkey-close" }, { frameId: 0 }).catch(() => undefined);
 }
 
 /** Ends a request waiting in the page's fields; `null`: the page ended it. */
@@ -993,7 +998,7 @@ async function startPasskey(
       if (!conditional) return fallback();
     }
   }
-  const entry: PasskeyRequest = { id: crypto.randomUUID(), ...where, request, port, windowId: null, timer: undefined };
+  const entry: PasskeyRequest = { id: crypto.randomUUID(), ...where, request, port, windowId: null, inPage: false, timer: undefined };
   if (conditional) return startConditional(entry);
 
   // One request per tab, like the browser. Passkeys offered in the page's
@@ -1006,6 +1011,12 @@ async function startPasskey(
   entry.timer = setTimeout(() => finishPasskey(entry, { ok: false, error: "cancelled" }), ms);
   passkeyRequests.set(entry.id, entry);
   port.onDisconnect.addListener(() => finishPasskey(entry, null));
+  // The page's prompt, or a window where the page cannot show it.
+  const shown = await chrome.tabs.sendMessage(where.tabId, { type: "keyless-passkey-prompt" }, { frameId: 0 }).catch(() => false);
+  if (shown === true) {
+    entry.inPage = true;
+    return;
+  }
   const window = await chrome.windows
     .create({ url: chrome.runtime.getURL(`passkey.html#${entry.id}`), type: "popup", width: 440, height: 560, focused: true })
     .catch(() => null);
@@ -1078,7 +1089,12 @@ function passkeyGet(entry: PasskeyRequest, credentialId: string) {
 
 async function handlePasskeyWindow(message: any): Promise<Reply> {
   const entry = passkeyRequests.get(String(message.id ?? ""));
-  if (!entry) return { ok: false, error: "expired" };
+  if (!entry || entry.inPage) return { ok: false, error: "expired" };
+  return handlePasskey(entry, message);
+}
+
+/** What the passkey prompt (or window) asks for a request. */
+async function handlePasskey(entry: PasskeyRequest, message: any): Promise<Reply> {
   switch (message.type) {
     case "passkey_view":
       return { ok: true, data: await passkeyView(entry) };
@@ -1214,6 +1230,17 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       if (!url) return { ok: false, error: "no_tab" };
       await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), frameId: reg.frameId, code: message.code === true });
       return { ok: true };
+    case "passkey_view":
+    case "passkey_unlock":
+    case "passkey_fallback":
+    case "passkey_cancel":
+    case "passkey_choose": {
+      // The page's passkey prompt: the request waiting in this tab.
+      if (reg.frameId !== 0) return { ok: false, error: "forbidden" };
+      const entry = [...passkeyRequests.values()].find((other) => other.tabId === tab.id && other.inPage);
+      if (!entry) return { ok: false, error: "expired" };
+      return handlePasskey(entry, message);
+    }
     case "passkey_pick": {
       // A passkey from the menu under a field that asks for one.
       const entry = conditionalRequests.get(frameKey(tab.id, reg.frameId));

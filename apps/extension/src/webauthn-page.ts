@@ -108,8 +108,20 @@
     });
   }
 
-  /** The browser's own WebAuthn needs the page focused: back from the
-   * Keyless window, it waits for the focus (a few seconds at most). */
+  /** The browser's part of passkeys offered in the page's fields, while
+   * they wait (see `conditional`). */
+  let browserConditional: AbortController | null = null;
+
+  /** Before the browser takes a request over: it allows only one at a
+   * time, so its part of the passkeys offered in the fields is called off
+   * (Keyless's stays). Then the page must have the focus back, which it
+   * waits for (a few seconds at most). */
+  async function toBrowser(): Promise<void> {
+    browserConditional?.abort();
+    browserConditional = null;
+    await focused();
+  }
+
   function focused(): Promise<void> {
     if (document.hasFocus()) return Promise.resolve();
     return new Promise((resolve) => {
@@ -219,7 +231,7 @@
       options?.signal,
     );
     if (answer?.fallback) {
-      await focused();
+      await toBrowser();
       return nativeCreate(options);
     }
     if (!answer?.ok) throw failure(answer ?? {});
@@ -240,7 +252,7 @@
     if (options?.mediation === "conditional") return conditional(options, publicKey, request);
     const answer = await ask(request, options?.signal);
     if (answer?.fallback) {
-      await focused();
+      await toBrowser();
       return nativeGet(options);
     }
     if (!answer?.ok) throw failure(answer ?? {});
@@ -260,6 +272,7 @@
       browser.abort();
     };
     outer?.addEventListener("abort", stop, { once: true });
+    browserConditional = browser;
     const never = new Promise<never>(() => undefined);
     let keylessOut = false;
     let browserError: unknown = null;
@@ -287,6 +300,7 @@
       return await Promise.race([fromKeyless, fromBrowser, failed]);
     } finally {
       outer?.removeEventListener("abort", stop);
+      if (browserConditional === browser) browserConditional = null;
       stop();
     }
   }
