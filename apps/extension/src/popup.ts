@@ -76,6 +76,10 @@ async function render() {
       });
     case "not_paired":
       return renderPairing(status.code ?? "");
+    case "untrusted_browser":
+      return message(t("untrustedBrowserTitle"), t("untrustedBrowserBody"));
+    case "untrusted_host":
+      return message(t("untrustedHostTitle"), t("untrustedHostBody"));
     case "locked":
       return renderLocked();
     case "ready":

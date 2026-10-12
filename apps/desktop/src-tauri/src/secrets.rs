@@ -207,6 +207,8 @@ fn write_private_file(path: &Path, contents: &[u8]) -> AppResult<()> {
         options.mode(0o600);
     }
     let mut file = options.open(path).map_err(|e| AppError::Store(e.to_string()))?;
+    #[cfg(windows)]
+    crate::win_security::restrict_file(path);
     file.write_all(contents).map_err(|e| AppError::Store(e.to_string()))?;
     file.sync_all().map_err(|e| AppError::Store(e.to_string()))?;
     Ok(())

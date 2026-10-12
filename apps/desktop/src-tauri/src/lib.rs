@@ -36,6 +36,8 @@ mod system_unlock;
 mod tray;
 mod unlock_prompt;
 mod updates;
+#[cfg(windows)]
+mod win_security;
 
 use std::{
     sync::Mutex,

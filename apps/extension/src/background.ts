@@ -95,6 +95,13 @@ function browserName(): string {
 
 class BridgeError extends Error {}
 
+/** Error codes from the host or app that the popup explains. */
+const KNOWN_ERRORS = ["app_not_running", "not_paired", "untrusted_browser", "untrusted_host"] as const;
+
+function errorState(code: unknown): Status["state"] {
+  return KNOWN_ERRORS.find((known) => known === code) ?? "error";
+}
+
 /** Says hello to the app and prepares the encrypted channel. */
 async function connect(): Promise<Status> {
   const me = await identity();
@@ -105,7 +112,7 @@ async function connect(): Promise<Status> {
     return { state: "host_missing" };
   }
   if (reply?.type === "error") {
-    return { state: reply.code === "app_not_running" ? "app_not_running" : "error" };
+    return { state: errorState(reply.code) };
   }
   const appPublic = fromBase64(reply.pub);
   const pinned = await kvGet<ArrayBuffer>("appPublic");
@@ -152,7 +159,7 @@ async function send<T>(cmd: string, args: Record<string, unknown>, connection: N
   }
   if (reply?.type === "error") {
     session = null;
-    throw new BridgeError(reply.code === "app_not_running" ? "app_not_running" : reply.code === "not_paired" ? "not_paired" : "error");
+    throw new BridgeError(errorState(reply.code));
   }
   const response = await open<{ id: string; ok: boolean; data?: T; error?: string }>(session!.key, reply.nonce, reply.ct);
   if (response.id !== request.id) throw new BridgeError("error");

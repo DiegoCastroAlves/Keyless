@@ -38,6 +38,18 @@
   "openApp": {
     "message": "Abrir o Keyless"
   },
+  "untrustedBrowserTitle": {
+    "message": "O Keyless não reconhece este navegador"
+  },
+  "untrustedBrowserBody": {
+    "message": "O Keyless só responde a navegadores instalados no sistema (pelos pacotes da sua distribuição, ou em Arquivos de Programas no Windows). No Linux, um administrador pode liberar outro navegador colocando o executável dele em /etc/keyless/allowed_browsers."
+  },
+  "untrustedHostTitle": {
+    "message": "Conexão recusada"
+  },
+  "untrustedHostBody": {
+    "message": "O Keyless recusou o programa que se conectou por esta extensão: não era o app do Keyless, ou estava sendo depurado ou com bibliotecas injetadas. Se continuar acontecendo, reinstale o Keyless."
+  },
   "errorTitle": {
     "message": "Algo deu errado"
   },

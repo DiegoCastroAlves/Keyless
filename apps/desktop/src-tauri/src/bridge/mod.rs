@@ -7,8 +7,10 @@
 //! - The browser only launches the host for our extension ids
 //!   (`allowed_origins` / `allowed_extensions` in the host manifest).
 //! - The local socket is per-user (Unix socket with 0600 permissions and a
-//!   peer uid check; a per-user named pipe on Windows that rejects remote
-//!   clients).
+//!   peer uid check; a per-user named pipe on Windows, open to this user
+//!   only, that rejects remote clients).
+//! - The process that connects must be Keyless in host mode, started by a
+//!   browser installed on the system (see `peer`).
 //! - Every request is end-to-end encrypted between the extension and the app
 //!   with keys exchanged during pairing, which the user approves in the app
 //!   after comparing a code. Other programs that reach the socket can neither
@@ -21,6 +23,7 @@ pub mod handlers;
 pub mod host;
 pub mod install;
 pub mod logins;
+pub mod peer;
 pub mod server;
 pub mod shared_sites;
 

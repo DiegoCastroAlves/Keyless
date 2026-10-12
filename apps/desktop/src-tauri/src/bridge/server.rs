@@ -107,13 +107,16 @@ async fn listen(app: AppHandle) -> std::io::Result<()> {
     let uid = unsafe { libc::getuid() };
     loop {
         let (stream, _) = listener.accept().await?;
-        match stream.peer_cred() {
-            Ok(cred) if cred.uid() == uid => {}
+        let peer = match stream.peer_cred() {
+            Ok(cred) if cred.uid() == uid => super::peer::check(cred.pid()),
             _ => continue,
-        }
+        };
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = serve(app, stream).await;
+            let _ = match peer {
+                Ok(()) => serve(app, stream).await,
+                Err(code) => refuse(stream, code).await,
+            };
         });
     }
 }
@@ -122,17 +125,32 @@ async fn listen(app: AppHandle) -> std::io::Result<()> {
 async fn listen(app: AppHandle) -> std::io::Result<()> {
     use tokio::net::windows::named_pipe::ServerOptions;
     let name = pipe_name();
-    let mut server = ServerOptions::new()
-        .first_pipe_instance(true)
-        .reject_remote_clients(true)
-        .create(&name)?;
+    // Open to this user only (the default DACL also lets SYSTEM,
+    // administrators and, for some pipes, everyone read it).
+    let access = crate::win_security::UserOnly::new()
+        .ok_or_else(|| std::io::Error::other("could not build the pipe's security descriptor"))?;
+    let create = |first: bool| -> std::io::Result<_> {
+        let mut attributes = access.attributes();
+        // SAFETY: the attributes and their descriptor outlive the call.
+        unsafe {
+            ServerOptions::new()
+                .first_pipe_instance(first)
+                .reject_remote_clients(true)
+                .create_with_security_attributes_raw(&name, (&mut attributes as *mut windows_sys::Win32::Security::SECURITY_ATTRIBUTES).cast())
+        }
+    };
+    let mut server = create(true)?;
     loop {
         server.connect().await?;
         let connected = server;
-        server = ServerOptions::new().reject_remote_clients(true).create(&name)?;
+        server = create(false)?;
+        let peer = super::peer::check(&connected);
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = serve(app, connected).await;
+            let _ = match peer {
+                Ok(()) => serve(app, connected).await,
+                Err(code) => refuse(connected, code).await,
+            };
         });
     }
 }
@@ -158,6 +176,22 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(app: AppHandle, stream: S) -> 
 }
 
 use tokio::io::AsyncReadExt;
+
+/// Answers every request from a process that failed the `peer` check with
+/// why, so the extension can explain it, until it hangs up.
+async fn refuse<S: AsyncRead + AsyncWrite + Unpin>(stream: S, code: &'static str) -> std::io::Result<()> {
+    let (reader, mut writer) = tokio::io::split(stream);
+    let mut reader = BufReader::new(reader);
+    let reply = format!("{}\n", json!({ "type": "error", "code": code }));
+    loop {
+        let mut line = Vec::new();
+        if (&mut reader).take(MAX_LINE as u64 + 1).read_until(b'\n', &mut line).await? == 0 || line.len() > MAX_LINE {
+            return Ok(());
+        }
+        writer.write_all(reply.as_bytes()).await?;
+        writer.flush().await?;
+    }
+}
 
 #[derive(Deserialize)]
 struct EncryptedRequest {

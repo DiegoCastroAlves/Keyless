@@ -15,7 +15,17 @@ export interface Login {
 }
 
 export interface Status {
-  state: "ready" | "locked" | "not_paired" | "app_not_running" | "host_missing" | "error";
+  state:
+    | "ready"
+    | "locked"
+    | "not_paired"
+    | "app_not_running"
+    | "host_missing"
+    /** The app refused this browser (not one installed on the system). */
+    | "untrusted_browser"
+    /** The app refused the process that connected (not Keyless, or tampered with). */
+    | "untrusted_host"
+    | "error";
   /** Pairing code to compare with the app (when not paired). */
   code?: string;
   email?: string;
