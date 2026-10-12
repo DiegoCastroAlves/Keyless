@@ -794,6 +794,7 @@ const ptBR: Translations = {
     seconds_one: "{{count}} segundo",
     seconds_other: "{{count}} segundos",
     confirmWithPassword: "Digite sua senha mestra para mostrar sua Chave Secreta",
+    systemUnlockConfirm: "Digite sua senha mestra para ativar",
     secretKeyInFile:
       "O chaveiro do sistema não estava disponível, então sua Chave Secreta está guardada em um arquivo que só o seu usuário pode ler. Ela passa para o chaveiro assim que ele funcionar; instalar ou desbloquear um chaveiro (KWallet, GNOME Keyring) a protege melhor.",
     browser: "Navegador",

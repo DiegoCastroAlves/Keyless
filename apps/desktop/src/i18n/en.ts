@@ -791,6 +791,7 @@ const en = {
     seconds_one: "{{count}} second",
     seconds_other: "{{count}} seconds",
     confirmWithPassword: "Enter your master password to show your Secret Key",
+    systemUnlockConfirm: "Enter your master password to turn this on",
     secretKeyInFile:
       "The system keyring was not available, so your Secret Key is stored in a file only your user can read. It moves into the keyring as soon as one works; installing or unlocking a keyring (KWallet, GNOME Keyring) protects it better.",
     browser: "Browser",

@@ -794,6 +794,7 @@ const es: Translations = {
     seconds_one: "{{count}} segundo",
     seconds_other: "{{count}} segundos",
     confirmWithPassword: "Introduce tu contraseña maestra para ver tu clave secreta",
+    systemUnlockConfirm: "Introduce tu contraseña maestra para activarlo",
     secretKeyInFile:
       "El llavero del sistema no estaba disponible, así que tu clave secreta se guarda en un archivo que solo tu usuario puede leer. Pasa al llavero en cuanto funcione; instalar o desbloquear un llavero (KWallet, GNOME Keyring) la protege mejor.",
     browser: "Navegador",

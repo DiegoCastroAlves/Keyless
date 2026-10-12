@@ -465,7 +465,7 @@ function SystemUnlockSection() {
       </div>
       {prompt && !settings.system_unlock && (
         <form onSubmit={turnOn} className="mt-3 space-y-2">
-          <Label>{t("settings.confirmWithPassword")}</Label>
+          <Label>{t("settings.systemUnlockConfirm")}</Label>
           <div className="flex gap-2">
             <div className="flex-1">
               <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
