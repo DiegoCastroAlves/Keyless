@@ -1,16 +1,21 @@
 //! Unlock with the computer's password ("system unlock").
 //!
 //! After the vault was unlocked with the master password, locking can keep
-//! the account keys in this process's memory (never on disk; the process is
-//! not dumpable and cannot be ptraced, see `hardening`) so the next unlock
-//! only needs the operating system to confirm the user. On Linux that is a
+//! the user key so the next unlock only needs the operating system to
+//! confirm the user. It is kept sealed, with a key held outside this
+//! process's ordinary memory (the kernel keyring on Linux, see
+//! `guarded_key`): never on disk, and not in a memory dump or swap file
+//! either. The rest of the account keys are opened again from the local
+//! account with it. The process is also not dumpable and cannot be ptraced
+//! (see `hardening`). On Linux that is a
 //! polkit action with `auth_self`: the user's own password (or fingerprint,
 //! when the system is set up for it), never cached, and only in the active
 //! local session. On Windows it is Windows Hello (face, fingerprint or PIN),
 //! through the system's user consent prompt.
 //!
 //! The kept keys are dropped, so the master password is needed again:
-//! - when Keyless quits or the computer restarts (they only live in memory);
+//! - when Keyless quits or the computer restarts (they only live in memory,
+//!   and the kernel drops the keyring key with the process);
 //! - when the computer sleeps or hibernates;
 //! - `MAX_AGE` after the master password was last entered;
 //! - on sign out, or when the setting is turned off.
@@ -21,11 +26,14 @@
 
 use std::time::{Duration, SystemTime};
 
-use keyless_core::account::UnlockedAccount;
+use keyless_core::{
+    account::{AccountBundle, UnlockedAccount, open_with_user_key},
+    crypto::{SymmetricKey, context},
+};
 
 use tauri::AppHandle;
 
-use crate::{error::AppResult, state::AppState};
+use crate::{error::AppResult, guarded_key::GuardedKey, state::AppState};
 
 /// polkit policy file installed by the Linux packages (packaging/linux).
 #[cfg(target_os = "linux")]
@@ -40,9 +48,36 @@ pub const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub struct KeptKeys {
     pub user_id: String,
     pub email: String,
-    pub account: UnlockedAccount,
+    /// The user key, sealed with `guard`'s key.
+    sealed_user_key: String,
+    guard: GuardedKey,
     /// When the master password was last entered.
     pub password_at: SystemTime,
+}
+
+fn kept_key_context(user_id: &str) -> Vec<u8> {
+    context("kept-user-key", &[user_id])
+}
+
+impl KeptKeys {
+    /// Seals the account's user key for the rest of `MAX_AGE`. `None` when
+    /// that time is over or no key can be guarded here.
+    pub fn keep(user_id: String, email: String, account: &UnlockedAccount, password_at: SystemTime) -> Option<KeptKeys> {
+        let age = SystemTime::now().duration_since(password_at).ok()?;
+        let left = MAX_AGE.checked_sub(age).filter(|left| !left.is_zero())?;
+        let (guard, key) = GuardedKey::create(left)?;
+        let sealed_user_key = key.seal(account.user_key().as_bytes(), &kept_key_context(&user_id)).ok()?;
+        Some(KeptKeys { user_id, email, sealed_user_key, guard, password_at })
+    }
+
+    /// The account keys again, from the local account's bundle. `None` when
+    /// the guarded key expired or the bundle does not open with the kept key.
+    pub fn open(&self, bundle: &AccountBundle) -> Option<UnlockedAccount> {
+        let key = self.guard.key()?;
+        let user_key = key.open(&self.sealed_user_key, &kept_key_context(&self.user_id)).ok()?;
+        let user_key = SymmetricKey::from_slice(&user_key).ok()?;
+        open_with_user_key(bundle, user_key, &self.user_id).ok()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,6 +107,10 @@ pub fn fresh(password_at: SystemTime, now: SystemTime) -> bool {
 
 /// Whether this installation can use system unlock.
 pub fn supported() -> bool {
+    crate::guarded_key::available() && os_supported()
+}
+
+fn os_supported() -> bool {
     #[cfg(target_os = "linux")]
     {
         ["/usr/share/polkit-1/actions", "/etc/polkit-1/actions"]
@@ -224,6 +263,31 @@ mod linux {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The kept user key opens the account again, and only that account's.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn kept_keys_reopen_the_account() {
+        use keyless_core::{account::create_account, keys::KdfParams};
+        crate::guarded_key::init();
+        if !crate::guarded_key::available() {
+            eprintln!("no kernel keyring here; skipped");
+            return;
+        }
+        let kek = SymmetricKey::generate().unwrap();
+        let (bundle, account) = create_account(&kek, KdfParams::recommended(), "user-1").unwrap();
+        let kept = KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, SystemTime::now()).unwrap();
+        let reopened = kept.open(&bundle).unwrap();
+        assert_eq!(reopened.user_key().as_bytes(), account.user_key().as_bytes());
+        assert_eq!(reopened.public_key_encoded(), account.public_key_encoded());
+
+        let (other, _) = create_account(&kek, KdfParams::recommended(), "user-2").unwrap();
+        assert!(kept.open(&other).is_none());
+
+        // The master password was entered too long ago: nothing is kept.
+        let old = SystemTime::now() - MAX_AGE - Duration::from_secs(1);
+        assert!(KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, old).is_none());
+    }
 
     /// Talks to the real polkit; run with `cargo test -- --ignored polkit`.
     #[cfg(target_os = "linux")]

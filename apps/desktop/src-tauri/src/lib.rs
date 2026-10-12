@@ -13,6 +13,7 @@ mod commands;
 mod config;
 mod error;
 mod generator_history;
+mod guarded_key;
 mod hardening;
 mod health;
 mod import;
@@ -114,6 +115,8 @@ pub fn run() {
         return;
     }
     hardening::apply();
+    // Before any thread is spawned (see guarded_key).
+    guarded_key::init();
     #[cfg(target_os = "linux")]
     disable_webkit_dmabuf_renderer();
 

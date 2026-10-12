@@ -451,9 +451,10 @@ pub async fn unlock_with_system(app: &AppHandle) -> AppResult<()> {
     if local.user_id != kept.user_id {
         return Err(unavailable());
     }
+    let account = kept.open(&local.bundle).ok_or_else(unavailable)?;
     // The master password age keeps counting from when it was typed.
     *state.password_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(kept.password_at);
-    open_session(app, kept.user_id, kept.email, kept.account).await
+    open_session(app, kept.user_id.clone(), kept.email.clone(), account).await
 }
 
 /// Turns system unlock on (after checking the master password) or off.
@@ -555,7 +556,7 @@ fn keep_keys(state: &AppState, session: Option<Session>) {
     let password_at = *state.password_at.lock().unwrap_or_else(|e| e.into_inner());
     let kept = match password_at {
         Some(at) if state.settings().system_unlock && system_unlock::supported() && system_unlock::fresh(at, SystemTime::now()) => {
-            Some(KeptKeys { user_id: session.user_id, email: session.email, account: session.account, password_at: at })
+            KeptKeys::keep(session.user_id.clone(), session.email.clone(), &session.account, at)
         }
         _ => None,
     };
