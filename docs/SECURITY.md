@@ -152,8 +152,10 @@ the Secret Key, and Google never sees either.
   So whoever controls the Google account can never obtain a session that
   could change the auth secret of an existing Keyless account.
 
-Libraries: RustCrypto `chacha20poly1305`, `argon2`, `hkdf`, `sha2`, `hmac`
-and `x25519-dalek`; randomness from the operating system via `getrandom`.
+Libraries: RustCrypto `chacha20poly1305`, `argon2`, `hkdf`, `sha2`, `hmac`,
+`x25519-dalek`, `p256` (passkeys) and `aes-gcm` (the browser bridge);
+randomness from the operating system via `getrandom`; memory locking via
+`region`.
 
 ## What the server stores
 
@@ -161,7 +163,8 @@ and `x25519-dalek`; randomness from the operating system via `getrandom`.
 - `profiles`: KDF parameters, wrapped user key, public key, wrapped private key.
 - `vaults`, `vault_members`: wrapped vault keys and encrypted vault metadata.
 - `items`: encrypted overview and details, a revision counter and a sync
-  sequence number. Deleted items keep only their id and deletion time.
+  sequence number. A deleted item keeps its encrypted content for 30 days
+  (Recently Deleted, see above), then only its id and deletion time.
 - `item_versions`: the encrypted overview and details each write replaced,
   copied by a trigger (clients can only read them): the newest 30 per item,
   for a year. The client opens and checks them like any item (same vault and
@@ -176,7 +179,8 @@ and `x25519-dalek`; randomness from the operating system via `getrandom`.
   them, writers add and remove them, the uploader can always remove their
   own, and nothing replaces an object. Each account may keep 250 MiB, a
   limit enforced by the policies. A saved file is written under its final
-  name only once every chunk checked out. Attachments are not part of the
+  name only once every chunk checked out (until then it is a hidden file
+  only the current user can read). Attachments are not part of the
   item history (removing one deletes it for good). Backups keep each file's
   chunks as the server has them (their keys are inside the backup's
   encrypted item list), and a restored or imported file is encrypted again
@@ -209,7 +213,15 @@ attachments a vault has and their sizes (not their names or contents).
   (`x-kde-passwordManagerHint` on Linux, excluded from history and cloud
   clipboard on Windows) and are cleared after a configurable delay.
 - Auto-lock after inactivity, on system sleep and on screen lock. Locking drops
-  every key from memory (keys are zeroized on drop).
+  every key from memory (keys are zeroized on drop), and wipes the decrypted
+  item overviews (titles, usernames, websites, tags) and vault names.
+- Keys (the user key, vault keys, the account's private key and the keys
+  derived from them) each live on a 4 KiB memory page of their own, locked
+  in RAM (mlock / VirtualLock), so they are never written to a swap or page
+  file. A key per page means that freeing one never unlocks another. If the
+  system refuses to lock more memory, keys still work, just unlocked.
+- Messages to and from the browser extension (which carry passwords, card
+  numbers and codes) are wiped from memory once handled.
 - Unlock attempts are throttled (exponential back-off after 5 failures,
   persisted across restarts, one attempt at a time).
 - Showing the Secret Key, changing the master password, exporting a backup and
@@ -240,25 +252,44 @@ attachments a vault has and their sizes (not their names or contents).
   action with `auth_self`: the user's own password or fingerprint, never
   cached, active local session only) or Windows Hello (the system's user
   consent prompt: face, fingerprint or PIN). After the master password unlocked the
-  vault, locking can keep the account keys in memory, never on disk, so polkit
-  can confirm the user instead. The kept keys are dropped when Keyless quits,
-  when the computer sleeps, on sign out, when the setting is turned off and 24
-  hours after the master password was last entered. Turning it on requires the
-  master password.
+  vault, locking can keep the user key, never on disk, so polkit or Windows
+  Hello can confirm the user instead. The operating system's answer is only
+  a yes or no, so the kept key is sealed (XChaCha20-Poly1305) with a random
+  key held outside Keyless's ordinary memory, as 1Password does on Linux: a
+  key in the process's kernel keyring that only Keyless can read, with a
+  kernel timeout, on Linux; encrypted with `CryptProtectMemory` (same
+  process) on Windows. A memory dump or swap file of a locked Keyless does
+  not hold the user key. The rest of the account keys are opened from the
+  local account with it. The kept key is dropped when Keyless quits, when
+  the computer sleeps, on sign out, when the setting is turned off and 24
+  hours after the master password was last entered (on Linux the kernel
+  deletes the sealing key then too). Turning it on requires the master
+  password. Where no key can be guarded (a sandbox without the kernel
+  keyring), the option is not offered.
 - The local database contains what the server stores, plus a few things that
-  never leave the device: the refresh token, website icons and the password
-  generator history (each encrypted with a key derived from the user key; icon
-  rows are named by a keyed hash, not by the site), and how often each item
-  was used (by its random id). File permissions are restricted to the current
-  user, and signing out wipes it.
+  never leave the device: the refresh token, website icons, the password
+  generator history and Sentinel's results (each encrypted with a key
+  derived from the user key; icon rows are named by a keyed hash, not by the
+  site), and how often and when each item was last used (by its random id).
+  Readable without the master password, as on the server: the account's
+  email and server address, ids, roles and version counters, settings, the
+  names of paired browsers, and pending attachment deletions. File
+  permissions are restricted to the current user, and signing out wipes it
+  (settings stay).
 - The Secret Key is kept in the OS credential store (Windows Credential
   Manager with local-only persistence, Secret Service on Linux). Without one,
-  it falls back to a file readable only by the current user, and the app says
-  so in Settings.
+  or if it refuses to save it, it falls back to a file readable only by the
+  current user (an ACL for the current user only on Windows), the app says
+  so in Settings, and the key moves into the credential store as soon as it
+  works. A store that is there but fails is asked again a few times and is
+  never taken to mean "no Secret Key saved".
 - New master passwords must reach a zxcvbn score of 3 ("good") and backup
   passwords a score of 4 ("strong"), checked in Rust, not only in the UI.
 - On Linux release builds the process is non-dumpable (no core dumps, no
-  ptrace by other processes of the same user).
+  ptrace by other processes of the same user). On Windows release builds,
+  Windows Error Reporting is off for Keyless (no crash dumps or reports),
+  the current folder is not searched for DLLs, and DLLs from network shares
+  or low-integrity files are refused.
 - Strict Content Security Policy, no remote content, navigation locked to the
   bundled UI, no plugin APIs exposed to the web UI (file dialogs and links are
   opened from Rust). The web UI names files to attach by path, but only files
@@ -351,13 +382,31 @@ needs the same care as the app's releases.
 
 ## The browser extension
 
-The extension never stores vault data or keys. It asks the desktop app, which
-must be running, for what it needs.
+The extension never stores vault data or account keys. It asks the desktop
+app, which must be running, for what it needs. What it does keep: its own
+pairing key and the app's public key (IndexedDB), its settings, and for a few
+minutes a login the user just typed, waiting for "Save login?" (see below),
+or a password it suggested.
 
 - **Transport.** The browser starts the Keyless executable as a native
   messaging host, which only relays messages to the running app over a local
-  socket (Unix socket with mode 0600 and a peer user check on Linux, a named
-  pipe on Windows). Host manifests only allow the Keyless extension IDs.
+  socket (Unix socket with mode 0600 and a peer user check on Linux, in a
+  folder that must belong to the user; a named pipe on Windows with an ACL
+  for the current user only that rejects remote clients). Host manifests
+  only allow the Keyless extension IDs.
+- **Who connects.** The pairing key is stored in the browser profile on
+  disk, so the app also checks the process that connects, like 1Password's
+  browser helper: it must be Keyless itself in host mode (the same
+  executable, or the same file contents for an AppImage), not being
+  debugged and, on Linux, without `LD_PRELOAD`/`LD_AUDIT` libraries from
+  places the user can write to; and it must have been started by a known
+  browser installed on the system (owned by root on Linux, where an
+  administrator can allow others in `/etc/keyless/allowed_browsers`; in
+  Program Files or Authenticode-signed on Windows, looking past the
+  `cmd.exe` Chrome and Edge start hosts with). The extension explains a
+  refusal. This keeps a program that copied the pairing key from talking to
+  the app directly; it cannot stop malware that controls the browser
+  itself.
 - **Pairing.** Each browser generates a non-extractable X25519 key pair
   (WebCrypto, stored in IndexedDB). The first connection must be approved in
   the app after checking that the app and the extension show the same 8-digit
@@ -582,7 +631,9 @@ must be running, for what it needs.
 - **Filled passwords belong to the page.** Once a password is filled into a
   site, that site's scripts can read it, as with any password manager. A
   compromised browser can also act as the paired extension while the app is
-  unlocked.
+  unlocked. The checks on who connects to the bridge (see the browser
+  extension) do not cover `LD_LIBRARY_PATH`, a debugger that attached and
+  left before the connection, or a copied AppImage.
 - **A malicious server can withhold data** or refuse to store it, and it can
   serve stale data for items a device has never seen before. It cannot read,
   forge, roll back or delete data on a device. Keep an encrypted backup.
