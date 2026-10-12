@@ -82,6 +82,7 @@ const en = {
     recovery_expired: "The recovery took too long and was cancelled. Start over.",
     secret_key_required: "Enter the Secret Key from your Emergency Kit.",
     secret_key_missing: "The Secret Key is missing on this device. Sign in again with your Emergency Kit.",
+    keyring_unavailable: "The system keyring (KWallet, GNOME Keyring or Windows Credential Manager) did not answer. Unlock it and try again. ({{detail}})",
     account_keys_undecryptable: "Your account keys could not be decrypted.",
     password_too_short: "Your master password must have at least {{min}} characters.",
     import_no_file: "Choose a file to import first.",
@@ -791,7 +792,7 @@ const en = {
     seconds_other: "{{count}} seconds",
     confirmWithPassword: "Enter your master password to show your Secret Key",
     secretKeyInFile:
-      "No system keyring was found, so your Secret Key is stored in a file only your user can read. Installing a keyring (KWallet, GNOME Keyring) protects it better.",
+      "The system keyring was not available, so your Secret Key is stored in a file only your user can read. It moves into the keyring as soon as one works; installing or unlocking a keyring (KWallet, GNOME Keyring) protects it better.",
     browser: "Browser",
     browserTitle: "Browser extension",
     browserBody:

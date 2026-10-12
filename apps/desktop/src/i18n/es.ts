@@ -84,6 +84,7 @@ const es: Translations = {
     recovery_expired: "La recuperación tardó demasiado y se canceló. Empieza de nuevo.",
     secret_key_required: "Introduce la clave secreta de tu Kit de emergencia.",
     secret_key_missing: "Falta la clave secreta en este dispositivo. Inicia sesión de nuevo con tu Kit de emergencia.",
+    keyring_unavailable: "El llavero del sistema (KWallet, GNOME Keyring o el Administrador de credenciales de Windows) no respondió. Desbloquéalo e inténtalo de nuevo. ({{detail}})",
     account_keys_undecryptable: "No se pudieron descifrar las claves de tu cuenta.",
     password_too_short: "Tu contraseña maestra debe tener al menos {{min}} caracteres.",
     import_no_file: "Primero elige un archivo para importar.",
@@ -794,7 +795,7 @@ const es: Translations = {
     seconds_other: "{{count}} segundos",
     confirmWithPassword: "Introduce tu contraseña maestra para ver tu clave secreta",
     secretKeyInFile:
-      "No se encontró un llavero del sistema, así que tu clave secreta se guarda en un archivo que solo tu usuario puede leer. Instalar un llavero (KWallet, GNOME Keyring) la protege mejor.",
+      "El llavero del sistema no estaba disponible, así que tu clave secreta se guarda en un archivo que solo tu usuario puede leer. Pasa al llavero en cuanto funcione; instalar o desbloquear un llavero (KWallet, GNOME Keyring) la protege mejor.",
     browser: "Navegador",
     browserTitle: "Extensión del navegador",
     browserBody:

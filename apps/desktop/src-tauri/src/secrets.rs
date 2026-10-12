@@ -3,13 +3,22 @@
 //! They are kept in the operating system's credential store (Windows
 //! Credential Manager with local-only persistence, or the Secret Service on
 //! Linux — KWallet / GNOME Keyring), which encrypts them with the user's
-//! login. If no credential store is available, they fall back to files
-//! readable only by the current user.
+//! login. If no credential store is available, or it refuses to save them,
+//! they fall back to files readable only by the current user, and move into
+//! the credential store as soon as it works again.
+//!
+//! A credential store that is there but fails (it is still starting at
+//! login, for example) is asked again a few times, and never taken to mean
+//! "no secret saved".
 //!
 //! The Secret Key alone cannot decrypt anything: the master password is also
 //! required.
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
+};
 
 use keyless_core::keys::SecretKey;
 use zeroize::Zeroizing;
@@ -21,6 +30,10 @@ use crate::{
 
 const SECRET_KEY: &str = "secret-key";
 pub const BRIDGE_KEY: &str = "bridge-key";
+/// Waits between attempts when the credential store fails.
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(250), Duration::from_millis(750)];
+/// The credential store kept failing in this run: later calls try once.
+static STORE_FAILING: AtomicBool = AtomicBool::new(false);
 
 pub struct SecretStore {
     fallback_dir: PathBuf,
@@ -41,6 +54,28 @@ fn entry(name: &str) -> Option<keyring_core::Entry> {
     {
         keyring_core::Entry::new(KEYRING_SERVICE, name).ok()
     }
+}
+
+/// Runs a credential store call, again after a short wait while it fails
+/// with a platform error (D-Bus or service trouble). Access denied or a
+/// locked store is not retried: that would prompt the user again.
+fn with_retries<T>(call: impl Fn() -> keyring_core::Result<T>) -> keyring_core::Result<T> {
+    let mut result = call();
+    if !STORE_FAILING.load(Ordering::Relaxed) {
+        for delay in RETRY_DELAYS {
+            if !matches!(result, Err(keyring_core::Error::PlatformFailure(_))) {
+                break;
+            }
+            std::thread::sleep(delay);
+            result = call();
+        }
+    }
+    STORE_FAILING.store(matches!(result, Err(keyring_core::Error::PlatformFailure(_))), Ordering::Relaxed);
+    result
+}
+
+fn unavailable(err: keyring_core::Error) -> AppError {
+    AppError::Invalid(crate::error::Msg::new("keyring_unavailable").with("detail", err))
 }
 
 fn account_entry_name(email: &str) -> String {
@@ -66,32 +101,66 @@ impl SecretStore {
     }
 
     pub fn put(&self, name: &str, value: &str) -> AppResult<()> {
-        match entry(name).map(|e| e.set_password(value)) {
+        match entry(name).map(|e| with_retries(|| e.set_password(value))) {
             Some(Ok(())) => {
                 remove_file_securely(&self.fallback_path(name));
                 Ok(())
             }
             other => {
                 if let Some(Err(err)) = other {
-                    log::warn!("OS credential store unavailable ({err}); using a protected file instead");
+                    log::warn!("OS credential store unavailable ({err}); using a protected file until it works again");
                 }
                 write_private_file(&self.fallback_path(name), value.as_bytes())
             }
         }
     }
 
+    /// The saved value. An error (`keyring_unavailable`) when the credential
+    /// store fails and there is no fallback file: the secret may well be in
+    /// the store, so this must not be taken as "nothing saved".
     pub fn get(&self, name: &str) -> AppResult<Option<Zeroizing<String>>> {
-        if let Some(entry) = entry(name) {
-            match entry.get_password() {
-                Ok(value) => return Ok(Some(Zeroizing::new(value))),
-                Err(keyring_core::Error::NoEntry) => {}
-                Err(err) => log::warn!("could not read from the OS credential store: {err}"),
+        let Some(entry) = entry(name) else {
+            return self.read_fallback(name);
+        };
+        match with_retries(|| entry.get_password()) {
+            Ok(value) => Ok(Some(Zeroizing::new(value))),
+            Err(keyring_core::Error::NoEntry) => {
+                let value = self.read_fallback(name)?;
+                if let Some(value) = &value {
+                    self.move_into_store(&entry, name, value);
+                }
+                Ok(value)
+            }
+            Err(err) => {
+                log::warn!("could not read from the OS credential store: {err}");
+                self.read_fallback(name)?.map(Some).ok_or_else(|| unavailable(err))
             }
         }
+    }
+
+    fn read_fallback(&self, name: &str) -> AppResult<Option<Zeroizing<String>>> {
         match std::fs::read_to_string(self.fallback_path(name)) {
             Ok(value) => Ok(Some(Zeroizing::new(value.trim().to_string()))),
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(err) => Err(AppError::Store(err.to_string())),
+        }
+    }
+
+    /// A secret that had to go to a file, now that the credential store
+    /// answers: saved there (once per run, so a refusal is not asked again
+    /// at every unlock), and the file removed.
+    fn move_into_store(&self, entry: &keyring_core::Entry, name: &str, value: &str) {
+        static TRIED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+        {
+            let mut tried = TRIED.lock().unwrap_or_else(|e| e.into_inner());
+            if tried.iter().any(|n| n == name) {
+                return;
+            }
+            tried.push(name.to_string());
+        }
+        match with_retries(|| entry.set_password(value)) {
+            Ok(()) => remove_file_securely(&self.fallback_path(name)),
+            Err(err) => log::warn!("could not move a secret into the OS credential store: {err}"),
         }
     }
 

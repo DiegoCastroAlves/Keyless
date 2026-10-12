@@ -71,11 +71,24 @@ fn navigation_guard<R: tauri::Runtime>() -> TauriPlugin<R> {
 /// device secrets.
 fn load_or_create_bridge_key(secrets: &SecretStore) -> Result<x25519_dalek::StaticSecret, Box<dyn std::error::Error>> {
     use base64::{Engine, engine::general_purpose::STANDARD};
-    if let Some(encoded) = secrets.get(secrets::BRIDGE_KEY)?
-        && let Ok(bytes) = STANDARD.decode(encoded.as_bytes())
-        && let Ok(array) = <[u8; 32]>::try_from(bytes.as_slice())
-    {
-        return Ok(x25519_dalek::StaticSecret::from(array));
+    match secrets.get(secrets::BRIDGE_KEY) {
+        Ok(Some(encoded)) => {
+            if let Ok(bytes) = STANDARD.decode(encoded.as_bytes())
+                && let Ok(array) = <[u8; 32]>::try_from(bytes.as_slice())
+            {
+                return Ok(x25519_dalek::StaticSecret::from(array));
+            }
+        }
+        Ok(None) => {}
+        Err(err) => {
+            // The credential store did not answer, so the saved key is
+            // probably still in it: a key for this run only keeps the bridge
+            // up without replacing that one (browsers ask to pair again
+            // until the next start).
+            log::warn!("browser bridge key unavailable ({err}); using a temporary one");
+            let bytes = keyless_core::crypto::random_array::<32>()?;
+            return Ok(x25519_dalek::StaticSecret::from(*bytes));
+        }
     }
     let bytes = keyless_core::crypto::random_array::<32>()?;
     secrets.put(secrets::BRIDGE_KEY, &STANDARD.encode(bytes.as_ref()))?;

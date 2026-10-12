@@ -84,6 +84,7 @@ const ptBR: Translations = {
     recovery_expired: "A recuperação demorou demais e foi cancelada. Comece de novo.",
     secret_key_required: "Digite a Chave Secreta do seu Kit de Emergência.",
     secret_key_missing: "A Chave Secreta não está neste dispositivo. Entre novamente com o seu Kit de Emergência.",
+    keyring_unavailable: "O chaveiro do sistema (KWallet, GNOME Keyring ou Gerenciador de Credenciais do Windows) não respondeu. Desbloqueie-o e tente de novo. ({{detail}})",
     account_keys_undecryptable: "Não foi possível descriptografar as chaves da sua conta.",
     password_too_short: "Sua senha mestra precisa ter pelo menos {{min}} caracteres.",
     import_no_file: "Escolha um arquivo para importar primeiro.",
@@ -794,7 +795,7 @@ const ptBR: Translations = {
     seconds_other: "{{count}} segundos",
     confirmWithPassword: "Digite sua senha mestra para mostrar sua Chave Secreta",
     secretKeyInFile:
-      "Nenhum chaveiro do sistema foi encontrado, então sua Chave Secreta está guardada em um arquivo que só o seu usuário pode ler. Instalar um chaveiro (KWallet, GNOME Keyring) a protege melhor.",
+      "O chaveiro do sistema não estava disponível, então sua Chave Secreta está guardada em um arquivo que só o seu usuário pode ler. Ela passa para o chaveiro assim que ele funcionar; instalar ou desbloquear um chaveiro (KWallet, GNOME Keyring) a protege melhor.",
     browser: "Navegador",
     browserTitle: "Extensão do navegador",
     browserBody:
