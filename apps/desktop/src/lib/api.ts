@@ -673,6 +673,9 @@ export const events = {
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
   onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),
+  /** The browser extension's "+": a new item, with the tab's address for a login. */
+  onNewItem: (cb: (request: { category: Category; url: string; title: string }) => void): Promise<UnlistenFn> =>
+    listen<{ category: Category; url: string; title: string }>("keyless://new-item", (e) => cb(e.payload)),
   onSyncStatus: (cb: (s: SyncStatus) => void): Promise<UnlistenFn> =>
     listen<SyncStatus>("keyless://sync-status", (e) => cb(e.payload)),
   onUpdateAvailable: (cb: (u: UpdateInfo) => void): Promise<UnlistenFn> =>

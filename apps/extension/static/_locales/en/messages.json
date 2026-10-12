@@ -457,5 +457,175 @@
   },
   "pkCloseHint": {
     "message": "Close (the browser takes over)"
+  },
+  "listSuggestions": {
+    "message": "Suggestions"
+  },
+  "listFavorites": {
+    "message": "Favorites"
+  },
+  "listRecent": {
+    "message": "Recently used"
+  },
+  "listAll": {
+    "message": "All logins"
+  },
+  "searchResults": {
+    "message": "Search results"
+  },
+  "noSuggestionsFor": {
+    "message": "No logins saved for $HOST$. Search above, or pick another list.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "noSuggestions": {
+    "message": "Open a website to see its logins here."
+  },
+  "noFavorites": {
+    "message": "No favorites yet. Mark logins with a star in Keyless."
+  },
+  "noLogins": {
+    "message": "No logins yet."
+  },
+  "fillShort": {
+    "message": "Fill"
+  },
+  "openFill": {
+    "message": "Open and fill"
+  },
+  "fieldUsername": {
+    "message": "username"
+  },
+  "fieldPassword": {
+    "message": "password"
+  },
+  "fieldCode": {
+    "message": "one-time code"
+  },
+  "fieldWebsite": {
+    "message": "website"
+  },
+  "reveal": {
+    "message": "Show"
+  },
+  "conceal": {
+    "message": "Hide"
+  },
+  "copy": {
+    "message": "Copy"
+  },
+  "moreActions": {
+    "message": "More actions"
+  },
+  "openInKeyless": {
+    "message": "Open in Keyless"
+  },
+  "openWebsite": {
+    "message": "Open the website"
+  },
+  "inVault": {
+    "message": "in $VAULT$",
+    "placeholders": {
+      "vault": {
+        "content": "$1"
+      }
+    }
+  },
+  "modifiedOn": {
+    "message": "Modified $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "categoryLogin": {
+    "message": "Login"
+  },
+  "categoryPassword": {
+    "message": "Password"
+  },
+  "categorySecureNote": {
+    "message": "Secure Note"
+  },
+  "categoryCreditCard": {
+    "message": "Credit Card"
+  },
+  "categoryIdentity": {
+    "message": "Identity"
+  },
+  "newItemHint": {
+    "message": "Opens in the Keyless app"
+  },
+  "newLoginFor": {
+    "message": "Login for $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "extensionSettings": {
+    "message": "Extension settings"
+  },
+  "lockKeyless": {
+    "message": "Lock Keyless"
+  },
+  "generator": {
+    "message": "Password generator"
+  },
+  "gen_random": {
+    "message": "Random"
+  },
+  "gen_memorable": {
+    "message": "Memorable"
+  },
+  "gen_pin": {
+    "message": "PIN"
+  },
+  "genLength": {
+    "message": "Length"
+  },
+  "genWords": {
+    "message": "Words"
+  },
+  "genDigits": {
+    "message": "Numbers"
+  },
+  "genCapitalize": {
+    "message": "Capitalize words"
+  },
+  "genIncludeNumber": {
+    "message": "Include a number"
+  },
+  "genAgain": {
+    "message": "Generate another"
+  },
+  "genHistoryNote": {
+    "message": "A password you copy here is kept in the generator history in Keyless."
+  },
+  "strength0": {
+    "message": "Very weak"
+  },
+  "strength1": {
+    "message": "Weak"
+  },
+  "strength2": {
+    "message": "Fair"
+  },
+  "strength3": {
+    "message": "Good"
+  },
+  "strength4": {
+    "message": "Strong"
+  },
+  "strength5": {
+    "message": "Very strong"
+  },
+  "strength6": {
+    "message": "Excellent"
   }
 }

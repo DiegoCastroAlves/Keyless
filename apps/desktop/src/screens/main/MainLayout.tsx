@@ -52,7 +52,7 @@ export function MainLayout() {
     api.accountInfo().then(setAccountInfo).catch(() => setAccountInfo(null));
   }, [syncStatus?.last_synced_at]);
 
-  const newItem = useCallback((category: Category) => {
+  const newItem = useCallback((category: Category, prefill?: { url: string; title: string }) => {
     const { vaults, view: current, startEditing, select } = useApp.getState();
     const writable = vaults.filter((v) => v.canWrite);
     const preferred = current.kind === "vault" ? writable.find((v) => v.id === current.id) : undefined;
@@ -67,9 +67,9 @@ export function MainLayout() {
       draft: {
         id: null,
         vaultId: vault.id,
-        title: "",
+        title: prefill?.title ?? "",
         category,
-        urls: categoryInfo(category).hasWebsite ? [{ href: "" }] : [],
+        urls: categoryInfo(category).hasWebsite ? [{ href: prefill?.url ?? "" }] : [],
         tags: [],
         favorite: false,
         fields: templateFields(category),
@@ -134,6 +134,14 @@ export function MainLayout() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [newItem]);
+
+  // "+" in the browser extension's popup.
+  useEffect(() => {
+    const unlisten = events.onNewItem(({ category, url, title }) => {
+      if (!useApp.getState().editing) newItem(category, { url, title });
+    });
+    return () => void unlisten.then((stop) => stop());
   }, [newItem]);
 
   return (

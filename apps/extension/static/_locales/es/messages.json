@@ -457,5 +457,175 @@
   },
   "pkCloseHint": {
     "message": "Cerrar (el navegador se encarga)"
+  },
+  "listSuggestions": {
+    "message": "Sugerencias"
+  },
+  "listFavorites": {
+    "message": "Favoritos"
+  },
+  "listRecent": {
+    "message": "Usados recientemente"
+  },
+  "listAll": {
+    "message": "Todos los inicios de sesión"
+  },
+  "searchResults": {
+    "message": "Resultados de la búsqueda"
+  },
+  "noSuggestionsFor": {
+    "message": "No hay inicios de sesión guardados para $HOST$. Busca arriba o elige otra lista.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "noSuggestions": {
+    "message": "Abre un sitio web para ver aquí sus inicios de sesión."
+  },
+  "noFavorites": {
+    "message": "Aún no hay favoritos. Marca inicios de sesión con la estrella en Keyless."
+  },
+  "noLogins": {
+    "message": "Aún no hay inicios de sesión."
+  },
+  "fillShort": {
+    "message": "Rellenar"
+  },
+  "openFill": {
+    "message": "Abrir y rellenar"
+  },
+  "fieldUsername": {
+    "message": "nombre de usuario"
+  },
+  "fieldPassword": {
+    "message": "contraseña"
+  },
+  "fieldCode": {
+    "message": "código de verificación"
+  },
+  "fieldWebsite": {
+    "message": "sitio web"
+  },
+  "reveal": {
+    "message": "Mostrar"
+  },
+  "conceal": {
+    "message": "Ocultar"
+  },
+  "copy": {
+    "message": "Copiar"
+  },
+  "moreActions": {
+    "message": "Más acciones"
+  },
+  "openInKeyless": {
+    "message": "Abrir en Keyless"
+  },
+  "openWebsite": {
+    "message": "Abrir el sitio web"
+  },
+  "inVault": {
+    "message": "en $VAULT$",
+    "placeholders": {
+      "vault": {
+        "content": "$1"
+      }
+    }
+  },
+  "modifiedOn": {
+    "message": "Modificado el $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "categoryLogin": {
+    "message": "Inicio de sesión"
+  },
+  "categoryPassword": {
+    "message": "Contraseña"
+  },
+  "categorySecureNote": {
+    "message": "Nota segura"
+  },
+  "categoryCreditCard": {
+    "message": "Tarjeta de crédito"
+  },
+  "categoryIdentity": {
+    "message": "Identidad"
+  },
+  "newItemHint": {
+    "message": "Se abre en la app de Keyless"
+  },
+  "newLoginFor": {
+    "message": "Inicio de sesión para $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "extensionSettings": {
+    "message": "Ajustes de la extensión"
+  },
+  "lockKeyless": {
+    "message": "Bloquear Keyless"
+  },
+  "generator": {
+    "message": "Generador de contraseñas"
+  },
+  "gen_random": {
+    "message": "Aleatoria"
+  },
+  "gen_memorable": {
+    "message": "Memorable"
+  },
+  "gen_pin": {
+    "message": "PIN"
+  },
+  "genLength": {
+    "message": "Longitud"
+  },
+  "genWords": {
+    "message": "Palabras"
+  },
+  "genDigits": {
+    "message": "Números"
+  },
+  "genCapitalize": {
+    "message": "Iniciales en mayúscula"
+  },
+  "genIncludeNumber": {
+    "message": "Incluir un número"
+  },
+  "genAgain": {
+    "message": "Generar otra"
+  },
+  "genHistoryNote": {
+    "message": "La contraseña que copies aquí queda en el historial del generador de Keyless."
+  },
+  "strength0": {
+    "message": "Muy débil"
+  },
+  "strength1": {
+    "message": "Débil"
+  },
+  "strength2": {
+    "message": "Aceptable"
+  },
+  "strength3": {
+    "message": "Buena"
+  },
+  "strength4": {
+    "message": "Fuerte"
+  },
+  "strength5": {
+    "message": "Muy fuerte"
+  },
+  "strength6": {
+    "message": "Excelente"
   }
 }

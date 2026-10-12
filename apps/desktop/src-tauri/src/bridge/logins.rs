@@ -91,7 +91,7 @@ pub async fn check(app: &AppHandle, url: &str, username: &str, password: &str, c
     }))
 }
 
-fn page_host(url: &str) -> String {
+pub(crate) fn page_host(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default()
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn suggested_title(host: &str) -> String {
 }
 
 /// The page's address without path, query or fragment.
-fn origin(url: &str) -> Result<String, &'static str> {
+pub(crate) fn origin(url: &str) -> Result<String, &'static str> {
     let parsed = url::Url::parse(url).map_err(|_| "bad_request")?;
     Ok(parsed.origin().ascii_serialization())
 }

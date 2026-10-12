@@ -3,16 +3,21 @@
 //! for a page and returning the credentials the user chose to fill.
 
 use keyless_core::{
+    generator::{GeneratorOptions, generate},
     item::{Category, FieldKind, FieldPurpose, ItemUrl, UrlMatch},
     totp::Totp,
 };
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use zeroize::Zeroizing;
 
 use crate::{api::now_secs, error::AppError, state::AppState};
 
 const MAX_RESULTS: usize = 50;
+/// The most a list in the popup asks for at once.
+const MAX_LIST: usize = 1000;
+/// Sent to the main window to start a new item (from the popup).
+pub const EVENT_NEW_ITEM: &str = "keyless://new-item";
 /// How long `wait_status` waits for Keyless to lock or unlock.
 const WAIT_STATUS: std::time::Duration = std::time::Duration::from_secs(50);
 
@@ -39,20 +44,83 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             Ok(Value::Null)
         }
         "show_app" => {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.show();
-                let _ = window.set_focus();
+            // With an item: shows it in the main window.
+            match args.get("id").and_then(Value::as_str) {
+                Some(id) => crate::quick_access::show_item(app, id),
+                None => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
             }
             Ok(Value::Null)
         }
+        "new_item" => {
+            // The popup's "+": the editor opens in the main window (the
+            // extension never writes items itself), with the tab's address
+            // for a login.
+            let category: Category = args.get("category").cloned().and_then(|c| serde_json::from_value(c).ok()).ok_or("bad_request")?;
+            // The site's address, like "Save login?" keeps (no path).
+            let url = args
+                .get("url")
+                .and_then(Value::as_str)
+                .filter(|u| Page::parse(u).is_some())
+                .and_then(|u| super::logins::origin(u).ok())
+                .unwrap_or_default();
+            let url = url.as_str();
+            let host = super::logins::page_host(url);
+            let title = if host.is_empty() { String::new() } else { super::logins::suggested_title(&host) };
+            crate::tray::show_main(app);
+            let _ = app.emit_to("main", EVENT_NEW_ITEM, json!({ "category": category, "url": url, "title": title }));
+            Ok(Value::Null)
+        }
+        "lock" => {
+            crate::auth::lock(app).await;
+            Ok(Value::Null)
+        }
+        "item_details" => {
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let reveal = args.get("reveal").and_then(Value::as_bool).unwrap_or(false);
+            item_details(app, id, reveal).await
+        }
+        "generate" => {
+            // The popup's password generator (no site rules: it is not
+            // filling a field).
+            let options: GeneratorOptions = args.get("options").cloned().and_then(|o| serde_json::from_value(o).ok()).ok_or("bad_request")?;
+            let generated = generate(&options).map_err(|_| "bad_request")?;
+            Ok(json!({ "password": generated.password.as_str(), "entropyBits": generated.entropy_bits }))
+        }
+        "copy_generated" => {
+            // A password from the popup's generator: copied by the app (kept
+            // out of clipboard history, cleared after a while) and kept in
+            // the generator history.
+            let password = take_secret(args, "password")?;
+            let site = args.get("url").and_then(Value::as_str).and_then(Page::parse).map(|page| page.host);
+            let state = app.state::<AppState>();
+            {
+                let guard = state.session.lock().await;
+                let session = guard.as_ref().ok_or("locked")?;
+                crate::generator_history::remember(&state, session, &password, site.as_deref()).map_err(|_| "error")?;
+            }
+            let seconds = state.settings().clipboard_clear_seconds;
+            let generation = state.clipboard.copy(password, true).map_err(|_| "clipboard")?;
+            crate::clipboard::schedule_clear(app.clone(), generation, std::time::Duration::from_secs(seconds as u64));
+            Ok(json!({ "clearAfterSeconds": seconds }))
+        }
         "match" => {
             let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?;
-            find(app, Query::Url(url)).await
+            find(app, Query::Url(url), false, MAX_RESULTS).await
         }
         "search" => {
+            // An empty query lists logins, most recently used first:
+            // `favorites` keeps only favorites, `limit` asks for more than
+            // the default (the popup's lists).
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-            find(app, Query::Text(query)).await
+            let favorites = args.get("favorites").and_then(Value::as_bool).unwrap_or(false);
+            let limit = args.get("limit").and_then(Value::as_u64).map_or(MAX_RESULTS, |n| (n as usize).clamp(1, MAX_LIST));
+            find(app, Query::Text(query), favorites, limit).await
         }
         "sites" => {
             // Each host's registrable domain (Public Suffix List), so the
@@ -268,7 +336,7 @@ fn is_fillable(category: Category) -> bool {
     )
 }
 
-async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> {
+async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, limit: usize) -> Result<Value, &'static str> {
     let state = app.state::<AppState>();
     let guard = state.session.lock().await;
     let session = guard.as_ref().ok_or("locked")?;
@@ -287,7 +355,7 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
     let mut results: Vec<(u8, i64, Value)> = Vec::new();
     for (id, item) in &session.items {
         let o = &item.overview;
-        if o.trashed_at.is_some() || o.archived || !is_fillable(o.category) {
+        if o.trashed_at.is_some() || o.archived || !is_fillable(o.category) || (favorites && !o.favorite) {
             continue;
         }
         let score = match &page {
@@ -326,7 +394,7 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
                 .cmp(&b.2["title"].as_str().unwrap_or("").to_lowercase())
         })
     });
-    let mut logins: Vec<Value> = results.into_iter().take(MAX_RESULTS).map(|(_, _, v)| v).collect();
+    let mut logins: Vec<Value> = results.into_iter().take(limit).map(|(_, _, v)| v).collect();
     // Which have a one-time code (for the code's own fill and shortcut).
     for login in &mut logins {
         let id = login["id"].as_str().unwrap_or_default().to_string();
@@ -343,6 +411,47 @@ async fn find(app: &AppHandle, query: Query<'_>) -> Result<Value, &'static str> 
         }
     }
     Ok(Value::Array(logins))
+}
+
+/// What the popup shows for a login. Not counted as a use (only filling and
+/// copying are), and the password only when the user asked to see it.
+async fn item_details(app: &AppHandle, id: &str, reveal: bool) -> Result<Value, &'static str> {
+    let state = app.state::<AppState>();
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or("locked")?;
+    let cached = session.items.get(id).ok_or("not_found")?;
+    let o = &cached.overview;
+    if o.trashed_at.is_some() || !is_fillable(o.category) {
+        return Err("not_found");
+    }
+    let (_, details) = crate::items::load_details(&state, session, id).map_err(|_| "not_found")?;
+    let password = details.field_by_purpose(FieldPurpose::Password).map(|f| f.value.as_str()).unwrap_or("");
+    let now = now_secs().max(0) as u64;
+    let totp = details
+        .all_fields()
+        .find(|f| f.kind == FieldKind::Totp && !f.value.is_empty())
+        .and_then(|f| Totp::parse(&f.value).ok())
+        .map(|t| {
+            let period = t.period.max(1);
+            json!({ "code": t.code_at(now).as_str(), "period": period, "expiresIn": period - now % period })
+        });
+    let vault = session.vaults.get(&cached.vault_id).map(|v| v.meta.name.clone()).unwrap_or_default();
+    let urls: Vec<Value> = o.urls.iter().filter(|u| !u.href.trim().is_empty()).map(|u| json!({ "href": u.href, "label": u.label })).collect();
+    let mut result = json!({
+        "id": id,
+        "title": o.title,
+        "username": details.field_by_purpose(FieldPurpose::Username).map(|f| f.value.as_str()).unwrap_or(&o.subtitle),
+        "urls": urls,
+        "vault": vault,
+        "favorite": o.favorite,
+        "hasPassword": !password.is_empty(),
+        "totp": totp,
+        "updatedAt": o.updated_at,
+    });
+    if reveal {
+        result["password"] = json!(password);
+    }
+    Ok(result)
 }
 
 /// `any_site` is set when the user explicitly confirmed, in the extension's

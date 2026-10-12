@@ -509,6 +509,43 @@ async function fillTarget(tab: chrome.tabs.Tab & { url: string; id: number }, id
   return match?.frame ?? null;
 }
 
+/** Resolves once the tab has loaded (false after `timeoutMs`). */
+function tabLoaded(tabId: number, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const done = (loaded: boolean) => {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve(loaded);
+    };
+    const listener = (id: number, change: { status?: string }) => {
+      if (id === tabId && change.status === "complete") done(true);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.get(tabId).then((tab) => tab.status === "complete" && done(true), () => done(false));
+  });
+}
+
+/** For "Open and fill": fills the login once its form is on the new tab's
+ * page (pages often draw it after loading). Gives up quietly after a while,
+ * or when the tab leaves for something that is not a web page. */
+async function fillWhenReady(tabId: number, id: string): Promise<void> {
+  if (!(await tabLoaded(tabId, 20_000))) return;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+    if (tab?.id === undefined || !isWebPage(tab.url)) return;
+    const frame = await fillTarget({ ...tab, id: tab.id, url: tab.url }, id).catch(() => null);
+    if (frame) {
+      // Frames of another site inside the page are left alone: that needs
+      // the user's confirmation in the popup.
+      if (frame.frameId !== 0 && !(await sameOwner(frame.url, tab.url))) return;
+      await fillTab(tab.id, frame.url, id, { frameId: frame.frameId, submit: true }).catch(() => undefined);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+}
+
 // ----- Menus inside pages -------------------------------------------------------
 
 // Each frame's content script registers a random token, which its menus
@@ -1282,7 +1319,45 @@ async function handlePopup(message: any): Promise<Reply> {
       return { ok: true, data: { url: tab.url, logins } };
     }
     case "search":
-      return { ok: true, data: await call<Login[]>("search", { query: String(message.query ?? "") }) };
+      return {
+        ok: true,
+        data: await call<Login[]>("search", {
+          query: String(message.query ?? ""),
+          favorites: message.favorites === true,
+          ...(typeof message.limit === "number" ? { limit: message.limit } : {}),
+        }),
+      };
+    case "details":
+      return { ok: true, data: await call("item_details", { id: String(message.id), reveal: message.reveal === true }) };
+    case "open_app":
+      // Shows Keyless, at an item when there is one.
+      await call("show_app", typeof message.id === "string" ? { id: message.id } : {});
+      return { ok: true };
+    case "new_item": {
+      // The editor opens in Keyless; a login gets the tab's address.
+      const tab = await activeTab();
+      await call("new_item", { category: String(message.category), url: isWebPage(tab?.url) ? tab.url : "" });
+      return { ok: true };
+    }
+    case "lock":
+      await call("lock");
+      return { ok: true };
+    case "generate":
+      return { ok: true, data: await call("generate", { options: message.options }) };
+    case "copy_generated": {
+      const tab = await activeTab();
+      return { ok: true, data: await call("copy_generated", { password: String(message.password ?? ""), url: isWebPage(tab?.url) ? tab.url : "" }) };
+    }
+    case "open_fill": {
+      // "Open and fill": the login's website in a new tab, filled once its
+      // sign-in form shows up there. The app still checks the login against
+      // the page it ends up on (a redirect to another site gets nothing).
+      const url = String(message.url ?? "");
+      if (!isWebPage(url)) return { ok: false, error: "bad_request" };
+      const tab = await chrome.tabs.create({ url, active: true });
+      if (tab.id !== undefined) void fillWhenReady(tab.id, String(message.id));
+      return { ok: true };
+    }
     case "fill": {
       const tab = await activeTab();
       if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };

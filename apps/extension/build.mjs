@@ -81,6 +81,11 @@ for (const [name, manifest] of Object.entries(targets)) {
     legalComments: "none",
   });
   cpSync("static", outdir, { recursive: true });
+  // The app's font for the popup, with its license (SIL OFL).
+  const fonts = "node_modules/@fontsource-variable/inter";
+  mkdirSync(`${outdir}/fonts`, { recursive: true });
+  for (const file of ["inter-latin-wght-normal.woff2", "inter-latin-ext-wght-normal.woff2"]) cpSync(`${fonts}/files/${file}`, `${outdir}/fonts/${file}`);
+  cpSync(`${fonts}/LICENSE`, `${outdir}/fonts/LICENSE-Inter.txt`);
   writeFileSync(`${outdir}/manifest.json`, JSON.stringify(manifest, null, 2));
   console.log(`built ${outdir}`);
 }

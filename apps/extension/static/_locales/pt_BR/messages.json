@@ -457,5 +457,175 @@
   },
   "pkCloseHint": {
     "message": "Fechar (o navegador assume)"
+  },
+  "listSuggestions": {
+    "message": "Sugestões"
+  },
+  "listFavorites": {
+    "message": "Favoritos"
+  },
+  "listRecent": {
+    "message": "Usados recentemente"
+  },
+  "listAll": {
+    "message": "Todos os logins"
+  },
+  "searchResults": {
+    "message": "Resultados da busca"
+  },
+  "noSuggestionsFor": {
+    "message": "Nenhum login salvo para $HOST$. Busque acima ou escolha outra lista.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "noSuggestions": {
+    "message": "Abra um site para ver os logins dele aqui."
+  },
+  "noFavorites": {
+    "message": "Nenhum favorito ainda. Marque logins com a estrela no Keyless."
+  },
+  "noLogins": {
+    "message": "Nenhum login ainda."
+  },
+  "fillShort": {
+    "message": "Preencher"
+  },
+  "openFill": {
+    "message": "Abrir e preencher"
+  },
+  "fieldUsername": {
+    "message": "nome de usuário"
+  },
+  "fieldPassword": {
+    "message": "senha"
+  },
+  "fieldCode": {
+    "message": "código de verificação"
+  },
+  "fieldWebsite": {
+    "message": "site"
+  },
+  "reveal": {
+    "message": "Mostrar"
+  },
+  "conceal": {
+    "message": "Ocultar"
+  },
+  "copy": {
+    "message": "Copiar"
+  },
+  "moreActions": {
+    "message": "Mais ações"
+  },
+  "openInKeyless": {
+    "message": "Abrir no Keyless"
+  },
+  "openWebsite": {
+    "message": "Abrir o site"
+  },
+  "inVault": {
+    "message": "em $VAULT$",
+    "placeholders": {
+      "vault": {
+        "content": "$1"
+      }
+    }
+  },
+  "modifiedOn": {
+    "message": "Modificado em $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "categoryLogin": {
+    "message": "Login"
+  },
+  "categoryPassword": {
+    "message": "Senha"
+  },
+  "categorySecureNote": {
+    "message": "Nota segura"
+  },
+  "categoryCreditCard": {
+    "message": "Cartão de crédito"
+  },
+  "categoryIdentity": {
+    "message": "Identidade"
+  },
+  "newItemHint": {
+    "message": "Abre no app do Keyless"
+  },
+  "newLoginFor": {
+    "message": "Login para $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "extensionSettings": {
+    "message": "Configurações da extensão"
+  },
+  "lockKeyless": {
+    "message": "Bloquear o Keyless"
+  },
+  "generator": {
+    "message": "Gerador de senhas"
+  },
+  "gen_random": {
+    "message": "Aleatória"
+  },
+  "gen_memorable": {
+    "message": "Memorável"
+  },
+  "gen_pin": {
+    "message": "PIN"
+  },
+  "genLength": {
+    "message": "Tamanho"
+  },
+  "genWords": {
+    "message": "Palavras"
+  },
+  "genDigits": {
+    "message": "Números"
+  },
+  "genCapitalize": {
+    "message": "Iniciais maiúsculas"
+  },
+  "genIncludeNumber": {
+    "message": "Incluir um número"
+  },
+  "genAgain": {
+    "message": "Gerar outra"
+  },
+  "genHistoryNote": {
+    "message": "A senha que você copiar aqui fica no histórico do gerador do Keyless."
+  },
+  "strength0": {
+    "message": "Muito fraca"
+  },
+  "strength1": {
+    "message": "Fraca"
+  },
+  "strength2": {
+    "message": "Razoável"
+  },
+  "strength3": {
+    "message": "Boa"
+  },
+  "strength4": {
+    "message": "Forte"
+  },
+  "strength5": {
+    "message": "Muito forte"
+  },
+  "strength6": {
+    "message": "Excelente"
   }
 }
