@@ -391,22 +391,25 @@ or a password it suggested.
 - **Transport.** The browser starts the Keyless executable as a native
   messaging host, which only relays messages to the running app over a local
   socket (Unix socket with mode 0600 and a peer user check on Linux, in a
-  folder that must belong to the user; a named pipe on Windows with an ACL
-  for the current user only that rejects remote clients). Host manifests
-  only allow the Keyless extension IDs.
+  folder that must belong to the user; on Windows a named pipe named after
+  the user's SID, with an ACL for that user only, that rejects remote
+  clients, and whose creator the host checks). Host manifests only allow
+  the Keyless extension IDs.
 - **Who connects.** The pairing key is stored in the browser profile on
   disk, so the app also checks the process that connects, like 1Password's
-  browser helper: it must be Keyless itself in host mode (the same
-  executable, or the same file contents for an AppImage), not being
-  debugged and, on Linux, without `LD_PRELOAD`/`LD_AUDIT` libraries from
-  places the user can write to; and it must have been started by a known
-  browser installed on the system (owned by root on Linux, where an
-  administrator can allow others in `/etc/keyless/allowed_browsers`; in
-  Program Files or Authenticode-signed on Windows, looking past the
+  browser helper, once, when it connects: it must be Keyless itself in host
+  mode (the same executable, or the same file contents for an AppImage);
+  on Linux, not being debugged, with every executable mapping from a system
+  file (or, for an AppImage or a development build, from Keyless's own
+  folder), no anonymous executable memory, and `LD_PRELOAD`/`LD_AUDIT` only
+  naming system files; and it must have been started by a known browser
+  installed on the system (owned by root on Linux, where an administrator
+  can allow others in `/etc/keyless/allowed_browsers`; on Windows, in
+  Program Files or signed by that browser's publisher, looking past the
   `cmd.exe` Chrome and Edge start hosts with). The extension explains a
-  refusal. This keeps a program that copied the pairing key from talking to
-  the app directly; it cannot stop malware that controls the browser
-  itself.
+  refusal. This is a hurdle for a program that copied the pairing key and
+  talks to the socket itself, not a wall against malware running as the
+  user (see "Accepted limitations").
 - **Pairing.** Each browser generates a non-extractable X25519 key pair
   (WebCrypto, stored in IndexedDB). The first connection must be approved in
   the app after checking that the app and the extension show the same 8-digit
@@ -631,9 +634,21 @@ or a password it suggested.
 - **Filled passwords belong to the page.** Once a password is filled into a
   site, that site's scripts can read it, as with any password manager. A
   compromised browser can also act as the paired extension while the app is
-  unlocked. The checks on who connects to the bridge (see the browser
-  extension) do not cover `LD_LIBRARY_PATH`, a debugger that attached and
-  left before the connection, or a copied AppImage.
+  unlocked.
+- **Malware running as the user can get past the bridge's process checks**
+  while Keyless is unlocked: they look at the host once, when it connects,
+  and everything they look at is the user's to control. For example, it can
+  start a real browser with its own library injected (only the host is
+  checked, not the browser), point the browser's host manifest (a file in
+  the user's folders) at a wrapper around the real host, load a copy of the
+  extension (its id is fixed by a public key) in a browser profile of its
+  own, take over the host after the check (it is not hardened on Linux, and
+  Windows has no process ACL), run a copied AppImage with libraries of its
+  own, or, on Windows, use a scriptable program signed by a browser
+  publisher renamed as that browser. With the pairing key from the browser
+  profile it can then ask for any login. As with 1Password, a device
+  compromised while unlocked is out of scope; the checks stop programs that
+  only copied the key.
 - **A malicious server can withhold data** or refuse to store it, and it can
   serve stale data for items a device has never seen before. It cannot read,
   forge, roll back or delete data on a device. Keep an encrypted backup.

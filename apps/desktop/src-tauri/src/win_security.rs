@@ -1,5 +1,6 @@
 //! Windows access control: objects only the current user can open (the
-//! bridge pipe, the fallback secret files).
+//! bridge pipe, the fallback secret files, decrypted files being written),
+//! and who owns a process.
 
 use std::path::Path;
 
@@ -10,7 +11,7 @@ use windows_sys::Win32::{
         DACL_SECURITY_INFORMATION, GetTokenInformation, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
         SECURITY_ATTRIBUTES, SetFileSecurityW, TOKEN_QUERY, TOKEN_USER, TokenUser,
     },
-    System::Threading::{GetCurrentProcess, OpenProcessToken},
+    System::Threading::{GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION},
 };
 
 /// A security descriptor whose DACL grants full access to the current user
@@ -69,10 +70,28 @@ pub fn restrict_file(path: &Path) {
 }
 
 /// The current user's SID, as a string ("S-1-5-21-…").
-fn current_user_sid() -> Option<String> {
+pub fn current_user_sid() -> Option<String> {
+    // SAFETY: the pseudo-handle of this process needs no closing.
+    user_sid(unsafe { GetCurrentProcess() })
+}
+
+/// The SID of the user another process runs as.
+pub fn process_user_sid(pid: u32) -> Option<String> {
+    // SAFETY: a plain call; the handle is closed below.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return None;
+    }
+    let sid = user_sid(process);
+    // SAFETY: the handle opened above.
+    unsafe { CloseHandle(process) };
+    sid
+}
+
+fn user_sid(process: HANDLE) -> Option<String> {
     let mut token: HANDLE = std::ptr::null_mut();
-    // SAFETY: our own process's token, closed below.
-    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+    // SAFETY: a process handle with query access; the token is closed below.
+    if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
         return None;
     }
     let mut buffer = vec![0u64; 64]; // 512 bytes, aligned for TOKEN_USER

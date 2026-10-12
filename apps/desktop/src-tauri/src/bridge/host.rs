@@ -40,12 +40,24 @@ fn connect() -> Option<Stream> {
     }
     #[cfg(windows)]
     {
-        std::fs::OpenOptions::new()
+        let pipe = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(super::server::pipe_name())
-            .ok()
+            .ok()?;
+        server_is_ours(&pipe).then_some(pipe)
     }
+}
+
+/// The pipe was made by a process of this user (not another user who took
+/// the name first).
+#[cfg(windows)]
+fn server_is_ours(pipe: &std::fs::File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    let mut pid = 0u32;
+    // SAFETY: an open pipe handle we own.
+    let ok = unsafe { windows_sys::Win32::System::Pipes::GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut pid) } != 0;
+    ok && crate::win_security::current_user_sid().is_some_and(|me| crate::win_security::process_user_sid(pid).is_some_and(|owner| owner == me))
 }
 
 fn read_message(input: &mut impl Read) -> Option<Vec<u8>> {

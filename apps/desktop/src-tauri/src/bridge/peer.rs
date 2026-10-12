@@ -7,18 +7,24 @@
 //!
 //! - it must be Keyless itself, started in host mode (same executable, or the
 //!   same file contents: AppImages run from a new mount each time);
-//! - not being debugged, and (Linux) without libraries forced into it with
-//!   `LD_PRELOAD` / `LD_AUDIT` from places the user can write to;
-//! - started by a browser: a known browser executable, installed by the
-//!   system (owned by root and not writable by others on Linux; signed, or in
-//!   Program Files, on Windows). On Linux an administrator can allow more
-//!   browsers in `/etc/keyless/allowed_browsers` (owned by root): one
-//!   executable name, or full path, per line.
+//! - on Linux: not being debugged, and with no code from anywhere else: every
+//!   executable mapping comes from a system file (owned by root, not writable
+//!   by others) or, for a Keyless that is not installed system-wide, from its
+//!   own folder, and there is no anonymous executable memory (where injected
+//!   code would live); `LD_PRELOAD` / `LD_AUDIT` may only name system files;
+//! - started by a browser: a known browser executable installed by the system
+//!   (owned by root on Linux; in Program Files, or signed by the browser's
+//!   publisher, on Windows). On Linux an administrator can allow more browsers
+//!   in `/etc/keyless/allowed_browsers` (owned by root): one executable name,
+//!   or full path, per line.
 //!
-//! This keeps a program that copied the pairing key from talking to the app
-//! directly. It cannot stop malware that controls the browser itself.
+//! This is checked once, when the host connects. It turns away programs that
+//! copied the pairing key and talk to the socket themselves, but not malware
+//! that runs a real browser and a real Keyless host under its control (see
+//! SECURITY.md, "Accepted limitations").
 
-/// Executable names of the browsers Keyless works with.
+/// Executable names of the browsers Keyless works with (Linux, and Windows
+/// with ".exe").
 #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 const BROWSERS: &[&str] = &[
     "chrome",
@@ -27,6 +33,7 @@ const BROWSERS: &[&str] = &[
     "brave",
     "brave-browser",
     "msedge",
+    "vivaldi",
     "vivaldi-bin",
     "opera",
     "thorium",
@@ -49,7 +56,7 @@ pub const UNTRUSTED_BROWSER: &str = "untrusted_browser";
 pub use linux::check;
 
 #[cfg(windows)]
-pub use windows::check;
+pub use windows::{check, client_pid};
 
 #[cfg(all(unix, not(target_os = "linux")))]
 pub fn check(_pid: Option<i32>) -> Result<(), &'static str> {
@@ -59,9 +66,10 @@ pub fn check(_pid: Option<i32>) -> Result<(), &'static str> {
 #[cfg(target_os = "linux")]
 mod linux {
     use std::{
+        collections::HashSet,
         os::unix::fs::MetadataExt,
         path::{Path, PathBuf},
-        sync::OnceLock,
+        sync::{Mutex, OnceLock},
     };
 
     use sha2::{Digest, Sha256};
@@ -74,11 +82,12 @@ mod linux {
     /// credentials).
     pub fn check(pid: Option<i32>) -> Result<(), &'static str> {
         let pid = pid.ok_or(NOT_KEYLESS)?;
-        if !same_executable(pid) {
+        let exe = executable(pid).ok_or(NOT_KEYLESS)?;
+        if !same_executable(pid, &exe) {
             return Err(NOT_KEYLESS);
         }
         let status = std::fs::read_to_string(format!("/proc/{pid}/status")).map_err(|_| NOT_KEYLESS)?;
-        if status_field(&status, "TracerPid") != Some(0) || !clean_environment(pid) {
+        if status_field(&status, "TracerPid") != Some(0) || !clean_environment(pid) || !clean_mappings(pid, &exe) {
             return Err(NOT_KEYLESS);
         }
         let parent = status_field(&status, "PPid").ok_or(UNTRUSTED_BROWSER)?;
@@ -98,18 +107,40 @@ mod linux {
         Some(PathBuf::from(text.strip_suffix(" (deleted)").unwrap_or(text)))
     }
 
-    fn same_executable(pid: i32) -> bool {
-        let (Some(ours), Some(theirs)) = (executable(std::process::id() as i32), executable(pid)) else {
+    fn same_executable(pid: i32, theirs: &Path) -> bool {
+        let Some(ours) = executable(std::process::id() as i32) else {
             return false;
         };
         if ours == theirs {
             return true;
         }
         // An AppImage is mounted somewhere new on every start: compare the
-        // files themselves (still open through /proc even if replaced).
+        // files themselves (still open through /proc even if replaced), the
+        // size first, and the hash of a file once (by its identity).
+        let (Ok(mine), Ok(other)) = (std::fs::metadata("/proc/self/exe"), std::fs::metadata(format!("/proc/{pid}/exe"))) else {
+            return false;
+        };
+        if mine.len() != other.len() {
+            return false;
+        }
+        /// A file's device, inode and modification time.
+        type Identity = (u64, u64, i64);
         static OURS: OnceLock<Option<[u8; 32]>> = OnceLock::new();
-        let ours = OURS.get_or_init(|| file_hash(Path::new("/proc/self/exe")));
-        ours.is_some() && *ours == file_hash(Path::new(&format!("/proc/{pid}/exe")))
+        static LAST: Mutex<Option<(Identity, [u8; 32])>> = Mutex::new(None);
+        let Some(ours) = OURS.get_or_init(|| file_hash(Path::new("/proc/self/exe"))) else {
+            return false;
+        };
+        let identity = (other.dev(), other.ino(), other.mtime());
+        if let Some((seen, hash)) = *LAST.lock().unwrap_or_else(|e| e.into_inner())
+            && seen == identity
+        {
+            return hash == *ours;
+        }
+        let Some(hash) = file_hash(Path::new(&format!("/proc/{pid}/exe"))) else {
+            return false;
+        };
+        *LAST.lock().unwrap_or_else(|e| e.into_inner()) = Some((identity, hash));
+        hash == *ours
     }
 
     fn file_hash(path: &Path) -> Option<[u8; 32]> {
@@ -132,16 +163,71 @@ mod linux {
             return false;
         };
         environ.split(|&b| b == 0).all(|entry| {
-            let Ok(entry) = std::str::from_utf8(entry) else { return true };
-            let Some((name, value)) = entry.split_once('=') else { return true };
-            if !matches!(name, "LD_PRELOAD" | "LD_AUDIT") {
+            let Some(eq) = entry.iter().position(|&b| b == b'=') else { return true };
+            if !matches!(&entry[..eq], b"LD_PRELOAD" | b"LD_AUDIT") {
                 return true;
             }
+            // A value that is not text is refused, not skipped.
+            let Ok(value) = std::str::from_utf8(&entry[eq + 1..]) else { return false };
             value
                 .split([':', ' '])
                 .filter(|lib| !lib.is_empty())
                 .all(|lib| lib.starts_with('/') && system_file(Path::new(lib)))
         })
+    }
+
+    /// Where the code of a Keyless that is not installed system-wide may come
+    /// from: its own folder (an AppImage's mount, or a development build's).
+    /// `None` for a system install: then every library must be a system file.
+    fn own_root(exe: &Path) -> Option<PathBuf> {
+        if system_file(exe) {
+            return None;
+        }
+        let dir = exe.parent()?;
+        // <mount>/usr/bin/keyless-desktop in an AppImage.
+        if dir.ends_with("usr/bin") {
+            return dir.parent()?.parent().map(Path::to_path_buf);
+        }
+        Some(dir.to_path_buf())
+    }
+
+    /// The code the process runs, as the kernel maps it (it cannot be hidden
+    /// by rewriting the environment, and it covers `LD_LIBRARY_PATH` too):
+    /// files from the system or from Keyless's own folder, and no anonymous
+    /// executable memory.
+    fn clean_mappings(pid: i32, exe: &Path) -> bool {
+        let Ok(maps) = std::fs::read_to_string(format!("/proc/{pid}/maps")) else {
+            return false;
+        };
+        let root = own_root(exe);
+        let mut checked = HashSet::new();
+        for line in maps.lines() {
+            let fields: Vec<&str> = line.split_ascii_whitespace().collect();
+            let Some(perms) = fields.get(1) else { return false };
+            if !perms.contains('x') {
+                continue;
+            }
+            let path = fields.get(5..).map(|rest| rest.join(" ")).unwrap_or_default();
+            if path.is_empty() {
+                return false;
+            }
+            if path.starts_with('[') {
+                if matches!(path.as_str(), "[vdso]" | "[vsyscall]") {
+                    continue;
+                }
+                return false;
+            }
+            let path = path.strip_suffix(" (deleted)").unwrap_or(&path).to_string();
+            if !checked.insert(path.clone()) {
+                continue;
+            }
+            let file = Path::new(&path);
+            let allowed = system_file(file) || root.as_ref().is_some_and(|root| file.starts_with(root));
+            if !allowed {
+                return false;
+            }
+        }
+        true
     }
 
     /// Owned by root and not writable by anyone else, nor is its folder.
@@ -192,7 +278,19 @@ mod linux {
 
         #[test]
         fn this_test_binary_is_its_own_executable() {
-            assert!(same_executable(std::process::id() as i32));
+            let pid = std::process::id() as i32;
+            let exe = executable(pid).unwrap();
+            assert!(same_executable(pid, &exe));
+            // Built in the user's folder: its own folder is allowed, and the
+            // test binary maps nothing else but system libraries.
+            assert_eq!(own_root(&exe).as_deref(), exe.parent());
+            assert!(clean_mappings(pid, &exe));
+        }
+
+        #[test]
+        fn appimage_root_is_the_mount() {
+            let exe = Path::new("/tmp/.mount_KeylesAbCdEf/usr/bin/keyless-desktop");
+            assert_eq!(own_root(exe).as_deref(), Some(Path::new("/tmp/.mount_KeylesAbCdEf")));
         }
 
         #[test]
@@ -213,9 +311,13 @@ mod windows {
 
     use windows_sys::Win32::{
         Foundation::{CloseHandle, FILETIME, HANDLE, INVALID_HANDLE_VALUE},
-        Security::WinTrust::{
-            WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CACHE_ONLY_URL_RETRIEVAL,
-            WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WinVerifyTrust,
+        Security::{
+            Cryptography::{CERT_NAME_SIMPLE_DISPLAY_TYPE, CertGetNameStringW},
+            WinTrust::{
+                WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CACHE_ONLY_URL_RETRIEVAL,
+                WTD_CHOICE_FILE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+                WTHelperGetProvSignerFromChain, WTHelperProvDataFromStateData, WinVerifyTrust,
+            },
         },
         System::{
             Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS},
@@ -301,13 +403,16 @@ mod windows {
         (parent.created()? <= child.created()?).then_some((pid, parent))
     }
 
-    /// Checks the process at the other end of the pipe.
-    pub fn check(pipe: &tokio::net::windows::named_pipe::NamedPipeServer) -> Result<(), &'static str> {
+    /// The process at the other end of the pipe.
+    pub fn client_pid(pipe: &tokio::net::windows::named_pipe::NamedPipeServer) -> Option<u32> {
         let mut pid = 0u32;
         // SAFETY: a connected pipe handle we own.
-        if unsafe { GetNamedPipeClientProcessId(pipe.as_raw_handle(), &mut pid) } == 0 {
-            return Err(NOT_KEYLESS);
-        }
+        (unsafe { GetNamedPipeClientProcessId(pipe.as_raw_handle(), &mut pid) } != 0).then_some(pid)
+    }
+
+    /// Checks the process at the other end of the pipe (`client_pid`).
+    pub fn check(pid: Option<u32>) -> Result<(), &'static str> {
+        let pid = pid.ok_or(NOT_KEYLESS)?;
         let host = Process::open(pid).ok_or(NOT_KEYLESS)?;
         let ours = std::env::current_exe().map_err(|_| NOT_KEYLESS)?;
         if !host.image().is_some_and(|image| same_path(&image, &ours)) {
@@ -317,18 +422,30 @@ mod windows {
         // Chrome and Edge start hosts through cmd.exe: look one level up.
         let (parent_pid, parent) = parent_of(pid, &host).ok_or(UNTRUSTED_BROWSER)?;
         let mut image = parent.image().ok_or(UNTRUSTED_BROWSER)?;
-        if file_name(&image) == "cmd.exe" && in_system32(&image) {
+        if file_name(&image) == "cmd.exe" && in_windows_folder(&image) {
             let (_, browser) = parent_of(parent_pid, &parent).ok_or(UNTRUSTED_BROWSER)?;
             image = browser.image().ok_or(UNTRUSTED_BROWSER)?;
         }
         let name = file_name(&image);
         let known = BROWSERS.iter().any(|b| name == format!("{b}.exe"));
-        if known && (in_program_files(&image) || signed(&image)) { Ok(()) } else { Err(UNTRUSTED_BROWSER) }
+        let trusted = in_program_files(&image) || signer(&image).is_some_and(|signer| browser_publisher(&signer));
+        if known && trusted { Ok(()) } else { Err(UNTRUSTED_BROWSER) }
     }
 
-    fn in_system32(path: &std::path::Path) -> bool {
-        let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
-        same_path(path.parent().unwrap_or(path), &PathBuf::from(root).join("System32"))
+    /// System32, or SysWOW64 (the cmd.exe 32-bit browsers start).
+    fn in_windows_folder(path: &std::path::Path) -> bool {
+        let root = PathBuf::from(std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()));
+        let dir = path.parent().unwrap_or(path);
+        same_path(dir, &root.join("System32")) || same_path(dir, &root.join("SysWOW64"))
+    }
+
+    /// Publishers whose browsers may be installed per user (outside Program
+    /// Files). Authenticode does not cover a file's name, so any signature
+    /// would let a signed program renamed "chrome.exe" pass.
+    fn browser_publisher(signer: &str) -> bool {
+        const PUBLISHERS: &[&str] =
+            &["Google LLC", "Microsoft Corporation", "Mozilla Corporation", "Brave Software, Inc.", "Opera Norway AS", "Vivaldi Technologies AS"];
+        PUBLISHERS.iter().any(|p| signer.eq_ignore_ascii_case(p))
     }
 
     /// Installed for all users: only administrators can change it.
@@ -340,9 +457,10 @@ mod windows {
             .any(|dir| lower.starts_with(&format!("{}\\", dir.to_lowercase().trim_end_matches('\\'))))
     }
 
-    /// A valid Authenticode signature (per-user installs of Chrome and
-    /// Edge). No revocation check: that would go to the network.
-    fn signed(path: &std::path::Path) -> bool {
+    /// Who signed the file (the leaf certificate's name), if it has a valid
+    /// Authenticode signature. No revocation check: that would go to the
+    /// network.
+    fn signer(path: &std::path::Path) -> Option<String> {
         let wide: Vec<u16> = path.as_os_str().to_string_lossy().encode_utf16().chain(Some(0)).collect();
         let mut file = WINTRUST_FILE_INFO {
             cbStruct: size_of::<WINTRUST_FILE_INFO>() as u32,
@@ -363,9 +481,32 @@ mod windows {
         // SAFETY: the structures are set up as WinVerifyTrust documents, and
         // live until the closing call below.
         let status = unsafe { WinVerifyTrust(INVALID_HANDLE_VALUE, &mut action, (&mut data as *mut WINTRUST_DATA).cast()) };
+        let name = if status == 0 {
+            // SAFETY: the state from a successful verification, valid until
+            // it is closed below; each pointer is checked before use.
+            unsafe {
+                let provider = WTHelperProvDataFromStateData(data.hWVTStateData);
+                let signer = if provider.is_null() { std::ptr::null_mut() } else { WTHelperGetProvSignerFromChain(provider, 0, 0, 0) };
+                if signer.is_null() || (*signer).csCertChain == 0 || (*signer).pasCertChain.is_null() {
+                    None
+                } else {
+                    let cert = (*(*signer).pasCertChain).pCert;
+                    let len = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, std::ptr::null(), std::ptr::null_mut(), 0);
+                    if len <= 1 {
+                        None
+                    } else {
+                        let mut buffer = vec![0u16; len as usize];
+                        CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0, std::ptr::null(), buffer.as_mut_ptr(), len);
+                        Some(String::from_utf16_lossy(&buffer[..len as usize - 1]))
+                    }
+                }
+            }
+        } else {
+            None
+        };
         data.dwStateAction = WTD_STATEACTION_CLOSE;
         // SAFETY: releases the state of the call above.
         unsafe { WinVerifyTrust(INVALID_HANDLE_VALUE, &mut action, (&mut data as *mut WINTRUST_DATA).cast()) };
-        status == 0
+        name
     }
 }

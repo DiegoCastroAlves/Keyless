@@ -493,7 +493,7 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
 
     let part = part_of(&path);
     let written = async {
-        let mut export = ExportZip::new(BufWriter::new(create_private(&part)?));
+        let mut export = ExportZip::new(BufWriter::new(create_part(&part)?));
         let failed = download_files(app, &data, &vault_ids, &mut export).await?;
         let files = unique_files(&data) - failed.len();
         finish_off_thread(move || export.finish(&data)).await?;
@@ -545,7 +545,7 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
 
     let part = part_of(&path);
     let written = async {
-        let mut backup = BackupWriter::new(BufWriter::new(create_private(&part)?));
+        let mut backup = BackupWriter::new(BufWriter::new(create_part(&part)?));
         let failed = download_files(app, &data, &vault_ids, &mut backup).await?;
         // The backup lists only the files it holds.
         for item in data.vaults.iter_mut().flat_map(|v| &mut v.items) {
@@ -605,7 +605,29 @@ pub(crate) fn create_private(path: &Path) -> AppResult<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path).map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))
+    let file = options.open(path).map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))?;
+    #[cfg(windows)]
+    crate::win_security::restrict_file(path);
+    Ok(file)
+}
+
+/// A hidden work file that takes the final name once complete (decrypted
+/// data on its way to the chosen place). Made fresh: an existing file or
+/// symbolic link with that name is removed, and if another one appears in
+/// between, this fails instead of writing through it.
+pub(crate) fn create_part(path: &Path) -> AppResult<File> {
+    let _ = std::fs::remove_file(path);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(path).map_err(|e| AppError::Invalid(Msg::new("file_unwritable").with("detail", e)))?;
+    #[cfg(windows)]
+    crate::win_security::restrict_file(path);
+    Ok(file)
 }
 
 fn write_private(path: &Path, contents: &[u8]) -> AppResult<()> {

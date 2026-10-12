@@ -283,10 +283,8 @@ pub async fn save(app: &AppHandle, item_id: &str, attachment_id: &str) -> AppRes
 
     let written = async {
         let unwritable = |e: std::io::Error| AppError::Invalid(Msg::new("file_unwritable").with("detail", e));
-        // Decrypted contents: readable only by this user while being written
-        // (a leftover part file would keep its old permissions).
-        let _ = tokio::fs::remove_file(&part).await;
-        let mut out = tokio::fs::File::from_std(crate::import::create_private(&part)?);
+        // Decrypted contents: readable only by this user while being written.
+        let mut out = tokio::fs::File::from_std(crate::import::create_part(&part)?);
         progress(app, item_id, &attachment, "download", 0);
         for index in 0..attachment.chunks() {
             let (_, token) = sync::ensure_token(&state).await?;

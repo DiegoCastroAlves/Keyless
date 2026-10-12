@@ -251,8 +251,11 @@ mod tests {
         let page = |k: &SymmetricKey| k.as_bytes().as_ptr() as usize / 4096;
         assert_ne!(page(&a), page(&b));
         assert_eq!(a.as_bytes().as_ptr() as usize % 4096, 0);
-        // Locking can be refused (RLIMIT_MEMLOCK); it works on usual setups.
-        assert!(a.is_locked() && b.duplicate().is_locked());
+        // Locking itself can be refused (a low RLIMIT_MEMLOCK, Windows'
+        // working set): the keys must work either way.
+        let copy = b.duplicate();
+        assert_eq!(copy.as_bytes(), b.as_bytes());
+        eprintln!("locked in RAM: {} {}", a.is_locked(), copy.is_locked());
     }
 
     #[test]

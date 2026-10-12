@@ -79,6 +79,13 @@ function copiedToast(reply: Reply<{ clearAfterSeconds: number }>) {
   toast(reply.ok ? t("copied", String(reply.data?.clearAfterSeconds ?? "")) : t("copyFailed"));
 }
 
+/** An item's website as an address to open: "https://" when it has no
+ * scheme, and the scheme in lower case (the background only fills http(s)). */
+function siteUrl(href: string): string {
+  const scheme = /^(https?):/i.exec(href.trim());
+  return scheme ? scheme[1].toLowerCase() + href.trim().slice(scheme[1].length) : `https://${href.trim()}`;
+}
+
 /** Passwords shown with digits and symbols in their own colours, as in the app. */
 function coloredSecret(text: string): HTMLElement {
   const box = el("span", { className: "secret" });
@@ -550,7 +557,7 @@ function renderDetails(login: Login, details: Details) {
     const link = el("a", { className: "link", href: url.href, textContent: hostOf(url.href) || url.href, title: url.href });
     link.addEventListener("click", (e) => {
       e.preventDefault();
-      void chrome.tabs.create({ url: /^https?:/i.test(url.href) ? url.href : `https://${url.href}` }).then(() => window.close());
+      void chrome.tabs.create({ url: siteUrl(url.href) }).then(() => window.close());
     });
     websites.append(field(url.label || t("fieldWebsite"), link, []));
   }
@@ -596,7 +603,7 @@ async function defaultAction() {
   if (fillable(login)) return fill(login);
   const site = view.details?.id === login.id ? view.details.urls[0]?.href : login.url;
   if (!site) return;
-  const reply = await send({ type: "open_fill", id: login.id, url: /^https?:/i.test(site) ? site : `https://${site}` });
+  const reply = await send({ type: "open_fill", id: login.id, url: siteUrl(site) });
   if (reply.ok) window.close();
   else toast(t("fillFailed"));
 }
@@ -635,7 +642,7 @@ function showItemMenu(anchor: HTMLElement, login: Login, details: Details) {
   ];
   if (details.urls[0]) {
     const href = details.urls[0].href;
-    entries.push({ label: t("openWebsite"), icon: ICONS.external, run: () => void chrome.tabs.create({ url: /^https?:/i.test(href) ? href : `https://${href}` }).then(() => window.close()) });
+    entries.push({ label: t("openWebsite"), icon: ICONS.external, run: () => void chrome.tabs.create({ url: siteUrl(href) }).then(() => window.close()) });
   }
   if (!fillable(login) && view.pageHost) {
     // Saved for another site: only with a clear warning.

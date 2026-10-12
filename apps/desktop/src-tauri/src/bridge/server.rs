@@ -75,13 +75,14 @@ pub fn socket_dirs_private() -> bool {
     socket_dirs().iter().all(|dir| private_dir(dir, false).is_ok())
 }
 
+/// Named after the user's SID: unique, unlike the user name (which could
+/// also lose characters), so another user cannot take it first by accident.
+/// The host still checks who made the pipe (see `host`).
 #[cfg(windows)]
 pub fn pipe_name() -> String {
-    let user: String = std::env::var("USERNAME")
-        .unwrap_or_default()
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect();
+    let user = crate::win_security::current_user_sid().unwrap_or_else(|| {
+        std::env::var("USERNAME").unwrap_or_default().chars().filter(|c| c.is_ascii_alphanumeric()).collect()
+    });
     format!(r"\\.\pipe\keyless-bridge-{user}")
 }
 
@@ -107,13 +108,13 @@ async fn listen(app: AppHandle) -> std::io::Result<()> {
     let uid = unsafe { libc::getuid() };
     loop {
         let (stream, _) = listener.accept().await?;
-        let peer = match stream.peer_cred() {
-            Ok(cred) if cred.uid() == uid => super::peer::check(cred.pid()),
+        let pid = match stream.peer_cred() {
+            Ok(cred) if cred.uid() == uid => cred.pid(),
             _ => continue,
         };
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = match peer {
+            let _ = match check_peer(move || super::peer::check(pid)).await {
                 Ok(()) => serve(app, stream).await,
                 Err(code) => refuse(stream, code).await,
             };
@@ -144,10 +145,10 @@ async fn listen(app: AppHandle) -> std::io::Result<()> {
         server.connect().await?;
         let connected = server;
         server = create(false)?;
-        let peer = super::peer::check(&connected);
+        let pid = super::peer::client_pid(&connected);
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = match peer {
+            let _ = match check_peer(move || super::peer::check(pid)).await {
                 Ok(()) => serve(app, connected).await,
                 Err(code) => refuse(connected, code).await,
             };
@@ -176,6 +177,19 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(app: AppHandle, stream: S) -> 
 }
 
 use tokio::io::AsyncReadExt;
+
+/// How long checking a connecting process may take (it reads files that
+/// could sit on a slow or stuck mount).
+const PEER_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Runs the `peer` check away from the accept loop, so one slow check never
+/// holds up other connections; one that takes too long is a refusal.
+async fn check_peer(check: impl FnOnce() -> Result<(), &'static str> + Send + 'static) -> Result<(), &'static str> {
+    match tokio::time::timeout(PEER_CHECK_TIMEOUT, tauri::async_runtime::spawn_blocking(check)).await {
+        Ok(Ok(result)) => result,
+        _ => Err(super::peer::NOT_KEYLESS),
+    }
+}
 
 /// Answers every request from a process that failed the `peer` check with
 /// why, so the extension can explain it, until it hangs up.

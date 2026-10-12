@@ -119,21 +119,23 @@ impl SecretStore {
     /// store fails and there is no fallback file: the secret may well be in
     /// the store, so this must not be taken as "nothing saved".
     pub fn get(&self, name: &str) -> AppResult<Option<Zeroizing<String>>> {
+        // A fallback file is always the newest value (`put` removes it once
+        // the store took one), even when the store still has an older one.
+        if let Some(value) = self.read_fallback(name)? {
+            if let Some(entry) = entry(name) {
+                self.move_into_store(&entry, name, &value);
+            }
+            return Ok(Some(value));
+        }
         let Some(entry) = entry(name) else {
-            return self.read_fallback(name);
+            return Ok(None);
         };
         match with_retries(|| entry.get_password()) {
             Ok(value) => Ok(Some(Zeroizing::new(value))),
-            Err(keyring_core::Error::NoEntry) => {
-                let value = self.read_fallback(name)?;
-                if let Some(value) = &value {
-                    self.move_into_store(&entry, name, value);
-                }
-                Ok(value)
-            }
+            Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(err) => {
                 log::warn!("could not read from the OS credential store: {err}");
-                self.read_fallback(name)?.map(Some).ok_or_else(|| unavailable(err))
+                Err(unavailable(err))
             }
         }
     }
@@ -147,8 +149,8 @@ impl SecretStore {
     }
 
     /// A secret that had to go to a file, now that the credential store
-    /// answers: saved there (once per run, so a refusal is not asked again
-    /// at every unlock), and the file removed.
+    /// answers: saved there (tried once per run, so a refusal is not asked
+    /// again at every unlock), and the file removed once it reads back.
     fn move_into_store(&self, entry: &keyring_core::Entry, name: &str, value: &str) {
         static TRIED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
         {
@@ -158,8 +160,11 @@ impl SecretStore {
             }
             tried.push(name.to_string());
         }
-        match with_retries(|| entry.set_password(value)) {
-            Ok(()) => remove_file_securely(&self.fallback_path(name)),
+        // The file goes only once the store gives the same value back.
+        let stored = with_retries(|| entry.set_password(value)).and_then(|()| entry.get_password()).map(Zeroizing::new);
+        match stored {
+            Ok(read) if read.as_str() == value => remove_file_securely(&self.fallback_path(name)),
+            Ok(_) => log::warn!("the OS credential store gave back a different secret; the file stays"),
             Err(err) => log::warn!("could not move a secret into the OS credential store: {err}"),
         }
     }

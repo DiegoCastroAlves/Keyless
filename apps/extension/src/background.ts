@@ -531,15 +531,22 @@ function tabLoaded(tabId: number, timeoutMs: number): Promise<boolean> {
  * or when the tab leaves for something that is not a web page. */
 async function fillWhenReady(tabId: number, id: string): Promise<void> {
   if (!(await tabLoaded(tabId, 20_000))) return;
-  for (let attempt = 0; attempt < 10; attempt++) {
+  for (let attempt = 0; attempt < 16; attempt++) {
     const tab = await chrome.tabs.get(tabId).catch(() => undefined);
-    if (tab?.id === undefined || !isWebPage(tab.url)) return;
-    const frame = await fillTarget({ ...tab, id: tab.id, url: tab.url }, id).catch(() => null);
-    if (frame) {
-      // Frames of another site inside the page are left alone: that needs
-      // the user's confirmation in the popup.
-      if (frame.frameId !== 0 && !(await sameOwner(frame.url, tab.url))) return;
-      await fillTab(tab.id, frame.url, id, { frameId: frame.frameId, submit: true }).catch(() => undefined);
+    if (tab?.id === undefined) return;
+    if (isWebPage(tab.url)) {
+      // Only once a frame reported a sign-in form (see content.ts).
+      if ((await loginFrames(tab.id)).length > 0) {
+        const frame = await fillTarget({ ...tab, id: tab.id, url: tab.url }, id).catch(() => null);
+        // Not for this login here (the site sent the tab somewhere else), or
+        // a frame of another site inside the page, which needs the user's
+        // confirmation in the popup: left alone.
+        if (!frame || (frame.frameId !== 0 && !(await sameOwner(frame.url, tab.url)))) return;
+        await fillTab(tab.id, frame.url, id, { frameId: frame.frameId, submit: true }).catch(() => undefined);
+        return;
+      }
+    } else if (tab.url && tab.url !== "about:blank") {
+      // Left for something that is not a web page.
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 750));
