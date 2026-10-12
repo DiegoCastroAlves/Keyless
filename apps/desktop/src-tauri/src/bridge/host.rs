@@ -33,6 +33,9 @@ type Stream = std::fs::File;
 fn connect() -> Option<Stream> {
     #[cfg(unix)]
     {
+        if !super::server::socket_dirs_private() {
+            return None;
+        }
         Stream::connect(super::server::socket_path()).ok()
     }
     #[cfg(windows)]

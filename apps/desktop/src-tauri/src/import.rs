@@ -597,7 +597,7 @@ fn complete<T>(written: AppResult<T>, part: &Path, path: &Path) -> AppResult<T> 
 }
 
 /// A new file only this user can read.
-fn create_private(path: &Path) -> AppResult<File> {
+pub(crate) fn create_private(path: &Path) -> AppResult<File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]

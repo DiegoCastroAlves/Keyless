@@ -23,12 +23,55 @@ pub const EVENT_PAIR_REQUEST: &str = "keyless://pair-request";
 
 #[cfg(unix)]
 pub fn socket_path() -> std::path::PathBuf {
-    let base = std::env::var_os("XDG_RUNTIME_DIR")
-        .map(std::path::PathBuf::from)
-        .filter(|p| p.is_dir())
-        // SAFETY: getuid has no preconditions.
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("keyless-{}", unsafe { libc::getuid() })));
-    base.join("keyless").join("bridge.sock")
+    socket_dirs().pop().expect("at least one directory").join("bridge.sock")
+}
+
+/// The directories Keyless makes for the socket, outermost first: its own
+/// folder in the per-user runtime directory, or, without one, a folder of
+/// its own in the shared temporary directory as well.
+#[cfg(unix)]
+fn socket_dirs() -> Vec<std::path::PathBuf> {
+    match std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from).filter(|p| p.is_dir()) {
+        Some(runtime) => vec![runtime.join("keyless")],
+        None => {
+            // SAFETY: getuid has no preconditions.
+            let base = std::env::temp_dir().join(format!("keyless-{}", unsafe { libc::getuid() }));
+            vec![base.clone(), base.join("keyless")]
+        }
+    }
+}
+
+/// Checks that `dir` is a real directory of this user that nobody else can
+/// write to, creating it (0700) first when `create` is set. In a shared
+/// /tmp, another user could otherwise make the folder first and put their
+/// own socket in it.
+#[cfg(unix)]
+pub fn private_dir(dir: &std::path::Path, create: bool) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    if create {
+        match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+            Err(err) if err.kind() != std::io::ErrorKind::AlreadyExists => return Err(err),
+            _ => {}
+        }
+    }
+    let meta = std::fs::symlink_metadata(dir)?;
+    // SAFETY: getuid has no preconditions.
+    if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
+        return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("{} is not a private directory", dir.display())));
+    }
+    if meta.mode() & 0o077 != 0 {
+        if !create {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("{} is open to other users", dir.display())));
+        }
+        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+/// Whether the socket's directories are safe to connect through.
+#[cfg(unix)]
+pub fn socket_dirs_private() -> bool {
+    socket_dirs().iter().all(|dir| private_dir(dir, false).is_ok())
 }
 
 #[cfg(windows)]
@@ -52,10 +95,10 @@ pub fn start(app: AppHandle) {
 #[cfg(unix)]
 async fn listen(app: AppHandle) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
+    for dir in socket_dirs() {
+        private_dir(&dir, true)?;
+    }
     let path = socket_path();
-    let dir = path.parent().expect("socket path has a parent");
-    std::fs::create_dir_all(dir)?;
-    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
     let _ = std::fs::remove_file(&path);
     let listener = tokio::net::UnixListener::bind(&path)?;
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;

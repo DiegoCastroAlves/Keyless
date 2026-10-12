@@ -81,30 +81,52 @@ export function RecoverySection() {
   );
 }
 
+/** The localStorage key remembering that the offer was answered for an
+ * account. It holds a hash of the email, not the email itself. */
+async function offeredFlag(email: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(email.trim().toLowerCase()));
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  const flag = `keyless.recoveryOffered.${hex.slice(0, 32)}`;
+  // Earlier versions put the email in the key.
+  const old = `keyless.recoveryOffered.${email}`;
+  try {
+    if (localStorage.getItem(old)) {
+      localStorage.setItem(flag, "1");
+      localStorage.removeItem(old);
+    }
+  } catch {
+    // Nothing to move.
+  }
+  return flag;
+}
+
 /** Offered once per account, when it has no recovery key yet. */
 export function RecoveryOffer() {
   const { t } = useTranslation();
   const email = useApp((s) => s.status?.email ?? "");
   const [open, setOpen] = useState(false);
   const [shown, setShown] = useState<string | null>(null);
-  const flag = `keyless.recoveryOffered.${email}`;
+  const [flag, setFlag] = useState<string | null>(null);
 
   useEffect(() => {
     if (!email) return;
-    try {
-      if (localStorage.getItem(flag)) return;
-    } catch {
-      return;
-    }
-    api
-      .recoveryKeyStatus()
-      .then((created) => setOpen(created === null))
+    let cancelled = false;
+    offeredFlag(email)
+      .then((key) => {
+        if (cancelled) return;
+        setFlag(key);
+        if (localStorage.getItem(key)) return;
+        return api.recoveryKeyStatus().then((created) => !cancelled && setOpen(created === null));
+      })
       .catch(() => undefined);
-  }, [email, flag]);
+    return () => {
+      cancelled = true;
+    };
+  }, [email]);
 
   const dismiss = () => {
     try {
-      localStorage.setItem(flag, "1");
+      if (flag) localStorage.setItem(flag, "1");
     } catch {
       // Offered again next time.
     }
