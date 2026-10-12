@@ -5,6 +5,7 @@
 //! so the server cannot move ciphertexts between items or vaults.
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::{
     Result,
@@ -22,7 +23,8 @@ pub struct Tombstone {
     pub deleted_at: i64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Wiped on lock like item overviews (see `ItemOverview`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 pub struct VaultMeta {
     pub name: String,
     #[serde(default)]

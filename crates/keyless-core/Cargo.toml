@@ -15,6 +15,7 @@ hkdf = "0.13.0"
 hmac = { version = "0.13.0", features = ["zeroize"] }
 # Passkeys (ES256), see passkey.rs.
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pem", "std"] }
+region = "4"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha1 = "0.11.0"

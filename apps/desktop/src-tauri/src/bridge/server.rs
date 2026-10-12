@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use keyless_core::item::wipe_json;
 use zeroize::Zeroizing;
 
 use super::{
@@ -223,11 +224,14 @@ async fn handle_line(app: &AppHandle, line: &[u8]) -> Value {
             if !fresh_request(bridge, &request.id, request.ts) {
                 return json!({ "type": "error", "code": "replay" });
             }
-            let response = match handlers::dispatch(app, &request.cmd, &mut request.args).await {
+            let mut response = match handlers::dispatch(app, &request.cmd, &mut request.args).await {
                 Ok(data) => json!({ "id": request.id, "ok": true, "data": data }),
                 Err(code) => json!({ "id": request.id, "ok": false, "error": code }),
             };
+            // Requests and answers carry passwords, card numbers and codes.
+            wipe_json(&mut request.args);
             let bytes = Zeroizing::new(serde_json::to_vec(&response).unwrap_or_default());
+            wipe_json(&mut response);
             match channel.seal(&bytes) {
                 Some((nonce, ct)) => json!({ "type": "enc", "nonce": nonce, "ct": ct }),
                 None => json!({ "type": "error", "code": "internal" }),

@@ -17,7 +17,7 @@ use chacha20poly1305::{
     XChaCha20Poly1305, XNonce,
     aead::{Aead, KeyInit, Payload},
 };
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{Error, Result};
 
@@ -42,32 +42,93 @@ pub fn random_array<const N: usize>() -> Result<Zeroizing<[u8; N]>> {
     Ok(out)
 }
 
-/// A 256-bit key for XChaCha20-Poly1305. Wiped from memory on drop and never
-/// printed by `Debug`.
-pub struct SymmetricKey(Zeroizing<[u8; KEY_LEN]>);
+/// 32 secret bytes on a memory page of their own, locked in RAM where the
+/// system allows it (mlock / VirtualLock: never written to a swap or page
+/// file) and wiped on drop.
+///
+/// The page is not shared with other data, so unlocking it when one key is
+/// dropped never unlocks another one (with 4 KiB pages; on systems with
+/// larger pages, keys may share one and are then locked on a best-effort
+/// basis). A failed lock (limit reached) leaves the key usable, just not
+/// locked.
+pub struct SecretBytes {
+    // Declared first so it is dropped (munlock) before the page is freed.
+    _lock: Option<region::LockGuard>,
+    page: Box<SecretPage>,
+}
 
-impl SymmetricKey {
-    pub fn generate() -> Result<Self> {
-        Ok(Self(random_array()?))
+#[repr(C, align(4096))]
+struct SecretPage([u8; KEY_LEN]);
+
+impl SecretBytes {
+    /// Zeros, locked before anything secret is written to them.
+    fn zeroed() -> Self {
+        let page = Box::new(SecretPage([0u8; KEY_LEN]));
+        let lock = region::lock(page.0.as_ptr(), KEY_LEN).ok();
+        Self { _lock: lock, page }
+    }
+
+    pub fn random() -> Result<Self> {
+        let mut secret = Self::zeroed();
+        random_bytes(&mut secret.page.0)?;
+        Ok(secret)
     }
 
     pub fn from_slice(bytes: &[u8]) -> Result<Self> {
-        let array: [u8; KEY_LEN] = bytes.try_into().map_err(|_| Error::InvalidKey)?;
-        Ok(Self(Zeroizing::new(array)))
+        if bytes.len() != KEY_LEN {
+            return Err(Error::InvalidKey);
+        }
+        let mut secret = Self::zeroed();
+        secret.page.0.copy_from_slice(bytes);
+        Ok(secret)
     }
 
     pub fn as_bytes(&self) -> &[u8; KEY_LEN] {
-        &self.0
+        &self.page.0
+    }
+
+    /// Whether the page is locked in RAM (for tests).
+    pub fn is_locked(&self) -> bool {
+        self._lock.is_some()
+    }
+}
+
+impl Drop for SecretBytes {
+    fn drop(&mut self) {
+        self.page.0.zeroize();
+    }
+}
+
+/// A 256-bit key for XChaCha20-Poly1305. Kept in [`SecretBytes`]: locked in
+/// RAM, wiped from memory on drop, and never printed by `Debug`.
+pub struct SymmetricKey(SecretBytes);
+
+impl SymmetricKey {
+    pub fn generate() -> Result<Self> {
+        Ok(Self(SecretBytes::random()?))
+    }
+
+    pub fn from_slice(bytes: &[u8]) -> Result<Self> {
+        Ok(Self(SecretBytes::from_slice(bytes)?))
+    }
+
+    pub fn as_bytes(&self) -> &[u8; KEY_LEN] {
+        self.0.as_bytes()
     }
 
     /// Duplicates the key. Kept explicit (no `Clone`) so copies of key material
     /// are always deliberate.
     pub fn duplicate(&self) -> Self {
-        Self(Zeroizing::new(*self.0))
+        Self(SecretBytes::from_slice(self.0.as_bytes()).expect("same length"))
+    }
+
+    /// Whether the key's page is locked in RAM (for tests).
+    pub fn is_locked(&self) -> bool {
+        self.0.is_locked()
     }
 
     fn cipher(&self) -> XChaCha20Poly1305 {
-        XChaCha20Poly1305::new_from_slice(self.0.as_ref()).expect("key is always 32 bytes")
+        XChaCha20Poly1305::new_from_slice(self.0.as_bytes()).expect("key is always 32 bytes")
     }
 
     /// Encrypts `plaintext`, binding the result to `context`.
@@ -182,6 +243,17 @@ fn unpad(data: &[u8]) -> Result<Zeroizing<Vec<u8>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_live_on_locked_pages_of_their_own() {
+        let a = SymmetricKey::generate().unwrap();
+        let b = SymmetricKey::generate().unwrap();
+        let page = |k: &SymmetricKey| k.as_bytes().as_ptr() as usize / 4096;
+        assert_ne!(page(&a), page(&b));
+        assert_eq!(a.as_bytes().as_ptr() as usize % 4096, 0);
+        // Locking can be refused (RLIMIT_MEMLOCK); it works on usual setups.
+        assert!(a.is_locked() && b.duplicate().is_locked());
+    }
 
     #[test]
     fn seal_open_roundtrip() {

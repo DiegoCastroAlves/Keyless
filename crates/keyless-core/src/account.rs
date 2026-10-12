@@ -18,11 +18,10 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use x25519_dalek::{PublicKey, StaticSecret};
-use zeroize::Zeroizing;
 
 use crate::{
     Error, Result,
-    crypto::{SymmetricKey, context, random_array},
+    crypto::{SecretBytes, SymmetricKey, context},
     keys::KdfParams,
 };
 
@@ -47,10 +46,11 @@ pub struct AccountBundle {
     pub enc_private_key: String,
 }
 
-/// An unlocked account: the decrypted user key and key pair.
+/// An unlocked account: the decrypted user key and key pair, both on locked
+/// memory pages (see [`SecretBytes`]).
 pub struct UnlockedAccount {
     user_key: SymmetricKey,
-    private_key: StaticSecret,
+    private_key: SecretBytes,
     public_key: PublicKey,
 }
 
@@ -59,8 +59,9 @@ impl UnlockedAccount {
         &self.user_key
     }
 
-    pub fn private_key(&self) -> &StaticSecret {
-        &self.private_key
+    /// The private key, for one use (wiped when dropped).
+    pub fn private_key(&self) -> StaticSecret {
+        StaticSecret::from(*self.private_key.as_bytes())
     }
 
     pub fn public_key_encoded(&self) -> String {
@@ -78,16 +79,15 @@ impl std::fmt::Debug for UnlockedAccount {
 pub fn create_account(kek: &SymmetricKey, kdf: KdfParams, user_id: &str) -> Result<(AccountBundle, UnlockedAccount)> {
     kdf.validate()?;
     let user_key = SymmetricKey::generate()?;
-    let private_bytes = random_array::<32>()?;
-    let private_key = StaticSecret::from(*private_bytes);
-    let public_key = PublicKey::from(&private_key);
+    let private_key = SecretBytes::random()?;
+    let public_key = PublicKey::from(&StaticSecret::from(*private_key.as_bytes()));
 
     let bundle = AccountBundle {
         format: ACCOUNT_FORMAT,
         enc_user_key: kek.seal(user_key.as_bytes(), &user_key_context(user_id, &kdf))?,
         kdf,
         public_key: URL_SAFE_NO_PAD.encode(public_key.as_bytes()),
-        enc_private_key: user_key.seal(private_bytes.as_ref(), &private_key_context(user_id))?,
+        enc_private_key: user_key.seal(private_key.as_bytes(), &private_key_context(user_id))?,
     };
     Ok((bundle, UnlockedAccount { user_key, private_key, public_key }))
 }
@@ -112,10 +112,8 @@ pub fn open_with_user_key(bundle: &AccountBundle, user_key: SymmetricKey, user_i
         return Err(Error::Serialization(format!("unsupported account format {}", bundle.format)));
     }
     let private_bytes = user_key.open(&bundle.enc_private_key, &private_key_context(user_id))?;
-    let private_array: Zeroizing<[u8; 32]> =
-        Zeroizing::new(private_bytes.as_slice().try_into().map_err(|_| Error::InvalidKey)?);
-    let private_key = StaticSecret::from(*private_array);
-    let public_key = PublicKey::from(&private_key);
+    let private_key = SecretBytes::from_slice(&private_bytes)?;
+    let public_key = PublicKey::from(&StaticSecret::from(*private_key.as_bytes()));
 
     // The public key is stored unencrypted on the server. Make sure it still
     // matches our private key so a tampered value is noticed immediately.

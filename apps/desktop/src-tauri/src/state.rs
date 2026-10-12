@@ -13,7 +13,7 @@ use keyless_core::{
     vault::{VaultKey, VaultMeta},
 };
 use serde::{Deserialize, Serialize};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
     api::{Api, AuthSession},
@@ -117,6 +117,20 @@ impl OpenVault {
 pub struct CachedItem {
     pub vault_id: String,
     pub overview: ItemOverview,
+}
+
+// Titles, usernames and websites: wiped when the session is dropped (lock)
+// or an item is replaced.
+impl Drop for CachedItem {
+    fn drop(&mut self) {
+        self.overview.zeroize();
+    }
+}
+
+impl Drop for OpenVault {
+    fn drop(&mut self) {
+        self.meta.zeroize();
+    }
 }
 
 /// Everything that exists only while Keyless is unlocked. Dropping it wipes

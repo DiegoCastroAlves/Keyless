@@ -23,20 +23,23 @@ pub struct Unknown(pub Map<String, Value>);
 impl Zeroize for Unknown {
     fn zeroize(&mut self) {
         // They may be secrets: wiped like the fields this version knows.
-        fn wipe(value: &mut Value) {
-            match value {
-                Value::String(text) => text.zeroize(),
-                Value::Array(list) => list.iter_mut().for_each(wipe),
-                Value::Object(map) => map.values_mut().for_each(wipe),
-                _ => {}
-            }
-        }
-        self.0.values_mut().for_each(wipe);
+        self.0.values_mut().for_each(wipe_json);
         self.0.clear();
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Overwrites every string in a JSON value (they may hold secrets) before it
+/// is freed.
+pub fn wipe_json(value: &mut Value) {
+    match value {
+        Value::String(text) => text.zeroize(),
+        Value::Array(list) => list.iter_mut().for_each(wipe_json),
+        Value::Object(map) => map.values_mut().for_each(wipe_json),
+        _ => {}
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, Zeroize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     #[default]
@@ -63,7 +66,7 @@ pub enum Category {
     Other,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 pub struct ItemUrl {
     pub href: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -76,7 +79,7 @@ pub struct ItemUrl {
 }
 
 /// Which pages an item's website covers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 #[serde(rename_all = "lowercase")]
 pub enum UrlMatch {
     /// Anywhere on the website: the same registrable domain
@@ -95,7 +98,11 @@ impl UrlMatch {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// What lists and search need (title, username, websites, tags). It says
+/// which sites the user has accounts on and with which usernames, so the
+/// copies kept while unlocked are wiped on lock (`Zeroize`, without a
+/// `Drop` so it can still be built with `..Default::default()`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
 pub struct ItemOverview {
     pub title: String,
     #[serde(default)]
