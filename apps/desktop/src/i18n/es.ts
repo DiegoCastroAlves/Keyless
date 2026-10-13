@@ -631,6 +631,7 @@ const es: Translations = {
     location: "ubicación",
     date: "fecha",
     document: "documento",
+    website: "sitio web",
   },
   categories: {
     login: "Inicio de sesión",

@@ -358,7 +358,7 @@ pub async fn update_vault(app: AppHandle, state: State<'_, AppState>, vault_id: 
 
 /// The item a `keyless://` link asked for, once (the main window shows it).
 #[tauri::command]
-pub fn take_item_request(state: State<'_, AppState>) -> Option<String> {
+pub fn take_item_request(state: State<'_, AppState>) -> Option<crate::item_links::ItemRequest> {
     crate::item_links::take(&state)
 }
 

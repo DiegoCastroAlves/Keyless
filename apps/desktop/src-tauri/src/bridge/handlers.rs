@@ -71,9 +71,22 @@ impl Scope {
 /// browser may use.
 pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Value, &'static str> {
     let scope = Scope::of(args);
-    const BY_ID: [&str; 7] = ["item_details", "credentials", "add_site", "copy", "form_details", "update_login", "set_totp"];
+    const BY_ID: [&str; 11] =
+        ["item_details", "credentials", "add_site", "copy", "form_details", "update_login", "set_totp", "item_view", "reveal", "save_attachment", "edit_item"];
     if BY_ID.contains(&cmd) {
         let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+        if !scope.allows_item(app, id).await {
+            return Err("not_found");
+        }
+    }
+    // Items named in other ways: several at once, or the provider's login a
+    // "sign in with" login is linked to.
+    let others: Vec<String> = match cmd {
+        "change_items" => args.get("ids").and_then(Value::as_array).map(|ids| ids.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default(),
+        "save_sign_in_with" => args.get("account").and_then(Value::as_str).filter(|a| !a.is_empty()).map(str::to_string).into_iter().collect(),
+        _ => Vec::new(),
+    };
+    for id in &others {
         if !scope.allows_item(app, id).await {
             return Err("not_found");
         }
@@ -197,16 +210,60 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
         }
         "match" => {
             let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?;
-            find(app, Query::Url(url), false, MAX_RESULTS).await
+            find(app, Query::Url(url), false, false, MAX_RESULTS).await
         }
         "search" => {
             // An empty query lists logins, most recently used first:
             // `favorites` keeps only favorites, `limit` asks for more than
-            // the default (the popup's lists).
+            // the default (the popup's lists), `all` lists every kind of
+            // item, not only those that fill sign-in forms.
             let query = args.get("query").and_then(Value::as_str).unwrap_or("");
             let favorites = args.get("favorites").and_then(Value::as_bool).unwrap_or(false);
+            let all = args.get("all").and_then(Value::as_bool).unwrap_or(false);
             let limit = args.get("limit").and_then(Value::as_u64).map_or(MAX_RESULTS, |n| (n as usize).clamp(1, MAX_LIST));
-            find(app, Query::Text(query), favorites, limit).await
+            find(app, Query::Text(query), favorites, all, limit).await
+        }
+        "item_view" => {
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            super::items_view::view(app, id).await
+        }
+        "reveal" => {
+            // A secret the user asked to see in the popup: a field, or an
+            // old password.
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let field = args.get("fieldId").and_then(Value::as_str);
+            let history = args.get("history").and_then(Value::as_u64).map(|n| n as usize);
+            let value = super::items_view::secret(app, id, field, history).await?;
+            Ok(json!({ "value": value.as_str() }))
+        }
+        "change_items" => {
+            let ids: Vec<String> = args.get("ids").and_then(Value::as_array).ok_or("bad_request")?.iter().filter_map(Value::as_str).map(str::to_string).collect();
+            if ids.is_empty() || ids.len() > MAX_LIST {
+                return Err("bad_request");
+            }
+            let action = args.get("action").and_then(Value::as_str).ok_or("bad_request")?;
+            let on = args.get("on").and_then(Value::as_bool).unwrap_or(true);
+            super::items_view::change(app, &ids, action, on).await
+        }
+        "save_attachment" => {
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let attachment = args.get("attachmentId").and_then(Value::as_str).ok_or("bad_request")?;
+            let title = args.get("title").and_then(Value::as_str).unwrap_or("");
+            super::items_view::save_attachment(app, id, attachment, title).await
+        }
+        "edit_item" => {
+            // Opens the item in Keyless's editor (the popup does not edit).
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            {
+                let state = app.state::<AppState>();
+                let guard = state.session.lock().await;
+                let session = guard.as_ref().ok_or("locked")?;
+                if session.items.get(id).is_none_or(|i| i.overview.trashed_at.is_some()) {
+                    return Err("not_found");
+                }
+            }
+            crate::item_links::request(app, id, true);
+            Ok(Value::Null)
         }
         "site_alerts" => {
             // The serious Sentinel alerts of this website's logins, for the
@@ -392,15 +449,23 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             // Copied by the app: kept out of clipboard history and cleared
             // automatically, unlike a copy made by the browser.
             let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
-            let field = args.get("field").and_then(Value::as_str).ok_or("bad_request")?;
-            if !matches!(field, "username" | "password" | "totp") {
-                return Err("bad_request");
-            }
             let state = app.state::<AppState>();
-            let value = crate::items::copy_value(&state, id, None, Some(field)).await.map_err(|err| match err {
-                crate::error::AppError::Locked => "locked",
-                _ => "not_found",
-            })?;
+            // Any field of any item (`fieldId`), an old password (`history`),
+            // or a login's username, password or code (`field`).
+            let field_id = args.get("fieldId").and_then(Value::as_str);
+            let history = args.get("history").and_then(Value::as_u64).map(|n| n as usize);
+            let value = if field_id.is_some() || history.is_some() {
+                super::items_view::secret(app, id, field_id, history).await?
+            } else {
+                let field = args.get("field").and_then(Value::as_str).ok_or("bad_request")?;
+                if !matches!(field, "username" | "password" | "totp") {
+                    return Err("bad_request");
+                }
+                crate::items::copy_value(&state, id, None, Some(field)).await.map_err(|err| match err {
+                    crate::error::AppError::Locked => "locked",
+                    _ => "not_found",
+                })?
+            };
             crate::commands::record_use(&state, id);
             let seconds = state.settings().clipboard_clear_seconds;
             let generation = state.clipboard.copy(value, true).map_err(|_| "clipboard")?;
@@ -528,7 +593,7 @@ fn is_fillable(category: Category) -> bool {
     )
 }
 
-async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, limit: usize) -> Result<Value, &'static str> {
+async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, limit: usize) -> Result<Value, &'static str> {
     let state = app.state::<AppState>();
     let guard = state.session.lock().await;
     let session = guard.as_ref().ok_or("locked")?;
@@ -547,7 +612,7 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, limit: usize) 
     let mut results: Vec<(u8, i64, Value)> = Vec::new();
     for (id, item) in &session.items {
         let o = &item.overview;
-        if o.trashed_at.is_some() || o.archived || !is_fillable(o.category) || (favorites && !o.favorite) {
+        if o.trashed_at.is_some() || o.archived || !(all || is_fillable(o.category)) || (favorites && !o.favorite) {
             continue;
         }
         let score = match &page {
@@ -575,6 +640,7 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, limit: usize) 
                 "vault": vault,
                 "vaultId": item.vault_id,
                 "favorite": o.favorite,
+                "category": o.category,
             }),
         ));
     }

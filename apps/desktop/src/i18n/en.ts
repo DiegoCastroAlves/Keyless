@@ -628,6 +628,7 @@ const en = {
     location: "location",
     date: "date",
     document: "document",
+    website: "website",
   },
   categories: {
     login: "Login",

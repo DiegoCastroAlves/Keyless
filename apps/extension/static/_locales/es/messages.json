@@ -468,7 +468,7 @@
     "message": "Usados recientemente"
   },
   "listAll": {
-    "message": "Todos los inicios de sesión"
+    "message": "Todos los elementos"
   },
   "searchResults": {
     "message": "Resultados de la búsqueda"
@@ -488,7 +488,7 @@
     "message": "Aún no hay favoritos. Marca inicios de sesión con la estrella en Keyless."
   },
   "noLogins": {
-    "message": "Aún no hay inicios de sesión."
+    "message": "Aún no hay elementos."
   },
   "fillShort": {
     "message": "Rellenar"
@@ -859,5 +859,358 @@
   },
   "secretKind_webhook_secret": {
     "message": "secreto de webhook"
+  },
+  "fl_username": {
+    "message": "nombre de usuario"
+  },
+  "fl_password": {
+    "message": "contraseña"
+  },
+  "fl_one_time_password": {
+    "message": "contraseña de un solo uso"
+  },
+  "fl_cardholder_name": {
+    "message": "titular de la tarjeta"
+  },
+  "fl_number": {
+    "message": "número"
+  },
+  "fl_expiry_date": {
+    "message": "fecha de caducidad"
+  },
+  "fl_verification_number": {
+    "message": "código de seguridad"
+  },
+  "fl_pin": {
+    "message": "PIN"
+  },
+  "fl_type": {
+    "message": "tipo"
+  },
+  "fl_first_name": {
+    "message": "nombre"
+  },
+  "fl_last_name": {
+    "message": "apellidos"
+  },
+  "fl_birth_date": {
+    "message": "fecha de nacimiento"
+  },
+  "fl_email": {
+    "message": "correo electrónico"
+  },
+  "fl_phone": {
+    "message": "teléfono"
+  },
+  "fl_address": {
+    "message": "dirección"
+  },
+  "fl_city": {
+    "message": "ciudad"
+  },
+  "fl_state": {
+    "message": "estado o provincia"
+  },
+  "fl_zip_code": {
+    "message": "código postal"
+  },
+  "fl_country": {
+    "message": "país"
+  },
+  "fl_document_number": {
+    "message": "número de documento"
+  },
+  "fl_bank_name": {
+    "message": "banco"
+  },
+  "fl_name_on_account": {
+    "message": "titular de la cuenta"
+  },
+  "fl_branch": {
+    "message": "sucursal"
+  },
+  "fl_account_number": {
+    "message": "número de cuenta"
+  },
+  "fl_iban": {
+    "message": "IBAN"
+  },
+  "fl_swift": {
+    "message": "SWIFT"
+  },
+  "fl_credential": {
+    "message": "credencial"
+  },
+  "fl_hostname": {
+    "message": "nombre de host"
+  },
+  "fl_expires": {
+    "message": "caduca"
+  },
+  "fl_server": {
+    "message": "servidor"
+  },
+  "fl_port": {
+    "message": "puerto"
+  },
+  "fl_database": {
+    "message": "base de datos"
+  },
+  "fl_url": {
+    "message": "URL"
+  },
+  "fl_private_key": {
+    "message": "clave privada"
+  },
+  "fl_public_key": {
+    "message": "clave pública"
+  },
+  "fl_fingerprint": {
+    "message": "huella"
+  },
+  "fl_license_key": {
+    "message": "clave de licencia"
+  },
+  "fl_version": {
+    "message": "versión"
+  },
+  "fl_licensed_to": {
+    "message": "licenciado a"
+  },
+  "fl_registered_email": {
+    "message": "correo registrado"
+  },
+  "fl_purchase_date": {
+    "message": "fecha de compra"
+  },
+  "fl_network_name": {
+    "message": "nombre de la red"
+  },
+  "fl_wireless_password": {
+    "message": "contraseña de la red"
+  },
+  "fl_security": {
+    "message": "seguridad"
+  },
+  "fl_admin_password": {
+    "message": "contraseña de administrador"
+  },
+  "fl_imap_server": {
+    "message": "servidor IMAP"
+  },
+  "fl_smtp_server": {
+    "message": "servidor SMTP"
+  },
+  "fl_full_name": {
+    "message": "nombre completo"
+  },
+  "fl_issuing_country": {
+    "message": "país emisor"
+  },
+  "fl_nationality": {
+    "message": "nacionalidad"
+  },
+  "fl_issued_on": {
+    "message": "fecha de expedición"
+  },
+  "fl_category": {
+    "message": "categoría"
+  },
+  "fl_group": {
+    "message": "grupo"
+  },
+  "fl_member_name": {
+    "message": "nombre del miembro"
+  },
+  "fl_member_id": {
+    "message": "ID de miembro"
+  },
+  "fl_recovery_phrase": {
+    "message": "frase de recuperación"
+  },
+  "fl_wallet_address": {
+    "message": "dirección del monedero"
+  },
+  "fl_patient": {
+    "message": "paciente"
+  },
+  "fl_healthcare_professional": {
+    "message": "profesional sanitario"
+  },
+  "fl_location": {
+    "message": "ubicación"
+  },
+  "fl_date": {
+    "message": "fecha"
+  },
+  "fl_document": {
+    "message": "documento"
+  },
+  "fl_website": {
+    "message": "sitio web"
+  },
+  "cat_login": {
+    "message": "Inicio de sesión"
+  },
+  "cat_password": {
+    "message": "Contraseña"
+  },
+  "cat_secure_note": {
+    "message": "Nota segura"
+  },
+  "cat_credit_card": {
+    "message": "Tarjeta de crédito"
+  },
+  "cat_identity": {
+    "message": "Identidad"
+  },
+  "cat_bank_account": {
+    "message": "Cuenta bancaria"
+  },
+  "cat_api_credential": {
+    "message": "Credencial de API"
+  },
+  "cat_database": {
+    "message": "Base de datos"
+  },
+  "cat_server": {
+    "message": "Servidor"
+  },
+  "cat_ssh_key": {
+    "message": "Clave SSH"
+  },
+  "cat_software_license": {
+    "message": "Licencia de software"
+  },
+  "cat_wireless_router": {
+    "message": "Red Wi-Fi"
+  },
+  "cat_email_account": {
+    "message": "Cuenta de correo"
+  },
+  "cat_passport": {
+    "message": "Pasaporte"
+  },
+  "cat_driver_license": {
+    "message": "Permiso de conducir"
+  },
+  "cat_membership": {
+    "message": "Membresía"
+  },
+  "cat_crypto_wallet": {
+    "message": "Monedero de criptomonedas"
+  },
+  "cat_medical_record": {
+    "message": "Historial médico"
+  },
+  "cat_document": {
+    "message": "Documento"
+  },
+  "cat_other": {
+    "message": "Otro"
+  },
+  "listCategories": {
+    "message": "Categorías"
+  },
+  "editInKeyless": {
+    "message": "Editar en Keyless"
+  },
+  "favoriteAdd": {
+    "message": "Añadir a favoritos"
+  },
+  "favoriteRemove": {
+    "message": "Quitar de favoritos"
+  },
+  "archive": {
+    "message": "Archivar"
+  },
+  "unarchive": {
+    "message": "Desarchivar"
+  },
+  "moveToTrash": {
+    "message": "Mover a la papelera"
+  },
+  "trashConfirmOne": {
+    "message": "¿Mover «$TITLE$» a la papelera? Puedes restaurarlo en Keyless, en Eliminados recientemente.",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "trashConfirmMany": {
+    "message": "¿Mover $COUNT$ elementos a la papelera? Puedes restaurarlos en Keyless, en Eliminados recientemente.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectedCount": {
+    "message": "$COUNT$ elementos seleccionados",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectionHint": {
+    "message": "Ctrl+clic elige más elementos; Mayús+clic, un intervalo."
+  },
+  "clearSelection": {
+    "message": "Borrar selección"
+  },
+  "doneShort": {
+    "message": "Listo"
+  },
+  "readOnlyVault": {
+    "message": "Esta bóveda es de solo lectura."
+  },
+  "notesTitle": {
+    "message": "Notas"
+  },
+  "attachmentsTitle": {
+    "message": "Archivos adjuntos"
+  },
+  "saveFile": {
+    "message": "Guardar"
+  },
+  "saveFileTitle": {
+    "message": "Guardar archivo"
+  },
+  "saveFileHint": {
+    "message": "Keyless pregunta dónde guardarlo."
+  },
+  "passwordHistory": {
+    "message": "Historial de contraseñas"
+  },
+  "largeType": {
+    "message": "Mostrar en letra grande"
+  },
+  "openMap": {
+    "message": "Abrir en el mapa"
+  },
+  "tagsTitle": {
+    "message": "Etiquetas"
+  },
+  "passkeyLabel": {
+    "message": "llave de acceso"
+  },
+  "passkeySaved": {
+    "message": "Guardada para este sitio"
+  },
+  "createdOn": {
+    "message": "Creado el $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "archivedNote": {
+    "message": "En el archivo"
+  },
+  "showItem": {
+    "message": "Mostrar elemento"
   }
 }

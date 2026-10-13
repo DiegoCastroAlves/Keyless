@@ -468,7 +468,7 @@
     "message": "Usados recentemente"
   },
   "listAll": {
-    "message": "Todos os logins"
+    "message": "Todos os itens"
   },
   "searchResults": {
     "message": "Resultados da busca"
@@ -488,7 +488,7 @@
     "message": "Nenhum favorito ainda. Marque logins com a estrela no Keyless."
   },
   "noLogins": {
-    "message": "Nenhum login ainda."
+    "message": "Nenhum item ainda."
   },
   "fillShort": {
     "message": "Preencher"
@@ -859,5 +859,358 @@
   },
   "secretKind_webhook_secret": {
     "message": "segredo de webhook"
+  },
+  "fl_username": {
+    "message": "nome de usuário"
+  },
+  "fl_password": {
+    "message": "senha"
+  },
+  "fl_one_time_password": {
+    "message": "código de verificação"
+  },
+  "fl_cardholder_name": {
+    "message": "nome do titular"
+  },
+  "fl_number": {
+    "message": "número"
+  },
+  "fl_expiry_date": {
+    "message": "data de validade"
+  },
+  "fl_verification_number": {
+    "message": "código de segurança"
+  },
+  "fl_pin": {
+    "message": "PIN"
+  },
+  "fl_type": {
+    "message": "tipo"
+  },
+  "fl_first_name": {
+    "message": "nome"
+  },
+  "fl_last_name": {
+    "message": "sobrenome"
+  },
+  "fl_birth_date": {
+    "message": "data de nascimento"
+  },
+  "fl_email": {
+    "message": "e-mail"
+  },
+  "fl_phone": {
+    "message": "telefone"
+  },
+  "fl_address": {
+    "message": "endereço"
+  },
+  "fl_city": {
+    "message": "cidade"
+  },
+  "fl_state": {
+    "message": "estado"
+  },
+  "fl_zip_code": {
+    "message": "CEP"
+  },
+  "fl_country": {
+    "message": "país"
+  },
+  "fl_document_number": {
+    "message": "número do documento"
+  },
+  "fl_bank_name": {
+    "message": "banco"
+  },
+  "fl_name_on_account": {
+    "message": "titular da conta"
+  },
+  "fl_branch": {
+    "message": "agência"
+  },
+  "fl_account_number": {
+    "message": "número da conta"
+  },
+  "fl_iban": {
+    "message": "IBAN"
+  },
+  "fl_swift": {
+    "message": "SWIFT"
+  },
+  "fl_credential": {
+    "message": "credencial"
+  },
+  "fl_hostname": {
+    "message": "nome do host"
+  },
+  "fl_expires": {
+    "message": "expira em"
+  },
+  "fl_server": {
+    "message": "servidor"
+  },
+  "fl_port": {
+    "message": "porta"
+  },
+  "fl_database": {
+    "message": "banco de dados"
+  },
+  "fl_url": {
+    "message": "URL"
+  },
+  "fl_private_key": {
+    "message": "chave privada"
+  },
+  "fl_public_key": {
+    "message": "chave pública"
+  },
+  "fl_fingerprint": {
+    "message": "impressão digital"
+  },
+  "fl_license_key": {
+    "message": "chave de licença"
+  },
+  "fl_version": {
+    "message": "versão"
+  },
+  "fl_licensed_to": {
+    "message": "licenciado para"
+  },
+  "fl_registered_email": {
+    "message": "e-mail cadastrado"
+  },
+  "fl_purchase_date": {
+    "message": "data da compra"
+  },
+  "fl_network_name": {
+    "message": "nome da rede"
+  },
+  "fl_wireless_password": {
+    "message": "senha do Wi-Fi"
+  },
+  "fl_security": {
+    "message": "segurança"
+  },
+  "fl_admin_password": {
+    "message": "senha de administrador"
+  },
+  "fl_imap_server": {
+    "message": "servidor IMAP"
+  },
+  "fl_smtp_server": {
+    "message": "servidor SMTP"
+  },
+  "fl_full_name": {
+    "message": "nome completo"
+  },
+  "fl_issuing_country": {
+    "message": "país emissor"
+  },
+  "fl_nationality": {
+    "message": "nacionalidade"
+  },
+  "fl_issued_on": {
+    "message": "data de emissão"
+  },
+  "fl_category": {
+    "message": "categoria"
+  },
+  "fl_group": {
+    "message": "grupo"
+  },
+  "fl_member_name": {
+    "message": "nome do membro"
+  },
+  "fl_member_id": {
+    "message": "ID de membro"
+  },
+  "fl_recovery_phrase": {
+    "message": "frase de recuperação"
+  },
+  "fl_wallet_address": {
+    "message": "endereço da carteira"
+  },
+  "fl_patient": {
+    "message": "paciente"
+  },
+  "fl_healthcare_professional": {
+    "message": "profissional de saúde"
+  },
+  "fl_location": {
+    "message": "local"
+  },
+  "fl_date": {
+    "message": "data"
+  },
+  "fl_document": {
+    "message": "documento"
+  },
+  "fl_website": {
+    "message": "site"
+  },
+  "cat_login": {
+    "message": "Login"
+  },
+  "cat_password": {
+    "message": "Senha"
+  },
+  "cat_secure_note": {
+    "message": "Nota segura"
+  },
+  "cat_credit_card": {
+    "message": "Cartão de crédito"
+  },
+  "cat_identity": {
+    "message": "Identidade"
+  },
+  "cat_bank_account": {
+    "message": "Conta bancária"
+  },
+  "cat_api_credential": {
+    "message": "Credencial de API"
+  },
+  "cat_database": {
+    "message": "Banco de dados"
+  },
+  "cat_server": {
+    "message": "Servidor"
+  },
+  "cat_ssh_key": {
+    "message": "Chave SSH"
+  },
+  "cat_software_license": {
+    "message": "Licença de software"
+  },
+  "cat_wireless_router": {
+    "message": "Rede Wi-Fi"
+  },
+  "cat_email_account": {
+    "message": "Conta de e-mail"
+  },
+  "cat_passport": {
+    "message": "Passaporte"
+  },
+  "cat_driver_license": {
+    "message": "Carteira de motorista"
+  },
+  "cat_membership": {
+    "message": "Associação"
+  },
+  "cat_crypto_wallet": {
+    "message": "Carteira de criptomoedas"
+  },
+  "cat_medical_record": {
+    "message": "Registro médico"
+  },
+  "cat_document": {
+    "message": "Documento"
+  },
+  "cat_other": {
+    "message": "Outro"
+  },
+  "listCategories": {
+    "message": "Categorias"
+  },
+  "editInKeyless": {
+    "message": "Editar no Keyless"
+  },
+  "favoriteAdd": {
+    "message": "Favoritar"
+  },
+  "favoriteRemove": {
+    "message": "Remover dos favoritos"
+  },
+  "archive": {
+    "message": "Arquivar"
+  },
+  "unarchive": {
+    "message": "Desarquivar"
+  },
+  "moveToTrash": {
+    "message": "Mover para a lixeira"
+  },
+  "trashConfirmOne": {
+    "message": "Mover “$TITLE$” para a lixeira? Dá para restaurar no Keyless, em Excluídos recentemente.",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "trashConfirmMany": {
+    "message": "Mover $COUNT$ itens para a lixeira? Dá para restaurar no Keyless, em Excluídos recentemente.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectedCount": {
+    "message": "$COUNT$ itens selecionados",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectionHint": {
+    "message": "Ctrl+clique escolhe mais itens; Shift+clique, um intervalo."
+  },
+  "clearSelection": {
+    "message": "Limpar seleção"
+  },
+  "doneShort": {
+    "message": "Pronto"
+  },
+  "readOnlyVault": {
+    "message": "Este cofre é só para leitura."
+  },
+  "notesTitle": {
+    "message": "Notas"
+  },
+  "attachmentsTitle": {
+    "message": "Anexos"
+  },
+  "saveFile": {
+    "message": "Salvar"
+  },
+  "saveFileTitle": {
+    "message": "Salvar anexo"
+  },
+  "saveFileHint": {
+    "message": "O Keyless pergunta onde salvar."
+  },
+  "passwordHistory": {
+    "message": "Histórico de senhas"
+  },
+  "largeType": {
+    "message": "Mostrar em letras grandes"
+  },
+  "openMap": {
+    "message": "Abrir no mapa"
+  },
+  "tagsTitle": {
+    "message": "Tags"
+  },
+  "passkeyLabel": {
+    "message": "chave de acesso"
+  },
+  "passkeySaved": {
+    "message": "Salva para este site"
+  },
+  "createdOn": {
+    "message": "Criado em $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "archivedNote": {
+    "message": "No arquivo"
+  },
+  "showItem": {
+    "message": "Mostrar item"
   }
 }

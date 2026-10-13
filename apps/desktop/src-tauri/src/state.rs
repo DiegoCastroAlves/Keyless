@@ -294,8 +294,9 @@ pub struct AppState {
     pub ssh: crate::ssh_agent::SshState,
     /// Sentinel's last online check.
     pub sentinel: crate::health::SentinelState,
-    /// An item a `keyless://` link asked for, until the main window shows it.
-    pub item_request: Mutex<Option<String>>,
+    /// An item a `keyless://` link (or the browser extension) asked for,
+    /// until the main window shows it.
+    pub item_request: Mutex<Option<crate::item_links::ItemRequest>>,
 }
 
 impl AppState {

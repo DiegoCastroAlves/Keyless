@@ -1693,9 +1693,34 @@ async function handlePopup(message: any): Promise<Reply> {
         data: await call<Login[]>("search", {
           query: String(message.query ?? ""),
           favorites: message.favorites === true,
+          all: message.all === true,
           ...(typeof message.limit === "number" ? { limit: message.limit } : {}),
         }),
       };
+    case "item_view":
+      // Any item, as the popup shows it (secrets only when asked for).
+      return { ok: true, data: await call("item_view", { id: String(message.id) }) };
+    case "reveal":
+      return {
+        ok: true,
+        data: await call("reveal", {
+          id: String(message.id),
+          ...(typeof message.fieldId === "string" ? { fieldId: message.fieldId } : {}),
+          ...(typeof message.history === "number" ? { history: message.history } : {}),
+        }),
+      };
+    case "change_items": {
+      // Favorite, archive or trash, for one item or several.
+      const ids = Array.isArray(message.ids) ? message.ids.filter((id: unknown) => typeof id === "string") : [];
+      const data = await call("change_items", { ids, action: String(message.action), on: message.on !== false });
+      await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
+      return { ok: true, data };
+    }
+    case "save_attachment":
+      // Saved by Keyless, where the user chooses in its own dialog.
+      return { ok: true, data: await call("save_attachment", { id: String(message.id), attachmentId: String(message.attachmentId), title: String(message.title ?? "") }) };
+    case "edit_item":
+      return { ok: true, data: await call("edit_item", { id: String(message.id) }) };
     case "details":
       return { ok: true, data: await call("item_details", { id: String(message.id), reveal: message.reveal === true }) };
     case "open_app":
@@ -1745,7 +1770,13 @@ async function handlePopup(message: any): Promise<Reply> {
       return { ok: true };
     }
     case "copy":
-      return { ok: true, data: await call("copy", { id: String(message.id), field: String(message.field) }) };
+      return {
+        ok: true,
+        data: await call("copy", {
+          id: String(message.id),
+          ...(typeof message.fieldId === "string" ? { fieldId: message.fieldId } : typeof message.history === "number" ? { history: message.history } : { field: String(message.field) }),
+        }),
+      };
     case "scan_page_qr": {
       // The popup's "Read QR code on the page": the code, and the page's
       // logins to keep it in.

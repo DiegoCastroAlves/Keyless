@@ -33,8 +33,8 @@ export function useActivityHeartbeat(enabled: boolean) {
 
 /** Shows the item a keyless:// link asked for, if any. */
 async function takeItemRequest() {
-  const id = await api.takeItemRequest().catch(() => null);
-  if (id) showLinkedItem(id);
+  const request = await api.takeItemRequest().catch(() => null);
+  if (request) showLinkedItem(request.id, request.edit);
 }
 
 export function App() {

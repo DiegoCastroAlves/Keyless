@@ -21,6 +21,7 @@ pub mod crypto;
 pub mod forms;
 pub mod passkeys;
 pub mod handlers;
+pub mod items_view;
 pub mod host;
 pub mod install;
 pub mod logins;

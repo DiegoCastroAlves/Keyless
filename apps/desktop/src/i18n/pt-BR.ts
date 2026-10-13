@@ -631,6 +631,7 @@ const ptBR: Translations = {
     location: "local",
     date: "data",
     document: "documento",
+    website: "site",
   },
   categories: {
     login: "Login",

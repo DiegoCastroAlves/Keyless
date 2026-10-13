@@ -1134,3 +1134,205 @@ input.switch:checked::after {
   gap: 6px;
   margin-top: 10px;
 }
+
+/* ----- Every kind of item ----- */
+
+.avatar.glyph {
+  background: var(--panel-3);
+  color: var(--muted);
+}
+
+.detail-head .avatar.glyph svg {
+  width: 22px;
+  height: 22px;
+}
+
+.item.picked {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+button.tool.on {
+  color: #f59e0b;
+}
+
+button.tool.on svg path {
+  fill: currentColor;
+}
+
+button.primary.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+button.secondary.danger,
+.menu-item.danger {
+  color: var(--danger);
+}
+
+.field .value .multiline {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.field .value:has(.multiline) {
+  white-space: normal;
+}
+
+button.section.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.section.toggle:hover {
+  color: var(--text);
+}
+
+.card.notes {
+  padding: 10px 14px;
+  user-select: text;
+}
+
+.markdown {
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.markdown > * {
+  margin: 0 0 8px;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  white-space: pre-wrap;
+}
+
+.markdown .md-h {
+  font-weight: 600;
+}
+
+.markdown .md-h1 {
+  font-size: 16px;
+}
+
+.markdown .md-h2 {
+  font-size: 14.5px;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 20px;
+}
+
+.markdown li.task {
+  margin-left: -18px;
+  list-style: none;
+}
+
+.markdown li.task input {
+  margin: 0 6px 0 0;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
+.markdown code,
+.markdown pre {
+  border-radius: 6px;
+  background: var(--panel-3);
+  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", monospace;
+  font-size: 12px;
+}
+
+.markdown code {
+  padding: 1px 4px;
+}
+
+.markdown pre {
+  overflow-x: auto;
+  padding: 8px 10px;
+}
+
+.markdown blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--muted);
+}
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+
+.tag {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.bulk-head h1 {
+  margin: 4px 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.bulk-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.bulk-actions button {
+  justify-content: flex-start;
+}
+
+.dialog.large-type {
+  max-width: 560px;
+}
+
+.large-cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.large-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 34px;
+  padding: 4px 2px 3px;
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.large-char {
+  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "SF Mono", monospace;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.large-index {
+  color: var(--subtle);
+  font-size: 10px;
+}

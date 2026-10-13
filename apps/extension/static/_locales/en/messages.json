@@ -468,7 +468,7 @@
     "message": "Recently used"
   },
   "listAll": {
-    "message": "All logins"
+    "message": "All items"
   },
   "searchResults": {
     "message": "Search results"
@@ -488,7 +488,7 @@
     "message": "No favorites yet. Mark logins with a star in Keyless."
   },
   "noLogins": {
-    "message": "No logins yet."
+    "message": "No items yet."
   },
   "fillShort": {
     "message": "Fill"
@@ -859,5 +859,358 @@
   },
   "secretKind_webhook_secret": {
     "message": "webhook secret"
+  },
+  "fl_username": {
+    "message": "username"
+  },
+  "fl_password": {
+    "message": "password"
+  },
+  "fl_one_time_password": {
+    "message": "one-time password"
+  },
+  "fl_cardholder_name": {
+    "message": "cardholder name"
+  },
+  "fl_number": {
+    "message": "number"
+  },
+  "fl_expiry_date": {
+    "message": "expiry date"
+  },
+  "fl_verification_number": {
+    "message": "verification number"
+  },
+  "fl_pin": {
+    "message": "PIN"
+  },
+  "fl_type": {
+    "message": "type"
+  },
+  "fl_first_name": {
+    "message": "first name"
+  },
+  "fl_last_name": {
+    "message": "last name"
+  },
+  "fl_birth_date": {
+    "message": "birth date"
+  },
+  "fl_email": {
+    "message": "email"
+  },
+  "fl_phone": {
+    "message": "phone"
+  },
+  "fl_address": {
+    "message": "address"
+  },
+  "fl_city": {
+    "message": "city"
+  },
+  "fl_state": {
+    "message": "state"
+  },
+  "fl_zip_code": {
+    "message": "zip code"
+  },
+  "fl_country": {
+    "message": "country"
+  },
+  "fl_document_number": {
+    "message": "document number"
+  },
+  "fl_bank_name": {
+    "message": "bank name"
+  },
+  "fl_name_on_account": {
+    "message": "name on account"
+  },
+  "fl_branch": {
+    "message": "branch"
+  },
+  "fl_account_number": {
+    "message": "account number"
+  },
+  "fl_iban": {
+    "message": "IBAN"
+  },
+  "fl_swift": {
+    "message": "SWIFT"
+  },
+  "fl_credential": {
+    "message": "credential"
+  },
+  "fl_hostname": {
+    "message": "hostname"
+  },
+  "fl_expires": {
+    "message": "expires"
+  },
+  "fl_server": {
+    "message": "server"
+  },
+  "fl_port": {
+    "message": "port"
+  },
+  "fl_database": {
+    "message": "database"
+  },
+  "fl_url": {
+    "message": "URL"
+  },
+  "fl_private_key": {
+    "message": "private key"
+  },
+  "fl_public_key": {
+    "message": "public key"
+  },
+  "fl_fingerprint": {
+    "message": "fingerprint"
+  },
+  "fl_license_key": {
+    "message": "license key"
+  },
+  "fl_version": {
+    "message": "version"
+  },
+  "fl_licensed_to": {
+    "message": "licensed to"
+  },
+  "fl_registered_email": {
+    "message": "registered email"
+  },
+  "fl_purchase_date": {
+    "message": "purchase date"
+  },
+  "fl_network_name": {
+    "message": "network name"
+  },
+  "fl_wireless_password": {
+    "message": "wireless password"
+  },
+  "fl_security": {
+    "message": "security"
+  },
+  "fl_admin_password": {
+    "message": "admin password"
+  },
+  "fl_imap_server": {
+    "message": "IMAP server"
+  },
+  "fl_smtp_server": {
+    "message": "SMTP server"
+  },
+  "fl_full_name": {
+    "message": "full name"
+  },
+  "fl_issuing_country": {
+    "message": "issuing country"
+  },
+  "fl_nationality": {
+    "message": "nationality"
+  },
+  "fl_issued_on": {
+    "message": "issued on"
+  },
+  "fl_category": {
+    "message": "category"
+  },
+  "fl_group": {
+    "message": "group"
+  },
+  "fl_member_name": {
+    "message": "member name"
+  },
+  "fl_member_id": {
+    "message": "member ID"
+  },
+  "fl_recovery_phrase": {
+    "message": "recovery phrase"
+  },
+  "fl_wallet_address": {
+    "message": "wallet address"
+  },
+  "fl_patient": {
+    "message": "patient"
+  },
+  "fl_healthcare_professional": {
+    "message": "healthcare professional"
+  },
+  "fl_location": {
+    "message": "location"
+  },
+  "fl_date": {
+    "message": "date"
+  },
+  "fl_document": {
+    "message": "document"
+  },
+  "fl_website": {
+    "message": "website"
+  },
+  "cat_login": {
+    "message": "Login"
+  },
+  "cat_password": {
+    "message": "Password"
+  },
+  "cat_secure_note": {
+    "message": "Secure Note"
+  },
+  "cat_credit_card": {
+    "message": "Credit Card"
+  },
+  "cat_identity": {
+    "message": "Identity"
+  },
+  "cat_bank_account": {
+    "message": "Bank Account"
+  },
+  "cat_api_credential": {
+    "message": "API Credential"
+  },
+  "cat_database": {
+    "message": "Database"
+  },
+  "cat_server": {
+    "message": "Server"
+  },
+  "cat_ssh_key": {
+    "message": "SSH Key"
+  },
+  "cat_software_license": {
+    "message": "Software License"
+  },
+  "cat_wireless_router": {
+    "message": "Wi-Fi Network"
+  },
+  "cat_email_account": {
+    "message": "Email Account"
+  },
+  "cat_passport": {
+    "message": "Passport"
+  },
+  "cat_driver_license": {
+    "message": "Driver License"
+  },
+  "cat_membership": {
+    "message": "Membership"
+  },
+  "cat_crypto_wallet": {
+    "message": "Crypto Wallet"
+  },
+  "cat_medical_record": {
+    "message": "Medical Record"
+  },
+  "cat_document": {
+    "message": "Document"
+  },
+  "cat_other": {
+    "message": "Other"
+  },
+  "listCategories": {
+    "message": "Categories"
+  },
+  "editInKeyless": {
+    "message": "Edit in Keyless"
+  },
+  "favoriteAdd": {
+    "message": "Add to favorites"
+  },
+  "favoriteRemove": {
+    "message": "Remove from favorites"
+  },
+  "archive": {
+    "message": "Archive"
+  },
+  "unarchive": {
+    "message": "Unarchive"
+  },
+  "moveToTrash": {
+    "message": "Move to trash"
+  },
+  "trashConfirmOne": {
+    "message": "Move “$TITLE$” to the trash? You can restore it in Keyless, under Recently deleted.",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "trashConfirmMany": {
+    "message": "Move $COUNT$ items to the trash? You can restore them in Keyless, under Recently deleted.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectedCount": {
+    "message": "$COUNT$ items selected",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "selectionHint": {
+    "message": "Ctrl+click picks more items; Shift+click, a range."
+  },
+  "clearSelection": {
+    "message": "Clear selection"
+  },
+  "doneShort": {
+    "message": "Done"
+  },
+  "readOnlyVault": {
+    "message": "This vault is read-only."
+  },
+  "notesTitle": {
+    "message": "Notes"
+  },
+  "attachmentsTitle": {
+    "message": "Files"
+  },
+  "saveFile": {
+    "message": "Save"
+  },
+  "saveFileTitle": {
+    "message": "Save file"
+  },
+  "saveFileHint": {
+    "message": "Keyless asks where to save it."
+  },
+  "passwordHistory": {
+    "message": "Password history"
+  },
+  "largeType": {
+    "message": "Show in large type"
+  },
+  "openMap": {
+    "message": "Open in map"
+  },
+  "tagsTitle": {
+    "message": "Tags"
+  },
+  "passkeyLabel": {
+    "message": "passkey"
+  },
+  "passkeySaved": {
+    "message": "Saved for this website"
+  },
+  "createdOn": {
+    "message": "Created on $DATE$",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "archivedNote": {
+    "message": "In the archive"
+  },
+  "showItem": {
+    "message": "Show item"
   }
 }

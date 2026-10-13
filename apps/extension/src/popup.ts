@@ -6,6 +6,7 @@
 // the arrows move, Enter fills, Escape clears the search and then closes.
 
 import { avatar, hostOf } from "./avatar";
+import { renderMarkdown } from "./markdown";
 import { providerName } from "./providers";
 import type { Settings } from "./settings";
 import type { BrowserManager, Login, Status } from "./types";
@@ -58,6 +59,12 @@ const ICONS = {
   card: icon('<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>', 15),
   id: icon('<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 9h3M15 13h3M6 16a3 3 0 0 1 6 0"/>', 15),
   password: icon('<rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M12 12h.01M17 12h.01"/>', 15),
+  edit: icon('<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>', 15),
+  archive: icon('<rect x="2" y="4" width="20" height="5" rx="1"/><path d="M4 9v9a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9M10 13h4"/>', 15),
+  trash: icon('<path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>', 15),
+  download: icon('<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>', 15),
+  map: icon('<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/>', 15),
+  large: icon('<path d="M4 18 8.5 6 13 18M5.6 14h5.8M15 18v-5.5a2.5 2.5 0 0 1 5 0V18M15 15.5h5"/>', 15),
 };
 
 function iconButton(markup: string, title: string, run: (e: MouseEvent) => void, className = "tool"): HTMLButtonElement {
@@ -258,17 +265,41 @@ function renderLocked() {
 
 type ListKind = "suggestions" | "favorites" | "recent" | "all";
 
-interface Details {
+/** A field as the app shows it here (see bridge/items_view.rs): secret
+ * values only when the user asks for them. */
+interface FieldView {
+  id: string;
+  label: string;
+  kind: string;
+  purpose: "username" | "password" | "other" | null;
+  secret: boolean;
+  empty: boolean;
+  value?: string;
+  totp?: { code: string; period: number; expiresIn: number };
+  address?: Partial<Record<"street" | "line2" | "city" | "state" | "zip" | "country", string>>;
+  geo?: string;
+  link?: { id: string; title: string; subtitle: string };
+}
+
+/** Any item, as the details pane shows it. */
+interface ItemView {
   id: string;
   title: string;
-  username: string;
-  urls: { href: string; label: string }[];
+  subtitle: string;
+  category: string;
   vault: string;
   favorite: boolean;
-  hasPassword: boolean;
-  totp: { code: string; period: number; expiresIn: number } | null;
+  archived: boolean;
+  canEdit: boolean;
+  tags: string[];
+  urls: { href: string; label: string }[];
+  sections: { title: string; fields: FieldView[] }[];
+  notes: string;
+  attachments: { id: string; name: string; size: number }[];
+  history: { index: number; changedAt: number }[];
+  passkeys: number;
+  createdAt: number;
   updatedAt: number;
-  password?: string;
 }
 
 const LIST_KINDS: { kind: ListKind; label: string; icon: string }[] = [
@@ -278,6 +309,43 @@ const LIST_KINDS: { kind: ListKind; label: string; icon: string }[] = [
   { kind: "all", label: "listAll", icon: ICONS.list },
 ];
 
+/** The kinds of item and their icons, as in the app. */
+const CATEGORY_ICONS: Record<string, string> = {
+  login: ICONS.login,
+  password: ICONS.password,
+  secure_note: ICONS.note,
+  credit_card: ICONS.card,
+  identity: ICONS.id,
+  bank_account: icon('<path d="M3 10h18M5 10v8M9 10v8M15 10v8M19 10v8M3 20h18M12 3 3 8h18z"/>', 15),
+  api_credential: icon('<path d="M8 3H7a2 2 0 0 0-2 2v4a2 2 0 0 1-2 2 2 2 0 0 1 2 2v4a2 2 0 0 0 2 2h1M16 3h1a2 2 0 0 1 2 2v4a2 2 0 0 0 2 2 2 2 0 0 0-2 2v4a2 2 0 0 1-2 2h-1"/>', 15),
+  database: icon('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>', 15),
+  server: icon('<rect x="3" y="3" width="18" height="8" rx="2"/><rect x="3" y="13" width="18" height="8" rx="2"/><path d="M7 7h.01M7 17h.01"/>', 15),
+  ssh_key: icon('<path d="m4 17 6-6-6-6M12 19h8"/>', 15),
+  software_license: icon('<circle cx="12" cy="9" r="6"/><path d="m8.5 14-1.5 8 5-3 5 3-1.5-8"/>', 15),
+  wireless_router: icon('<path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M2 9a15 15 0 0 1 20 0M12 20h.01"/>', 15),
+  email_account: icon('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/>', 15),
+  passport: icon('<rect x="4" y="2" width="16" height="20" rx="2"/><circle cx="12" cy="10" r="3"/><path d="M8 17h8"/>', 15),
+  driver_license: icon('<rect x="2" y="5" width="20" height="14" rx="2"/><circle cx="8" cy="12" r="2"/><path d="M14 10h4M14 14h4"/>', 15),
+  membership: icon('<path d="M3 9a2 2 0 0 0 0 6v3a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3a2 2 0 0 0 0-6V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2zM13 4v16"/>', 15),
+  crypto_wallet: icon('<path d="M20 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0 0 4h15v14H5a2 2 0 0 1-2-2V5M16 14h.01"/>', 15),
+  medical_record: icon('<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8L12 21l8.8-8.6a5.5 5.5 0 0 0 0-7.8z"/>', 15),
+  document: ICONS.note,
+  other: icon('<circle cx="12" cy="12" r="9"/>', 15),
+};
+
+/** The kinds of item that fill sign-in forms (the app's `is_fillable`). */
+const LOGIN_LIKE = new Set(["login", "password", "email_account", "server", "database", "api_credential"]);
+
+const categoryName = (category: string) => chrome.i18n.getMessage(`cat_${category}`) || category;
+const categoryIcon = (category: string) => CATEGORY_ICONS[category] ?? CATEGORY_ICONS.other;
+
+/** A template's field label in the user's language, as the app shows it
+ * (labels are kept as the English words). */
+function fieldLabel(label: string): string {
+  const key = `fl_${label.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase()}`;
+  return (label && chrome.i18n.getMessage(key)) || label;
+}
+
 const view = {
   /** The page in the active tab, if it is a web page. */
   pageUrl: null as string | null,
@@ -285,15 +353,22 @@ const view = {
   /** Logins for the page (fillable as they are). */
   suggestions: [] as Login[],
   kind: "suggestions" as ListKind,
+  /** In the list of all items: only this kind of item. */
+  category: null as string | null,
+  /** The kinds of item the vault has (for the list menu). */
+  categories: [] as string[],
   query: "",
   items: [] as Login[],
   selected: 0,
-  details: null as Details | null,
-  revealed: false,
+  /** Items picked for an action on several (Ctrl or Shift and a click). */
+  picked: new Set<string>(),
+  details: null as ItemView | null,
   generatorOpen: false,
 };
 
 const fillable = (login: Login) => view.suggestions.some((s) => s.id === login.id);
+const allFields = (item: ItemView) => item.sections.flatMap((s) => s.fields);
+const byPurpose = (item: ItemView, purpose: "username" | "password") => allFields(item).find((f) => f.purpose === purpose && !f.empty);
 
 let listBox: HTMLElement;
 let listPicker: HTMLButtonElement;
@@ -311,9 +386,10 @@ async function renderVault() {
   brand.addEventListener("click", () => void send({ type: "open_app" }).then(() => window.close()));
 
   listPicker = el("button", { className: "list-picker", type: "button" });
-  listPicker.addEventListener("click", () => showListMenu());
+  listPicker.addEventListener("click", () => void showListMenu());
   listBox = el("div", { className: "items", role: "listbox", tabIndex: -1 });
   listBox.setAttribute("aria-label", t("listAll"));
+  listBox.setAttribute("aria-multiselectable", "true");
   detailPane = el("section", { className: "detail" });
 
   app.replaceChildren(
@@ -347,27 +423,36 @@ async function renderVault() {
   view.pageUrl = matches.data?.url ?? null;
   view.pageHost = view.pageUrl ? hostOf(view.pageUrl) : null;
   view.suggestions = matches.data?.logins ?? [];
-  // Suggestions first; with none for this page, the most recent logins.
+  // Suggestions first; with none for this page, the most recent items.
   view.kind = view.suggestions.length > 0 ? "suggestions" : "recent";
   await loadList();
+}
+
+/** Every item (not only logins), for the list of all items and its kinds. */
+async function allItems(): Promise<Login[]> {
+  const items = (await send<Login[]>({ type: "search", query: "", all: true, limit: 1000 })).data ?? [];
+  const kinds = new Set(items.map((item) => item.category ?? "login"));
+  view.categories = [...kinds].sort((a, b) => categoryName(a).localeCompare(categoryName(b)));
+  return items;
 }
 
 async function loadList() {
   let items: Login[];
   if (view.query) {
-    items = (await send<Login[]>({ type: "search", query: view.query, limit: 200 })).data ?? [];
+    items = (await send<Login[]>({ type: "search", query: view.query, all: true, limit: 200 })).data ?? [];
   } else if (view.kind === "suggestions") {
     items = view.suggestions;
   } else if (view.kind === "favorites") {
-    items = (await send<Login[]>({ type: "search", query: "", favorites: true, limit: 500 })).data ?? [];
+    items = (await send<Login[]>({ type: "search", query: "", favorites: true, all: true, limit: 500 })).data ?? [];
   } else if (view.kind === "recent") {
-    items = (await send<Login[]>({ type: "search", query: "", limit: 30 })).data ?? [];
+    items = (await send<Login[]>({ type: "search", query: "", all: true, limit: 30 })).data ?? [];
   } else {
-    items = (await send<Login[]>({ type: "search", query: "", limit: 1000 })).data ?? [];
+    items = (await allItems()).filter((item) => !view.category || (item.category ?? "login") === view.category);
     items.sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" }));
   }
   view.items = items;
   view.selected = 0;
+  view.picked.clear();
   renderPicker();
   renderList();
   void showSelected();
@@ -379,9 +464,10 @@ function renderPicker() {
     listPicker.replaceChildren(el("span", { className: "grow", textContent: t("searchResults") }), el("span", { className: "count", textContent: String(view.items.length) }));
     listPicker.disabled = true;
   } else {
+    const category = view.kind === "all" ? view.category : null;
     listPicker.replaceChildren(
-      svg(current.icon),
-      el("span", { className: "grow", textContent: t(current.label) }),
+      svg(category ? categoryIcon(category) : current.icon),
+      el("span", { className: "grow", textContent: category ? categoryName(category) : t(current.label) }),
       el("span", { className: "count", textContent: String(view.items.length) }),
       svg(ICONS.chevron),
     );
@@ -389,19 +475,18 @@ function renderPicker() {
   }
 }
 
-function showListMenu() {
-  showMenu(
-    listPicker,
-    LIST_KINDS.map((k) => ({
-      label: t(k.label),
-      icon: k.icon,
-      run: () => {
-        view.kind = k.kind;
-        void loadList().then(() => searchInput.focus());
-      },
-    })),
-    "left",
-  );
+async function showListMenu() {
+  if (view.categories.length === 0) await allItems();
+  const choose = (kind: ListKind, category: string | null) => () => {
+    view.kind = kind;
+    view.category = category;
+    void loadList().then(() => searchInput.focus());
+  };
+  const entries: (MenuEntry | "divider" | { header: string })[] = LIST_KINDS.map((k) => ({ label: t(k.label), icon: k.icon, run: choose(k.kind, null) }));
+  if (view.categories.length > 1) {
+    entries.push({ header: t("listCategories") }, ...view.categories.map((category) => ({ label: categoryName(category), icon: categoryIcon(category), run: choose("all", category) })));
+  }
+  showMenu(listPicker, entries, "left");
 }
 
 function emptyText(): string {
@@ -426,14 +511,31 @@ function renderList() {
   markSelected();
 }
 
+const STAR_BADGE = `<svg viewBox="0 0 24 24" width="10" height="10"><path fill="currentColor" d="m12 2.5 2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z"/></svg>`;
+
+/** An item without a website: its kind's icon. */
+function categoryAvatar(category: string, favorite: boolean): HTMLElement {
+  const box = el("span", { className: "avatar glyph" }, svg(categoryIcon(category)));
+  if (favorite) box.append(el("span", { className: "star" }, svg(STAR_BADGE)));
+  return box;
+}
+
+function listAvatar(login: Login, pageUrl?: string): HTMLElement {
+  const category = login.category ?? "login";
+  return category === "login" || login.url ? avatar(login, pageUrl) : categoryAvatar(category, login.favorite);
+}
+
 function listRow(login: Login, index: number): HTMLElement {
   const canFill = fillable(login);
+  const category = login.category ?? "login";
   const through = login.signInWith ? (login.providerAccount ? t("signInWithAccount", providerName(login.signInWith), login.providerAccount) : t("signInWith", providerName(login.signInWith))) : "";
-  const sub = login.frame ? [login.username, t("inFrame", login.frame)].filter(Boolean).join(" · ") : through || login.username || login.vault;
+  const sub = login.frame
+    ? [login.username, t("inFrame", login.frame)].filter(Boolean).join(" · ")
+    : through || login.username || (category === "login" ? login.vault : categoryName(category));
   const node = el(
     "div",
     { className: "item", role: "option", id: `item-${index}` },
-    avatar(login, canFill ? (view.pageUrl ?? undefined) : undefined),
+    listAvatar(login, canFill ? (view.pageUrl ?? undefined) : undefined),
     el("span", { className: "text" }, el("span", { className: "title", textContent: login.title }), el("span", { className: "sub", textContent: sub })),
   );
   if (canFill) {
@@ -444,7 +546,16 @@ function listRow(login: Login, index: number): HTMLElement {
     });
     node.append(chip);
   }
-  node.addEventListener("click", () => select(index));
+  node.addEventListener("click", (e) => {
+    if (e.ctrlKey || e.metaKey) return pick(index, "toggle");
+    if (e.shiftKey) return pick(index, "range");
+    if (view.picked.size > 0) {
+      view.picked.clear();
+      markSelected();
+      if (index === view.selected) return void showSelected();
+    }
+    select(index);
+  });
   node.addEventListener("dblclick", () => void defaultAction());
   return node;
 }
@@ -452,8 +563,10 @@ function listRow(login: Login, index: number): HTMLElement {
 function markSelected() {
   listBox.querySelectorAll(".item").forEach((node, index) => {
     const on = index === view.selected;
-    node.classList.toggle("selected", on);
-    node.setAttribute("aria-selected", String(on));
+    const picked = view.picked.has(view.items[index]?.id ?? "");
+    node.classList.toggle("selected", on && view.picked.size === 0);
+    node.classList.toggle("picked", picked);
+    node.setAttribute("aria-selected", String(view.picked.size > 0 ? picked : on));
     if (on) (node as HTMLElement).scrollIntoView({ block: "nearest" });
   });
   searchInput?.setAttribute("aria-activedescendant", `item-${view.selected}`);
@@ -466,7 +579,96 @@ function select(index: number) {
   void showSelected();
 }
 
+/** Ctrl and a click picks or leaves an item; Shift and a click, the items
+ * from the selected one to it. Two or more: the actions for all of them. */
+function pick(index: number, how: "toggle" | "range") {
+  const ids = view.items.map((item) => item.id);
+  if (view.picked.size === 0 && ids[view.selected]) view.picked.add(ids[view.selected]);
+  if (how === "toggle") {
+    if (view.picked.has(ids[index])) view.picked.delete(ids[index]);
+    else view.picked.add(ids[index]);
+  } else {
+    view.picked = new Set(ids.slice(Math.min(view.selected, index), Math.max(view.selected, index) + 1));
+  }
+  if (view.picked.size >= 2) {
+    markSelected();
+    renderBulk();
+    return;
+  }
+  // One left: it is the selected item again.
+  const at = ids.indexOf([...view.picked][0] ?? "");
+  view.picked.clear();
+  if (at >= 0) view.selected = at;
+  markSelected();
+  void showSelected();
+}
+
 const selectedLogin = (): Login | undefined => view.items[view.selected];
+
+// ----- Several items ------------------------------------------------------------------
+
+function renderBulk() {
+  clearInterval(totpTimer);
+  view.details = null;
+  const ids = [...view.picked];
+  const picked = view.items.filter((item) => view.picked.has(item.id));
+  const allFavorite = picked.every((item) => item.favorite);
+  const action = (label: string, markup: string, run: () => void, danger = false) => {
+    const button = el("button", { className: `secondary${danger ? " danger" : ""}`, type: "button" }, svg(markup), el("span", { textContent: label }));
+    button.addEventListener("click", run);
+    return button;
+  };
+  detailPane.replaceChildren(
+    el(
+      "div",
+      { className: "detail-scroll bulk" },
+      el("div", { className: "bulk-head" }, el("h1", { textContent: t("selectedCount", String(ids.length)) }), el("p", { className: "muted small", textContent: t("selectionHint") })),
+      el(
+        "div",
+        { className: "bulk-actions" },
+        action(allFavorite ? t("favoriteRemove") : t("favoriteAdd"), ICONS.star, () => void changeItems(ids, "favorite", !allFavorite)),
+        action(t("archive"), ICONS.archive, () => void changeItems(ids, "archive", true)),
+        action(t("moveToTrash"), ICONS.trash, () => confirmTrash(ids, t("trashConfirmMany", String(ids.length))), true),
+        action(t("clearSelection"), ICONS.close, () => {
+          view.picked.clear();
+          markSelected();
+          void showSelected();
+        }),
+      ),
+    ),
+  );
+}
+
+/** Favorite, archive or move to the trash, then the list again (staying on
+ * the same item when it is still there). */
+async function changeItems(ids: string[], action: "favorite" | "archive" | "trash", on = true) {
+  const reply = await send<{ changed: number }>({ type: "change_items", ids, action, on });
+  if (!reply.ok) return toast(reply.error === "read_only" ? t("readOnlyVault") : t("errorTitle"));
+  toast(t("doneShort"));
+  // The page's suggestions too: archived and trashed items leave them.
+  if (action === "favorite") view.suggestions.forEach((s) => ids.includes(s.id) && (s.favorite = on));
+  else view.suggestions = view.suggestions.filter((s) => !ids.includes(s.id));
+  const keep = view.items[view.selected]?.id;
+  await loadList();
+  const at = view.items.findIndex((item) => item.id === keep);
+  if (at > 0) select(at);
+}
+
+function confirmTrash(ids: string[], text: string) {
+  const go = el("button", { className: "primary danger", type: "button", textContent: t("moveToTrash") });
+  const cancel = el("button", { className: "secondary", type: "button", textContent: t("cancel") });
+  const dialog = el("div", { className: "dialog-backdrop" }, el("div", { className: "dialog", role: "alertdialog" }, el("p", { textContent: text }), el("div", { className: "dialog-actions" }, cancel, go)));
+  cancel.addEventListener("click", () => {
+    dialog.remove();
+    searchInput.focus();
+  });
+  go.addEventListener("click", () => {
+    dialog.remove();
+    void changeItems(ids, "trash");
+  });
+  document.body.append(dialog);
+  cancel.focus();
+}
 
 // ----- Details -------------------------------------------------------------------
 
@@ -474,16 +676,22 @@ let detailsRequest = 0;
 
 async function showSelected() {
   clearInterval(totpTimer);
-  view.revealed = false;
   if (view.generatorOpen) return;
+  if (view.picked.size >= 2) return renderBulk();
   const login = selectedLogin();
   if (!login) {
     view.details = null;
     detailPane.replaceChildren(el("div", { className: "detail-empty" }, el("img", { src: "icons/icon-128.png", width: 44, height: 44, alt: "" }), el("p", { textContent: emptyText() })));
     return;
   }
+  await showItem(login.id, login);
+}
+
+/** Shows an item: the list's, or one a field links to. */
+async function showItem(id: string, login: Login | null = null) {
+  clearInterval(totpTimer);
   const request = ++detailsRequest;
-  const reply = await send<Details>({ type: "details", id: login.id });
+  const reply = await send<ItemView>({ type: "item_view", id });
   if (request !== detailsRequest) return;
   if (!reply.ok || !reply.data) {
     view.details = null;
@@ -491,7 +699,7 @@ async function showSelected() {
     return;
   }
   view.details = reply.data;
-  renderDetails(login, reply.data);
+  renderDetails(reply.data, login);
 }
 
 function field(label: string, value: Node, actions: HTMLElement[], copy?: () => void): HTMLElement {
@@ -499,15 +707,21 @@ function field(label: string, value: Node, actions: HTMLElement[], copy?: () => 
   if (copy) {
     row.title = t("copy");
     row.addEventListener("click", (e) => {
-      if ((e.target as HTMLElement).closest("button")) return;
+      if ((e.target as HTMLElement).closest("button, a")) return;
       copy();
     });
   }
   return row;
 }
 
-function copyField(login: Login, which: "username" | "password" | "totp") {
-  void send<{ clearAfterSeconds: number }>({ type: "copy", id: login.id, field: which }).then(copiedToast);
+/** Copied by the app (cleared after a while, kept out of history). */
+function copyFrom(itemId: string, what: { field?: "username" | "password" | "totp"; fieldId?: string; history?: number }) {
+  void send<{ clearAfterSeconds: number }>({ type: "copy", id: itemId, ...what }).then(copiedToast);
+}
+
+async function revealed(itemId: string, what: { fieldId?: string; history?: number }): Promise<string | null> {
+  const reply = await send<{ value: string }>({ type: "reveal", id: itemId, ...what });
+  return reply.ok && reply.data ? reply.data.value : null;
 }
 
 function totpRing(expiresIn: number, period: number): HTMLElement {
@@ -519,96 +733,286 @@ function totpRing(expiresIn: number, period: number): HTMLElement {
   return el("span", { className: `ring${expiresIn <= 5 ? " ending" : ""}` }, ring, el("span", { textContent: String(expiresIn) }));
 }
 
-function renderDetails(login: Login, details: Details) {
-  const canFill = fillable(login);
-  const site = details.urls[0]?.href;
-  const primary = el("button", { className: canFill ? "primary" : "outline", type: "button", textContent: canFill ? t("fillShort") : t("openFill") });
-  primary.disabled = !canFill && !site;
-  primary.addEventListener("click", () => void defaultAction());
-  const more = iconButton(ICONS.more, t("moreActions"), () => showItemMenu(more, login, details));
+/** A secret shown as dots, with buttons to see it, see it large and copy
+ * it; the app sends it only when asked. */
+function secretRow(label: string, itemId: string, what: { fieldId?: string; history?: number }): HTMLElement {
+  const value = el("span", { className: "dots", textContent: "••••••••••••" });
+  let shown = false;
+  const eye = iconButton(
+    ICONS.eye,
+    t("reveal"),
+    async () => {
+      if (shown) {
+        shown = false;
+        value.className = "dots";
+        value.replaceChildren("••••••••••••");
+      } else {
+        const text = await revealed(itemId, what);
+        if (text === null) return toast(t("errorTitle"));
+        shown = true;
+        value.className = "revealed";
+        value.replaceChildren(coloredSecret(text));
+      }
+      eye.replaceChildren(svg(shown ? ICONS.eyeOff : ICONS.eye));
+      eye.title = shown ? t("conceal") : t("reveal");
+    },
+    "tool small",
+  );
+  const large = iconButton(ICONS.large, t("largeType"), () => void largeType(label, () => revealed(itemId, what)), "tool small");
+  const copy = () => copyFrom(itemId, what);
+  return field(label, value, [eye, large, iconButton(ICONS.copy, t("copy"), copy, "tool small")], copy);
+}
 
-  const fields = el("div", { className: "card" });
-  if (details.username) {
-    fields.append(field(t("fieldUsername"), document.createTextNode(details.username), [iconButton(ICONS.copy, t("copyUsername"), () => copyField(login, "username"), "tool small")], () => copyField(login, "username")));
-  }
-  if (details.hasPassword) {
-    const value = el("span", { className: "dots", textContent: "••••••••••••" });
-    const eye = iconButton(ICONS.eye, t("reveal"), () => void toggleReveal(login, value, eye), "tool small");
-    fields.append(field(t("fieldPassword"), value, [eye, iconButton(ICONS.copy, t("copyPassword"), () => copyField(login, "password"), "tool small")], () => copyField(login, "password")));
-  }
-  if (details.totp) {
-    let { code, period, expiresIn } = details.totp;
+/** A field that is shown as it is. */
+function plainRow(label: string, itemId: string, f: FieldView, shown: Node, extra: HTMLElement[] = []): HTMLElement {
+  const copy = () => copyFrom(itemId, { fieldId: f.id });
+  const text = f.value ?? "";
+  const large = text ? [iconButton(ICONS.large, t("largeType"), () => void largeType(label, async () => text), "tool small")] : [];
+  return field(label, shown, [...extra, ...large, iconButton(ICONS.copy, t("copy"), copy, "tool small")], copy);
+}
+
+function formatDate(value: string): string {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!day) return value;
+  const date = new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3]));
+  return new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), { dateStyle: "medium" }).format(date);
+}
+
+/** A map of the place: by its coordinates when known, otherwise by text
+ * (OpenStreetMap, as the app does by default). */
+function openMap(query: string, geo: string) {
+  const point = geo.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  const url = point
+    ? `https://www.openstreetmap.org/?mlat=${point[1]}&mlon=${point[2]}#map=17/${point[1]}/${point[2]}`
+    : `https://www.openstreetmap.org/search?query=${encodeURIComponent(query)}`;
+  void chrome.tabs.create({ url }).then(() => window.close());
+}
+
+function addressLines(f: FieldView): string[] {
+  const a = f.address;
+  if (!a) return (f.value ?? "").split("\n").filter(Boolean);
+  const town = [a.zip, a.city].filter(Boolean).join(" ");
+  return [a.street, a.line2, town, a.state, a.country].filter((line): line is string => Boolean(line));
+}
+
+function fieldRow(item: ItemView, f: FieldView): HTMLElement {
+  const label = fieldLabel(f.label) || categoryName(item.category);
+  if (f.totp) {
+    let { code, period, expiresIn } = f.totp;
     const value = el("span", { className: "code-value" });
     const showCode = () => {
       value.replaceChildren(el("span", { className: "mono", textContent: code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code }), totpRing(expiresIn, period));
     };
     showCode();
-    fields.append(field(t("fieldCode"), value, [iconButton(ICONS.copy, t("copyCode"), () => copyField(login, "totp"), "tool small")], () => copyField(login, "totp")));
     totpTimer = setInterval(async () => {
       expiresIn -= 1;
       if (expiresIn <= 0) {
-        const fresh = await send<Details>({ type: "details", id: login.id });
-        if (!fresh.data?.totp || view.details?.id !== login.id) return;
-        ({ code, period, expiresIn } = fresh.data.totp);
+        const fresh = await send<ItemView>({ type: "item_view", id: item.id });
+        const next = fresh.data && allFields(fresh.data).find((other) => other.id === f.id)?.totp;
+        if (!next || view.details?.id !== item.id) return;
+        ({ code, period, expiresIn } = next);
       }
       showCode();
     }, 1000);
+    const copy = () => copyFrom(item.id, { fieldId: f.id });
+    return field(label, value, [iconButton(ICONS.copy, t("copy"), copy, "tool small")], copy);
   }
-
-  const websites = el("div", { className: "card" });
-  for (const url of details.urls) {
-    const link = el("a", { className: "link", href: url.href, textContent: hostOf(url.href) || url.href, title: url.href });
-    link.addEventListener("click", (e) => {
-      e.preventDefault();
-      void chrome.tabs.create({ url: siteUrl(url.href) }).then(() => window.close());
-    });
-    websites.append(field(url.label || t("fieldWebsite"), link, []));
+  if (f.secret) return secretRow(label, item.id, { fieldId: f.id });
+  const text = f.value ?? "";
+  switch (f.kind) {
+    case "url": {
+      const link = el("a", { className: "link", href: siteUrl(text), textContent: text, title: text });
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        void chrome.tabs.create({ url: siteUrl(text) }).then(() => window.close());
+      });
+      return plainRow(label, item.id, f, link);
+    }
+    case "address":
+    case "location": {
+      const lines = addressLines(f);
+      const shown = el("span", { className: "multiline", textContent: lines.join("\n") || f.geo || "" });
+      const map = iconButton(ICONS.map, t("openMap"), () => openMap(lines.join(", "), f.geo ?? ""), "tool small");
+      return plainRow(label, item.id, { ...f, value: lines.join("\n") }, shown, [map]);
+    }
+    case "sign_in_with": {
+      const shown = el("span", { textContent: [providerName(text), f.link?.subtitle].filter(Boolean).join(" · ") });
+      const show = f.link ? [iconButton(ICONS.external, t("showItem"), () => void showItem(f.link!.id), "tool small")] : [];
+      return field(label, shown, show);
+    }
+    case "reference": {
+      if (!f.link) return field(label, document.createTextNode("—"), []);
+      const link = el("a", { className: "link", href: "#", textContent: f.link.title });
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        void showItem(f.link!.id);
+      });
+      return field(label, link, []);
+    }
+    case "date":
+      return plainRow(label, item.id, f, document.createTextNode(formatDate(text)));
+    case "multiline":
+      return plainRow(label, item.id, f, el("span", { className: "multiline", textContent: text }));
+    default:
+      return plainRow(label, item.id, f, document.createTextNode(text));
   }
+}
 
-  const subtitle = [t("categoryLogin"), details.vault ? t("inVault", details.vault) : ""].filter(Boolean).join(" · ");
+/** A value in large letters, each with its position: to read it out or
+ * type it on another device. */
+async function largeType(label: string, value: () => Promise<string | null>) {
+  const text = await value();
+  if (text === null) return toast(t("errorTitle"));
+  const cells = el("div", { className: "large-cells" });
+  [...text].forEach((ch, index) => {
+    const kind = /[0-9]/.test(ch) ? " digit" : /[\p{L}]/u.test(ch) ? "" : " symbol";
+    const shown = ch === " " ? "␣" : ch === "\n" ? "↵" : ch;
+    cells.append(el("span", { className: `large-cell${kind}` }, el("span", { className: "large-char", textContent: shown }), el("span", { className: "large-index", textContent: String(index + 1) })));
+  });
+  const close = el("button", { className: "secondary", type: "button", textContent: t("close") });
+  const dialog = el(
+    "div",
+    { className: "dialog-backdrop" },
+    el("div", { className: "dialog large-type", role: "dialog" }, el("p", { className: "muted small", textContent: label }), cells, el("div", { className: "dialog-actions" }, close)),
+  );
+  close.addEventListener("click", () => {
+    dialog.remove();
+    searchInput.focus();
+  });
+  dialog.addEventListener("click", (e) => e.target === dialog && close.click());
+  document.body.append(dialog);
+  close.focus();
+}
+
+function formatSize(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit++;
+  }
+  return `${new Intl.NumberFormat(chrome.i18n.getUILanguage(), { maximumFractionDigits: unit === 0 ? 0 : 1 }).format(size)} ${units[unit]}`;
+}
+
+function formatTime(seconds: number): string {
+  return new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(seconds * 1000));
+}
+
+/** Links in notes: web pages in a new tab, other items here. */
+function openLink(href: string) {
+  const item = /^keyless:\/\/item\/([A-Za-z0-9-]{1,64})\/?$/i.exec(href);
+  if (item) return void showItem(item[1]);
+  void chrome.tabs.create({ url: href }).then(() => window.close());
+}
+
+function renderDetails(item: ItemView, login: Login | null) {
+  const canFill = login !== null && fillable(login);
+  const site = item.urls[0]?.href;
+  const primary = el("button", { className: canFill ? "primary" : "outline", type: "button", textContent: primaryLabel(item, canFill) });
+  primary.addEventListener("click", () => void primaryAction(item, login));
+  const star = iconButton(ICONS.star, item.favorite ? t("favoriteRemove") : t("favoriteAdd"), () => void changeItems([item.id], "favorite", !item.favorite), `tool${item.favorite ? " on" : ""}`);
+  star.hidden = !item.canEdit;
+  const more = iconButton(ICONS.more, t("moreActions"), () => showItemMenu(more, item, login));
+
+  const asLogin: Login = login ?? { id: item.id, title: item.title, username: item.subtitle, url: site ?? "", vault: item.vault, favorite: item.favorite };
+  const head = item.category === "login" || site ? avatar({ ...asLogin, favorite: item.favorite }, canFill ? (view.pageUrl ?? undefined) : undefined) : categoryAvatar(item.category, item.favorite);
+  const subtitle = [categoryName(item.category), item.vault ? t("inVault", item.vault) : "", item.archived ? t("archivedNote") : ""].filter(Boolean).join(" · ");
   const parts: (Node | null)[] = [
-    el(
-      "div",
-      { className: "detail-head" },
-      avatar({ ...login, favorite: details.favorite }, canFill ? (view.pageUrl ?? undefined) : undefined),
-      el("div", { className: "head-text" }, el("h1", { textContent: details.title }), el("p", { textContent: subtitle })),
-    ),
-    el("div", { className: "detail-actions" }, primary, more),
-    fields.childElementCount > 0 ? fields : null,
-    websites.childElementCount > 0 ? websites : null,
+    el("div", { className: "detail-head" }, head, el("div", { className: "head-text" }, el("h1", { textContent: item.title }), el("p", { textContent: subtitle }))),
+    el("div", { className: "detail-actions" }, primary, star, more),
   ];
-  if (details.updatedAt > 0) {
-    const date = new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(details.updatedAt * 1000));
-    parts.push(el("p", { className: "meta", textContent: t("modifiedOn", date) }));
+
+  for (const section of item.sections) {
+    const rows = section.fields.filter((f) => !f.empty || f.address || f.geo || f.totp).map((f) => fieldRow(item, f));
+    if (rows.length === 0) continue;
+    if (section.title) parts.push(el("div", { className: "section", textContent: section.title }));
+    parts.push(el("div", { className: "card" }, ...rows));
   }
+  if (item.passkeys > 0) parts.push(el("div", { className: "card" }, field(t("passkeyLabel"), document.createTextNode(t("passkeySaved")), [])));
+
+  if (item.urls.length > 0) {
+    const websites = el("div", { className: "card" });
+    for (const url of item.urls) {
+      const link = el("a", { className: "link", href: siteUrl(url.href), textContent: hostOf(url.href) || url.href, title: url.href });
+      link.addEventListener("click", (e) => {
+        e.preventDefault();
+        void chrome.tabs.create({ url: siteUrl(url.href) }).then(() => window.close());
+      });
+      websites.append(field(url.label || t("fieldWebsite"), link, []));
+    }
+    parts.push(websites);
+  }
+
+  if (item.notes.trim()) parts.push(el("div", { className: "section", textContent: t("notesTitle") }), el("div", { className: "card notes" }, renderMarkdown(item.notes, openLink)));
+
+  if (item.attachments.length > 0) {
+    const files = el("div", { className: "card" });
+    for (const file of item.attachments) {
+      const save = iconButton(
+        ICONS.download,
+        `${t("saveFile")} · ${t("saveFileHint")}`,
+        () => void send({ type: "save_attachment", id: item.id, attachmentId: file.id, title: t("saveFileTitle") }).then((reply) => !reply.ok && toast(t("errorTitle"))),
+        "tool small",
+      );
+      files.append(field(formatSize(file.size), el("span", { textContent: file.name, title: file.name }), [save]));
+    }
+    parts.push(el("div", { className: "section", textContent: t("attachmentsTitle") }), files);
+  }
+
+  if (item.history.length > 0) {
+    const list = el("div", { className: "card" });
+    list.hidden = true;
+    for (const entry of [...item.history].sort((a, b) => b.changedAt - a.changedAt)) {
+      list.append(secretRow(formatTime(entry.changedAt), item.id, { history: entry.index }));
+    }
+    const toggle = el("button", { className: "section toggle", type: "button" }, el("span", { textContent: `${t("passwordHistory")} (${item.history.length})` }), svg(ICONS.chevron));
+    toggle.addEventListener("click", () => (list.hidden = !list.hidden));
+    parts.push(toggle, list);
+  }
+
+  if (item.tags.length > 0) parts.push(el("div", { className: "tags", title: t("tagsTitle") }, ...item.tags.map((tag) => el("span", { className: "tag", textContent: tag }))));
+
+  const dates = [item.updatedAt > 0 ? t("modifiedOn", formatTime(item.updatedAt)) : "", item.createdAt > 0 ? t("createdOn", formatTime(item.createdAt)) : ""].filter(Boolean);
+  for (const line of dates) parts.push(el("p", { className: "meta", textContent: line }));
   detailPane.replaceChildren(el("div", { className: "detail-scroll" }, ...parts));
 }
 
-async function toggleReveal(login: Login, value: HTMLElement, eye: HTMLButtonElement) {
-  view.revealed = !view.revealed;
-  eye.replaceChildren(svg(view.revealed ? ICONS.eyeOff : ICONS.eye));
-  eye.title = view.revealed ? t("conceal") : t("reveal");
-  if (!view.revealed) {
-    value.replaceChildren("••••••••••••");
-    value.className = "dots";
-    return;
-  }
-  const reply = await send<Details>({ type: "details", id: login.id, reveal: true });
-  if (!view.revealed || view.details?.id !== login.id) return;
-  value.className = "revealed";
-  value.replaceChildren(coloredSecret(reply.data?.password ?? ""));
+function primaryLabel(item: ItemView, canFill: boolean): string {
+  if (canFill) return t("fillShort");
+  if (LOGIN_LIKE.has(item.category) && item.urls[0]) return t("openFill");
+  return item.canEdit ? t("editInKeyless") : t("openInKeyless");
 }
 
-/** Fills the login, or opens its website and fills it there. */
-async function defaultAction() {
-  const login = selectedLogin();
-  if (!login) return;
-  if (fillable(login)) return fill(login);
-  const site = view.details?.id === login.id ? view.details.urls[0]?.href : login.url;
-  if (!site) return;
-  const reply = await send({ type: "open_fill", id: login.id, url: siteUrl(site) });
+/** Fills the login, or opens its website and fills it there; other items
+ * open in Keyless (in its editor when the vault allows). */
+async function primaryAction(item: ItemView | null, login: Login | null) {
+  if (login && fillable(login)) return fill(login);
+  if (!item) return;
+  const site = item.urls[0]?.href;
+  if (LOGIN_LIKE.has(item.category) && site) {
+    const reply = await send({ type: "open_fill", id: item.id, url: siteUrl(site) });
+    if (reply.ok) window.close();
+    else toast(t("fillFailed"));
+  } else if (item.canEdit) {
+    await editItem(item.id);
+  } else {
+    await send({ type: "open_app", id: item.id });
+    window.close();
+  }
+}
+
+async function editItem(id: string) {
+  const reply = await send({ type: "edit_item", id });
   if (reply.ok) window.close();
-  else toast(t("fillFailed"));
+  else toast(t("errorTitle"));
+}
+
+async function defaultAction() {
+  if (view.picked.size >= 2) return;
+  const login = selectedLogin() ?? null;
+  const item = view.details && (!login || view.details.id === login.id) ? view.details : null;
+  return primaryAction(item, login);
 }
 
 async function fill(login: Login, extra: Record<string, unknown> = {}) {
@@ -660,31 +1064,41 @@ function confirmFill(text: string, request: Record<string, unknown>, also?: { la
   fillButton.focus();
 }
 
-function showItemMenu(anchor: HTMLElement, login: Login, details: Details) {
-  const entries: (MenuEntry | "divider")[] = [
-    { label: t("openInKeyless"), icon: ICONS.app, run: () => void send({ type: "open_app", id: login.id }).then(() => window.close()) },
-  ];
-  if (details.urls[0]) {
-    const href = details.urls[0].href;
+function showItemMenu(anchor: HTMLElement, item: ItemView, login: Login | null) {
+  const entries: (MenuEntry | "divider")[] = [];
+  if (item.canEdit) entries.push({ label: t("editInKeyless"), icon: ICONS.edit, run: () => void editItem(item.id) });
+  entries.push({ label: t("openInKeyless"), icon: ICONS.app, run: () => void send({ type: "open_app", id: item.id }).then(() => window.close()) });
+  if (item.urls[0]) {
+    const href = item.urls[0].href;
     entries.push({ label: t("openWebsite"), icon: ICONS.external, run: () => void chrome.tabs.create({ url: siteUrl(href) }).then(() => window.close()) });
   }
-  if (!fillable(login) && view.pageHost) {
+  if (login && !fillable(login) && view.pageHost && LOGIN_LIKE.has(item.category)) {
     // Saved for another site: only with a clear warning.
     entries.push({
       label: t("fill"),
       icon: ICONS.login,
       run: () =>
         confirmFill(
-          t("otherSiteWarning", login.title, hostOf(details.urls[0]?.href ?? login.url), view.pageHost ?? ""),
-          { type: "fill", id: login.id, anySite: true },
-          { label: t("fillAndAddSite"), request: { type: "fill", id: login.id, anySite: true, addSite: true } },
+          t("otherSiteWarning", item.title, hostOf(item.urls[0]?.href ?? login.url), view.pageHost ?? ""),
+          { type: "fill", id: item.id, anySite: true },
+          { label: t("fillAndAddSite"), request: { type: "fill", id: item.id, anySite: true, addSite: true } },
         ),
     });
   }
-  entries.push("divider");
-  if (details.username) entries.push({ label: t("copyUsername"), icon: ICONS.copy, hint: "Ctrl C", run: () => copyField(login, "username") });
-  if (details.hasPassword) entries.push({ label: t("copyPassword"), icon: ICONS.copy, hint: "Ctrl Shift C", run: () => copyField(login, "password") });
-  if (details.totp) entries.push({ label: t("copyCode"), icon: ICONS.copy, hint: "Ctrl Alt C", run: () => copyField(login, "totp") });
+  const username = byPurpose(item, "username");
+  const password = byPurpose(item, "password");
+  const code = allFields(item).find((f) => f.totp);
+  if (username || password || code) entries.push("divider");
+  if (username) entries.push({ label: t("copyUsername"), icon: ICONS.copy, hint: "Ctrl C", run: () => copyFrom(item.id, { fieldId: username.id }) });
+  if (password) entries.push({ label: t("copyPassword"), icon: ICONS.copy, hint: "Ctrl Shift C", run: () => copyFrom(item.id, { fieldId: password.id }) });
+  if (code) entries.push({ label: t("copyCode"), icon: ICONS.copy, hint: "Ctrl Alt C", run: () => copyFrom(item.id, { fieldId: code.id }) });
+  if (item.canEdit) {
+    entries.push(
+      "divider",
+      { label: item.archived ? t("unarchive") : t("archive"), icon: ICONS.archive, run: () => void changeItems([item.id], "archive", !item.archived) },
+      { label: t("moveToTrash"), icon: ICONS.trash, danger: true, run: () => confirmTrash([item.id], t("trashConfirmOne", item.title)) },
+    );
+  }
   showMenu(anchor, entries);
 }
 
@@ -908,7 +1322,6 @@ document.addEventListener("keydown", (e) => {
   }
   const ctrl = e.ctrlKey || e.metaKey;
   const key = e.key.toLowerCase();
-  const login = selectedLogin();
   const inSearch = document.activeElement === searchInput;
   const textSelected = inSearch && searchInput.selectionStart !== searchInput.selectionEnd;
 
@@ -922,7 +1335,11 @@ document.addEventListener("keydown", (e) => {
   } else if (e.key === "Escape") {
     e.preventDefault();
     if (view.generatorOpen) toggleGenerator(false);
-    else if (searchInput.value) {
+    else if (view.picked.size > 0) {
+      view.picked.clear();
+      markSelected();
+      void showSelected();
+    } else if (searchInput.value) {
       searchInput.value = "";
       view.query = "";
       void loadList();
@@ -937,11 +1354,13 @@ document.addEventListener("keydown", (e) => {
   } else if (ctrl && e.shiftKey && key === "l") {
     e.preventDefault();
     void lock();
-  } else if (ctrl && key === "c" && login && !textSelected && !view.generatorOpen) {
-    const which = e.altKey ? "totp" : e.shiftKey ? "password" : "username";
-    if (which === "totp" && !view.details?.totp) return;
+  } else if (ctrl && key === "c" && view.details && !textSelected && !view.generatorOpen && view.picked.size === 0) {
+    // The username, the password or the code of the item shown.
+    const item = view.details;
+    const chosen = e.altKey ? allFields(item).find((f) => f.totp) : byPurpose(item, e.shiftKey ? "password" : "username");
+    if (!chosen) return;
     e.preventDefault();
-    copyField(login, which);
+    copyFrom(item.id, { fieldId: chosen.id });
   }
 });
 

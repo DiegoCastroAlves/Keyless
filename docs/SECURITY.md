@@ -742,6 +742,15 @@ or a password it suggested.
   login is remembered for ten minutes in session storage; back on the site,
   Keyless offers to save one (linked to the provider's login the user filled
   there, or the only one Keyless has for it).
+- **Every kind of item in the popup.** The popup lists and shows any item
+  (cards, notes, SSH keys…), within the vaults that browser may use. The app
+  sends secret values (concealed fields, PINs, card numbers, old passwords)
+  only when the user asks to see one, and copies them itself. It can also
+  favorite, archive or move items to the trash (several at once, restorable
+  in the app), save an attached file through the app's own save dialog, and
+  open an item in the app's editor; it never edits items itself. Notes are
+  rendered from Markdown into DOM nodes only, with no HTML from the note and
+  nothing loaded from the network.
 - **API keys copied on a page.** A copied word (by keyboard, or the page's
   own "Copy" button next to it) that could be a key goes to the app, which
   checks its shape against the known formats (`secret_patterns`) and

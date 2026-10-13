@@ -11,6 +11,14 @@ const PREFIX: &str = "keyless://item/";
 /// Tells the main window an item was asked for (taken with [`take`]).
 pub const EVENT_ITEM_REQUESTED: &str = "keyless://item-requested";
 
+/// An item to show: asked for by a link, or by the browser extension, which
+/// can also ask to edit it.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct ItemRequest {
+    pub id: String,
+    pub edit: bool,
+}
+
 /// The item a link names, if it is a link to an item.
 pub fn item_id(link: &str) -> Option<&str> {
     let head = link.get(..PREFIX.len())?;
@@ -25,14 +33,19 @@ pub fn item_id(link: &str) -> Option<&str> {
 /// an item, the main window shows it. Returns whether there was one.
 pub fn handle_args(app: &AppHandle, args: &[String]) -> bool {
     let Some(id) = args.iter().find_map(|a| item_id(a)) else { return false };
-    *app.state::<AppState>().item_request.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.to_string());
-    crate::tray::show_main(app);
-    let _ = app.emit(EVENT_ITEM_REQUESTED, ());
+    request(app, id, false);
     true
 }
 
-/// The item last asked for by a link, once.
-pub fn take(state: &AppState) -> Option<String> {
+/// Shows item `id` in the main window (editing it, when `edit`).
+pub fn request(app: &AppHandle, id: &str, edit: bool) {
+    *app.state::<AppState>().item_request.lock().unwrap_or_else(|e| e.into_inner()) = Some(ItemRequest { id: id.to_string(), edit });
+    crate::tray::show_main(app);
+    let _ = app.emit(EVENT_ITEM_REQUESTED, ());
+}
+
+/// The item last asked for, once.
+pub fn take(state: &AppState) -> Option<ItemRequest> {
     state.item_request.lock().unwrap_or_else(|e| e.into_inner()).take()
 }
 

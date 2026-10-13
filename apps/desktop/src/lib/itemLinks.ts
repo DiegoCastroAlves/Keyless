@@ -22,8 +22,9 @@ export function itemIdOfLink(text: string): string | null {
 }
 
 /** Shows the item: selected in the main window, or in a window of its own
- * from an item window. */
-export function showLinkedItem(id: string) {
+ * from an item window. `edit`: opened in the editor (asked for by the
+ * browser extension). */
+export function showLinkedItem(id: string, edit = false) {
   if (itemWindowId) {
     void api.openItemWindow(id).catch((err) => toast.error(errorMessage(err)));
     return;
@@ -36,4 +37,10 @@ export function showLinkedItem(id: string) {
   store.setSearch("");
   store.setView({ kind: "all" });
   store.select(id);
+  if (edit) {
+    api
+      .getItemDraft(id)
+      .then((draft) => useApp.getState().startEditing({ draft, isNew: false }))
+      .catch((err) => toast.error(errorMessage(err)));
+  }
 }

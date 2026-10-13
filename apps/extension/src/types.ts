@@ -16,6 +16,8 @@ export interface Login {
   providerAccount?: string;
   /** It has a one-time code. */
   totp?: boolean;
+  /** The kind of item (search results list every kind, see `all`). */
+  category?: string;
 }
 
 export interface Status {

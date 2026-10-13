@@ -715,7 +715,7 @@ export const api = {
   deleteVault: (vaultId: string) => invoke<void>("delete_vault", { vaultId }),
   setMasterPasswordDays: (days: number) => invoke<Settings>("set_master_password_days", { days }),
   /** The item a `keyless://` link asked for, once. */
-  takeItemRequest: () => invoke<string | null>("take_item_request"),
+  takeItemRequest: () => invoke<{ id: string; edit: boolean } | null>("take_item_request"),
   /** Looks for secrets left in files on this computer. */
   devScan: () => invoke<DevScan>("dev_scan"),
   devSecretSave: (id: string, vaultId: string, label: string, notes: string) => invoke<ItemSummary>("dev_secret_save", { id, vaultId, label, notes }),
