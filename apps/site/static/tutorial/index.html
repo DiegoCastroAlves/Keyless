@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1113" media="(prefers-color-scheme: dark)" />
+    <meta name="robots" content="noindex" />
+    <title>Pratique com o Keyless</title>
+    <meta name="description" content="Exercícios para aprender a usar a extensão do Keyless no navegador." />
+    <link rel="icon" href="/icon-32.png" />
+    <link rel="preload" href="/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/home.css" />
+    <link rel="stylesheet" href="/tutorial/tutorial.css" />
+    <script type="module" src="/tutorial/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main" data-i18n="skip">Pular para o conteúdo</a>
+
+    <header class="top">
+      <a class="brand" href="/" aria-label="Keyless">
+        <img src="/icon-32.png" width="26" height="26" alt="" />
+        <span>keyless</span>
+      </a>
+      <div class="lang" role="group" aria-label="Idioma" data-i18n-aria="language">
+        <button type="button" data-lang="pt-BR" lang="pt-BR">PT</button>
+        <button type="button" data-lang="en" lang="en">EN</button>
+        <button type="button" data-lang="es" lang="es">ES</button>
+      </div>
+    </header>
+
+    <main id="main" class="tutorial">
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow mono" data-i18n="eyebrow">Tutorial · extensão do navegador</p>
+        <h1 id="hero-title" data-i18n-html="title">Pratique <em>aqui.</em></h1>
+        <p class="lede" data-i18n="lede"></p>
+        <ul class="before">
+          <li data-i18n="before1"></li>
+          <li data-i18n="before2"></li>
+          <li data-i18n="before3"></li>
+        </ul>
+      </section>
+
+      <section class="section exercise" id="signup" aria-labelledby="signup-title">
+        <div class="section-head">
+          <span class="mono number">§ 01</span>
+          <h2 id="signup-title" data-i18n="signupTitle">Crie uma conta</h2>
+          <span class="done mono" role="status" data-done="signup"></span>
+        </div>
+        <div class="exercise-body">
+          <ol class="howto">
+            <li data-i18n="signup1"></li>
+            <li data-i18n="signup2"></li>
+            <li data-i18n="signup3"></li>
+          </ol>
+          <div class="practice">
+            <form id="signup-form" class="card" autocomplete="on" novalidate>
+              <p class="card-title" data-i18n="signupCard">Abrir conta na Loja Prática</p>
+              <label><span data-i18n="email">E-mail</span><input type="email" name="email" autocomplete="username" required /></label>
+              <label><span data-i18n="newPassword">Senha</span><input type="password" name="password" autocomplete="new-password" required /></label>
+              <label><span data-i18n="confirmPassword">Repita a senha</span><input type="password" name="confirm" autocomplete="new-password" required /></label>
+              <button type="submit" class="button primary" data-i18n="signupButton">Criar conta</button>
+            </form>
+            <p class="result" hidden data-result="signup"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section exercise" id="signin" aria-labelledby="signin-title">
+        <div class="section-head">
+          <span class="mono number">§ 02</span>
+          <h2 id="signin-title" data-i18n="signinTitle">Entre com um clique</h2>
+          <span class="done mono" role="status" data-done="signin"></span>
+        </div>
+        <div class="exercise-body">
+          <ol class="howto">
+            <li data-i18n="signin1"></li>
+            <li data-i18n="signin2"></li>
+            <li data-i18n="signin3"></li>
+          </ol>
+          <div class="practice">
+            <button type="button" class="button primary start" data-start="signin" data-i18n="start">Começar</button>
+            <form id="signin-form" class="card" autocomplete="on" novalidate hidden>
+              <p class="card-title" data-i18n="signinCard">Entrar na Loja Prática</p>
+              <label><span data-i18n="email">E-mail</span><input type="email" name="email" autocomplete="username" required /></label>
+              <label><span data-i18n="password">Senha</span><input type="password" name="password" autocomplete="current-password" required /></label>
+              <button type="submit" class="button primary" data-i18n="signinButton">Entrar</button>
+            </form>
+            <p class="result" hidden data-result="signin"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section exercise" id="checkout" aria-labelledby="checkout-title">
+        <div class="section-head">
+          <span class="mono number">§ 03</span>
+          <h2 id="checkout-title" data-i18n="checkoutTitle">Pague sem digitar</h2>
+          <span class="done mono" role="status" data-done="checkout"></span>
+        </div>
+        <div class="exercise-body">
+          <ol class="howto">
+            <li data-i18n="checkout1"></li>
+            <li data-i18n-html="checkout2"></li>
+            <li data-i18n="checkout3"></li>
+          </ol>
+          <div class="practice">
+            <button type="button" class="button primary start" data-start="checkout" data-i18n="start">Começar</button>
+            <form id="checkout-form" class="card" autocomplete="on" novalidate hidden>
+              <p class="card-title" data-i18n="checkoutCard">Finalizar a compra</p>
+              <label><span data-i18n="cardName">Nome no cartão</span><input name="ccname" autocomplete="cc-name" /></label>
+              <label><span data-i18n="cardNumber">Número do cartão</span><input name="cardnumber" autocomplete="cc-number" inputmode="numeric" /></label>
+              <div class="pair">
+                <label><span data-i18n="cardExpiry">Validade</span><input name="cc-exp" autocomplete="cc-exp" placeholder="MM/AA" /></label>
+                <label><span data-i18n="cardCode">Código</span><input name="cvc" autocomplete="cc-csc" inputmode="numeric" /></label>
+              </div>
+              <label><span data-i18n="fullName">Nome completo</span><input name="name" autocomplete="name" /></label>
+              <label><span data-i18n="street">Endereço</span><input name="address" autocomplete="street-address" /></label>
+              <div class="pair">
+                <label><span data-i18n="city">Cidade</span><input name="city" autocomplete="address-level2" /></label>
+                <label><span data-i18n="zip">CEP</span><input name="zip" autocomplete="postal-code" /></label>
+              </div>
+              <button type="submit" class="button primary" data-i18n="checkoutButton">Pagar</button>
+            </form>
+            <p class="result" hidden data-result="checkout"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="shortcuts" aria-labelledby="shortcuts-title">
+        <div class="section-head">
+          <span class="mono number">§ 04</span>
+          <h2 id="shortcuts-title" data-i18n="shortcutsTitle">Atalhos</h2>
+        </div>
+        <dl class="keys">
+          <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>.</kbd></dt>
+          <dd data-i18n="keyPopup"></dd>
+          <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd></dt>
+          <dd data-i18n="keyFill"></dd>
+          <dt><kbd>Ctrl</kbd> <kbd>\</kbd></dt>
+          <dd data-i18n="keyAppFill"></dd>
+          <dt><kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>Space</kbd></dt>
+          <dd data-i18n="keyQuickAccess"></dd>
+        </dl>
+        <p class="note" data-i18n="keysNote"></p>
+      </section>
+
+      <section class="section finish" aria-labelledby="finish-title">
+        <h2 id="finish-title" data-i18n="finishTitle">Pronto</h2>
+        <p data-i18n="finish"></p>
+      </section>
+    </main>
+  </body>
+</html>

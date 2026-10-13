@@ -1202,6 +1202,7 @@ document.addEventListener(
       button.style.display = "flex";
       renderButton(kindFor(state));
       place();
+      watchField();
     });
     // Not when the page focuses a field by itself: the card is there for that.
     if (!filling && !refocusing) void autoOpen(target);
@@ -1222,15 +1223,35 @@ document.addEventListener(
   (e) => {
     // Clicks inside the menus happen in their own frames and never get here.
     if (e.composedPath().includes(host) || eventTarget(e) === current) return;
-    closeMenu();
-    elsewhere = false;
-    detached?.hide();
-    button.style.display = "none";
-    current = null;
-    setUserField(null);
+    leaveField();
   },
   true,
 );
+
+/** No field any more: the button and the menus go. */
+function leaveField() {
+  closeMenu();
+  elsewhere = false;
+  detached?.hide();
+  button.style.display = "none";
+  current = null;
+  setUserField(null);
+}
+
+/** While the button shows: it goes with its field when the page hides or
+ * removes the field (the browser tells nothing when the field had the
+ * focus, after signing in, say). */
+let fieldWatch: ReturnType<typeof setInterval> | undefined;
+function watchField() {
+  clearInterval(fieldWatch);
+  fieldWatch = setInterval(() => {
+    if (button.style.display === "none") return clearInterval(fieldWatch);
+    if (current && (!current.isConnected || !visible(current))) {
+      clearInterval(fieldWatch);
+      leaveField();
+    }
+  }, 500);
+}
 
 document.addEventListener(
   "keydown",

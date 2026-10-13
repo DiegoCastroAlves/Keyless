@@ -8,7 +8,7 @@
 import { avatar, hostOf } from "./avatar";
 import { renderMarkdown } from "./markdown";
 import { providerName } from "./providers";
-import type { Settings } from "./settings";
+import { tutorialUrl, type Settings } from "./settings";
 import type { BrowserManager, Login, Status } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
@@ -1124,6 +1124,7 @@ function showMainMenu(anchor: HTMLElement) {
     { label: t("generator"), icon: ICONS.key, hint: "Ctrl G", run: () => toggleGenerator(true) },
     ...(view.pageHost ? [{ label: t("scanPageQr"), icon: ICONS.qr, run: () => void scanPageQr() }] : []),
     { label: t("extensionSettings"), icon: ICONS.gear, run: () => void renderSettings() },
+    { label: t("tutorial"), icon: ICONS.sparkle, run: () => void chrome.tabs.create({ url: tutorialUrl() }).then(() => window.close()) },
     "divider",
     { label: t("lockKeyless"), icon: ICONS.lock, hint: "Ctrl Shift L", run: () => void lock() },
   );

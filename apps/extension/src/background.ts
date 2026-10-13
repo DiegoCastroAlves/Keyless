@@ -18,7 +18,7 @@
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
 import { isProviderPage, PROVIDERS, providerName } from "./providers";
-import { loadSettings, siteKey, updateSettings } from "./settings";
+import { loadSettings, siteKey, tutorialUrl, updateSettings } from "./settings";
 import type {
   AlertView,
   BrowserManager,
@@ -2359,6 +2359,12 @@ function createContextMenus() {
   });
 }
 chrome.runtime.onInstalled.addListener(createContextMenus);
+
+// The tutorial, with practice forms, once the extension is installed (and
+// from the popup's menu).
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === "install") void chrome.tabs.create({ url: tutorialUrl() });
+});
 chrome.runtime.onStartup.addListener(createContextMenus);
 
 chrome.contextMenus?.onClicked.addListener(async (info, tab) => {

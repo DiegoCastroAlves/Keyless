@@ -1212,5 +1212,8 @@
   },
   "showItem": {
     "message": "Show item"
+  },
+  "tutorial": {
+    "message": "Tutorial: practice here"
   }
 }

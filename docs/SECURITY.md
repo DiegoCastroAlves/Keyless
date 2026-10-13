@@ -769,6 +769,10 @@ or a password it suggested.
   answers only whether it is one and whether it is saved already. Keyless
   offers to save a new one as an API credential noting the site; it is never
   used to fill pages.
+- **The tutorial** (keyless.diegoalves.dev/tutorial/, opened once after
+  installing and from the popup's menu) is a static page whose practice forms
+  send nothing (`form-action 'none'`, `connect-src 'none'`); it tells
+  Keyless's fills from typing only by the browser's trusted-event flag.
 - Turning off "Browser integration" in Settings removes the host manifests,
   so browsers can no longer start the bridge.
 

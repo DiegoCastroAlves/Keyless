@@ -53,6 +53,14 @@ const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp", 
 const MAX_SITES = 500;
 
 /** "https://www.Example.com/login" -> "example.com"; null for other pages. */
+/** The browser extension's tutorial on Keyless's site, in the browser's
+ * language. */
+export function tutorialUrl(): string {
+  const ui = chrome.i18n.getUILanguage().toLowerCase();
+  const lang = ui.startsWith("pt") ? "pt-BR" : ui.startsWith("es") ? "es" : "en";
+  return `https://keyless.diegoalves.dev/tutorial/?lang=${lang}`;
+}
+
 export function siteKey(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
