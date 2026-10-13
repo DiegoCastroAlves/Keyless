@@ -139,6 +139,10 @@ pub struct ItemOverview {
     /// "two_factor").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sentinel_ignored: Vec<String>,
+    /// The item has its own icon ([`ItemDetails::icon`]), shown instead of
+    /// the website's or the category's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub custom_icon: bool,
     #[serde(flatten)]
     pub unknown: Unknown,
 }
@@ -156,6 +160,22 @@ pub enum FieldKind {
     CardNumber,
     Pin,
     Multiline,
+    /// A postal address: its parts in [`FieldExtra::address`], the value
+    /// holds them as text.
+    Address,
+    /// The label is the question, the value its answer (kept secret).
+    SecurityQuestion,
+    /// The account signs in through another provider ("Sign in with
+    /// Google"): the value names it, [`FieldExtra::link`] may point to the
+    /// provider's login item.
+    SignInWith,
+    /// A place: the value describes it, [`FieldExtra::geo`] has its
+    /// coordinates when known.
+    Location,
+    /// Another item this one relates to: its id in [`FieldExtra::link`].
+    Reference,
+    /// One of the item's attachments: its id is the value.
+    File,
     /// Plain text. Unknown kinds written by newer clients also read as text.
     #[default]
     #[serde(other)]
@@ -165,8 +185,112 @@ pub enum FieldKind {
 impl FieldKind {
     /// Fields whose value should be hidden until the user reveals it.
     pub fn is_secret(self) -> bool {
-        matches!(self, FieldKind::Concealed | FieldKind::Pin | FieldKind::CardNumber | FieldKind::Totp)
+        matches!(self, FieldKind::Concealed | FieldKind::Pin | FieldKind::CardNumber | FieldKind::Totp | FieldKind::SecurityQuestion)
     }
+
+    /// Fields that hold a date the item may expire on.
+    pub fn is_date(self) -> bool {
+        matches!(self, FieldKind::Date | FieldKind::MonthYear)
+    }
+}
+
+/// How long before a date field's date to warn that it expires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpiryAlert {
+    /// Not a date that expires.
+    Never,
+    Day,
+    Week,
+    TwoWeeks,
+    Month,
+    TwoMonths,
+    ThreeMonths,
+    SixMonths,
+    NineMonths,
+    /// A value from a newer version: treated as no choice made.
+    #[serde(other)]
+    Unknown,
+}
+
+impl ExpiryAlert {
+    /// Days ahead to warn; `None` for never (and unknown values).
+    pub fn days(self) -> Option<i64> {
+        match self {
+            ExpiryAlert::Never | ExpiryAlert::Unknown => None,
+            ExpiryAlert::Day => Some(1),
+            ExpiryAlert::Week => Some(7),
+            ExpiryAlert::TwoWeeks => Some(14),
+            ExpiryAlert::Month => Some(30),
+            ExpiryAlert::TwoMonths => Some(61),
+            ExpiryAlert::ThreeMonths => Some(91),
+            ExpiryAlert::SixMonths => Some(182),
+            ExpiryAlert::NineMonths => Some(273),
+        }
+    }
+}
+
+/// The parts of an address field.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
+pub struct Address {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub street: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub line2: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub city: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub state: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub zip: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub country: String,
+    #[serde(flatten)]
+    pub unknown: Unknown,
+}
+
+impl Address {
+    /// The address as text, a line per part (city, state and zip together),
+    /// which is what the field's value holds.
+    pub fn formatted(&self) -> String {
+        let city_line = [self.city.trim(), self.state.trim(), self.zip.trim()]
+            .into_iter()
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join(", ");
+        [self.street.trim(), self.line2.trim(), city_line.as_str(), self.country.trim()]
+            .into_iter()
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.formatted().is_empty()
+    }
+}
+
+/// What some kinds of field hold besides their value. Flattened into the
+/// field, so items stay readable by versions that do not know these.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
+pub struct FieldExtra {
+    /// Date fields: when to warn before the date; `None` lets Keyless
+    /// decide from the field's label (expiry dates warn a month ahead).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alert: Option<ExpiryAlert>,
+    /// Address fields: the parts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub address: Option<Address>,
+    /// Another item: the related item, or the login a "sign in with"
+    /// account uses.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub link: String,
+    /// Location fields: "latitude,longitude".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub geo: String,
+    /// Keys written by a later version.
+    #[serde(flatten)]
+    pub unknown: Unknown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Zeroize)]
@@ -189,6 +313,8 @@ pub struct Field {
     pub value: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub purpose: Option<FieldPurpose>,
+    #[serde(flatten)]
+    pub extra: FieldExtra,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
@@ -231,6 +357,10 @@ pub struct ItemDetails {
     /// Files kept in the item (see `attachment`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::attachment::Attachment>,
+    /// The item's own icon: a small PNG as a data URL (kept here, not in
+    /// the overview, whose size the server limits).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub icon: String,
     #[serde(flatten)]
     pub unknown: Unknown,
 }
@@ -330,11 +460,41 @@ mod tests {
     }
 
     #[test]
+    fn field_extras_round_trip_and_unknown_keys_stay() {
+        let json = r#"{"id":"a","label":"home","kind":"address","value":"x","address":{"street":"Rua A, 1","city":"Recife","zip":"50000-000","floor":"3"},"alert":"two_weeks","link":"item-1","geo":"-8.05,-34.9","shape":"round"}"#;
+        let field: Field = serde_json::from_str(json).unwrap();
+        assert_eq!(field.kind, FieldKind::Address);
+        assert_eq!(field.extra.alert, Some(ExpiryAlert::TwoWeeks));
+        assert_eq!(field.extra.link, "item-1");
+        assert_eq!(field.extra.geo, "-8.05,-34.9");
+        let address = field.extra.address.clone().unwrap();
+        assert_eq!(address.formatted(), "Rua A, 1\nRecife, 50000-000");
+        let again = serde_json::to_value(&field).unwrap();
+        assert_eq!(again["shape"], "round");
+        assert_eq!(again["address"]["floor"], "3");
+        assert_eq!(again["alert"], "two_weeks");
+        // A plain field writes nothing extra.
+        let plain = Field { id: "p".into(), label: "x".into(), kind: FieldKind::Text, value: "v".into(), purpose: None, extra: Default::default() };
+        assert_eq!(serde_json::to_string(&plain).unwrap(), r#"{"id":"p","label":"x","kind":"text","value":"v"}"#);
+    }
+
+    #[test]
+    fn expiry_alerts() {
+        assert_eq!(ExpiryAlert::Day.days(), Some(1));
+        assert_eq!(ExpiryAlert::NineMonths.days(), Some(273));
+        assert_eq!(ExpiryAlert::Never.days(), None);
+        let alert: ExpiryAlert = serde_json::from_str(r#""fortnightly""#).unwrap();
+        assert_eq!(alert, ExpiryAlert::Unknown);
+        assert!(FieldKind::SecurityQuestion.is_secret());
+        assert!(FieldKind::MonthYear.is_date());
+    }
+
+    #[test]
     fn username_and_password_lookup() {
         let mut details = ItemDetails::default();
         details.fields = vec![
-            Field { id: "u".into(), label: "username".into(), kind: FieldKind::Text, value: "me".into(), purpose: Some(FieldPurpose::Username) },
-            Field { id: "p".into(), label: "password".into(), kind: FieldKind::Concealed, value: "pw".into(), purpose: Some(FieldPurpose::Password) },
+            Field { id: "u".into(), label: "username".into(), kind: FieldKind::Text, value: "me".into(), purpose: Some(FieldPurpose::Username), extra: Default::default() },
+            Field { id: "p".into(), label: "password".into(), kind: FieldKind::Concealed, value: "pw".into(), purpose: Some(FieldPurpose::Password), extra: Default::default() },
         ];
         assert_eq!(details.username(), Some("me"));
         assert_eq!(details.password(), Some("pw"));
@@ -342,7 +502,7 @@ mod tests {
 
     #[test]
     fn username_comes_before_password() {
-        let field = |id: &str, purpose| Field { id: id.into(), label: id.into(), kind: FieldKind::Text, value: String::new(), purpose };
+        let field = |id: &str, purpose| Field { id: id.into(), label: id.into(), kind: FieldKind::Text, value: String::new(), purpose, extra: Default::default() };
         let mut details = ItemDetails::default();
         details.fields = vec![
             field("otp", Some(FieldPurpose::Other)),

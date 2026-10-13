@@ -11,7 +11,7 @@ StartupWMClass=keyless-desktop
 Terminal=false
 Categories=Utility;Security;
 Keywords=password;passwords;vault;login;2fa;totp;
-Actions=QuickAccess;
+Actions=QuickAccess;Show;Lock;
 
 # Installed again in share/kglobalaccel, so KDE binds this shortcut by default
 # (System Settings > Shortcuts > Keyless to change it).
@@ -20,3 +20,17 @@ Name=Quick Access
 Name[es]=Acceso rápido
 Exec=keyless-desktop --quick-access
 X-KDE-Shortcuts=Ctrl+Shift+Space
+
+[Desktop Action Show]
+Name=Show Keyless
+Name[es]=Mostrar Keyless
+Name[pt_BR]=Mostrar o Keyless
+Exec=keyless-desktop --show
+X-KDE-Shortcuts=
+
+[Desktop Action Lock]
+Name=Lock Keyless
+Name[es]=Bloquear Keyless
+Name[pt_BR]=Bloquear o Keyless
+Exec=keyless-desktop --lock
+X-KDE-Shortcuts=

@@ -159,6 +159,7 @@ pub async fn restore(app: &AppHandle, item_id: &str, revision: i64) -> AppResult
         fields: std::mem::take(&mut v.details.fields),
         sections: std::mem::take(&mut v.details.sections),
         notes: std::mem::take(&mut v.details.notes),
+        icon: std::mem::take(&mut v.details.icon),
     };
     items::save_item(app, draft).await
 }
@@ -170,7 +171,7 @@ mod tests {
     use super::*;
 
     fn field(id: &str, label: &str, value: &str) -> Field {
-        Field { id: id.into(), label: label.into(), kind: FieldKind::Text, value: value.into(), purpose: Some(FieldPurpose::Username) }
+        Field { id: id.into(), label: label.into(), kind: FieldKind::Text, value: value.into(), purpose: Some(FieldPurpose::Username), extra: Default::default() }
     }
 
     #[test]

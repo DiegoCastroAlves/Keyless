@@ -752,6 +752,7 @@ mod tests {
             kind: FieldKind::Concealed,
             value: password.into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         });
         stamp_version(&mut overview, &mut details, version);
         (vault.key.seal_overview("v", id, &overview).unwrap(), vault.key.seal_details("v", id, &details).unwrap())

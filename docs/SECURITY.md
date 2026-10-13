@@ -295,6 +295,32 @@ attachments a vault has and their sizes (not their names or contents).
   opened from Rust). The web UI names files to attach by path, but only files
   the user dropped on the window or chose in the file dialog within the last
   hour can be attached.
+- Notes are shown as Markdown without any HTML: the renderer makes React
+  elements only, links open in the system browser through Rust (http, https
+  and mailto only), and images can only be the item's own attachments, so a
+  note cannot load anything from the network.
+- Attached images and text files can be previewed: the file (up to 10 MB) is
+  decrypted in memory and never written to disk. An image reaches the page
+  re-encoded in Rust as a PNG of at most 1600 pixels, so only clean pixels
+  do; text (up to 1 MB of UTF-8 without the control characters of binary
+  files) is shown as plain text. Other files have to be saved to be opened.
+- An icon the user gives an item is decoded in Rust and stored as a new PNG
+  of at most 128 pixels, inside the item's encrypted details; the file's
+  own bytes are never kept. Saving accepts only a PNG data URL of at most
+  96 KB.
+- Searching notes and other fields decrypts each item's details in Rust for
+  the match, wipes them right after, and gives the page only the ids of the
+  items found. Secret values (passwords, card numbers, answers to security
+  questions, one-time password secrets) are never searched.
+- Printing an item leaves its hidden fields out unless the user includes
+  them; one-time password secrets are never printed. The printed page exists
+  only while printing.
+- Duplicating an item leaves its passkeys and attachments out. Copying it to
+  another vault copies the attachments' encrypted chunks on the server (a
+  chunk is bound to its attachment, not to the vault), and their keys go
+  into the copy's details, encrypted with the other vault's key.
+- The words of the system's file dialogs come from the page with each
+  command, so they follow the user's language; they are only shown.
 
 ## SSH agent
 

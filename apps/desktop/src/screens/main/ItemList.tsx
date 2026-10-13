@@ -6,6 +6,8 @@ import {
   ArrowRight,
   ArrowRightLeft,
   Copy,
+  Filter,
+  History,
   KeyRound,
   Pencil,
   Plus,
@@ -14,6 +16,7 @@ import {
   Star,
   Trash,
   User,
+  X,
 } from "lucide-react";
 import { ContextMenu, Popover } from "radix-ui";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
@@ -27,6 +30,7 @@ import {
   Kbd,
   Menu,
   MenuContent,
+  MenuItem,
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
@@ -74,26 +78,82 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
     if (alert === "ignored") return new Set((sentinelReport?.ignored ?? []).map(([id]) => id));
     return new Set(issues.get(alert)!.keys());
   }, [alert, issues, sentinelReport]);
-  const visible = useMemo(() => filterItems(items, view, search, order, only), [items, view, search, order, only]);
+  const filters = useApp((s) => s.filters);
+  const detailMatches = useApp((s) => s.detailMatches);
+  const passkeyItems = useApp((s) => s.passkeyItems);
+  const selection = useApp((s) => s.selection);
+  const levels = sentinelReport?.levels;
+  const visible = useMemo(
+    () => filterItems(items, view, search, order, only, { filters, detailMatches, passkeyItems, levels }),
+    [items, view, search, order, only, filters, detailMatches, passkeyItems, levels],
+  );
+
+  // The search also looks in notes and other values (decrypted by the app
+  // for it), a moment after typing stops; and is remembered for the session.
+  useEffect(() => {
+    const q = search.trim();
+    if (q.length < 2) {
+      useApp.setState({ detailMatches: null });
+      return;
+    }
+    let current = true;
+    const handle = setTimeout(() => {
+      api
+        .searchItemDetails(q)
+        .then((ids) => current && useApp.setState({ detailMatches: new Set(ids) }))
+        .catch(() => current && useApp.setState({ detailMatches: null }));
+    }, 250);
+    const remember = setTimeout(() => useApp.getState().rememberSearch(q), 1500);
+    return () => {
+      current = false;
+      clearTimeout(handle);
+      clearTimeout(remember);
+    };
+  }, [search]);
   const title = viewTitle(view, vaults);
   const canCreate = view.kind !== "trash" && view.kind !== "archive";
 
   // Keep a valid selection: select the first item when nothing is selected.
   useEffect(() => {
     if (editing?.isNew) return;
-    if (!selectedId || !visible.some((i) => i.id === selectedId)) {
+    if ((selectedId || visible.length) && (!selectedId || !visible.some((i) => i.id === selectedId))) {
       select(visible[0]?.id ?? null, true);
     }
-  }, [visible, selectedId, select, editing]);
+    const kept = selection.filter((id) => visible.some((i) => i.id === id));
+    if (kept.length !== selection.length) useApp.getState().setSelection(kept.length > 1 ? kept : []);
+  }, [visible, selectedId, select, editing, selection]);
 
-  const move = (delta: number) => {
+  const move = (delta: number, extend = false) => {
     if (!visible.length) return;
     const index = visible.findIndex((i) => i.id === selectedId);
     const next = visible[Math.min(visible.length - 1, Math.max(0, index + delta))];
-    // Moving with the arrow keys replaces the place rather than adding one
-    // to go back to for each item passed.
-    select(next.id, true);
+    if (extend && selectedId) {
+      // Shift+arrows grow the selection from where it started.
+      const current = selection.length ? selection : [selectedId];
+      useApp.setState({ selectedId: next.id, selection: current.includes(next.id) ? current.filter((id) => id !== selectedId) : [...current, next.id] });
+    } else {
+      // Moving with the arrow keys replaces the place rather than adding one
+      // to go back to for each item passed.
+      select(next.id, true);
+    }
     listRef.current?.querySelector(`[data-id="${next.id}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+
+  // Ctrl+click adds or removes an item, Shift+click takes the items between.
+  const clickRow = (item: ItemSummary, e: React.MouseEvent) => {
+    const { selection: current, selectedId: anchor } = useApp.getState();
+    if (e.ctrlKey || e.metaKey) {
+      const base = current.length ? current : anchor ? [anchor] : [];
+      const next = base.includes(item.id) ? base.filter((id) => id !== item.id) : [...base, item.id];
+      useApp.setState({ selectedId: item.id, selection: next.length > 1 ? next : [] });
+    } else if (e.shiftKey && anchor) {
+      const from = visible.findIndex((i) => i.id === anchor);
+      const to = visible.findIndex((i) => i.id === item.id);
+      const [a, b] = from < to ? [from, to] : [to, from];
+      useApp.setState({ selection: visible.slice(a, b + 1).map((i) => i.id) });
+    } else {
+      select(item.id);
+    }
   };
 
   useImperativeHandle(controlRef, () => ({
@@ -120,9 +180,14 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         {alert ? <AlertPicker current={alert} /> : <span className="truncate text-[13px] font-semibold">{title}</span>}
         <div className="flex items-center gap-1">
           <span className="text-xs text-subtle">{t("list.count", { count: visible.length })}</span>
+          <FilterMenu />
           <SortMenu count={visible.length} order={order} />
         </div>
       </div>
+      <FilterChips />
+      {detailMatches && detailMatches.size > 0 && search.trim() && (
+        <div className="mx-3 mb-1 text-[11px] text-subtle">{t("list.searchingDetails")}</div>
+      )}
 
       {view.kind === "trash" && visible.length > 0 && (
         <div className="mx-3 mb-2 space-y-1 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
@@ -139,10 +204,23 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") {
             e.preventDefault();
-            move(1);
+            move(1, e.shiftKey);
           } else if (e.key === "ArrowUp") {
             e.preventDefault();
-            move(-1);
+            move(-1, e.shiftKey);
+          } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+            e.preventDefault();
+            useApp.getState().setSelection(visible.map((i) => i.id));
+          } else if (e.key === "Delete" && view.kind !== "trash") {
+            e.preventDefault();
+            const ids = selection.length ? selection : selectedId ? [selectedId] : [];
+            void Promise.all(ids.map((id) => api.trashItem(id)))
+              .then(async () => {
+                toast.success(t("bulk.trashed", { count: ids.length }));
+                useApp.getState().setSelection([]);
+                await useApp.getState().loadData();
+              })
+              .catch((err) => toast.error(errorMessage(err)));
           }
         }}
         className="flex-1 overflow-y-auto px-2 pb-3 outline-none"
@@ -168,7 +246,11 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
                     {label}
                   </div>
                 )}
-                <ItemRow item={item} selected={item.id === selectedId} onSelect={() => select(item.id)} />
+                <ItemRow
+                  item={item}
+                  selected={selection.length > 1 ? selection.includes(item.id) : item.id === selectedId}
+                  onSelect={(e) => clickRow(item, e)}
+                />
               </div>
             );
           })
@@ -192,7 +274,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
   );
 }
 
-const SORTS: ListSort[] = ["title", "created", "modified", "frequent", "recent"];
+const SORTS: ListSort[] = ["title", "created", "modified", "frequent", "recent", "strength"];
 
 function SortMenu({ count, order }: { count: number; order: ListOrder }) {
   const { t } = useTranslation();
@@ -200,7 +282,7 @@ function SortMenu({ count, order }: { count: number; order: ListOrder }) {
   const setSettings = useApp((s) => s.setSettings);
   if (!settings) return null;
   const save = (patch: Partial<typeof settings>) => setSettings({ ...settings, ...patch }).catch((err) => toast.error(errorMessage(err)));
-  const direction = order.sort === "title" ? "title" : order.sort === "frequent" ? "frequent" : "date";
+  const direction = order.sort === "title" ? "title" : order.sort === "frequent" ? "frequent" : order.sort === "strength" ? "strength" : "date";
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -233,6 +315,11 @@ function SortMenu({ count, order }: { count: number; order: ListOrder }) {
               <MenuRadioItem value="desc">{t("list.order.mostUsed")}</MenuRadioItem>
               <MenuRadioItem value="asc">{t("list.order.leastUsed")}</MenuRadioItem>
             </>
+          ) : direction === "strength" ? (
+            <>
+              <MenuRadioItem value="asc">{t("list.order.weakest")}</MenuRadioItem>
+              <MenuRadioItem value="desc">{t("list.order.strongest")}</MenuRadioItem>
+            </>
           ) : (
             <>
               <MenuRadioItem value="desc">{t("list.order.newest")}</MenuRadioItem>
@@ -242,6 +329,116 @@ function SortMenu({ count, order }: { count: number; order: ListOrder }) {
         </MenuRadioGroup>
       </MenuContent>
     </Menu>
+  );
+}
+
+/** Narrows the list: a category, vault or tag, untagged items, items with a
+ * passkey. */
+function FilterMenu() {
+  const { t } = useTranslation();
+  const filters = useApp((s) => s.filters);
+  const vaults = useApp((s) => s.vaults);
+  const items = useApp((s) => s.items);
+  const setFilters = useApp((s) => s.setFilters);
+  const tags = useMemo(() => [...new Set(items.flatMap((i) => i.tags.map((tag) => tag.split("/")[0])))].sort((a, b) => a.localeCompare(b)), [items]);
+  const active = Object.values(filters).some(Boolean);
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          className={cx(
+            "flex size-7 items-center justify-center rounded-md hover:bg-panel-3 hover:text-fg data-[state=open]:bg-panel-3",
+            active ? "text-accent" : "text-muted",
+          )}
+          aria-label={t("filters.title")}
+          title={t("filters.title")}
+        >
+          <Filter className="size-4" />
+        </button>
+      </MenuTrigger>
+      <MenuContent>
+        <MenuLabel>{t("filters.category")}</MenuLabel>
+        <MenuRadioGroup value={filters.category ?? ""} onValueChange={(v) => setFilters({ ...filters, category: (v || undefined) as Category | undefined })}>
+          <MenuRadioItem value="">{t("filters.any")}</MenuRadioItem>
+          {CATEGORIES.filter((c) => items.some((i) => i.category === c.id)).map((c) => (
+            <MenuRadioItem key={c.id} value={c.id}>
+              {categoryLabel(c.id)}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+        {vaults.length > 1 && (
+          <>
+            <MenuSeparator />
+            <MenuLabel>{t("filters.vault")}</MenuLabel>
+            <MenuRadioGroup value={filters.vault ?? ""} onValueChange={(v) => setFilters({ ...filters, vault: v || undefined })}>
+              <MenuRadioItem value="">{t("filters.any")}</MenuRadioItem>
+              {vaults.map((v) => (
+                <MenuRadioItem key={v.id} value={v.id}>
+                  {v.name}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </>
+        )}
+        {tags.length > 0 && (
+          <>
+            <MenuSeparator />
+            <MenuLabel>{t("filters.tag")}</MenuLabel>
+            <MenuRadioGroup value={filters.untagged ? ":none" : (filters.tag ?? "")} onValueChange={(v) => setFilters({ ...filters, tag: v && v !== ":none" ? v : undefined, untagged: v === ":none" || undefined })}>
+              <MenuRadioItem value="">{t("filters.any")}</MenuRadioItem>
+              <MenuRadioItem value=":none">{t("filters.untagged")}</MenuRadioItem>
+              {tags.map((tag) => (
+                <MenuRadioItem key={tag} value={tag}>
+                  {tag}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </>
+        )}
+        <MenuSeparator />
+        <MenuItem onSelect={() => setFilters({ ...filters, passkey: !filters.passkey || undefined })}>
+          <span className="flex w-full items-center justify-between gap-3">
+            {t("filters.passkey")}
+            {filters.passkey && <span className="text-accent">✓</span>}
+          </span>
+        </MenuItem>
+        {active && (
+          <>
+            <MenuSeparator />
+            <MenuItem icon={<X className="size-4" />} onSelect={() => setFilters({})}>
+              {t("filters.clear")}
+            </MenuItem>
+          </>
+        )}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/** The filters in use, each removable. */
+function FilterChips() {
+  const { t } = useTranslation();
+  const filters = useApp((s) => s.filters);
+  const vaults = useApp((s) => s.vaults);
+  const setFilters = useApp((s) => s.setFilters);
+  const chips: { label: string; clear: () => void }[] = [];
+  if (filters.category) chips.push({ label: categoryLabel(filters.category), clear: () => setFilters({ ...filters, category: undefined }) });
+  if (filters.vault) chips.push({ label: vaults.find((v) => v.id === filters.vault)?.name ?? "", clear: () => setFilters({ ...filters, vault: undefined }) });
+  if (filters.tag) chips.push({ label: `#${filters.tag}`, clear: () => setFilters({ ...filters, tag: undefined }) });
+  if (filters.untagged) chips.push({ label: t("filters.untagged"), clear: () => setFilters({ ...filters, untagged: undefined }) });
+  if (filters.passkey) chips.push({ label: t("filters.passkey"), clear: () => setFilters({ ...filters, passkey: undefined }) });
+  if (chips.length === 0) return null;
+  return (
+    <div className="mx-3 mb-2 flex flex-wrap gap-1.5">
+      {chips.map((chip) => (
+        <span key={chip.label} className="inline-flex items-center gap-1 rounded-full bg-accent-soft py-0.5 pl-2.5 pr-1 text-xs font-medium text-accent">
+          {chip.label}
+          <button onClick={chip.clear} className="rounded-full p-0.5 hover:bg-accent/15" aria-label={t("common.remove")}>
+            <X className="size-3" />
+          </button>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -270,7 +467,7 @@ function EmptyList({ query, canCreate, onNewItem }: { query: string; canCreate: 
 
 const ItemRowButton = forwardRef<
   HTMLButtonElement,
-  { item: ItemSummary; selected: boolean; onSelect: () => void; onContextMenu?: React.MouseEventHandler<HTMLButtonElement> }
+  { item: ItemSummary; selected: boolean; onSelect: (e: React.MouseEvent) => void; onContextMenu?: React.MouseEventHandler<HTMLButtonElement> }
 >(function ItemRowButton({ item, selected, onSelect, onContextMenu, ...props }, ref) {
   return (
     <button
@@ -278,16 +475,17 @@ const ItemRowButton = forwardRef<
       data-id={item.id}
       onClick={onSelect}
       onContextMenu={(e) => {
-        onSelect();
+        // A right click inside a selection keeps it.
+        if (!selected) onSelect(e);
         onContextMenu?.(e);
       }}
       className={cx(
-        "group mb-0.5 flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors",
+        "group mb-0.5 flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors compact:py-1",
         selected ? "bg-accent-soft" : "hover:bg-panel-2",
       )}
       {...props}
     >
-      <ItemIcon title={item.title} category={item.category} url={item.urls[0]} />
+      <ItemIcon title={item.title} category={item.category} url={item.urls[0]} item={item} size={useApp.getState().settings?.density === "compact" ? "sm" : "md"} />
       <div className="min-w-0 flex-1">
         <div className={cx("truncate text-[13.5px] font-medium", selected && "text-fg")}>{item.title}</div>
         <div className="truncate text-xs text-muted">{item.subtitle || " "}</div>
@@ -297,7 +495,7 @@ const ItemRowButton = forwardRef<
   );
 });
 
-function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: boolean; onSelect: () => void }) {
+function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: boolean; onSelect: (e: React.MouseEvent) => void }) {
   const { t } = useTranslation();
   const loadData = useApp((s) => s.loadData);
   const startEditing = useApp((s) => s.startEditing);
@@ -353,7 +551,7 @@ function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: bo
                 <CtxItem
                   icon={<Pencil className="size-4" />}
                   onSelect={async () => {
-                    onSelect();
+                    useApp.getState().select(item.id);
                     try {
                       const draft = await api.getItemDraft(item.id);
                       startEditing({ draft, isNew: false });
@@ -415,6 +613,8 @@ export function TopBar({
   const vaults = useApp((s) => s.vaults);
   const search = useApp((s) => s.search);
   const setSearch = useApp((s) => s.setSearch);
+  const history = useApp((s) => s.searchHistory);
+  const [focused, setFocused] = useState(false);
   const title = viewTitle(view, vaults);
   return (
     <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-panel px-3">
@@ -435,8 +635,13 @@ export function TopBar({
               onEnterList();
             } else if (e.key === "Escape") {
               setSearch("");
+            } else if (e.key === "Enter") {
+              useApp.getState().rememberSearch(search);
             }
           }}
+          onFocus={() => setFocused(true)}
+          // After a click on a recent search.
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
           placeholder={t("list.searchIn", { view: title })}
           spellCheck={false}
           className="h-9 w-full rounded-lg border border-transparent bg-panel-3 pl-8 pr-14 text-sm outline-none placeholder:text-subtle focus:border-accent focus:bg-panel focus:ring-3 focus:ring-accent-soft"
@@ -444,6 +649,27 @@ export function TopBar({
         <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2">
           <Kbd>Ctrl F</Kbd>
         </span>
+        {focused && !search && history.length > 0 && (
+          <div className="absolute inset-x-0 top-full z-30 mt-1.5 overflow-hidden rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop">
+            <div className="flex items-center justify-between px-2.5 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-subtle">
+              {t("list.recentSearches")}
+              <button onMouseDown={(e) => e.preventDefault()} onClick={() => useApp.setState({ searchHistory: [] })} className="normal-case tracking-normal text-accent hover:underline">
+                {t("list.clearRecent")}
+              </button>
+            </div>
+            {history.map((q) => (
+              <button
+                key={q}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setSearch(q)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm hover:bg-panel-3"
+              >
+                <History className="size-3.5 text-subtle" />
+                <span className="truncate">{q}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <NewItemButton onPick={onNewItem} />
     </div>

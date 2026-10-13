@@ -24,6 +24,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     api::{AttachmentSpace, now_secs},
+    dialog_text::DialogText,
     error::{AppError, AppResult, Msg},
     items::{self, Extras, ItemSummary},
     state::AppState,
@@ -149,8 +150,8 @@ pub async fn inspect(paths: &[String]) -> Vec<FileInfo> {
 }
 
 /// Asks for files to attach (several at once).
-pub async fn pick(app: &AppHandle) -> AppResult<Vec<FileInfo>> {
-    let dialog = app.dialog().file().set_title("Choose files to attach");
+pub async fn pick(app: &AppHandle, text: &DialogText) -> AppResult<Vec<FileInfo>> {
+    let dialog = text.apply(app.dialog().file(), &[]);
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_files())
         .await
         .map_err(|e| AppError::Store(e.to_string()))?
@@ -162,7 +163,9 @@ pub async fn pick(app: &AppHandle) -> AppResult<Vec<FileInfo>> {
 
 /// Adds offered files to item `item_id`: all are uploaded, then the item is
 /// saved once with them. If any fails, none is added.
-pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String]) -> AppResult<ItemSummary> {
+/// `links` names the item's file fields (path, field id) that point to
+/// these files once they are attached.
+pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String], links: &[(String, String)]) -> AppResult<ItemSummary> {
     let state = app.state::<AppState>();
     let (vault_id, _) = item_files(&state, item_id, true).await?;
     let files = inspect(paths).await;
@@ -192,7 +195,16 @@ pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String]) -> AppR
         }
     }
 
-    let draft = items::get_item_draft(&state, item_id).await?;
+    let mut draft = items::get_item_draft(&state, item_id).await?;
+    for (path, field_id) in links {
+        let Some((attachment, _)) = attachments.iter().find(|(_, p)| p.to_string_lossy() == path.as_str()) else { continue };
+        let field = draft.fields.iter_mut().chain(draft.sections.iter_mut().flat_map(|s| s.fields.iter_mut())).find(|f| &f.id == field_id);
+        if let Some(field) = field
+            && field.kind == keyless_core::item::FieldKind::File
+        {
+            field.value = attachment.id.clone();
+        }
+    }
     let (now_in, mut list) = item_files(&state, item_id, true).await?;
     if now_in != vault_id {
         // The item moved meanwhile.
@@ -266,13 +278,13 @@ pub async fn upload(app: &AppHandle, item_id: &str, vault_id: &str, attachment: 
 /// Asks where to save attachment `attachment_id` of item `item_id`, then
 /// downloads and decrypts it there. A file is written under its final name
 /// only once every chunk checked out.
-pub async fn save(app: &AppHandle, item_id: &str, attachment_id: &str) -> AppResult<()> {
+pub async fn save(app: &AppHandle, item_id: &str, attachment_id: &str, text: &DialogText) -> AppResult<()> {
     let state = app.state::<AppState>();
     let (vault_id, list) = item_files(&state, item_id, false).await?;
     let attachment = list.into_iter().find(|a| a.id == attachment_id).ok_or(AppError::NotFound)?;
     let key = attachment.key().map_err(|_| AppError::Invalid(Msg::new("attachment_damaged")))?;
 
-    let dialog = app.dialog().file().set_title("Save attachment").set_file_name(&attachment.name);
+    let dialog = text.apply(app.dialog().file(), &[]).set_file_name(&attachment.name);
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
         .await
         .map_err(|e| AppError::Store(e.to_string()))?
@@ -307,6 +319,76 @@ pub async fn save(app: &AppHandle, item_id: &str, attachment_id: &str) -> AppRes
             let _ = tokio::fs::remove_file(&part).await;
             Err(err)
         }
+    }
+}
+
+/// What an attachment shows inside Keyless.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Preview {
+    /// A PNG data URL, re-encoded here from the file (so only a clean
+    /// image reaches the page).
+    Image { src: String },
+    Text { text: String },
+    /// Too large, or not an image or text.
+    None,
+}
+
+/// Largest file shown in Keyless.
+const MAX_PREVIEW: u64 = 10 * 1024 * 1024;
+/// Largest side of a previewed image, in pixels.
+const PREVIEW_SIZE: u32 = 1600;
+
+/// Downloads and decrypts a small attachment in memory to show it: images
+/// and text only, nothing is written to disk.
+pub async fn preview(app: &AppHandle, item_id: &str, attachment_id: &str) -> AppResult<Preview> {
+    let state = app.state::<AppState>();
+    let (vault_id, list) = item_files(&state, item_id, false).await?;
+    let attachment = list.into_iter().find(|a| a.id == attachment_id).ok_or(AppError::NotFound)?;
+    if attachment.size > MAX_PREVIEW {
+        return Ok(Preview::None);
+    }
+    let key = attachment.key().map_err(|_| AppError::Invalid(Msg::new("attachment_damaged")))?;
+    let mut bytes = Zeroizing::new(Vec::with_capacity(attachment.size as usize));
+    for index in 0..attachment.chunks() {
+        let (_, token) = sync::ensure_token(&state).await?;
+        let raw = state.api.download_attachment(&token, &attachment.object_name(&vault_id, index)).await.map_err(|err| match err {
+            AppError::NotFound => AppError::Invalid(Msg::new("attachment_missing")),
+            other => other,
+        })?;
+        let plain = attachment.open_chunk(&key, index, &raw).map_err(|_| AppError::Invalid(Msg::new("attachment_damaged")))?;
+        bytes.extend_from_slice(&plain);
+    }
+    state.touch();
+    tauri::async_runtime::spawn_blocking(move || preview_of(&bytes))
+        .await
+        .map_err(|e| AppError::Store(e.to_string()))
+}
+
+fn preview_of(bytes: &[u8]) -> Preview {
+    if let Ok(format) = image::guess_format(bytes)
+        && let Ok(image) = image::load_from_memory_with_format(bytes, format)
+    {
+        let image = if image.width() > PREVIEW_SIZE || image.height() > PREVIEW_SIZE {
+            image.resize(PREVIEW_SIZE, PREVIEW_SIZE, image::imageops::FilterType::Triangle)
+        } else {
+            image
+        };
+        let mut png = Vec::new();
+        if image::DynamicImage::ImageRgba8(image.to_rgba8())
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .is_ok()
+        {
+            use base64::{Engine, engine::general_purpose::STANDARD};
+            return Preview::Image { src: format!("data:image/png;base64,{}", STANDARD.encode(png)) };
+        }
+    }
+    // Any UTF-8 without the control characters binary files are full of
+    // (scripts, configs, keys…); the page shows it as plain text.
+    let binary = |c: char| c.is_control() && !matches!(c, '\n' | '\r' | '\t' | '\x0c');
+    match std::str::from_utf8(bytes) {
+        Ok(text) if bytes.len() <= 1024 * 1024 && !text.chars().any(binary) => Preview::Text { text: text.to_string() },
+        _ => Preview::None,
     }
 }
 
@@ -347,6 +429,46 @@ pub async fn copy_for_move(app: &AppHandle, item_id: &str, to_vault: &str) -> Ap
         }
     }
     Ok(Some(list.iter().map(|a| Gone::of(&from_vault, a)).collect()))
+}
+
+/// Copies an item's attachments to another vault for a copy of the item
+/// there (same ids, new object names). Returns them as they would be
+/// forgotten if the copy is not kept.
+pub async fn copy_to_vault(app: &AppHandle, item_id: &str, to_vault: &str) -> AppResult<Vec<Gone>> {
+    let state = app.state::<AppState>();
+    let (from_vault, list) = item_files(&state, item_id, false).await?;
+    if from_vault == to_vault {
+        return Err(AppError::Invalid(Msg::new("same_vault")));
+    }
+    let copied: Vec<Gone> = list.iter().map(|a| Gone::of(to_vault, a)).collect();
+    for attachment in &list {
+        for index in 0..attachment.chunks() {
+            let (_, token) = sync::ensure_token(&state).await?;
+            if let Err(err) = state
+                .api
+                .copy_attachment(&token, &attachment.object_name(&from_vault, index), &attachment.object_name(to_vault, index))
+                .await
+            {
+                forget(app, copied);
+                return Err(err);
+            }
+        }
+    }
+    Ok(copied)
+}
+
+/// Renames one of the item's attachments.
+pub async fn rename(app: &AppHandle, item_id: &str, attachment_id: &str, name: &str) -> AppResult<ItemSummary> {
+    let state = app.state::<AppState>();
+    let name = keyless_core::attachment::clean_name(name);
+    if name.is_empty() {
+        return Err(AppError::Invalid(Msg::new("file_name_empty")));
+    }
+    let (_, mut list) = item_files(&state, item_id, true).await?;
+    let attachment = list.iter_mut().find(|a| a.id == attachment_id).ok_or(AppError::NotFound)?;
+    attachment.name = name;
+    let draft = items::get_item_draft(&state, item_id).await?;
+    items::save_item_with(app, draft, Extras { attachments: Some(list), ..Default::default() }).await
 }
 
 /// How much attachment space the account uses.
@@ -432,5 +554,25 @@ async fn clean_up(app: &AppHandle) {
             }
             Err(err) => log::info!("stranded attachments: {err}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn previews_are_clean_images_or_text() {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(4000, 100, image::Rgba([1, 2, 3, 255])))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let Preview::Image { src } = preview_of(&png) else { panic!("not an image") };
+        assert!(src.starts_with("data:image/png;base64,"));
+        assert!(matches!(preview_of(b"hello"), Preview::Text { text } if text == "hello"));
+        assert!(matches!(preview_of(b"MZ\x00\x01"), Preview::None));
+        assert!(matches!(preview_of(&[0xff, 0xfe, 0x00]), Preview::None));
+        assert!(matches!(preview_of(b"#!/bin/sh\necho hi\n"), Preview::Text { .. }));
+        assert!(matches!(preview_of(b"abc\x01\x02"), Preview::None));
     }
 }

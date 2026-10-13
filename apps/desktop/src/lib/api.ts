@@ -4,7 +4,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-import { translateError } from "../i18n";
+import i18n, { translateError } from "../i18n";
 
 export type Category =
   | "login"
@@ -39,7 +39,26 @@ export type FieldKind =
   | "month_year"
   | "card_number"
   | "pin"
-  | "multiline";
+  | "multiline"
+  | "address"
+  | "security_question"
+  | "sign_in_with"
+  | "location"
+  | "reference"
+  | "file";
+
+/** How long before a date field's date to warn that it expires. */
+export type ExpiryAlert = "never" | "day" | "week" | "two_weeks" | "month" | "two_months" | "three_months" | "six_months" | "nine_months";
+
+/** The parts of an address field. */
+export interface Address {
+  street?: string;
+  line2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+}
 
 export type FieldPurpose = "username" | "password" | "other";
 
@@ -120,6 +139,18 @@ export interface Settings {
   ssh_agent: boolean;
   /** Run Sentinel's online check by itself once a day. */
   sentinel_check_passwords: boolean;
+  /** Vault for new items ("" picks one). */
+  default_vault: string;
+  /** New logins start with the username used most. */
+  prefill_username: boolean;
+  /** What the main window shows after unlocking. */
+  start_view: "all" | "favorites" | "sentinel";
+  density: "comfortable" | "compact";
+  /** Interface zoom, in percent. */
+  zoom: number;
+  /** Global shortcuts registered by the app (Windows). */
+  show_shortcut: string;
+  lock_shortcut: string;
 }
 
 export interface SiteIcon {
@@ -129,7 +160,7 @@ export interface SiteIcon {
   padded: boolean;
 }
 
-export type ListSort = "title" | "created" | "modified" | "frequent" | "recent";
+export type ListSort = "title" | "created" | "modified" | "frequent" | "recent" | "strength";
 
 /** A newer Keyless release found by the update check. */
 export interface UpdateInfo {
@@ -194,6 +225,8 @@ export interface ItemSummary {
   /** Uses on this device (copied, revealed, opened, filled). Local only. */
   uses: number;
   lastUsedAt: number | null;
+  /** The item has its own icon (see api.itemIcon). */
+  customIcon: boolean;
 }
 
 /** A program asking the SSH agent to sign. */
@@ -246,6 +279,13 @@ export interface FieldView {
   purpose: FieldPurpose | null;
   value: string | null;
   hasValue: boolean;
+  /** Date fields: when to warn (null: Keyless decides from the label). */
+  alert: ExpiryAlert | null;
+  address: Address | null;
+  /** The related item, or the login a "sign in with" account uses. */
+  link: string;
+  /** "latitude,longitude". */
+  geo: string;
 }
 
 export interface SectionView {
@@ -300,6 +340,9 @@ export interface AttachmentView {
   createdAt: number;
 }
 
+/** What an attachment shows inside Keyless. */
+export type AttachmentPreview = { kind: "image"; src: string } | { kind: "text"; text: string } | { kind: "none" };
+
 /** A file the user dropped or chose, to attach. */
 export interface FileInfo {
   path: string;
@@ -342,6 +385,10 @@ export interface Field {
   kind: FieldKind;
   value: string;
   purpose?: FieldPurpose | null;
+  alert?: ExpiryAlert | null;
+  address?: Address | null;
+  link?: string;
+  geo?: string;
 }
 
 export interface Section {
@@ -361,6 +408,8 @@ export interface ItemDraft {
   fields: Field[];
   sections: Section[];
   notes: string;
+  /** The item's own icon (PNG data URL), or "". */
+  icon: string;
 }
 
 export interface TotpCode {
@@ -523,6 +572,12 @@ export function errorCode(err: unknown): string | null {
   return null;
 }
 
+/** The words of a system file dialog, in the user's language. */
+function dialogText(key: "qrImage" | "backup" | "attach" | "icon" | "saveAttachment" | "export") {
+  const filter = `dialogs.${key}.filter`;
+  return { title: i18n.t(`dialogs.${key}.title`), filter: i18n.exists(filter) ? i18n.t(filter) : "" };
+}
+
 export const api = {
   status: () => invoke<AppStatus>("get_status"),
   createAccount: (email: string, masterPassword: string) =>
@@ -562,12 +617,12 @@ export const api = {
   showQuickAccess: () => invoke<void>("show_quick_access"),
   hideQuickAccess: () => invoke<void>("hide_quick_access"),
   quickAccessReady: () => invoke<void>("quick_access_ready"),
-  scanQr: (source: "screen" | "clipboard" | "file") => invoke<string>("scan_qr", { source }),
+  scanQr: (source: "screen" | "clipboard" | "file") => invoke<string>("scan_qr", { source, dialog: dialogText("qrImage") }),
   siteIcons: (sites: string[]) => invoke<Record<string, SiteIcon>>("site_icons", { sites }),
   unlockPromptReady: () => invoke<void>("unlock_prompt_ready"),
   closeUnlockPrompt: () => invoke<void>("close_unlock_prompt"),
   showItemInApp: (itemId: string) => invoke<void>("show_item_in_app", { itemId }),
-  setQuickAccessShortcut: (shortcut: string) => invoke<Settings>("set_quick_access_shortcut", { shortcut }),
+  setGlobalShortcuts: (quickAccess: string, show: string, lock: string) => invoke<Settings>("set_global_shortcuts", { quickAccess, show, lock }),
   checkForUpdates: () => invoke<VersionInfo>("check_for_updates"),
   openUpdatePage: () => invoke<void>("open_update_page"),
   installUpdate: () => invoke<void>("install_update"),
@@ -629,17 +684,39 @@ export const api = {
   checkItemPassword: (password: string, itemId: string | null, inputs: string[]) =>
     invoke<PasswordCheck>("check_item_password", { password, itemId, inputs }),
   importPick: (format: ImportFormat, password?: string) =>
-    invoke<ImportSummary>("import_pick", { format, password: password ?? null }),
+    invoke<ImportSummary>("import_pick", {
+      format,
+      password: password ?? null,
+      dialog: { title: i18n.t("dialogs.import.title"), filter: i18n.t(`dialogs.import.filters.${format}`) },
+    }),
   exportBackup: (masterPassword: string, password: string, includePasskeys: boolean) =>
-    invoke<ExportOutcome>("export_backup", { masterPassword, password, includePasskeys }),
+    invoke<ExportOutcome>("export_backup", { masterPassword, password, includePasskeys, dialog: dialogText("backup") }),
   sshGenerateKey: (comment: string) => invoke<SshKeyFields>("ssh_generate_key", { comment }),
   deletePasskey: (itemId: string, credentialId: string) => invoke<ItemSummary>("delete_passkey", { itemId, credentialId }),
   /** Asks for files to attach; throws "cancelled" if none was chosen. */
-  attachmentPick: () => invoke<FileInfo[]>("attachment_pick"),
+  attachmentPick: () => invoke<FileInfo[]>("attachment_pick", { dialog: dialogText("attach") }),
   /** Name and size of files the user dropped or chose. */
   attachmentInspect: (paths: string[]) => invoke<FileInfo[]>("attachment_inspect", { paths }),
-  attachmentAddPaths: (itemId: string, paths: string[]) => invoke<ItemSummary>("attachment_add_paths", { itemId, paths }),
-  attachmentSave: (itemId: string, attachmentId: string) => invoke<void>("attachment_save", { itemId, attachmentId }),
+  /** `links`: file fields (path, field id) that point to these files. */
+  attachmentAddPaths: (itemId: string, paths: string[], links?: [string, string][]) =>
+    invoke<ItemSummary>("attachment_add_paths", { itemId, paths, links: links ?? null }),
+  attachmentRename: (itemId: string, attachmentId: string, name: string) => invoke<ItemSummary>("attachment_rename", { itemId, attachmentId, name }),
+  itemIcon: (itemId: string) => invoke<string | null>("item_icon", { itemId }),
+  pickItemIcon: () => invoke<string>("pick_item_icon", { dialog: dialogText("icon") }),
+  duplicateItem: (itemId: string, title: string) => invoke<ItemSummary>("duplicate_item", { itemId, title }),
+  copyItemToVault: (itemId: string, vaultId: string) => invoke<ItemSummary>("copy_item_to_vault", { itemId, vaultId }),
+  /** Opens a web or mail link in the system browser. */
+  openLink: (url: string) => invoke<void>("open_link", { url }),
+  /** A field's value as a QR code (SVG markup made by Keyless). */
+  fieldQr: (itemId: string, fieldId: string) => invoke<string>("field_qr", { itemId, fieldId }),
+  /** The QR code to join a wireless router item's network (SVG). */
+  wifiQr: (itemId: string) => invoke<string>("wifi_qr", { itemId }),
+  attachmentPreview: (itemId: string, attachmentId: string) => invoke<AttachmentPreview>("attachment_preview", { itemId, attachmentId }),
+  itemsWithPasskeys: () => invoke<string[]>("items_with_passkeys"),
+  /** Ids of items whose notes or values that are not secret hold `query`. */
+  searchItemDetails: (query: string) => invoke<string[]>("search_item_details", { query }),
+  attachmentSave: (itemId: string, attachmentId: string) =>
+    invoke<void>("attachment_save", { itemId, attachmentId, dialog: dialogText("saveAttachment") }),
   attachmentDelete: (itemId: string, attachmentId: string) => invoke<ItemSummary>("attachment_delete", { itemId, attachmentId }),
   attachmentSpace: () => invoke<AttachmentSpace | null>("attachment_space"),
   shareCreate: (itemId: string, hours: number, viewOnce: boolean) => invoke<CreatedShare>("share_create", { itemId, hours, viewOnce }),
@@ -656,7 +733,8 @@ export const api = {
   sshImportKey: (privateKey: string, passphrase: string | null, comment: string) =>
     invoke<SshKeyFields>("ssh_import_key", { privateKey, passphrase, comment }),
   /** An unencrypted export, after the master password. */
-  exportPlain: (masterPassword: string, format: "csv" | "json" | "zip") => invoke<ExportOutcome>("export_plain", { masterPassword, format }),
+  exportPlain: (masterPassword: string, format: "csv" | "json" | "zip") =>
+    invoke<ExportOutcome>("export_plain", { masterPassword, format, dialog: dialogText("export") }),
   importCommit: (target: ImportTarget) => invoke<ImportOutcome>("import_commit", { target }),
   importCancel: () => invoke<void>("import_cancel"),
 };

@@ -142,7 +142,7 @@ fn login_field(purpose: FieldPurpose, value: &str) -> Field {
         FieldPurpose::Password => ("password", FieldKind::Concealed),
         _ => ("username", FieldKind::Text),
     };
-    Field { id: new_field_id(), label: label.into(), kind, value: value.into(), purpose: Some(purpose) }
+    Field { id: new_field_id(), label: label.into(), kind, value: value.into(), purpose: Some(purpose), extra: Default::default() }
 }
 
 /// Saves a new login for the page.
@@ -177,6 +177,7 @@ pub async fn save_new(
         fields: vec![login_field(FieldPurpose::Username, username), login_field(FieldPurpose::Password, &password)],
         sections: Vec::new(),
         notes: String::new(),
+        icon: String::new(),
     };
     let saved = items::save_item(app, draft).await.map_err(save_error)?;
     let _ = app.emit(EVENT_ITEMS_CHANGED, ());

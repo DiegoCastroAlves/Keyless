@@ -154,6 +154,43 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
+      <Row title={t("settings.density")}>
+        <Combobox
+          value={settings.density}
+          onChange={(density) => save({ density: density as Settings["density"] })}
+          options={[
+            { value: "comfortable", label: t("settings.densityComfortable") },
+            { value: "compact", label: t("settings.densityCompact") },
+          ]}
+          searchPlaceholder={t("common.searchPlaceholder")}
+        />
+      </Row>
+      <Row title={t("settings.zoom")} hint={t("settings.zoomHint")}>
+        <Combobox
+          value={String(settings.zoom)}
+          onChange={(zoom) => save({ zoom: Number(zoom) })}
+          options={[80, 90, 100, 110, 125, 150].map((z) => ({ value: String(z), label: `${z}%` }))}
+          searchPlaceholder={t("common.searchPlaceholder")}
+        />
+      </Row>
+      <Row title={t("settings.startView")}>
+        <Combobox
+          value={settings.start_view}
+          onChange={(start_view) => save({ start_view: start_view as Settings["start_view"] })}
+          options={[
+            { value: "all", label: t("sidebar.allItems") },
+            { value: "favorites", label: t("sidebar.favorites") },
+            { value: "sentinel", label: t("sentinel.title") },
+          ]}
+          searchPlaceholder={t("common.searchPlaceholder")}
+        />
+      </Row>
+      <DefaultVaultRow />
+      <Row title={t("settings.prefillUsername")} hint={t("settings.prefillUsernameHint")}>
+        <div className="flex justify-end">
+          <Switch checked={settings.prefill_username} onChange={(prefill_username) => save({ prefill_username })} label={t("settings.prefillUsername")} />
+        </div>
+      </Row>
       <Row title={t("settings.siteIcons")} hint={t("settings.siteIconsHint")}>
         <div className="flex justify-end">
           <Switch checked={settings.site_icons} onChange={(site_icons) => save({ site_icons })} label={t("settings.siteIcons")} />
@@ -180,7 +217,14 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
-      <QuickAccessRow />
+      <GlobalShortcuts />
+      <Row title={t("shortcuts.title")} hint={t("shortcuts.hint")}>
+        <div className="flex justify-end">
+          <Button size="sm" className="h-8" onClick={() => useApp.setState({ shortcutsOpen: true })}>
+            {t("shortcuts.show")}
+          </Button>
+        </div>
+      </Row>
       <Row title={t("settings.closeToTray")} hint={t("settings.closeToTrayHint")}>
         <div className="flex justify-end">
           <Switch checked={settings.close_to_tray} onChange={(close_to_tray) => save({ close_to_tray })} label={t("settings.closeToTray")} />
@@ -213,7 +257,6 @@ function GeneralTab() {
   );
 }
 
-const QUICK_ACCESS_COMMAND = "keyless-desktop --quick-access";
 const isWindows = navigator.userAgent.includes("Windows");
 
 /** "Ctrl+Shift+Space" from a key press, or null for a lone modifier. */
@@ -229,71 +272,129 @@ function shortcutFrom(e: React.KeyboardEvent): string | null {
   return [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super", key].filter(Boolean).join("+");
 }
 
-function QuickAccessRow() {
+/** Records a shortcut on Windows, where Keyless registers it itself. */
+function ShortcutRecorder({ value, onSave }: { value: string; onSave: (shortcut: string) => void }) {
+  const { t } = useTranslation();
+  const [recording, setRecording] = useState(false);
+  return (
+    <button
+      onClick={() => setRecording(true)}
+      onBlur={() => setRecording(false)}
+      onKeyDown={(e) => {
+        if (!recording) return;
+        e.preventDefault();
+        if (e.key === "Escape") setRecording(false);
+        else if (e.key === "Backspace") {
+          setRecording(false);
+          onSave("");
+        } else {
+          const shortcut = shortcutFrom(e);
+          if (shortcut) {
+            setRecording(false);
+            onSave(shortcut);
+          }
+        }
+      }}
+      className={cx("h-8 min-w-36 rounded-lg border px-3 text-sm", recording ? "border-accent text-accent" : "border-line bg-panel-2 hover:bg-panel-3")}
+    >
+      {recording ? t("settings.quickAccessPress") : value || t("settings.quickAccessOff")}
+    </button>
+  );
+}
+
+const SHORTCUT_COMMANDS = [
+  { id: "quickAccess", command: "keyless-desktop --quick-access" },
+  { id: "showApp", command: "keyless-desktop --show" },
+  { id: "lockApp", command: "keyless-desktop --lock" },
+] as const;
+
+/** Quick Access, show Keyless and lock, from anywhere. */
+function GlobalShortcuts() {
   const { t } = useTranslation();
   const settings = useApp((s) => s.settings);
-  const [recording, setRecording] = useState(false);
   if (!settings) return null;
 
-  const saveShortcut = async (shortcut: string) => {
-    setRecording(false);
+  const save = async (patch: { quick_access_shortcut?: string; show_shortcut?: string; lock_shortcut?: string }) => {
+    const next = { ...settings, ...patch };
     try {
-      useApp.setState({ settings: await api.setQuickAccessShortcut(shortcut) });
+      useApp.setState({ settings: await api.setGlobalShortcuts(next.quick_access_shortcut, next.show_shortcut, next.lock_shortcut) });
     } catch (err) {
       toast.error(errorMessage(err));
     }
   };
-  const copyCommand = async () => {
+  const copyCommand = async (command: string) => {
     try {
-      await api.copyText(QUICK_ACCESS_COMMAND);
+      await api.copyText(command);
       toast.success(t("settings.quickAccessCopied"));
     } catch (err) {
       toast.error(errorMessage(err));
     }
   };
 
+  if (isWindows) {
+    return (
+      <>
+        <Row title={t("settings.quickAccess")} hint={t("settings.quickAccessHintWindows")}>
+          <div className="flex justify-end gap-2">
+            <ShortcutRecorder value={settings.quick_access_shortcut} onSave={(quick_access_shortcut) => void save({ quick_access_shortcut })} />
+            <Button size="sm" className="h-8" onClick={() => void api.showQuickAccess()}>
+              {t("settings.quickAccessTry")}
+            </Button>
+          </div>
+        </Row>
+        <Row title={t("settings.showAppShortcut")}>
+          <div className="flex justify-end">
+            <ShortcutRecorder value={settings.show_shortcut} onSave={(show_shortcut) => void save({ show_shortcut })} />
+          </div>
+        </Row>
+        <Row title={t("settings.lockShortcut")}>
+          <div className="flex justify-end">
+            <ShortcutRecorder value={settings.lock_shortcut} onSave={(lock_shortcut) => void save({ lock_shortcut })} />
+          </div>
+        </Row>
+      </>
+    );
+  }
   return (
     <>
-      <Row title={t("settings.quickAccess")} hint={isWindows ? t("settings.quickAccessHintWindows") : t("settings.quickAccessHintLinux")}>
-        <div className="flex justify-end gap-2">
-          {isWindows && (
-            <button
-              onClick={() => setRecording(true)}
-              onBlur={() => setRecording(false)}
-              onKeyDown={(e) => {
-                if (!recording) return;
-                e.preventDefault();
-                if (e.key === "Escape") setRecording(false);
-                else if (e.key === "Backspace") void saveShortcut("");
-                else {
-                  const shortcut = shortcutFrom(e);
-                  if (shortcut) void saveShortcut(shortcut);
-                }
-              }}
-              className={cx(
-                "h-8 min-w-36 rounded-lg border px-3 text-sm",
-                recording ? "border-accent text-accent" : "border-line bg-panel-2 hover:bg-panel-3",
-              )}
-            >
-              {recording ? t("settings.quickAccessPress") : settings.quick_access_shortcut || t("settings.quickAccessOff")}
-            </button>
-          )}
+      <Row title={t("settings.globalShortcuts")} hint={t("settings.globalShortcutsHintLinux")}>
+        <div className="flex justify-end">
           <Button size="sm" className="h-8" onClick={() => void api.showQuickAccess()}>
             {t("settings.quickAccessTry")}
           </Button>
         </div>
       </Row>
-      {!isWindows && (
-        <div className="-mt-1 mb-2 flex items-center gap-2 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
-          <span className="flex-1">
-            {t("settings.quickAccessCommand")} <code className="selectable font-mono text-fg">{QUICK_ACCESS_COMMAND}</code>
-          </span>
-          <Button size="sm" onClick={copyCommand}>
-            {t("common.copy")}
-          </Button>
-        </div>
-      )}
+      <div className="-mt-1 mb-2 space-y-1.5 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
+        {SHORTCUT_COMMANDS.map(({ id, command }) => (
+          <div key={id} className="flex items-center gap-2">
+            <span className="w-32 shrink-0">{t(`shortcuts.${id}`)}</span>
+            <code className="selectable flex-1 font-mono text-fg">{command}</code>
+            <Button size="sm" onClick={() => void copyCommand(command)}>
+              {t("common.copy")}
+            </Button>
+          </div>
+        ))}
+      </div>
     </>
+  );
+}
+
+function DefaultVaultRow() {
+  const { t } = useTranslation();
+  const settings = useApp((s) => s.settings);
+  const vaults = useApp((s) => s.vaults);
+  const setSettings = useApp((s) => s.setSettings);
+  if (!settings) return null;
+  const options = [{ value: "", label: t("settings.defaultVaultAuto") }, ...vaults.filter((v) => v.canWrite).map((v) => ({ value: v.id, label: v.name }))];
+  return (
+    <Row title={t("settings.defaultVault")} hint={t("settings.defaultVaultHint")}>
+      <Combobox
+        value={settings.default_vault}
+        onChange={(default_vault) => setSettings({ ...settings, default_vault }).catch((err) => toast.error(errorMessage(err)))}
+        options={options}
+        searchPlaceholder={t("common.searchPlaceholder")}
+      />
+    </Row>
   );
 }
 

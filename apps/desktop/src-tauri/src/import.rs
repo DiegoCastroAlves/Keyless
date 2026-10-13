@@ -35,6 +35,7 @@ use crate::{
     api::now_secs,
     attachments::{self, Gone, Source},
     auth::MIN_MASTER_PASSWORD_CHARS,
+    dialog_text::DialogText,
     error::{AppError, AppResult, Msg},
     items,
     state::AppState,
@@ -119,18 +120,18 @@ impl Progress {
     }
 }
 
-pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Option<Zeroizing<String>>) -> AppResult<ImportSummary> {
+pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Option<Zeroizing<String>>, text: &DialogText) -> AppResult<ImportSummary> {
     let state = app.state::<AppState>();
     if state.session.lock().await.is_none() {
         return Err(AppError::Locked);
     }
-    let dialog = app.dialog().file().set_title("Choose a file to import");
-    let dialog = match format {
-        ImportFormat::OnePux => dialog.add_filter("1Password export", &["1pux"]),
-        ImportFormat::Csv => dialog.add_filter("CSV file", &["csv"]),
-        ImportFormat::KeylessBackup => dialog.add_filter("Keyless backup", &["keyless"]),
-        ImportFormat::KeylessExport => dialog.add_filter("Keyless export", &["json", "zip"]),
+    let extensions: &[&str] = match format {
+        ImportFormat::OnePux => &["1pux"],
+        ImportFormat::Csv => &["csv"],
+        ImportFormat::KeylessBackup => &["keyless"],
+        ImportFormat::KeylessExport => &["json", "zip"],
     };
+    let dialog = text.apply(app.dialog().file(), extensions);
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
         .await
         .map_err(|e| AppError::Store(e.to_string()))?
@@ -455,7 +456,7 @@ pub enum PlainFormat {
 /// Exports every vault the user can read into a file that is NOT encrypted,
 /// for moving to another password manager. Needs the master password; the
 /// UI warns first.
-pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, format: PlainFormat) -> AppResult<ExportOutcome> {
+pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, format: PlainFormat, text: &DialogText) -> AppResult<ExportOutcome> {
     let state = app.state::<AppState>();
     crate::auth::confirm_master_password(&state, master_password).await?;
     let (data, vault_ids) = collect(&state).await?;
@@ -466,10 +467,8 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
         PlainFormat::Json => ("JSON", "json"),
         PlainFormat::Zip => ("ZIP", "zip"),
     };
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Save unencrypted export")
+    let dialog = text
+        .apply(app.dialog().file(), &[])
         .add_filter(filter, &[extension])
         .set_file_name(format!("keyless-export-{}.{extension}", today()));
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
@@ -506,7 +505,13 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
 /// Exports every vault the user can read, with the attached files and, when
 /// `include_passkeys`, the passkeys, into an encrypted `.keyless` file.
 /// Fails with `Cancelled` if no file was chosen.
-pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, password: Zeroizing<String>, include_passkeys: bool) -> AppResult<ExportOutcome> {
+pub async fn export(
+    app: &AppHandle,
+    master_password: Zeroizing<String>,
+    password: Zeroizing<String>,
+    include_passkeys: bool,
+    text: &DialogText,
+) -> AppResult<ExportOutcome> {
     let state = app.state::<AppState>();
     // A backup holds every secret in the vault: ask for the master password
     // even when the vault was unlocked another way.
@@ -531,11 +536,8 @@ pub async fn export(app: &AppHandle, master_password: Zeroizing<String>, passwor
         }
     }
 
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Save encrypted backup")
-        .add_filter("Keyless backup", &["keyless"])
+    let dialog = text
+        .apply(app.dialog().file(), &["keyless"])
         .set_file_name(format!("keyless-backup-{}.keyless", today()));
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_save_file())
         .await

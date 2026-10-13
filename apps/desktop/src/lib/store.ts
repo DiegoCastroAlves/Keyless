@@ -48,6 +48,20 @@ export interface Editing {
   isNew: boolean;
 }
 
+/** Narrows the list within its view. */
+export interface ListFilters {
+  category?: Category;
+  vault?: string;
+  tag?: string;
+  untagged?: boolean;
+  /** Only items that keep a passkey. */
+  passkey?: boolean;
+}
+
+/** How many searches are remembered (for this session only: a search says
+ * what the user looks for, so it is never written anywhere). */
+const SEARCH_HISTORY = 10;
+
 interface AppStore {
   status: AppStatus | null;
   settings: Settings | null;
@@ -66,6 +80,21 @@ interface AppStore {
   revision: number;
   /** Set when the lock screen sends the user to account recovery. */
   recoverEmail: string | null;
+  /** The list of keyboard shortcuts is open. */
+  shortcutsOpen: boolean;
+  /** Items selected together (two or more: the bulk actions show). */
+  selection: string[];
+  filters: ListFilters;
+  /** Items whose notes or other values match the search (decrypted by the
+   * app for it); null while there is no such search. */
+  detailMatches: Set<string> | null;
+  /** Items with a passkey, while the list is filtered by them. */
+  passkeyItems: Set<string> | null;
+  /** Recent searches of this session. */
+  searchHistory: string[];
+  setSelection: (ids: string[]) => void;
+  setFilters: (filters: ListFilters) => void;
+  rememberSearch: (query: string) => void;
 
   refreshStatus: () => Promise<AppStatus>;
   loadData: () => Promise<void>;
@@ -105,6 +134,27 @@ export const useApp = create<AppStore>((set, get) => ({
   editing: null,
   revision: 0,
   recoverEmail: null,
+  shortcutsOpen: false,
+  selection: [],
+  filters: {},
+  detailMatches: null,
+  passkeyItems: null,
+  searchHistory: [],
+  setSelection: (selection) => set({ selection }),
+  setFilters: (filters) => {
+    set({ filters, selection: [] });
+    if (filters.passkey && !get().passkeyItems) {
+      api
+        .itemsWithPasskeys()
+        .then((ids) => set({ passkeyItems: new Set(ids) }))
+        .catch(() => set({ passkeyItems: new Set() }));
+    }
+  },
+  rememberSearch: (query) => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    set({ searchHistory: [q, ...get().searchHistory.filter((h) => h.toLowerCase() !== q.toLowerCase())].slice(0, SEARCH_HISTORY) });
+  },
 
   refreshStatus: async () => {
     const status = await api.status();
@@ -140,13 +190,16 @@ export const useApp = create<AppStore>((set, get) => ({
     const { view: current, selectedId, past } = get();
     const here = { view: current, selectedId };
     if (JSON.stringify(view) === JSON.stringify(current)) return set({ view, editing: null });
-    set({ view, selectedId: null, editing: null, past: [...past, here].slice(-HISTORY_LIMIT), future: [] });
+    set({ view, selectedId: null, selection: [], editing: null, past: [...past, here].slice(-HISTORY_LIMIT), future: [] });
   },
   setSearch: (search) => set({ search }),
   select: (selectedId, auto = false) => {
-    const { view, selectedId: current, past } = get();
-    if (auto || selectedId === current || current === null) return set({ selectedId });
-    set({ selectedId, past: [...past, { view, selectedId: current }].slice(-HISTORY_LIMIT), future: [] });
+    const { view, selectedId: current, past, selection } = get();
+    // A new array only when there was a selection, or every select would
+    // look like a change.
+    const cleared = selection.length ? [] : selection;
+    if (auto || selectedId === current || current === null) return set({ selectedId, selection: cleared });
+    set({ selectedId, selection: cleared, past: [...past, { view, selectedId: current }].slice(-HISTORY_LIMIT), future: [] });
   },
   goBack: () => {
     const { view, selectedId, past, future, editing } = get();
@@ -174,6 +227,11 @@ export const useApp = create<AppStore>((set, get) => ({
       editing: null,
       past: [],
       future: [],
+      selection: [],
+      filters: {},
+      detailMatches: null,
+      passkeyItems: null,
+      searchHistory: [],
     }),
 }));
 
@@ -206,8 +264,11 @@ export interface ListOrder {
 
 const byTitle = (a: ItemSummary, b: ItemSummary) => a.title.localeCompare(b.title, undefined, { sensitivity: "base" });
 
-function sortKey(item: ItemSummary, sort: ListSort): number {
+function sortKey(item: ItemSummary, sort: ListSort, levels?: Record<string, number>): number {
   switch (sort) {
+    case "strength":
+      // Items without a password (or not checked yet) after the others.
+      return levels?.[item.id] ?? 99;
     case "created":
       return item.createdAt;
     case "modified":
@@ -221,12 +282,13 @@ function sortKey(item: ItemSummary, sort: ListSort): number {
   }
 }
 
-export function sortItems(items: ItemSummary[], { sort, desc }: ListOrder): ItemSummary[] {
+export function sortItems(items: ItemSummary[], { sort, desc }: ListOrder, levels?: Record<string, number>): ItemSummary[] {
   return [...items].sort((a, b) => {
     if (sort === "title") return desc ? byTitle(b, a) : byTitle(a, b);
     // Items never used stay at the end, whatever the direction.
     if (sort === "recent" && (a.lastUsedAt === null) !== (b.lastUsedAt === null)) return a.lastUsedAt === null ? 1 : -1;
-    const diff = sortKey(a, sort) - sortKey(b, sort);
+    if (sort === "strength" && (levels?.[a.id] === undefined) !== (levels?.[b.id] === undefined)) return levels?.[a.id] === undefined ? 1 : -1;
+    const diff = sortKey(a, sort, levels) - sortKey(b, sort, levels);
     if (diff !== 0) return desc ? -diff : diff;
     return byTitle(a, b);
   });
@@ -254,6 +316,16 @@ export function groupLabel(item: ItemSummary, sort: ListSort): string | null {
   }
 }
 
+/** What else narrows or orders the list. */
+export interface ListExtras {
+  filters?: ListFilters;
+  /** Items whose details match the search. */
+  detailMatches?: Set<string> | null;
+  passkeyItems?: Set<string> | null;
+  /** Password strength per item (Sentinel), for sorting by it. */
+  levels?: Record<string, number>;
+}
+
 /** The items `view` shows, matching `search`; `only`, when given, limits
  * them to those ids (Sentinel's lists). */
 export function filterItems(
@@ -262,7 +334,9 @@ export function filterItems(
   search: string,
   order: ListOrder = { sort: "title", desc: false },
   only?: Set<string>,
+  extras: ListExtras = {},
 ): ItemSummary[] {
+  const f = extras.filters ?? {};
   const q = search.trim().toLowerCase();
   const filtered = items.filter((item) => {
     if (only && !only.has(item.id)) return false;
@@ -290,13 +364,19 @@ export function filterItems(
         if (!item.tags.some((t) => t === view.tag || t.startsWith(`${view.tag}/`))) return false;
         break;
     }
+    if (f.category && item.category !== f.category) return false;
+    if (f.vault && item.vaultId !== f.vault) return false;
+    if (f.tag && !item.tags.some((t) => t === f.tag || t.startsWith(`${f.tag}/`))) return false;
+    if (f.untagged && item.tags.length > 0) return false;
+    if (f.passkey && !extras.passkeyItems?.has(item.id)) return false;
     if (!q) return true;
     return (
       item.title.toLowerCase().includes(q) ||
       item.subtitle.toLowerCase().includes(q) ||
       item.urls.some((u) => u.toLowerCase().includes(q)) ||
-      item.tags.some((t) => t.toLowerCase().includes(q))
+      item.tags.some((t) => t.toLowerCase().includes(q)) ||
+      !!extras.detailMatches?.has(item.id)
     );
   });
-  return sortItems(filtered, order);
+  return sortItems(filtered, order, extras.levels);
 }

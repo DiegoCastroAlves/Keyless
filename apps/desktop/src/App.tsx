@@ -7,7 +7,7 @@ import { TooltipProvider } from "./components/ui";
 import { applyLanguage } from "./i18n";
 import { api, events } from "./lib/api";
 import { useApp } from "./lib/store";
-import { useTheme } from "./lib/theme";
+import { useDensity, useTheme } from "./lib/theme";
 import { LockScreen } from "./screens/LockScreen";
 import { MainLayout } from "./screens/main/MainLayout";
 import { Onboarding } from "./screens/Onboarding";
@@ -36,6 +36,7 @@ export function App() {
   const unlocked = status?.state === "unlocked";
 
   useTheme(settings?.theme);
+  useDensity(settings?.density);
   useActivityHeartbeat(unlocked);
 
   useEffect(() => {

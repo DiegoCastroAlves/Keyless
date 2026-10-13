@@ -227,7 +227,7 @@ mod tests {
     };
 
     fn field(label: &str, kind: FieldKind, value: &str, purpose: Option<FieldPurpose>) -> Field {
-        Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose }
+        Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose, extra: Default::default() }
     }
 
     fn sample() -> BackupData {

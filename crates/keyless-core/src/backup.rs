@@ -312,6 +312,7 @@ mod tests {
             kind: FieldKind::Concealed,
             value: "s3cret".into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         });
         BackupData {
             exported_at: 1,

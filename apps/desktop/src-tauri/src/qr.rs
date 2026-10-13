@@ -12,7 +12,10 @@ use image::GrayImage;
 use keyless_core::totp::Totp;
 use tauri::{AppHandle, Manager};
 
-use crate::error::{AppError, AppResult, Msg};
+use crate::{
+    dialog_text::DialogText,
+    error::{AppError, AppResult, Msg},
+};
 
 /// Larger images are refused (and screenshots this large do not exist).
 const MAX_FILE: u64 = 25 * 1024 * 1024;
@@ -23,11 +26,11 @@ fn not_found() -> AppError {
 
 /// Reads a QR code from `source` ("screen", "clipboard" or "file") and
 /// returns its `otpauth://` address.
-pub async fn scan(app: &AppHandle, source: &str) -> AppResult<String> {
+pub async fn scan(app: &AppHandle, source: &str, text: &DialogText) -> AppResult<String> {
     let image = match source {
         "screen" => screenshot(app).await?,
         "clipboard" => tokio::task::spawn_blocking(clipboard_image).await.map_err(|_| not_found())??,
-        "file" => pick_image(app).await?,
+        "file" => pick_image(app, text).await?,
         _ => return Err(AppError::Invalid(Msg::new("invalid_request"))),
     };
     tokio::task::spawn_blocking(move || decode(&image)).await.map_err(|_| not_found())?.ok_or_else(not_found)
@@ -66,9 +69,9 @@ fn clipboard_image() -> AppResult<GrayImage> {
     Ok(image::DynamicImage::ImageRgba8(rgba).to_luma8())
 }
 
-async fn pick_image(app: &AppHandle) -> AppResult<GrayImage> {
+async fn pick_image(app: &AppHandle, text: &DialogText) -> AppResult<GrayImage> {
     use tauri_plugin_dialog::DialogExt;
-    let dialog = app.dialog().file().add_filter("Images", &["png", "jpg", "jpeg", "gif", "bmp", "webp"]);
+    let dialog = text.apply(app.dialog().file(), &["png", "jpg", "jpeg", "gif", "bmp", "webp"]);
     let picked = tokio::task::spawn_blocking(move || dialog.blocking_pick_file()).await.map_err(|_| AppError::Cancelled)?;
     let path = picked.and_then(|p| p.into_path().ok()).ok_or(AppError::Cancelled)?;
     tokio::task::spawn_blocking(move || {

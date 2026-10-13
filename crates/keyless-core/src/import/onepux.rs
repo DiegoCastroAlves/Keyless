@@ -175,6 +175,7 @@ fn convert_item(raw: &Value, finder: &mut FileFinder) -> Option<ImportedItem> {
                 kind,
                 value: value.into(),
                 purpose: Some(purpose),
+                extra: Default::default(),
             });
         }
     }
@@ -191,6 +192,7 @@ fn convert_item(raw: &Value, finder: &mut FileFinder) -> Option<ImportedItem> {
             kind: FieldKind::Concealed,
             value: pw.into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         });
     }
 
@@ -317,7 +319,7 @@ fn convert_field(raw: &Value) -> Option<Field> {
     if text.is_empty() {
         return None;
     }
-    Some(Field { id: new_field_id(), label, kind, value: text, purpose: None })
+    Some(Field { id: new_field_id(), label, kind, value: text, purpose: None, extra: Default::default() })
 }
 
 fn as_text(value: &Value) -> String {

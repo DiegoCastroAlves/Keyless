@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 use crate::{
     auth::{self, AppStatus, CreatedAccount},
     clipboard,
+    dialog_text::DialogText,
     error::{AppError, AppResult, Msg},
     generator_history, item_versions,
     health::{self, HealthReport, Strength},
@@ -281,6 +282,9 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
     if settings.ssh_agent != current.ssh_agent {
         crate::ssh_agent::apply(&app);
     }
+    if settings.zoom != current.zoom {
+        crate::apply_zoom(&app, settings.zoom);
+    }
     if settings.site_icons != current.site_icons {
         if settings.site_icons {
             crate::site_icons::refresh(&app);
@@ -293,8 +297,8 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
 
 /// Reads a one-time password QR code from "screen", "clipboard" or "file".
 #[tauri::command]
-pub async fn scan_qr(app: AppHandle, source: String) -> AppResult<String> {
-    crate::qr::scan(&app, &source).await
+pub async fn scan_qr(app: AppHandle, source: String, dialog: Option<DialogText>) -> AppResult<String> {
+    crate::qr::scan(&app, &source, &dialog.unwrap_or_default()).await
 }
 
 /// Cached website icons for these addresses, keyed as given.
@@ -542,9 +546,15 @@ pub async fn check_breaches(app: AppHandle, state: State<'_, AppState>) -> AppRe
 }
 
 #[tauri::command]
-pub async fn import_pick(app: AppHandle, state: State<'_, AppState>, format: ImportFormat, password: Option<String>) -> AppResult<ImportSummary> {
+pub async fn import_pick(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    format: ImportFormat,
+    password: Option<String>,
+    dialog: DialogText,
+) -> AppResult<ImportSummary> {
     state.touch();
-    import::pick_and_parse(&app, format, password.map(Zeroizing::new)).await
+    import::pick_and_parse(&app, format, password.map(Zeroizing::new), &dialog).await
 }
 
 #[tauri::command]
@@ -554,9 +564,10 @@ pub async fn export_backup(
     master_password: String,
     password: String,
     include_passkeys: bool,
+    dialog: DialogText,
 ) -> AppResult<import::ExportOutcome> {
     state.touch();
-    import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password), include_passkeys).await
+    import::export(&app, Zeroizing::new(master_password), Zeroizing::new(password), include_passkeys, &dialog).await
 }
 
 #[tauri::command]
@@ -567,9 +578,9 @@ pub async fn delete_passkey(app: AppHandle, state: State<'_, AppState>, item_id:
 
 /// Asks for files to attach.
 #[tauri::command]
-pub async fn attachment_pick(app: AppHandle, state: State<'_, AppState>) -> AppResult<Vec<crate::attachments::FileInfo>> {
+pub async fn attachment_pick(app: AppHandle, state: State<'_, AppState>, dialog: DialogText) -> AppResult<Vec<crate::attachments::FileInfo>> {
     state.touch();
-    crate::attachments::pick(&app).await
+    crate::attachments::pick(&app, &dialog).await
 }
 
 /// Name and size of files the user dropped or chose (others are left out).
@@ -578,18 +589,104 @@ pub async fn attachment_inspect(paths: Vec<String>) -> AppResult<Vec<crate::atta
     Ok(crate::attachments::inspect(&paths).await)
 }
 
-/// Attaches files the user dropped or chose to the item.
+/// Attaches files the user dropped or chose to the item; `links` names the
+/// file fields (path, field id) that point to them.
 #[tauri::command]
-pub async fn attachment_add_paths(app: AppHandle, state: State<'_, AppState>, item_id: String, paths: Vec<String>) -> AppResult<ItemSummary> {
+pub async fn attachment_add_paths(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_id: String,
+    paths: Vec<String>,
+    links: Option<Vec<(String, String)>>,
+) -> AppResult<ItemSummary> {
     state.touch();
-    crate::attachments::add_paths(&app, &item_id, &paths).await
+    crate::attachments::add_paths(&app, &item_id, &paths, &links.unwrap_or_default()).await
+}
+
+/// An image or text attachment, decrypted in memory to show it.
+#[tauri::command]
+pub async fn attachment_preview(app: AppHandle, state: State<'_, AppState>, item_id: String, attachment_id: String) -> AppResult<crate::attachments::Preview> {
+    state.touch();
+    crate::attachments::preview(&app, &item_id, &attachment_id).await
+}
+
+#[tauri::command]
+pub async fn attachment_rename(app: AppHandle, state: State<'_, AppState>, item_id: String, attachment_id: String, name: String) -> AppResult<ItemSummary> {
+    state.touch();
+    crate::attachments::rename(&app, &item_id, &attachment_id, &name).await
+}
+
+/// The item's own icon (a PNG data URL), if it has one.
+#[tauri::command]
+pub async fn item_icon(state: State<'_, AppState>, item_id: String) -> AppResult<Option<String>> {
+    items::item_icon(&state, &item_id).await
+}
+
+/// Asks for an image to use as an item's icon.
+#[tauri::command]
+pub async fn pick_item_icon(app: AppHandle, state: State<'_, AppState>, dialog: DialogText) -> AppResult<String> {
+    state.touch();
+    crate::item_icons::pick(&app, &dialog).await
+}
+
+#[tauri::command]
+pub async fn duplicate_item(app: AppHandle, state: State<'_, AppState>, item_id: String, title: String) -> AppResult<ItemSummary> {
+    state.touch();
+    items::duplicate_item(&app, &item_id, &title).await
+}
+
+#[tauri::command]
+pub async fn copy_item_to_vault(app: AppHandle, state: State<'_, AppState>, item_id: String, vault_id: String) -> AppResult<ItemSummary> {
+    state.touch();
+    items::copy_item_to_vault(&app, &item_id, &vault_id).await
+}
+
+/// Opens a link from a note in the system browser (web and mail links only).
+#[tauri::command]
+pub fn open_link(app: AppHandle, url: String) -> AppResult<()> {
+    let parsed = url::Url::parse(&url).map_err(|_| AppError::Invalid(Msg::new("open_url_failed")))?;
+    if !matches!(parsed.scheme(), "http" | "https" | "mailto") {
+        return Err(AppError::Invalid(Msg::new("open_url_failed")));
+    }
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|e| AppError::Invalid(Msg::new("open_url_failed").with("detail", e)))
+}
+
+/// A field's value as a QR code (SVG).
+#[tauri::command]
+pub async fn field_qr(state: State<'_, AppState>, item_id: String, field_id: String) -> AppResult<String> {
+    state.touch();
+    record_use(&state, &item_id);
+    items::field_qr(&state, &item_id, &field_id).await
+}
+
+/// The QR code to join a wireless router item's network.
+#[tauri::command]
+pub async fn wifi_qr(state: State<'_, AppState>, item_id: String) -> AppResult<String> {
+    state.touch();
+    record_use(&state, &item_id);
+    items::wifi_qr(&state, &item_id).await
+}
+
+/// Ids of the items that keep a passkey.
+#[tauri::command]
+pub async fn items_with_passkeys(state: State<'_, AppState>) -> AppResult<Vec<String>> {
+    items::items_with_passkeys(&state).await
+}
+
+/// Ids of the items whose notes, labels or other values that are not
+/// secret hold `query`.
+#[tauri::command]
+pub async fn search_item_details(state: State<'_, AppState>, query: String) -> AppResult<Vec<String>> {
+    items::search_details(&state, &query).await
 }
 
 /// Asks where to save an attachment and saves it there.
 #[tauri::command]
-pub async fn attachment_save(app: AppHandle, state: State<'_, AppState>, item_id: String, attachment_id: String) -> AppResult<()> {
+pub async fn attachment_save(app: AppHandle, state: State<'_, AppState>, item_id: String, attachment_id: String, dialog: DialogText) -> AppResult<()> {
     state.touch();
-    crate::attachments::save(&app, &item_id, &attachment_id).await
+    crate::attachments::save(&app, &item_id, &attachment_id, &dialog).await
 }
 
 #[tauri::command]
@@ -676,9 +773,15 @@ pub fn ssh_agent_info() -> Option<String> {
 
 /// An unencrypted export (CSV or JSON), after the master password.
 #[tauri::command]
-pub async fn export_plain(app: AppHandle, state: State<'_, AppState>, master_password: String, format: import::PlainFormat) -> AppResult<import::ExportOutcome> {
+pub async fn export_plain(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    master_password: String,
+    format: import::PlainFormat,
+    dialog: DialogText,
+) -> AppResult<import::ExportOutcome> {
     state.touch();
-    import::export_plain(&app, Zeroizing::new(master_password), format).await
+    import::export_plain(&app, Zeroizing::new(master_password), format, &dialog).await
 }
 
 #[tauri::command]
@@ -769,15 +872,26 @@ pub fn show_item_in_app(app: AppHandle, item_id: String) {
     crate::quick_access::show_item(&app, &item_id);
 }
 
-/// Changes the shortcut the app registers itself (Windows).
+/// Changes the global shortcuts the app registers itself (Windows): Quick
+/// Access, show Keyless and lock.
 #[tauri::command]
-pub fn set_quick_access_shortcut(app: AppHandle, state: State<'_, AppState>, shortcut: String) -> AppResult<Settings> {
+pub fn set_global_shortcuts(app: AppHandle, state: State<'_, AppState>, quick_access: String, show: String, lock: String) -> AppResult<Settings> {
+    let mut settings = state.settings();
+    settings.quick_access_shortcut = quick_access.trim().to_string();
+    settings.show_shortcut = show.trim().to_string();
+    settings.lock_shortcut = lock.trim().to_string();
     #[cfg(windows)]
-    crate::quick_access::register_shortcut(&app, &shortcut)?;
+    {
+        let shortcuts = crate::quick_access::settings_shortcuts(&settings);
+        if let Err(err) = crate::quick_access::register_shortcuts(&app, &shortcuts.iter().map(|(s, a)| (s.as_str(), *a)).collect::<Vec<_>>()) {
+            // Back to what worked.
+            let old = crate::quick_access::settings_shortcuts(&state.settings());
+            let _ = crate::quick_access::register_shortcuts(&app, &old.iter().map(|(s, a)| (s.as_str(), *a)).collect::<Vec<_>>());
+            return Err(err);
+        }
+    }
     #[cfg(not(windows))]
     let _ = &app;
-    let mut settings = state.settings();
-    settings.quick_access_shortcut = shortcut.trim().to_string();
     state.save_settings(&settings)?;
     Ok(settings)
 }

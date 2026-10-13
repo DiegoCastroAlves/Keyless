@@ -65,11 +65,27 @@ pub struct Settings {
     /// they are saved (see `health`). Named anew when it became the default,
     /// so it is on for everyone once (the old `sentinel_auto` was off).
     pub sentinel_check_passwords: bool,
+    /// Vault new items go into ("" picks one: the vault being viewed, or
+    /// the first one the user owns).
+    pub default_vault: String,
+    /// New logins start with the username used most.
+    pub prefill_username: bool,
+    /// What the main window shows after unlocking: "all", "favorites" or
+    /// "sentinel".
+    pub start_view: String,
+    /// "comfortable" or "compact" lists and items.
+    pub density: String,
+    /// Interface zoom in percent (80 to 150).
+    pub zoom: u32,
+    /// Shortcuts the app registers itself on Windows (other desktops own
+    /// their shortcuts, which run `--show` and `--lock`); empty is off.
+    pub show_shortcut: String,
+    pub lock_shortcut: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new() }
     }
 }
 
@@ -83,9 +99,16 @@ impl Settings {
         if !matches!(self.language.as_str(), "system" | "en" | "es" | "pt-BR") {
             self.language = "system".into();
         }
-        if !matches!(self.list_sort.as_str(), "title" | "created" | "modified" | "frequent" | "recent") {
+        if !matches!(self.list_sort.as_str(), "title" | "created" | "modified" | "frequent" | "recent" | "strength") {
             self.list_sort = "title".into();
         }
+        if !matches!(self.start_view.as_str(), "all" | "favorites" | "sentinel") {
+            self.start_view = "all".into();
+        }
+        if !matches!(self.density.as_str(), "comfortable" | "compact") {
+            self.density = "comfortable".into();
+        }
+        self.zoom = self.zoom.clamp(80, 150);
         self
     }
 }

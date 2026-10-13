@@ -16,3 +16,23 @@ strip = true
 
 [profile.dev.package.argon2]
 opt-level = 3
+
+# Attachments are decrypted and their previews decoded in the dev build too;
+# unoptimized, a few hundred KB take seconds.
+[profile.dev.package.chacha20]
+opt-level = 3
+
+[profile.dev.package.poly1305]
+opt-level = 3
+
+[profile.dev.package.image]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.fdeflate]
+opt-level = 3
+
+[profile.dev.package.zune-jpeg]
+opt-level = 3

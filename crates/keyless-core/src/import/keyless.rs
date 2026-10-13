@@ -151,6 +151,7 @@ mod tests {
             kind: FieldKind::Concealed,
             value: "s3cret".into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         });
         details.notes = "hello".into();
         BackupData {

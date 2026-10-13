@@ -218,7 +218,7 @@ mod tests {
         let mut details = ItemDetails::default();
         details.fields = fields
             .iter()
-            .map(|(label, kind, value)| Field { id: new_field_id(), label: (*label).into(), kind: *kind, value: (*value).into(), purpose: None::<FieldPurpose> })
+            .map(|(label, kind, value)| Field { id: new_field_id(), label: (*label).into(), kind: *kind, value: (*value).into(), purpose: None::<FieldPurpose>, extra: Default::default() })
             .collect();
         details
     }

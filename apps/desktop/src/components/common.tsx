@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { api, type Category, type Strength } from "../lib/api";
 import { categoryInfo } from "../lib/categories";
 import { avatarColor, hostOf } from "../lib/format";
+import { useItemIcon } from "../lib/itemIcons";
 import { useSiteIcon } from "../lib/siteIcons";
 import { useToasts } from "../lib/toast";
 import { cx } from "./ui";
@@ -39,17 +40,32 @@ export function ItemIcon({
   category,
   url,
   size = "md",
+  item,
+  icon,
 }: {
   title: string;
   category: Category;
   url?: string;
   size?: "sm" | "md" | "lg";
+  /** The item, to show its own icon when it has one. */
+  item?: { id: string; customIcon: boolean; updatedAt: number };
+  /** An icon to show as is (the editor's, before saving); "" for none. */
+  icon?: string;
 }) {
   const info = categoryInfo(category);
   const sizes = { sm: "size-8 rounded-lg text-sm", md: "size-9 rounded-[10px] text-[15px]", lg: "size-14 rounded-2xl text-2xl" };
   const iconSizes = { sm: "size-4", md: "size-[18px]", lg: "size-7" };
   const isLogin = category === "login" || category === "password";
-  const siteIcon = useSiteIcon(isLogin ? url : undefined);
+  const loaded = useItemIcon(item?.id, icon === undefined && item?.customIcon, item?.updatedAt);
+  const own = icon ?? loaded;
+  const siteIcon = useSiteIcon(isLogin && !own ? url : undefined);
+  if (own) {
+    return (
+      <div className={cx("flex shrink-0 items-center justify-center overflow-hidden", sizes[size])}>
+        <img src={own} alt="" draggable={false} className="size-full object-contain" />
+      </div>
+    );
+  }
   if (siteIcon) {
     return (
       <div
@@ -201,6 +217,17 @@ export function Toaster() {
         >
           {t.tone === "success" ? <Check className="size-4" /> : t.tone === "error" ? <CircleAlert className="size-4" /> : <Info className="size-4" />}
           <span>{t.message}</span>
+          {t.action && (
+            <button
+              onClick={() => {
+                t.action?.run();
+                useToasts.getState().dismiss(t.id);
+              }}
+              className="ml-1 rounded-full px-2 py-0.5 font-semibold underline-offset-2 hover:underline"
+            >
+              {t.action.label}
+            </button>
+          )}
         </div>
       ))}
     </div>

@@ -11,12 +11,14 @@ mod bridge;
 mod clipboard;
 mod commands;
 mod config;
+mod dialog_text;
 mod error;
 mod generator_history;
 mod guarded_key;
 mod hardening;
 mod health;
 mod import;
+mod item_icons;
 mod item_versions;
 mod items;
 mod lock;
@@ -72,6 +74,16 @@ fn navigation_guard<R: tauri::Runtime>() -> TauriPlugin<R> {
 
 /// The app's X25519 key for the browser bridge, kept with the other
 /// device secrets.
+/// The main window's zoom, in percent. The page is laid out for the width
+/// it then has, as with a browser's zoom.
+pub(crate) fn apply_zoom(app: &tauri::AppHandle, percent: u32) {
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(err) = window.set_zoom(f64::from(percent) / 100.0)
+    {
+        log::warn!("zoom: {err}");
+    }
+}
+
 fn load_or_create_bridge_key(secrets: &SecretStore) -> Result<x25519_dalek::StaticSecret, Box<dyn std::error::Error>> {
     use base64::{Engine, engine::general_purpose::STANDARD};
     match secrets.get(secrets::BRIDGE_KEY) {
@@ -134,6 +146,8 @@ pub fn run() {
                 if let Err(err) = quick_access::show(app) {
                     log::warn!("could not open Quick Access: {err}");
                 }
+            } else if args.iter().any(|a| a == quick_access::LOCK_ARG) {
+                tray::lock_now(app);
             } else {
                 tray::show_main(app);
             }
@@ -152,10 +166,13 @@ pub fn run() {
             let bridge_secret = load_or_create_bridge_key(&secrets)?;
             let browser_integration = settings.browser_integration;
             let start_at_login = settings.start_at_login;
+            let zoom = settings.zoom;
+            // A lock shortcut that started Keyless: it starts locked anyway.
             let start_hidden = quick_access_requested
+                || std::env::args().any(|a| a == quick_access::LOCK_ARG)
                 || (settings.start_minimized && std::env::args().any(|a| a == autostart::AUTOSTART_ARG));
             #[cfg(windows)]
-            let quick_access_shortcut = settings.quick_access_shortcut.clone();
+            let shortcuts = quick_access::settings_shortcuts(&settings);
 
             app.manage(AppState {
                 store: Mutex::new(store),
@@ -189,6 +206,7 @@ pub fn run() {
                 unlock_reason: Default::default(),
             });
 
+            apply_zoom(app.handle(), zoom);
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
             bridge::server::start(app.handle().clone());
@@ -209,8 +227,8 @@ pub fn run() {
                 log::warn!("could not open Quick Access: {err}");
             }
             #[cfg(windows)]
-            if let Err(err) = quick_access::register_shortcut(app.handle(), &quick_access_shortcut) {
-                log::warn!("Quick Access shortcut: {err}");
+            if let Err(err) = quick_access::register_shortcuts(app.handle(), &shortcuts.iter().map(|(s, a)| (s.as_str(), *a)).collect::<Vec<_>>()) {
+                log::warn!("global shortcuts: {err}");
             }
 
             // Daily cleanup of items deleted more than 30 days ago.
@@ -329,6 +347,17 @@ pub fn run() {
             commands::attachment_pick,
             commands::attachment_inspect,
             commands::attachment_add_paths,
+            commands::attachment_rename,
+            commands::attachment_preview,
+            commands::item_icon,
+            commands::pick_item_icon,
+            commands::duplicate_item,
+            commands::copy_item_to_vault,
+            commands::search_item_details,
+            commands::items_with_passkeys,
+            commands::open_link,
+            commands::field_qr,
+            commands::wifi_qr,
             commands::attachment_save,
             commands::attachment_delete,
             commands::attachment_space,
@@ -358,7 +387,7 @@ pub fn run() {
             commands::unlock_prompt_ready,
             commands::close_unlock_prompt,
             commands::show_item_in_app,
-            commands::set_quick_access_shortcut,
+            commands::set_global_shortcuts,
             commands::check_for_updates,
             commands::open_update_page,
             commands::install_update,

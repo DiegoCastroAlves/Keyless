@@ -6,9 +6,10 @@ import { PasswordInput } from "../../components/common";
 import { Button, Dialog, ErrorText, Input } from "../../components/ui";
 import { api, errorCode, errorMessage, events, type AccountInfo, type Category, type Vault } from "../../lib/api";
 import { useSentinel } from "../../lib/sentinel";
-import { categoryInfo, templateFields } from "../../lib/categories";
+import { categoryInfo, prefillUsername, templateFields } from "../../lib/categories";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { BulkPanel } from "./BulkPanel";
 import { GeneratorDialog } from "./Generator";
 import { ExportDialog, ImportDialog } from "./ImportDialog";
 import { ItemDetail } from "./ItemDetail";
@@ -17,6 +18,7 @@ import { ItemList, TopBar, type ItemListControl } from "./ItemList";
 import { ResizeHandle, usePaneWidths } from "./Panes";
 import { RecoveryOffer } from "./RecoveryKey";
 import { SettingsDialog } from "./SettingsDialog";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 import { Sidebar } from "./Sidebar";
 import { VaultDialog } from "./VaultDialog";
 import { Sentinel } from "./Sentinel";
@@ -37,6 +39,7 @@ export function MainLayout() {
   const listControl = useRef<ItemListControl>(null);
   const panes = usePaneWidths();
   const items = useApp((s) => s.items);
+  const selectionCount = useApp((s) => s.selection.length);
 
   // Sentinel's results, for its screens and the alerts on items: computed
   // again when items change, and when a check or a list download ends.
@@ -53,10 +56,11 @@ export function MainLayout() {
   }, [syncStatus?.last_synced_at]);
 
   const newItem = useCallback((category: Category, prefill?: { url: string; title: string }) => {
-    const { vaults, view: current, startEditing, select } = useApp.getState();
+    const { vaults, view: current, startEditing, select, settings, items } = useApp.getState();
     const writable = vaults.filter((v) => v.canWrite);
     const preferred = current.kind === "vault" ? writable.find((v) => v.id === current.id) : undefined;
-    const vault = preferred ?? writable.find((v) => v.role === "owner") ?? writable[0];
+    const chosen = writable.find((v) => v.id === settings?.default_vault);
+    const vault = preferred ?? chosen ?? writable.find((v) => v.role === "owner") ?? writable[0];
     if (!vault) return;
     if (current.kind === "sentinel" || current.kind === "trash" || current.kind === "archive") {
       useApp.getState().setView({ kind: "all" });
@@ -72,9 +76,10 @@ export function MainLayout() {
         urls: categoryInfo(category).hasWebsite ? [{ href: prefill?.url ?? "" }] : [],
         tags: [],
         favorite: false,
-        fields: templateFields(category),
+        fields: prefillUsername(templateFields(category), category, settings?.prefill_username !== false ? items : []),
         sections: [],
         notes: "",
+        icon: "",
       },
     });
   }, []);
@@ -130,11 +135,29 @@ export function MainLayout() {
       } else if (key === "g") {
         e.preventDefault();
         setGeneratorOpen(true);
+      } else if (key === "/") {
+        e.preventDefault();
+        useApp.setState({ shortcutsOpen: true });
+      } else if (key === "=" || key === "+" || key === "-" || key === "0") {
+        e.preventDefault();
+        const { settings, setSettings } = useApp.getState();
+        if (!settings) return;
+        const steps = [80, 90, 100, 110, 125, 150];
+        const at = steps.indexOf(settings.zoom);
+        const zoom = key === "0" ? 100 : steps[Math.min(steps.length - 1, Math.max(0, (at < 0 ? 2 : at) + (key === "-" ? -1 : 1)))];
+        if (zoom !== settings.zoom) void setSettings({ ...settings, zoom });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [newItem]);
+
+  // After unlocking: the view chosen in Settings.
+  useEffect(() => {
+    const start = useApp.getState().settings?.start_view;
+    if (start === "favorites") useApp.getState().setView({ kind: "favorites" });
+    else if (start === "sentinel") useApp.getState().setView({ kind: "sentinel" });
+  }, []);
 
   // "+" in the browser extension's popup.
   useEffect(() => {
@@ -189,7 +212,7 @@ export function MainLayout() {
                     onReset={() => panes.reset("list")}
                   />
                 </div>
-                {editing ? <ItemEditor key={editing.draft.id ?? "new"} /> : <ItemDetail />}
+                {editing ? <ItemEditor key={editing.draft.id ?? "new"} /> : selectionCount > 1 ? <BulkPanel /> : <ItemDetail />}
               </>
             )}
           </div>
@@ -197,6 +220,7 @@ export function MainLayout() {
       </div>
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <ShortcutsDialog />
       <GeneratorDialog open={generatorOpen} onOpenChange={setGeneratorOpen} />
       <ImportDialog open={importOpen} onOpenChange={setImportOpen} />
       <ExportDialog open={exportOpen} onOpenChange={setExportOpen} />

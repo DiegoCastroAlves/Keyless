@@ -141,6 +141,7 @@ mod tests {
             kind: FieldKind::Concealed,
             value: "hunter2".into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         });
         (overview, details)
     }

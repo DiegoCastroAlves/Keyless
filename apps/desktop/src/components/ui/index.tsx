@@ -330,12 +330,15 @@ export interface ComboOption<T extends string> {
   keywords?: string[];
 }
 
+/** Lists with more options than this can be searched. */
+const SEARCH_FROM = 7;
+
 export function Combobox<T extends string>({
   value,
   onChange,
   options,
-  placeholder = "Select…",
-  searchPlaceholder = "Search…",
+  placeholder,
+  searchPlaceholder,
   className,
   disabled,
   triggerClassName,
@@ -357,6 +360,7 @@ export function Combobox<T extends string>({
   trigger?: ReactNode;
   align?: "start" | "end";
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const selected = options.find((o) => o.value === value) ?? null;
   return (
@@ -372,7 +376,7 @@ export function Combobox<T extends string>({
           )}
         >
           {selected?.icon && <span className="flex size-4 items-center justify-center text-muted">{selected.icon}</span>}
-          <span className={clsx("flex-1 truncate", !selected && "text-subtle")}>{selected?.label ?? placeholder}</span>
+          <span className={clsx("flex-1 truncate", !selected && "text-subtle")}>{selected?.label ?? placeholder ?? t("common.select")}</span>
           <ChevronDown className="size-4 text-subtle" />
         </button>
         )}
@@ -387,13 +391,22 @@ export function Combobox<T extends string>({
             className,
           )}
         >
-          <Command loop>
-            <div className="flex items-center gap-2 border-b border-line px-3">
-              <Search className="size-4 shrink-0 text-subtle" />
-              <Command.Input autoFocus placeholder={searchPlaceholder} className="h-10 flex-1 bg-transparent text-sm outline-none placeholder:text-subtle" />
-            </div>
+          {/* A short list needs no search; the list itself then takes the
+              arrow keys. */}
+          <Command
+            loop
+            defaultValue={selected ? `${selected.label} ${selected.value}` : undefined}
+            tabIndex={options.length > SEARCH_FROM ? undefined : 0}
+            className="outline-none"
+          >
+            {options.length > SEARCH_FROM && (
+              <div className="flex items-center gap-2 border-b border-line px-3">
+                <Search className="size-4 shrink-0 text-subtle" />
+                <Command.Input autoFocus placeholder={searchPlaceholder ?? t("common.searchPlaceholder")} className="h-10 flex-1 bg-transparent text-sm outline-none placeholder:text-subtle" />
+              </div>
+            )}
             <Command.List className="max-h-64 overflow-y-auto p-1">
-              <Command.Empty className="px-3 py-6 text-center text-sm text-subtle">No results</Command.Empty>
+              <Command.Empty className="px-3 py-6 text-center text-sm text-subtle">{t("common.noResults")}</Command.Empty>
               {options.map((o) => (
                 <Command.Item
                   key={o.value}

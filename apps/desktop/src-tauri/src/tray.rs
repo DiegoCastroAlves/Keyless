@@ -149,7 +149,8 @@ fn blend(pixel: &mut [u8], color: [u8; 3], a: f32) {
     pixel[3] = (alpha * 255.0).round() as u8;
 }
 
-fn lock(app: &AppHandle) {
+/// Locks Keyless (the tray menu, the lock shortcut).
+pub fn lock_now(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move { crate::auth::lock(&app).await });
 }
@@ -209,7 +210,7 @@ mod linux {
                 item(&self.labels.quick_access, |app| {
                     let _ = crate::quick_access::show(app);
                 }),
-                item(&self.labels.lock, super::lock),
+                item(&self.labels.lock, super::lock_now),
                 MenuItem::Separator,
                 item(&self.labels.quit, super::quit),
             ]
@@ -340,7 +341,7 @@ mod native {
                 "quick-access" => {
                     let _ = crate::quick_access::show(app);
                 }
-                "lock" => super::lock(app),
+                "lock" => super::lock_now(app),
                 "quit" => super::quit(app),
                 _ => {}
             })

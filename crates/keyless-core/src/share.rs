@@ -127,7 +127,7 @@ mod tests {
     use crate::item::{Category, Field, ItemUrl, Section};
 
     fn field(label: &str, kind: FieldKind, value: &str, purpose: Option<FieldPurpose>) -> Field {
-        Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose }
+        Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose, extra: Default::default() }
     }
 
     fn item() -> (ItemOverview, ItemDetails) {

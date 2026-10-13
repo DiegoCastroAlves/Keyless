@@ -204,9 +204,11 @@ pub async fn create(app: &AppHandle, args: &Value) -> Result<Value, &'static str
                 kind: FieldKind::Text,
                 value: user_name,
                 purpose: Some(FieldPurpose::Username),
+                extra: Default::default(),
             }],
             sections: Vec::new(),
             notes: String::new(),
+            icon: String::new(),
         };
         items::save_item_with(app, draft, items::Extras { passkeys: Some(vec![created.passkey.clone()]), ..Default::default() })
             .await

@@ -6,8 +6,8 @@
 
 use keyless_core::{
     item::{
-        Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, PasswordHistoryEntry, Section, new_field_id,
-        same_write, stamp_version,
+        Address, Category, ExpiryAlert, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, PasswordHistoryEntry, Section,
+        new_field_id, same_write, stamp_version,
     },
     totp::Totp,
     vault::{Tombstone, VaultKey, VaultMeta},
@@ -66,6 +66,8 @@ pub struct ItemSummary {
     /// filled). Local only.
     pub uses: u32,
     pub last_used_at: Option<i64>,
+    /// The item has its own icon (see `item_icon`).
+    pub custom_icon: bool,
 }
 
 #[derive(Serialize)]
@@ -78,6 +80,14 @@ pub struct FieldView {
     /// Present only for non-secret fields.
     pub value: Option<String>,
     pub has_value: bool,
+    /// Date fields: when to warn before the date (none: Keyless decides).
+    pub alert: Option<ExpiryAlert>,
+    /// Address fields: the parts.
+    pub address: Option<Address>,
+    /// Related item, or the login a "sign in with" account uses.
+    pub link: String,
+    /// Location fields: "latitude,longitude".
+    pub geo: String,
 }
 
 /// A passkey kept in the item, without its key.
@@ -133,6 +143,9 @@ pub struct ItemDraft {
     pub sections: Vec<Section>,
     #[serde(default)]
     pub notes: String,
+    /// The item's own icon (a PNG data URL), or empty.
+    #[serde(default)]
+    pub icon: String,
 }
 
 #[derive(Serialize)]
@@ -167,6 +180,7 @@ fn summary(id: &str, item: &CachedItem) -> ItemSummary {
         updated_at: o.updated_at,
         uses: 0,
         last_used_at: None,
+        custom_icon: o.custom_icon,
     }
 }
 
@@ -179,6 +193,10 @@ pub(crate) fn field_view(field: &Field) -> FieldView {
         purpose: field.purpose,
         value: if secret { None } else { Some(field.value.clone()) },
         has_value: !field.value.is_empty(),
+        alert: field.extra.alert,
+        address: if secret { None } else { field.extra.address.clone() },
+        link: field.extra.link.clone(),
+        geo: if secret { String::new() } else { field.extra.geo.clone() },
     }
 }
 
@@ -399,6 +417,7 @@ pub async fn get_item_draft(state: &AppState, item_id: &str) -> AppResult<ItemDr
         fields: details.fields.clone(),
         sections: details.sections.clone(),
         notes: details.notes.clone(),
+        icon: details.icon.clone(),
     })
 }
 
@@ -531,9 +550,19 @@ fn validate_draft(draft: &ItemDraft) -> AppResult<()> {
         if field.kind == FieldKind::Totp && !field.value.trim().is_empty() && Totp::parse(&field.value).is_err() {
             return Err(AppError::Invalid(Msg::new("totp_invalid")));
         }
+        if field.extra.link.len() > 128 || field.extra.geo.len() > 64 {
+            return Err(AppError::Invalid(Msg::new("field_too_long").with("label", &field.label)));
+        }
+    }
+    if !draft.icon.is_empty() && (draft.icon.len() > MAX_ICON || !draft.icon.starts_with(ICON_PREFIX)) {
+        return Err(AppError::Invalid(Msg::new("icon_invalid")));
     }
     Ok(())
 }
+
+/// Item icons: PNG data URLs made by `crate::item_icons`.
+pub(crate) const ICON_PREFIX: &str = "data:image/png;base64,";
+const MAX_ICON: usize = 96 * 1024;
 
 /// Encrypts and stores a new version of an item (to be uploaded).
 #[allow(clippy::too_many_arguments)]
@@ -636,6 +665,16 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
             if field.kind == FieldKind::Totp {
                 field.value = field.value.trim().to_string();
             }
+            // An address is kept as its parts and as text (for search, the
+            // list and versions that do not know addresses).
+            if field.kind == FieldKind::Address
+                && let Some(address) = &field.extra.address
+            {
+                field.value = address.formatted();
+            }
+            if !field.kind.is_date() {
+                field.extra.alert = None;
+            }
             // A private key whose line breaks were lost in a single-line field.
             if draft.category == Category::SshKey && field.kind == FieldKind::Concealed && field.value.contains("-----BEGIN ") {
                 field.value = crate::ssh_keys::normalize_pem(&field.value).to_string();
@@ -652,6 +691,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
         details.fields = std::mem::take(&mut draft.fields);
         details.sections = std::mem::take(&mut draft.sections);
         details.notes = std::mem::take(&mut draft.notes);
+        details.icon = std::mem::take(&mut draft.icon);
 
         let mut created_at = now;
         let mut archived = false;
@@ -706,6 +746,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
             created_at,
             updated_at: now,
             sentinel_ignored,
+            custom_icon: !details.icon.is_empty(),
             unknown,
             ..Default::default()
         };
@@ -740,6 +781,170 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
     state.touch();
     sync::spawn_sync(app);
     Ok(result)
+}
+
+/// The item's own icon, if it has one.
+pub async fn item_icon(state: &AppState, item_id: &str) -> AppResult<Option<String>> {
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let (_, details) = load_details(state, session, item_id)?;
+    Ok(Some(details.icon.clone()).filter(|icon| !icon.is_empty()))
+}
+
+/// A copy of an item in the same vault, titled `title`. Its attachments and
+/// passkeys stay with the original: attachments live on the server under
+/// their id and vault, so two items of one vault cannot share them.
+pub async fn duplicate_item(app: &AppHandle, item_id: &str, title: &str) -> AppResult<ItemSummary> {
+    let state = app.state::<AppState>();
+    let mut draft = get_item_draft(&state, item_id).await?;
+    draft.id = None;
+    draft.title = title.to_string();
+    save_item_with(app, draft, Extras { passkeys: Some(Vec::new()), attachments: Some(Vec::new()) }).await
+}
+
+/// A copy of an item in another vault, with its passkeys and attachments
+/// (whose encrypted chunks are copied on the server to the other vault).
+pub async fn copy_item_to_vault(app: &AppHandle, item_id: &str, to_vault: &str) -> AppResult<ItemSummary> {
+    let state = app.state::<AppState>();
+    let mut draft = get_item_draft(&state, item_id).await?;
+    if draft.vault_id == to_vault {
+        let title = draft.title.clone();
+        return duplicate_item(app, item_id, &title).await;
+    }
+    let (passkeys, attachments) = {
+        let mut guard = state.session.lock().await;
+        let session = unlocked(&mut guard)?;
+        let (_, details) = load_details(&state, session, item_id)?;
+        (details.passkeys.clone(), details.attachments.clone())
+    };
+    let copied = crate::attachments::copy_to_vault(app, item_id, to_vault).await?;
+    draft.id = None;
+    draft.vault_id = to_vault.to_string();
+    match save_item_with(app, draft, Extras { passkeys: Some(passkeys), attachments: Some(attachments) }).await {
+        Ok(summary) => Ok(summary),
+        Err(err) => {
+            // What was copied for it goes.
+            crate::attachments::forget(app, copied);
+            Err(err)
+        }
+    }
+}
+
+/// A field's value as a QR code (SVG), for showing it in large type.
+pub async fn field_qr(state: &AppState, item_id: &str, field_id: &str) -> AppResult<String> {
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let (_, details) = load_details(state, session, item_id)?;
+    let field = find_field(&details, field_id)?;
+    qr_svg(&field.value)
+}
+
+/// The QR code phones scan to join a wireless router item's network
+/// ("WIFI:S:<name>;T:<security>;P:<password>;;").
+pub async fn wifi_qr(state: &AppState, item_id: &str) -> AppResult<String> {
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let (_, details) = load_details(state, session, item_id)?;
+    let by_label = |names: &[&str]| {
+        details
+            .all_fields()
+            .find(|f| names.iter().any(|n| f.label.eq_ignore_ascii_case(n)))
+            .map(|f| f.value.clone())
+            .unwrap_or_default()
+    };
+    let name = by_label(&["network name", "ssid", "nome da rede", "nombre de la red"]);
+    if name.is_empty() {
+        return Err(AppError::Invalid(Msg::new("wifi_no_name")));
+    }
+    let password = Zeroizing::new(details.password().map(String::from).unwrap_or_else(|| by_label(&["wireless password"])));
+    let security = by_label(&["security", "segurança", "seguridad"]);
+    qr_svg(&wifi_payload(&name, &password, &security))
+}
+
+/// What a Wi-Fi QR code holds; `;`, `,`, `:`, `\` and `"` are escaped.
+fn wifi_payload(name: &str, password: &str, security: &str) -> Zeroizing<String> {
+    let kind = if password.is_empty() {
+        "nopass"
+    } else if security.to_uppercase().contains("WEP") {
+        "WEP"
+    } else {
+        "WPA"
+    };
+    let mut payload = Zeroizing::new(String::from("WIFI:S:"));
+    let push_escaped = |out: &mut String, text: &str| {
+        for c in text.chars() {
+            if matches!(c, '\\' | ';' | ',' | ':' | '"') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+    };
+    push_escaped(&mut payload, name);
+    payload.push_str(";T:");
+    payload.push_str(kind);
+    payload.push_str(";P:");
+    push_escaped(&mut payload, password);
+    payload.push_str(";;");
+    payload
+}
+
+fn qr_svg(text: &str) -> AppResult<String> {
+    let code = qrcode::QrCode::new(text.as_bytes()).map_err(|_| AppError::Invalid(Msg::new("qr_too_long")))?;
+    Ok(code
+        .render::<qrcode::render::svg::Color>()
+        .min_dimensions(256, 256)
+        .quiet_zone(true)
+        .dark_color(qrcode::render::svg::Color("#000000"))
+        .light_color(qrcode::render::svg::Color("#ffffff"))
+        .build())
+}
+
+/// Items whose details hold `query`: notes, labels, section titles, file
+/// names and the values that are not secret (passwords, card numbers,
+/// codes and answers are never searched). The details are decrypted for
+/// the search and wiped right after.
+pub async fn search_details(state: &AppState, query: &str) -> AppResult<Vec<String>> {
+    let query = query.trim().to_lowercase();
+    if query.chars().count() < 2 {
+        return Ok(Vec::new());
+    }
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let ids: Vec<String> = session.items.keys().cloned().collect();
+    let mut found = Vec::new();
+    for id in ids {
+        let Ok((_, details)) = load_details(state, session, &id) else { continue };
+        if details_match(&details, &query) {
+            found.push(id);
+        }
+    }
+    Ok(found)
+}
+
+/// Items that keep a passkey (their details are decrypted to tell, only
+/// when the list is filtered by it).
+pub async fn items_with_passkeys(state: &AppState) -> AppResult<Vec<String>> {
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let ids: Vec<String> = session.items.keys().cloned().collect();
+    Ok(ids
+        .into_iter()
+        .filter(|id| load_details(state, session, id).is_ok_and(|(_, details)| !details.passkeys.is_empty()))
+        .collect())
+}
+
+fn details_match(details: &ItemDetails, query: &str) -> bool {
+    let has = |text: &str| text.to_lowercase().contains(query);
+    if has(&details.notes) {
+        return true;
+    }
+    if details.sections.iter().any(|s| has(&s.title)) || details.attachments.iter().any(|a| has(&a.name)) {
+        return true;
+    }
+    details.all_fields().any(|f| {
+        let secret = f.kind.is_secret() || f.purpose == Some(FieldPurpose::Password);
+        has(&f.label) || (!secret && f.kind != FieldKind::File && f.kind != FieldKind::Reference && has(&f.value))
+    })
 }
 
 /// Changes overview flags (favorite, archive, trash) as a new version of the
@@ -954,6 +1159,7 @@ mod tests {
             kind: FieldKind::CardNumber,
             value: "4111 1111 1111 1234".into(),
             purpose: None,
+            extra: Default::default(),
         });
         assert_eq!(compute_subtitle(Category::CreditCard, &details), "•••• 1234");
 
@@ -964,6 +1170,7 @@ mod tests {
             kind: FieldKind::Text,
             value: "me".into(),
             purpose: Some(FieldPurpose::Username),
+            extra: Default::default(),
         });
         assert_eq!(compute_subtitle(Category::Login, &login), "me");
     }
@@ -976,6 +1183,13 @@ mod tests {
     }
 
     #[test]
+    fn wifi_codes_escape_their_text() {
+        assert_eq!(wifi_payload("Casa;1", r"a:b\c", "WPA2").as_str(), r"WIFI:S:Casa\;1;T:WPA;P:a\:b\\c;;");
+        assert_eq!(wifi_payload("Guest", "", "").as_str(), "WIFI:S:Guest;T:nopass;P:;;");
+        assert_eq!(wifi_payload("Old", "k", "wep").as_str(), "WIFI:S:Old;T:WEP;P:k;;");
+    }
+
+    #[test]
     fn secret_fields_are_redacted() {
         let password = Field {
             id: "p".into(),
@@ -983,6 +1197,7 @@ mod tests {
             kind: FieldKind::Concealed,
             value: "hunter2".into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         };
         let view = field_view(&password);
         assert!(view.value.is_none());

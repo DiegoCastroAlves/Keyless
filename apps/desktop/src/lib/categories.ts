@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 import i18n from "../i18n";
-import type { Category, Field, FieldKind, FieldPurpose } from "./api";
+import type { Category, Field, FieldKind, FieldPurpose, ItemSummary } from "./api";
 
 interface TemplateField {
   label: string;
@@ -205,8 +205,7 @@ export const CATEGORIES: CategoryInfo[] = [
     id: "document",
     icon: FileText,
     tint: "bg-stone-500/15 text-stone-600 dark:text-stone-300",
-    fields: [],
-    hidden: true,
+    fields: [t("document", "file")],
   },
   {
     id: "other",
@@ -256,7 +255,55 @@ export const FIELD_KINDS: FieldKind[] = [
   "card_number",
   "pin",
   "multiline",
+  "address",
+  "security_question",
+  "sign_in_with",
+  "location",
+  "reference",
+  "file",
 ];
+
+/** Brand names of the providers a "sign in with" field can name. */
+export const PROVIDER_NAMES = {
+  google: "Google",
+  apple: "Apple",
+  microsoft: "Microsoft",
+  github: "GitHub",
+  facebook: "Facebook",
+  x: "X (Twitter)",
+  amazon: "Amazon",
+  discord: "Discord",
+  slack: "Slack",
+  linkedin: "LinkedIn",
+  gitlab: "GitLab",
+  okta: "Okta",
+} as const;
+
+/** Providers a "sign in with" field can name. */
+export const SIGN_IN_PROVIDERS = ["google", "apple", "microsoft", "github", "facebook", "x", "amazon", "discord", "slack", "linkedin", "gitlab", "okta"] as const;
+
+export const EXPIRY_ALERTS = ["never", "day", "week", "two_weeks", "month", "two_months", "three_months", "six_months", "nine_months"] as const;
+
+/** Usernames of the user's logins, the most used first (a login's subtitle
+ * is its username). */
+export function frequentUsernames(items: ItemSummary[], limit = 5): string[] {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const name = item.subtitle.trim();
+    if (item.category === "login" && item.trashedAt === null && name) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([name]) => name);
+}
+
+/** A new login's fields, with the username the user uses most. */
+export function prefillUsername(fields: Field[], category: Category, items: ItemSummary[]): Field[] {
+  if (category !== "login") return fields;
+  const [top] = frequentUsernames(items, 1);
+  return top ? fields.map((f) => (f.purpose === "username" && !f.value ? { ...f, value: top } : f)) : fields;
+}
 
 export function fieldKindLabel(kind: FieldKind): string {
   return i18n.t(`fieldKinds.${kind}`);
@@ -268,6 +315,7 @@ export function isSecretKind(field: { kind: FieldKind; purpose?: FieldPurpose | 
     field.kind === "pin" ||
     field.kind === "card_number" ||
     field.kind === "totp" ||
+    field.kind === "security_question" ||
     field.purpose === "password"
   );
 }

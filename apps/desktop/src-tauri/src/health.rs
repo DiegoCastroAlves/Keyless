@@ -972,7 +972,7 @@ mod tests {
         assert_eq!(parse_date("2024-02-29"), Some(unix_day(2024, 2, 29) + 86_399));
         assert_eq!(parse_date("29/02/2024"), None);
         let mut details = ItemDetails::default();
-        let field = |label: &str, kind, value: &str| Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose: None };
+        let field = |label: &str, kind, value: &str| Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose: None, extra: Default::default() };
         details.fields = vec![field("expiry date", FieldKind::MonthYear, "05/2027"), field("birth date", FieldKind::Date, "1990-01-01")];
         // The end of May 2027, not the birth date.
         assert_eq!(expiry(&details), Some(unix_day(2027, 6, 1) - 1));
@@ -989,9 +989,10 @@ mod tests {
             kind: FieldKind::Concealed,
             value: "secret".into(),
             purpose: Some(FieldPurpose::Password),
+            extra: Default::default(),
         }];
         if totp {
-            details.fields.push(Field { id: "t".into(), label: "one-time password".into(), kind: FieldKind::Totp, value: "otpauth://x".into(), purpose: None });
+            details.fields.push(Field { id: "t".into(), label: "one-time password".into(), kind: FieldKind::Totp, value: "otpauth://x".into(), purpose: None, extra: Default::default() });
         }
         if let Some(at) = changed_at {
             details.password_history.push(PasswordHistoryEntry { value: "old".into(), changed_at: at });
@@ -1096,7 +1097,7 @@ mod tests {
     fn duplicate_items() {
         let with_user = |id: &str, url: &str, user: &str| {
             let mut entry = login(id, url, 0, None, false);
-            entry.details.fields.push(Field { id: "u".into(), label: "username".into(), kind: FieldKind::Text, value: user.into(), purpose: Some(FieldPurpose::Username) });
+            entry.details.fields.push(Field { id: "u".into(), label: "username".into(), kind: FieldKind::Text, value: user.into(), purpose: Some(FieldPurpose::Username), extra: Default::default() });
             entry
         };
         let entries = [

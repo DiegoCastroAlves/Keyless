@@ -17,6 +17,9 @@ use crate::state::AppState;
 
 pub const LABEL: &str = "quick-access";
 pub const ARG: &str = "--quick-access";
+/// Locks Keyless (the lock shortcut on desktops that own their shortcuts;
+/// `--show`, or no argument, shows the main window).
+pub const LOCK_ARG: &str = "--lock";
 pub const EVENT_OPENED: &str = "keyless://quick-access-opened";
 pub const EVENT_SELECT_ITEM: &str = "keyless://select-item";
 /// Some compositors report a focus loss while the window is being mapped.
@@ -86,22 +89,52 @@ pub fn show_item(app: &AppHandle, item_id: &str) {
     let _ = app.emit_to("main", EVENT_SELECT_ITEM, item_id);
 }
 
-/// The Windows shortcut, registered by the app itself.
+/// What a global shortcut does.
+#[derive(Clone, Copy)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub enum ShortcutAction {
+    QuickAccess,
+    ShowApp,
+    Lock,
+}
+
+/// The Windows shortcuts, registered by the app itself (empty ones are off).
 #[cfg(windows)]
-pub fn register_shortcut(app: &AppHandle, shortcut: &str) -> AppResult<()> {
+pub fn register_shortcuts(app: &AppHandle, shortcuts: &[(&str, ShortcutAction)]) -> AppResult<()> {
     use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
     let manager = app.global_shortcut();
     let _ = manager.unregister_all();
-    if shortcut.trim().is_empty() {
-        return Ok(());
+    for (shortcut, action) in shortcuts {
+        if shortcut.trim().is_empty() {
+            continue;
+        }
+        let action = *action;
+        manager
+            .on_shortcut(*shortcut, move |app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                match action {
+                    ShortcutAction::QuickAccess => {
+                        let _ = show(app);
+                    }
+                    ShortcutAction::ShowApp => crate::tray::show_main(app),
+                    ShortcutAction::Lock => crate::tray::lock_now(app),
+                }
+            })
+            .map_err(|e| crate::error::AppError::Invalid(crate::error::Msg::new("shortcut_invalid").with("detail", e)))?;
     }
-    manager
-        .on_shortcut(shortcut, |app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                let _ = show(app);
-            }
-        })
-        .map_err(|e| crate::error::AppError::Invalid(crate::error::Msg::new("shortcut_invalid").with("detail", e)))
+    Ok(())
+}
+
+/// The shortcuts in the settings, for `register_shortcuts`.
+#[cfg(windows)]
+pub fn settings_shortcuts(settings: &crate::state::Settings) -> Vec<(String, ShortcutAction)> {
+    vec![
+        (settings.quick_access_shortcut.clone(), ShortcutAction::QuickAccess),
+        (settings.show_shortcut.clone(), ShortcutAction::ShowApp),
+        (settings.lock_shortcut.clone(), ShortcutAction::Lock),
+    ]
 }
 
 #[cfg(windows)]

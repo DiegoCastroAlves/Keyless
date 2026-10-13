@@ -131,6 +131,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 kind: FieldKind::Text,
                 value: username.clone(),
                 purpose: Some(FieldPurpose::Username),
+                extra: Default::default(),
             });
         }
         if !password.is_empty() {
@@ -140,6 +141,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 kind: FieldKind::Concealed,
                 value: password,
                 purpose: Some(FieldPurpose::Password),
+                extra: Default::default(),
             });
         }
         if !totp.is_empty() {
@@ -149,6 +151,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 kind: FieldKind::Totp,
                 value: totp,
                 purpose: None,
+                extra: Default::default(),
             });
         }
 
@@ -161,6 +164,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 kind: if secret { FieldKind::Concealed } else { FieldKind::Text },
                 value,
                 purpose: None,
+                extra: Default::default(),
             });
         }
 

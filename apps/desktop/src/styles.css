@@ -2,6 +2,8 @@
 @import "@fontsource-variable/inter";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/* Settings > Density: compact lists and items. */
+@custom-variant compact (&:where([data-density=compact] *));
 
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
@@ -190,7 +192,12 @@
   animation: shake 400ms ease-in-out;
 }
 
-/* Printing the Emergency Kit: hide everything else. */
+/* What is drawn only for printing (an item). */
+.print-only {
+  display: none;
+}
+
+/* Printing the Emergency Kit or an item: hide everything else. */
 @media print {
   body {
     background: #fff !important;
@@ -210,5 +217,8 @@
   }
   .no-print {
     display: none !important;
+  }
+  .print-only {
+    display: block;
   }
 }
