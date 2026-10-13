@@ -13,9 +13,11 @@ import {
   Fingerprint,
   FolderInput,
   History,
+  Link2,
   Maximize2,
   Paperclip,
   Pencil,
+  PictureInPicture2,
   Printer,
   QrCode,
   RotateCcw,
@@ -48,10 +50,12 @@ import {
 import { categoryLabel, isSecretKind } from "../../lib/categories";
 import { formatBytes, formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useFileDrop } from "../../lib/fileDrop";
+import { itemIdOfLink, itemLink, showLinkedItem } from "../../lib/itemLinks";
 import { Markdown } from "../../lib/markdown";
 import { useSentinel } from "../../lib/sentinel";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { itemWindowId } from "../../lib/windows";
 import { AlertNote, SpecialActions, SpecialValue } from "./FieldKinds";
 import { AttachmentPreviewDialog, CopyToVaultDialog, JwtDialog, LargeTypeDialog, NoteImage, PrintDialog, isJwt } from "./ItemExtras";
 import { ItemVersionsDialog } from "./ItemVersions";
@@ -246,6 +250,14 @@ export function ItemDetail() {
                   </IconButton>
                 </MenuTrigger>
                 <MenuContent>
+                  {!itemWindowId && (
+                    <MenuItem
+                      icon={<PictureInPicture2 className="size-4" />}
+                      onSelect={() => void api.openItemWindow(item.id).catch((err) => toast.error(errorMessage(err)))}
+                    >
+                      {t("item.openWindow")}
+                    </MenuItem>
+                  )}
                   <MenuItem
                     icon={<Archive className="size-4" />}
                     disabled={!item.canEdit}
@@ -267,6 +279,17 @@ export function ItemDetail() {
                       {t("item.wifiQr")}
                     </MenuItem>
                   )}
+                  <MenuItem
+                    icon={<Link2 className="size-4" />}
+                    onSelect={() =>
+                      void api
+                        .copyText(itemLink(item.id))
+                        .then((result) => toast.copied(t("item.link"), result.clearAfterSeconds))
+                        .catch((err) => toast.error(errorMessage(err)))
+                    }
+                  >
+                    {t("item.copyLink")}
+                  </MenuItem>
                   <MenuItem icon={<Printer className="size-4" />} onSelect={() => setPrintOpen(true)}>
                     {t("print.menu")}
                   </MenuItem>
@@ -353,7 +376,11 @@ export function ItemDetail() {
                   <Markdown
                     text={item.notes}
                     options={{
-                      onLink: (url) => void api.openLink(url).catch((err) => toast.error(errorMessage(err))),
+                      onLink: (url) => {
+                        const linked = itemIdOfLink(url);
+                        if (linked) showLinkedItem(linked);
+                        else void api.openLink(url).catch((err) => toast.error(errorMessage(err)));
+                      },
                       image: (name, alt) => {
                         const attachment = (item.attachments ?? []).find((a) => a.name === name || a.id === name);
                         return attachment ? <NoteImage itemId={item.id} attachment={attachment} alt={alt} /> : null;

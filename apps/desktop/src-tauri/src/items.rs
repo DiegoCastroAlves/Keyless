@@ -343,6 +343,58 @@ pub async fn delete_vault(app: &AppHandle, vault_id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// A vault the user deleted that can still come back: the server keeps it
+/// (and its items) for 30 days.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedVault {
+    pub id: String,
+    pub name: String,
+    /// Unix seconds.
+    pub deleted_at: i64,
+}
+
+/// The vaults the user deleted, still on the server. Only deletions with a
+/// valid proof are listed (sync undoes the others).
+pub async fn deleted_vaults(state: &AppState) -> AppResult<Vec<DeletedVault>> {
+    let (user_id, token) = sync::ensure_token(state).await?;
+    let memberships = state.api.memberships(&token, &user_id).await?;
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let mut deleted = Vec::new();
+    for m in memberships.iter().filter(|m| m.role == "owner") {
+        let Some(deleted_at) = m.vaults.deleted_at.as_deref() else { continue };
+        let vault = LocalVault {
+            id: m.vault_id.clone(),
+            owner_id: m.vaults.owner_id.clone(),
+            role: m.role.clone(),
+            enc_meta: m.vaults.enc_meta.clone(),
+            enc_vault_key: m.enc_vault_key.clone(),
+            seq: m.vaults.seq,
+        };
+        let Some(opened) = sync::unlock_vault(session.account.user_key(), &vault) else { continue };
+        let genuine = m
+            .vaults
+            .enc_tombstone
+            .as_deref()
+            .is_some_and(|t| opened.key.open_vault_tombstone(&vault.id, t).is_ok());
+        if genuine {
+            let deleted_at = crate::shares::parse_iso8601(deleted_at).unwrap_or_default();
+            deleted.push(DeletedVault { id: vault.id, name: opened.meta.name.clone(), deleted_at });
+        }
+    }
+    deleted.sort_by_key(|v| std::cmp::Reverse(v.deleted_at));
+    Ok(deleted)
+}
+
+/// Brings back a deleted vault, with its items, and syncs them down.
+pub async fn restore_vault(app: &AppHandle, vault_id: &str) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let (_, token) = sync::ensure_token(&state).await?;
+    state.api.restore_vault(&token, vault_id).await?;
+    sync::sync_now(app).await
+}
+
 // ----- reading items ------------------------------------------------------
 
 pub async fn list_items(state: &AppState) -> AppResult<Vec<ItemSummary>> {

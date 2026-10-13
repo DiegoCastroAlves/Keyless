@@ -321,6 +321,22 @@ attachments a vault has and their sizes (not their names or contents).
   into the copy's details, encrypted with the other vault's key.
 - The words of the system's file dialogs come from the page with each
   command, so they follow the user's language; they are only shown.
+- An item can be opened in a window of its own (kept above the others),
+  which has the same permissions as the main window. Keyless closes these
+  windows when it locks or signs out. The window's title is the item's
+  title, which the desktop's window list shows.
+- Links to items (`keyless://item/<id>`) are registered for the current
+  user as Keyless starts (a desktop entry and `xdg-mime` on Linux,
+  `HKEY_CURRENT_USER\Software\Classes` on Windows). Any program or web page
+  can open one, so a link can only show an item, by its id, once Keyless
+  is unlocked: Keyless takes nothing else from it, and the id must be a
+  plain id.
+- When the user turns it on, a file attached from disk is moved to the
+  system's trash once its encrypted copy is saved (never deleted outright),
+  and only files the user just chose or dropped can be attached at all.
+- A deleted vault stays on the server, deleted, for 30 days, as before; its
+  owner can now restore it from Recently Deleted. Only deletions with a
+  valid proof are listed (sync undoes any other).
 
 ## SSH agent
 

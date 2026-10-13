@@ -151,6 +151,8 @@ export interface Settings {
   /** Global shortcuts registered by the app (Windows). */
   show_shortcut: string;
   lock_shortcut: string;
+  /** Attached files go to the system's trash afterwards. */
+  trash_attached_files: boolean;
 }
 
 export interface SiteIcon {
@@ -200,6 +202,13 @@ export interface Vault {
   canWrite: boolean;
   itemCount: number;
   orphaned: boolean;
+}
+
+export interface DeletedVault {
+  id: string;
+  name: string;
+  /** Unix seconds. */
+  deletedAt: number;
 }
 
 export interface VaultMeta {
@@ -645,6 +654,13 @@ export const api = {
   createVault: (meta: VaultMeta) => invoke<string>("create_vault", { meta }),
   updateVault: (vaultId: string, meta: VaultMeta) => invoke<void>("update_vault", { vaultId, meta }),
   deleteVault: (vaultId: string) => invoke<void>("delete_vault", { vaultId }),
+  /** The item a `keyless://` link asked for, once. */
+  takeItemRequest: () => invoke<string | null>("take_item_request"),
+  /** Opens an item in a window of its own, above the others. */
+  openItemWindow: (itemId: string) => invoke<void>("open_item_window", { itemId }),
+  /** Vaults deleted in the last 30 days, which can still be restored. */
+  deletedVaults: () => invoke<DeletedVault[]>("deleted_vaults"),
+  restoreVault: (vaultId: string) => invoke<void>("restore_vault", { vaultId }),
   moveItems: (itemIds: string[], vaultId: string) => invoke<number>("move_items", { itemIds, vaultId }),
   moveVaultItems: (fromVault: string, toVault: string, deleteSource: boolean) =>
     invoke<number>("move_vault_items", { fromVault, toVault, deleteSource }),
@@ -751,6 +767,8 @@ export const events = {
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
   onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),
+  /** A `keyless://` link asked for an item (see `takeItemRequest`). */
+  onItemRequested: (cb: () => void): Promise<UnlistenFn> => listen("keyless://item-requested", () => cb()),
   /** The browser extension's "+": a new item, with the tab's address for a login. */
   onNewItem: (cb: (request: { category: Category; url: string; title: string }) => void): Promise<UnlistenFn> =>
     listen<{ category: Category; url: string; title: string }>("keyless://new-item", (e) => cb(e.payload)),

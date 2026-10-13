@@ -6,6 +6,7 @@ import { PairRequestDialog } from "./components/PairRequestDialog";
 import { TooltipProvider } from "./components/ui";
 import { applyLanguage } from "./i18n";
 import { api, events } from "./lib/api";
+import { showLinkedItem } from "./lib/itemLinks";
 import { useApp } from "./lib/store";
 import { useDensity, useTheme } from "./lib/theme";
 import { LockScreen } from "./screens/LockScreen";
@@ -13,7 +14,7 @@ import { MainLayout } from "./screens/main/MainLayout";
 import { Onboarding } from "./screens/Onboarding";
 
 /** Tells the Rust side the user is active, for the auto-lock timer. */
-function useActivityHeartbeat(enabled: boolean) {
+export function useActivityHeartbeat(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return;
     let last = 0;
@@ -28,6 +29,12 @@ function useActivityHeartbeat(enabled: boolean) {
     kinds.forEach((k) => window.addEventListener(k, onActivity, { passive: true }));
     return () => kinds.forEach((k) => window.removeEventListener(k, onActivity));
   }, [enabled]);
+}
+
+/** Shows the item a keyless:// link asked for, if any. */
+async function takeItemRequest() {
+  const id = await api.takeItemRequest().catch(() => null);
+  if (id) showLinkedItem(id);
 }
 
 export function App() {
@@ -68,6 +75,10 @@ export function App() {
       // Unlocked from Quick Access.
       events.onUnlocked(() => void refreshStatus()),
       // "Open in Keyless" from Quick Access.
+      // A keyless:// link: shown now, or once unlocked.
+      events.onItemRequested(() => {
+        if (useApp.getState().status?.state === "unlocked") void takeItemRequest();
+      }),
       events.onSelectItem((id) => {
         const store = useApp.getState();
         store.setSearch("");
@@ -82,7 +93,10 @@ export function App() {
 
   useEffect(() => {
     if (unlocked) {
-      void useApp.getState().loadData();
+      void useApp
+        .getState()
+        .loadData()
+        .then(() => takeItemRequest());
       void api.syncStatus().then(useApp.getState().setSyncStatus);
     }
   }, [unlocked]);

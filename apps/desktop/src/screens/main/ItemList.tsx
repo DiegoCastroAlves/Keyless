@@ -38,8 +38,9 @@ import {
   MenuTrigger,
   cx,
 } from "../../components/ui";
-import { api, errorMessage, type Category, type ItemSummary, type ListSort } from "../../lib/api";
+import { api, errorMessage, type Category, type DeletedVault, type ItemSummary, type ListSort } from "../../lib/api";
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
+import { itemIdOfLink, showLinkedItem } from "../../lib/itemLinks";
 import { isPending, useIssues, useSentinel } from "../../lib/sentinel";
 import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -197,6 +198,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
           </button>
         </div>
       )}
+      {view.kind === "trash" && <DeletedVaults />}
 
       <div
         ref={listRef}
@@ -625,6 +627,12 @@ export function TopBar({
           ref={searchRef}
           value={search}
           onChange={(e) => {
+            // A link to an item, pasted: that item.
+            const linked = itemIdOfLink(e.target.value);
+            if (linked) {
+              showLinkedItem(linked);
+              return;
+            }
             // Sentinel's overview has no list to search: go to every item.
             if (view.kind === "sentinel" && !view.alert) useApp.getState().setView({ kind: "all" });
             setSearch(e.target.value);
@@ -735,5 +743,58 @@ export function NewItemButton({ onPick }: { onPick: (category: Category) => void
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+/** Vaults deleted in the last 30 days, each with a button to bring it back
+ * (only their owner sees them). */
+function DeletedVaults() {
+  const { t } = useTranslation();
+  const [vaults, setVaults] = useState<DeletedVault[]>([]);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [all, setAll] = useState(false);
+  useEffect(() => {
+    // Offline, or the server cannot say: nothing is shown.
+    api.deletedVaults().then(setVaults).catch(() => undefined);
+  }, []);
+  if (vaults.length === 0) return null;
+
+  const restore = async (vault: DeletedVault) => {
+    setRestoring(vault.id);
+    try {
+      await api.restoreVault(vault.id);
+      setVaults((list) => list.filter((v) => v.id !== vault.id));
+      await useApp.getState().loadData();
+      toast.success(t("list.vaultRestored", { name: vault.name }));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setRestoring(null);
+    }
+  };
+
+  return (
+    <div className="mx-3 mb-2 rounded-lg border border-line">
+      <div className="px-3 pt-2 text-[11px] font-semibold uppercase tracking-wider text-subtle">{t("list.deletedVaults")}</div>
+      {(all ? vaults : vaults.slice(0, 3)).map((vault) => {
+        const daysLeft = Math.max(0, 30 - Math.floor((Date.now() / 1000 - vault.deletedAt) / 86400));
+        return (
+          <div key={vault.id} className="flex items-center gap-2 px-3 py-2">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-medium">{vault.name}</div>
+              <div className="text-xs text-subtle">{t("list.deletedVaultLeft", { count: daysLeft })}</div>
+            </div>
+            <Button size="sm" loading={restoring === vault.id} disabled={restoring !== null} onClick={() => void restore(vault)}>
+              {t("list.restoreVault")}
+            </Button>
+          </div>
+        );
+      })}
+      {!all && vaults.length > 3 && (
+        <button onClick={() => setAll(true)} className="px-3 pb-2 text-xs font-medium text-accent hover:underline">
+          {t("list.showMoreVaults", { count: vaults.length - 3 })}
+        </button>
+      )}
+    </div>
   );
 }

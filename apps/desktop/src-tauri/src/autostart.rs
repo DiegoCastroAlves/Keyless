@@ -18,7 +18,7 @@ pub fn sync(enabled: bool) {
 }
 
 #[cfg(target_os = "linux")]
-mod linux {
+pub(crate) mod linux {
     use super::{AUTOSTART_ARG, Path};
 
     /// Quotes a path for the Exec key of a desktop entry.

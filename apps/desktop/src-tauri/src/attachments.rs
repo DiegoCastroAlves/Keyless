@@ -213,10 +213,26 @@ pub async fn add_paths(app: &AppHandle, item_id: &str, paths: &[String], links: 
     }
     list.extend(attachments.iter().map(|(a, _)| a.clone()));
     match items::save_item_with(app, draft, Extras { attachments: Some(list), ..Default::default() }).await {
-        Ok(summary) => Ok(summary),
+        Ok(summary) => {
+            if state.settings().trash_attached_files {
+                let paths: Vec<PathBuf> = attachments.into_iter().map(|(_, path)| path).collect();
+                tauri::async_runtime::spawn_blocking(move || trash_originals(&paths));
+            }
+            Ok(summary)
+        }
         Err(err) => {
             forget(app, gone());
             Err(err)
+        }
+    }
+}
+
+/// Moves files that are now attachments to the system's trash (where the
+/// user can still get them back). A file that cannot go stays.
+fn trash_originals(paths: &[PathBuf]) {
+    for path in paths {
+        if let Err(err) = trash::delete(path) {
+            log::warn!("could not move an attached file to the trash: {err}");
         }
     }
 }

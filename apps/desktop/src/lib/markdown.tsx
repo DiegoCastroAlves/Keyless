@@ -1,7 +1,8 @@
 // Notes in Markdown, rendered as React elements only: no HTML from the note
 // ever reaches the page, links open in the system browser (http, https and
-// mailto only), and images show only the item's own attachments, so a note
-// cannot load anything from the network.
+// mailto only) or, for links to items (keyless://item/…), in Keyless, and
+// images show only the item's own attachments, so a note cannot load
+// anything from the network.
 //
 // Supported: headings, paragraphs, **bold**, *italic*, ~~strikethrough~~,
 // `code`, fenced code blocks, quotes, bulleted, numbered and task lists
@@ -32,7 +33,8 @@ interface ListItem {
   children: Block[];
 }
 
-const SAFE_LINK = /^(https?:\/\/|mailto:)/i;
+/** Web and mail links open in the browser; links to items open in Keyless. */
+const SAFE_LINK = /^(https?:\/\/|mailto:|keyless:\/\/item\/)/i;
 
 /** Whether a note looks like it uses Markdown (worth rendering it so). */
 export function looksLikeMarkdown(text: string): boolean {
@@ -197,7 +199,7 @@ function renderBlocks(blocks: Block[], options: MarkdownOptions): ReactNode {
 // ----- inline -------------------------------------------------------------------------
 
 const INLINE =
-  /(`[^`]+`)|(!\[[^\]]*\]\([^)\s]+\))|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*|__[^_]+__)|(~~[^~]+~~)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(<?(?:https?:\/\/|mailto:)[^\s<>()]+>?)/;
+  /(`[^`]+`)|(!\[[^\]]*\]\([^)\s]+\))|(\[[^\]]+\]\([^)\s]+\))|(\*\*[^*]+\*\*|__[^_]+__)|(~~[^~]+~~)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(<?(?:https?:\/\/|mailto:|keyless:\/\/item\/)[^\s<>()]+>?)/;
 
 function renderInline(text: string, options: MarkdownOptions): ReactNode {
   const out: ReactNode[] = [];

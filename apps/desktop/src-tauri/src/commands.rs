@@ -339,6 +339,32 @@ pub async fn update_vault(app: AppHandle, state: State<'_, AppState>, vault_id: 
     items::update_vault(&app, &vault_id, meta).await
 }
 
+/// The item a `keyless://` link asked for, once (the main window shows it).
+#[tauri::command]
+pub fn take_item_request(state: State<'_, AppState>) -> Option<String> {
+    crate::item_links::take(&state)
+}
+
+/// Opens an item in a window of its own, above the others.
+#[tauri::command]
+pub async fn open_item_window(app: AppHandle, state: State<'_, AppState>, item_id: String) -> AppResult<()> {
+    state.touch();
+    crate::item_windows::open(&app, &item_id).await
+}
+
+/// Vaults deleted in the last 30 days, which can still be restored.
+#[tauri::command]
+pub async fn deleted_vaults(state: State<'_, AppState>) -> AppResult<Vec<items::DeletedVault>> {
+    state.touch();
+    items::deleted_vaults(&state).await
+}
+
+#[tauri::command]
+pub async fn restore_vault(app: AppHandle, state: State<'_, AppState>, vault_id: String) -> AppResult<()> {
+    state.touch();
+    items::restore_vault(&app, &vault_id).await
+}
+
 #[tauri::command]
 pub async fn delete_vault(app: AppHandle, state: State<'_, AppState>, vault_id: String) -> AppResult<()> {
     state.touch();

@@ -21,7 +21,6 @@ import {
   Trash,
   TriangleAlert,
   Upload,
-  LockKeyhole as VaultIcon,
   WandSparkles,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
@@ -34,6 +33,7 @@ import { CATEGORIES, categoryLabel } from "../../lib/categories";
 import { relativeTime } from "../../lib/format";
 import { useApp, type View } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { VaultGlyph } from "../../lib/vaultLook";
 import { MoveVaultDialog } from "./MoveDialog";
 import { SharesDialog } from "./SharesDialog";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
@@ -242,7 +242,7 @@ export function Sidebar({
           {vaults.map((vault) => (
             <NavItem
               key={vault.id}
-              icon={vault.orphaned ? <TriangleAlert className="size-4 text-warning" /> : <VaultIcon className="size-4" />}
+              icon={vault.orphaned ? <TriangleAlert className="size-4 text-warning" /> : <VaultGlyph vault={vault} className="size-4" />}
               label={vault.orphaned ? `${vault.name} · ${t("sidebar.orphaned")}` : vault.name}
               count={vault.itemCount}
               view={{ kind: "vault", id: vault.id }}

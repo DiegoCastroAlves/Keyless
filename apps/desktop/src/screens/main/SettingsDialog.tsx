@@ -191,6 +191,11 @@ function GeneralTab() {
           <Switch checked={settings.prefill_username} onChange={(prefill_username) => save({ prefill_username })} label={t("settings.prefillUsername")} />
         </div>
       </Row>
+      <Row title={t("settings.trashAttached")} hint={t("settings.trashAttachedHint")}>
+        <div className="flex justify-end">
+          <Switch checked={settings.trash_attached_files} onChange={(trash_attached_files) => save({ trash_attached_files })} label={t("settings.trashAttached")} />
+        </div>
+      </Row>
       <Row title={t("settings.siteIcons")} hint={t("settings.siteIconsHint")}>
         <div className="flex justify-end">
           <Switch checked={settings.site_icons} onChange={(site_icons) => save({ site_icons })} label={t("settings.siteIcons")} />

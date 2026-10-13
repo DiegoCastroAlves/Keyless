@@ -166,7 +166,7 @@ fn iso8601(unix: i64) -> String {
 
 /// Unix seconds from a timestamp as Postgres writes it
 /// (`2026-10-07T19:15:06.623+00:00`).
-fn parse_iso8601(text: &str) -> Option<i64> {
+pub(crate) fn parse_iso8601(text: &str) -> Option<i64> {
     let (date, rest) = text.split_once(['T', ' '])?;
     let mut parts = date.split('-');
     let (year, month, day) = (parts.next()?.parse().ok()?, parts.next()?.parse().ok()?, parts.next()?.parse().ok()?);

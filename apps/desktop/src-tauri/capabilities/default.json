@@ -1,12 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main, Quick Access, unlock prompt and SSH approval windows may call Keyless commands and listen to app events. No plugin APIs are exposed to the web UI: dialogs and links are opened from Rust.",
+  "description": "The main, Quick Access, unlock prompt, SSH approval and item windows may call Keyless commands and listen to app events. No plugin APIs are exposed to the web UI: dialogs and links are opened from Rust.",
   "windows": [
     "main",
     "quick-access",
     "unlock-prompt",
-    "ssh-approve"
+    "ssh-approve",
+    "item-*"
   ],
   "permissions": [
     "core:event:allow-listen",

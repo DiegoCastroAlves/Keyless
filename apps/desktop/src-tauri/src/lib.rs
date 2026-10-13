@@ -19,6 +19,8 @@ mod hardening;
 mod health;
 mod import;
 mod item_icons;
+mod item_links;
+mod item_windows;
 mod item_versions;
 mod items;
 mod lock;
@@ -142,7 +144,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Launched again: a shortcut asking for Quick Access, or the app
             // opened from the menu.
-            if args.iter().any(|a| a == quick_access::ARG) {
+            if item_links::handle_args(app, &args) {
+                // A link to an item: the main window shows it.
+            } else if args.iter().any(|a| a == quick_access::ARG) {
                 if let Err(err) = quick_access::show(app) {
                     log::warn!("could not open Quick Access: {err}");
                 }
@@ -204,6 +208,7 @@ pub fn run() {
                 ssh: Default::default(),
                 sentinel: Default::default(),
                 unlock_reason: Default::default(),
+                item_request: Mutex::new(None),
             });
 
             apply_zoom(app.handle(), zoom);
@@ -214,13 +219,15 @@ pub fn run() {
             health::init(app.handle());
             updates::start(app.handle().clone());
             std::thread::spawn(move || bridge::install::sync_registration(browser_integration));
+            std::thread::spawn(item_links::register);
             if start_at_login {
                 // Keeps the login entry pointing at this executable (e.g. a moved AppImage).
                 std::thread::spawn(|| autostart::sync(true));
             }
             // The window is created hidden (tauri.conf.json): shown unless
             // Keyless was started at login to stay in the tray.
-            if !start_hidden {
+            let args: Vec<String> = std::env::args().collect();
+            if !item_links::handle_args(app.handle(), &args) && !start_hidden {
                 tray::show_main(app.handle());
             }
             if quick_access_requested && let Err(err) = quick_access::show(app.handle()) {
@@ -311,6 +318,10 @@ pub fn run() {
             commands::create_vault,
             commands::update_vault,
             commands::delete_vault,
+            commands::deleted_vaults,
+            commands::restore_vault,
+            commands::open_item_window,
+            commands::take_item_request,
             commands::list_items,
             commands::get_item,
             commands::get_item_draft,

@@ -81,11 +81,14 @@ pub struct Settings {
     /// their shortcuts, which run `--show` and `--lock`); empty is off.
     pub show_shortcut: String,
     pub lock_shortcut: String,
+    /// Files attached from disk go to the system's trash once they are
+    /// safely in Keyless.
+    pub trash_attached_files: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new() }
+        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), trash_attached_files: false }
     }
 }
 
@@ -276,6 +279,8 @@ pub struct AppState {
     pub ssh: crate::ssh_agent::SshState,
     /// Sentinel's last online check.
     pub sentinel: crate::health::SentinelState,
+    /// An item a `keyless://` link asked for, until the main window shows it.
+    pub item_request: Mutex<Option<String>>,
 }
 
 impl AppState {
