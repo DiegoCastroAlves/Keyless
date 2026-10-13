@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { api, type HealthReport, type SentinelAlert } from "./api";
 
 /** Every alert, most serious first. */
-export const SENTINEL_ALERTS: SentinelAlert[] = ["breached", "compromised", "weak", "reused", "unsecured", "expiring", "two_factor", "passkey", "duplicate"];
+export const SENTINEL_ALERTS: SentinelAlert[] = ["breached", "compromised", "lastpass", "weak", "reused", "unsecured", "expiring", "two_factor", "passkey", "duplicate"];
 
 /** The title of each alert's list (translation key). */
 export const ALERT_TITLE: Record<SentinelAlert, string> = {
@@ -17,6 +17,7 @@ export const ALERT_TITLE: Record<SentinelAlert, string> = {
   two_factor: "sentinel.twoFactor",
   passkey: "sentinel.passkey",
   duplicate: "sentinel.duplicate",
+  lastpass: "sentinel.lastpass",
 };
 
 /** What one alert says about one item. */
@@ -74,6 +75,7 @@ export function issuesOf(report: HealthReport | null): Issues {
   for (const issue of report.compromised) add("compromised", issue.id, { site: issue.site, date: issue.date ?? undefined });
   for (const issue of report.twoFactor) add("two_factor", issue.id, { site: issue.site });
   for (const issue of report.passkeys) add("passkey", issue.id, { site: issue.site });
+  for (const id of report.lastpass ?? []) add("lastpass", id);
   return issues;
 }
 

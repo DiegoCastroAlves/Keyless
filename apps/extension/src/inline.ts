@@ -1,7 +1,8 @@
 // The Keyless menus shown inside web pages, in an iframe the content script
 // creates: the list below a login field (#menu), the sign-in card at the
-// top of the page (#card), the "Save login?" prompt (#save) and the prompt
-// for a site's passkey request (#passkey).
+// top of the page (#card), the "Save login?" prompt (#save), the prompt
+// for a site's passkey request (#passkey) and the warning about a breach of
+// the website (#alert).
 //
 // This is an extension page, isolated from the web page: the page can
 // neither read it nor script it. It only works with the token its content
@@ -15,11 +16,11 @@
 // the content script reports what the page did to the menu.
 
 import { avatar } from "./avatar";
-import type { FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
+import type { AlertView, FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
-const mode: "menu" | "card" | "save" | "passkey" =
-  location.hash === "#card" ? "card" : location.hash === "#save" ? "save" : location.hash === "#passkey" ? "passkey" : "menu";
+const MODES = ["card", "save", "passkey", "alert"] as const;
+const mode: "menu" | (typeof MODES)[number] = MODES.find((m) => location.hash === `#${m}`) ?? "menu";
 document.documentElement.dataset.mode = mode;
 const app = document.getElementById("app")!;
 /** Same as in the content script. */
@@ -713,6 +714,52 @@ function closePasskey() {
   else void passkeyAction("passkey_fallback");
 }
 
+// ----- Breach warning ------------------------------------------------------------
+//
+// Sentinel found this website's login breached: its password in breaches,
+// or the website breached after the password was set. Shown at the top of
+// the page like the "Save login?" prompt; the button opens the website's
+// page to change the password in a new tab.
+
+let siteAlert: AlertView | null = null;
+
+async function loadAlert() {
+  const reply = await send<AlertView>({ type: "site_alert" });
+  if (!reply.ok || !reply.data) return toParent("close");
+  siteAlert = reply.data;
+  render();
+}
+
+async function alertAction(type: "site_alert_change" | "site_alert_dismiss", extra: Record<string, unknown> = {}) {
+  if (busy) return;
+  busy = true;
+  render();
+  await send({ type, ...extra });
+  busy = false;
+  toParent("close");
+}
+
+function renderAlert() {
+  const v = siteAlert!;
+  const close = closeButton(() => void alertAction("site_alert_dismiss"));
+  const box = el("div", { className: "box save alert" }, el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: t("breachTitle") }), close));
+  const compromised = v.alerts.find((a) => a.kind === "compromised");
+  const date = compromised?.date
+    ? new Intl.DateTimeFormat(chrome.i18n.getUILanguage(), { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${compromised.date}T00:00:00Z`))
+    : "";
+  box.append(el("p", { className: "note", textContent: compromised ? t("breachSite", v.host, date) : t("breachPassword") }));
+  const list = el("div", { className: "choices" });
+  for (const a of v.alerts) {
+    const login: Login = { id: a.itemId, title: a.title, username: a.username, url: v.url, vault: "", favorite: false };
+    list.append(el("div", { className: "save-item" }, avatar(login, v.url), el("span", { className: "text" }, el("span", { className: "title", textContent: a.title }), el("span", { className: "sub", textContent: a.username || v.host }))));
+  }
+  box.append(list);
+  const later = el("button", { type: "button", className: "link", textContent: t("breachLater"), disabled: busy });
+  later.addEventListener("click", () => void alertAction("site_alert_dismiss", { snooze: true }));
+  box.append(el("div", { className: "save-foot" }, later, primaryButton(t("breachChange"), () => void alertAction("site_alert_change"))));
+  app.replaceChildren(box);
+}
+
 function primaryButton(label: string, run: () => void): HTMLButtonElement {
   const button = el("button", { type: "button", className: "primary", textContent: label, disabled: busy });
   button.addEventListener("click", run);
@@ -788,6 +835,8 @@ function render() {
   else if (mode === "card") renderCard();
   else if (mode === "passkey") {
     if (passkey) renderPasskey();
+  } else if (mode === "alert") {
+    if (siteAlert) renderAlert();
   } else if (saving) renderSave();
   report();
 }
@@ -796,6 +845,7 @@ let lastRendered = "";
 async function refresh(force = false) {
   if (mode === "save") return loadSave();
   if (mode === "passkey") return loadPasskey();
+  if (mode === "alert") return loadAlert();
   const reply = await send<InlineState>({ type: "state" });
   state = reply.ok && reply.data ? reply.data : { state: "error", url: null, host: null, logins: [] };
   if (mode === "menu" && field.newPassword && state.state === "ready" && suggestion === null) await newSuggestion();

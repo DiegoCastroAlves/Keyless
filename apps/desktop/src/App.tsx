@@ -54,6 +54,12 @@ export function App() {
   const { t, i18n } = useTranslation();
   useEffect(() => {
     void api.configureTray({ open: t("tray.open"), quickAccess: t("tray.quickAccess"), lock: t("common.lock"), quit: t("tray.quit") });
+    void api.configureNotifications({
+      sentinelTitle: t("sentinel.title"),
+      // Plural forms with the number left for Rust to fill in.
+      newAlertsOne: t("sentinel.newAlerts", { count: 1, n: "{count}" }),
+      newAlertsOther: t("sentinel.newAlerts", { count: 2, n: "{count}" }),
+    });
   }, [t, i18n.language]);
 
   useEffect(() => {
@@ -75,6 +81,10 @@ export function App() {
       // Unlocked from Quick Access.
       events.onUnlocked(() => void refreshStatus()),
       // "Open in Keyless" from Quick Access.
+      // A notification from Sentinel was clicked.
+      events.onOpenSentinel(() => {
+        if (useApp.getState().status?.state === "unlocked") useApp.getState().setView({ kind: "sentinel" });
+      }),
       // A keyless:// link: shown now, or once unlocked.
       events.onItemRequested(() => {
         if (useApp.getState().status?.state === "unlocked") void takeItemRequest();

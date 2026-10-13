@@ -26,8 +26,16 @@ use crate::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Lock after this many minutes without activity.
+    /// Lock after this many minutes without activity; 0 is never.
     pub auto_lock_minutes: u32,
+    /// Only the use of Keyless itself counts as activity (otherwise any
+    /// input on the computer does, where the system tells).
+    pub auto_lock_app_only: bool,
+    /// Lock when the main window is closed (to the tray).
+    pub lock_on_close: bool,
+    /// How often, in days, system unlock needs the master password again;
+    /// 0 is never, which only an account with a recovery key may choose.
+    pub master_password_days: u32,
     /// Clear copied secrets from the clipboard after this many seconds.
     pub clipboard_clear_seconds: u32,
     /// Lock when the computer sleeps or the screen locks.
@@ -61,6 +69,8 @@ pub struct Settings {
     pub site_icons: bool,
     /// Run the SSH agent (see `ssh_agent`).
     pub ssh_agent: bool,
+    /// Announce Sentinel's new serious alerts with a system notification.
+    pub sentinel_notifications: bool,
     /// Check the passwords online by themselves: once a day, and new ones as
     /// they are saved (see `health`). Named anew when it became the default,
     /// so it is on for everyone once (the old `sentinel_auto` was off).
@@ -88,13 +98,18 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), trash_attached_files: false }
+        Self { auto_lock_minutes: 10, auto_lock_app_only: false, lock_on_close: false, master_password_days: 1, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, sentinel_notifications: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), trash_attached_files: false }
     }
 }
 
 impl Settings {
     pub fn sanitized(mut self) -> Self {
-        self.auto_lock_minutes = self.auto_lock_minutes.clamp(1, 480);
+        if self.auto_lock_minutes != 0 {
+            self.auto_lock_minutes = self.auto_lock_minutes.clamp(1, 480);
+        }
+        if !matches!(self.master_password_days, 0 | 1 | 7 | 14 | 30) {
+            self.master_password_days = 1;
+        }
         self.clipboard_clear_seconds = self.clipboard_clear_seconds.clamp(10, 600);
         if !matches!(self.theme.as_str(), "system" | "light" | "dark") {
             self.theme = "system".into();

@@ -152,6 +152,54 @@ export function RecoveryOffer() {
   );
 }
 
+/** Sentinel's account alert: no recovery key, so forgetting the master
+ * password (or losing the Secret Key) would lock the user out. */
+export function RecoveryAlert() {
+  const { t } = useTranslation();
+  const email = useApp((s) => s.status?.email ?? "");
+  const [missing, setMissing] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [shown, setShown] = useState<string | null>(null);
+  useEffect(() => {
+    // Offline, it is not shown.
+    api
+      .recoveryKeyStatus()
+      .then((created) => setMissing(created === null))
+      .catch(() => undefined);
+  }, []);
+  if (!missing && !shown) return null;
+  return (
+    <>
+      {missing && (
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-warning/40 bg-warning-soft p-4">
+          <LifeBuoy className="size-5 shrink-0 text-warning" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold">{t("sentinel.noRecoveryKey")}</div>
+            <p className="text-xs leading-relaxed text-muted">{t("sentinel.noRecoveryKeyHint")}</p>
+          </div>
+          <Button size="sm" onClick={() => setAsking(true)}>
+            {t("recovery.create")}
+          </Button>
+        </div>
+      )}
+      <PasswordDialog
+        open={asking}
+        onOpenChange={setAsking}
+        title={t("recovery.offerTitle")}
+        description={t("recovery.offerBody")}
+        confirmLabel={t("recovery.create")}
+        cancelLabel={t("common.cancel")}
+        onConfirm={async (password) => {
+          setShown(await api.recoveryKeyCreate(password));
+          setAsking(false);
+          setMissing(false);
+        }}
+      />
+      <ShowRecoveryKey email={email} recoveryKey={shown} onDone={() => setShown(null)} />
+    </>
+  );
+}
+
 function PasswordDialog({
   open,
   onOpenChange,

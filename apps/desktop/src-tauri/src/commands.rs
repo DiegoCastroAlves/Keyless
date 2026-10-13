@@ -270,6 +270,8 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
     let current = state.settings();
     // Only `set_system_unlock` changes it: turning it on needs the master password.
     settings.system_unlock = current.system_unlock;
+    // Only `set_master_password_days` changes it: "never" needs a recovery key.
+    settings.master_password_days = current.master_password_days;
     if settings.browser_integration != current.browser_integration {
         let enabled = settings.browser_integration;
         std::thread::spawn(move || crate::bridge::install::sync_registration(enabled));
@@ -292,6 +294,21 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
             crate::site_icons::clear(&app)?;
         }
     }
+    Ok(settings)
+}
+
+/// How often system unlock needs the master password again, in days; 0
+/// (never) only for an account with a recovery key.
+#[tauri::command]
+pub async fn set_master_password_days(state: State<'_, AppState>, days: u32) -> AppResult<Settings> {
+    state.touch();
+    if days == 0 && crate::recovery::status(&state).await?.is_none() {
+        return Err(AppError::Invalid(Msg::new("recovery_key_needed")));
+    }
+    let mut settings = state.settings();
+    settings.master_password_days = days;
+    let settings = settings.sanitized();
+    state.save_settings(&settings)?;
     Ok(settings)
 }
 
@@ -343,6 +360,48 @@ pub async fn update_vault(app: AppHandle, state: State<'_, AppState>, vault_id: 
 #[tauri::command]
 pub fn take_item_request(state: State<'_, AppState>) -> Option<String> {
     crate::item_links::take(&state)
+}
+
+/// Sentinel for developers: secrets left in files on this computer.
+#[tauri::command]
+pub async fn dev_scan(app: AppHandle, state: State<'_, AppState>) -> AppResult<crate::dev_scan::ScanResult> {
+    state.touch();
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    crate::dev_scan::scan(&app).await
+}
+
+/// Saves a secret the scan found as an item (`notes` says where it was).
+#[tauri::command]
+pub async fn dev_secret_save(app: AppHandle, state: State<'_, AppState>, id: String, vault_id: String, label: String, notes: String) -> AppResult<ItemSummary> {
+    state.touch();
+    crate::dev_scan::save(&app, &id, &vault_id, &label, &notes).await
+}
+
+/// Moves the file a secret was found in to the system's trash.
+#[tauri::command]
+pub async fn dev_secret_trash(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.touch();
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    crate::dev_scan::trash(&id)
+}
+
+#[tauri::command]
+pub async fn dev_secret_reveal(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.touch();
+    if state.session.lock().await.is_none() {
+        return Err(AppError::Locked);
+    }
+    crate::dev_scan::reveal(&app, &id)
+}
+
+#[tauri::command]
+pub async fn dev_secret_ignore(app: AppHandle, state: State<'_, AppState>, id: String, ignored: bool) -> AppResult<()> {
+    state.touch();
+    crate::dev_scan::set_ignored(&app, &id, ignored).await
 }
 
 /// Opens an item in a window of its own, above the others.
@@ -461,6 +520,23 @@ pub async fn copy_text(app: AppHandle, state: State<'_, AppState>, text: String)
         return Err(AppError::Locked);
     }
     copy(&app, &state, Zeroizing::new(text))
+}
+
+/// Opens the website's page to change the item's password: its
+/// `/.well-known/change-password`, or its home page when it has none.
+#[tauri::command]
+pub async fn open_change_password(app: AppHandle, state: State<'_, AppState>, item_id: String) -> AppResult<()> {
+    state.touch();
+    let url = items::item_url(&state, &item_id, 0).await?;
+    let origin = url.origin().ascii_serialization();
+    let well_known = format!("{origin}/.well-known/change-password");
+    let supported = match reqwest::Client::builder().timeout(std::time::Duration::from_secs(8)).build() {
+        Ok(client) => client.get(&well_known).send().await.is_ok_and(|r| r.status().is_success()),
+        Err(_) => false,
+    };
+    app.opener()
+        .open_url(if supported { &well_known } else { &origin }, None::<&str>)
+        .map_err(|e| AppError::Invalid(Msg::new("open_url_failed").with("detail", e)))
 }
 
 #[tauri::command]
@@ -847,6 +923,12 @@ pub async fn install_update(app: AppHandle) -> AppResult<()> {
 }
 
 // ----- tray ----------------------------------------------------------------
+
+/// Texts for the system notifications, translated by the UI.
+#[tauri::command]
+pub fn configure_notifications(labels: crate::notify::NotificationLabels) {
+    crate::notify::configure(labels);
+}
 
 /// Creates the tray icon (or updates its menu) with texts translated by the UI.
 #[tauri::command]

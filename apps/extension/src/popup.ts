@@ -936,6 +936,7 @@ async function renderSettings() {
       toggle(t("setAutoSubmit"), settings.autoSubmit, (value) => save({ autoSubmit: value })),
       toggle(t("setCopyTotp"), settings.copyTotp, (value) => save({ copyTotp: value })),
       toggle(t("setPasskeys"), settings.passkeys, (value) => save({ passkeys: value })),
+      toggle(t("setBreachWarnings"), settings.breachWarnings, (value) => save({ breachWarnings: value })),
     ),
   );
 

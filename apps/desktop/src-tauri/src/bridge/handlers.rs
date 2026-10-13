@@ -122,6 +122,17 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let limit = args.get("limit").and_then(Value::as_u64).map_or(MAX_RESULTS, |n| (n as usize).clamp(1, MAX_LIST));
             find(app, Query::Text(query), favorites, limit).await
         }
+        "site_alerts" => {
+            // The serious Sentinel alerts of this website's logins, for the
+            // warning on the page.
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?;
+            let site = url_host(url).map(|h| site_of(&h)).ok_or("bad_request")?;
+            let alerts = crate::health::site_alerts(app, &site).await.map_err(|err| match err {
+                AppError::Locked => "locked",
+                _ => "error",
+            })?;
+            serde_json::to_value(alerts).map_err(|_| "error")
+        }
         "sites" => {
             // Each host's registrable domain (Public Suffix List), so the
             // extension can tell whether two pages are the same site.

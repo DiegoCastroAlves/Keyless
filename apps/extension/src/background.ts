@@ -18,7 +18,7 @@
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
 import { loadSettings, siteKey, updateSettings } from "./settings";
-import type { BrowserManager, Credentials, FormItems, InlineState, Login, PageState, PasskeyEntry, SaveCandidate, SaveState, Status, Vault } from "./types";
+import type { AlertView, BrowserManager, Credentials, FormItems, InlineState, Login, PageState, PasskeyEntry, SaveCandidate, SaveState, SiteAlert, Status, Vault } from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
@@ -920,6 +920,66 @@ async function savePending(tabId: number, url: string, loginForm: boolean): Prom
   return true;
 }
 
+// ----- Breach warnings ------------------------------------------------------------
+//
+// On a website where Sentinel found a login's password in breaches, or the
+// website breached after the password was set, the page shows a warning at
+// the top, with a button to change the password: the website's
+// /.well-known/change-password, which sends to its own page for that.
+
+/** The warning waiting for the page in each tab. */
+const tabAlerts = new Map<number, AlertView>();
+/** Tabs opened to change the password: they do not warn again. */
+const changingTabs = new Set<number>();
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabAlerts.delete(tabId);
+  changingTabs.delete(tabId);
+});
+/** "Not now" quiets a website's warning this long. */
+const ALERT_SNOOZE_MS = 7 * 24 * 3600 * 1000;
+const SNOOZE_KEY = "alertSnoozed";
+
+async function snoozedUntil(): Promise<Record<string, number>> {
+  const stored = await kvGet<Record<string, number>>(SNOOZE_KEY).catch(() => null);
+  return stored && typeof stored === "object" ? stored : {};
+}
+
+async function snooze(site: string) {
+  const now = Date.now();
+  // Only the ones still running stay.
+  const kept = Object.fromEntries(Object.entries(await snoozedUntil()).filter(([, at]) => typeof at === "number" && at > now).slice(-500));
+  kept[site] = now + ALERT_SNOOZE_MS;
+  await kvSet(SNOOZE_KEY, kept);
+}
+
+/** Whether the page in this tab should warn; keeps what about. */
+async function checkSiteAlert(tabId: number, url: string | undefined): Promise<boolean> {
+  tabAlerts.delete(tabId);
+  const site = siteKey(url);
+  if (!url || !site || changingTabs.has(tabId)) return false;
+  const settings = await loadSettings();
+  if (!settings.breachWarnings || settings.hidden.includes(site)) return false;
+  if ((await quickStatus()).state !== "ready" || ((await snoozedUntil())[site] ?? 0) > Date.now()) return false;
+  const alerts = await call<SiteAlert[]>("site_alerts", { url }).catch(() => null);
+  if (!Array.isArray(alerts) || alerts.length === 0) return false;
+  tabAlerts.set(tabId, { host: new URL(url).hostname, url, alerts });
+  return true;
+}
+
+/** The website's page to change a password, or its home page when it has
+ * none. */
+async function changePasswordUrl(url: string): Promise<string> {
+  const origin = new URL(url).origin;
+  const wellKnown = `${origin}/.well-known/change-password`;
+  try {
+    const response = await fetch(wellKnown, { credentials: "omit", cache: "no-store" });
+    if (response.ok) return wellKnown;
+  } catch {
+    // Unreachable or refused: the home page.
+  }
+  return origin;
+}
+
 async function saveState(tabId: number, url: string | undefined): Promise<SaveState | null> {
   const capture = await getCapture(tabId);
   if (!capture || !capture.ready || !(await sameSite(capture, url))) return null;
@@ -1406,7 +1466,9 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
   const frameUrl = reg.frameId === 0 ? tab.url : reg.url;
   const url = isWebPage(frameUrl) ? frameUrl : null;
   // The "Save login?" prompt and the sign-in card are the page's only.
-  if (reg.frameId !== 0 && ["save_state", "save", "dismiss_save", "never_save"].includes(message.type)) return { ok: false, error: "forbidden" };
+  if (reg.frameId !== 0 && ["save_state", "save", "dismiss_save", "never_save", "site_alert", "site_alert_change", "site_alert_dismiss"].includes(message.type)) {
+    return { ok: false, error: "forbidden" };
+  }
   switch (message.type) {
     case "hello":
       return { ok: true };
@@ -1442,6 +1504,24 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       return { ok: true };
     case "save_state":
       return { ok: true, data: await saveState(tab.id, tab.url) };
+    case "site_alert": {
+      const view = tabAlerts.get(tab.id);
+      return view ? { ok: true, data: view } : { ok: false, error: "expired" };
+    }
+    case "site_alert_change": {
+      const view = tabAlerts.get(tab.id);
+      if (!view) return { ok: false, error: "expired" };
+      tabAlerts.delete(tab.id);
+      const opened = await chrome.tabs.create({ url: await changePasswordUrl(view.url), index: tab.index + 1, openerTabId: tab.id });
+      if (opened.id !== undefined) changingTabs.add(opened.id);
+      return { ok: true };
+    }
+    case "site_alert_dismiss": {
+      const site = siteKey(tabAlerts.get(tab.id)?.url);
+      tabAlerts.delete(tab.id);
+      if (site && message.snooze === true) await snooze(site);
+      return { ok: true };
+    }
     case "save": {
       const capture = await getCapture(tab.id);
       if (!capture || !capture.ready || !(await sameSite(capture, tab.url))) return { ok: false, error: "expired" };
@@ -1620,6 +1700,10 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       // A prompt to show on this page: after signing in worked, or on the
       // next page after a suggested password was used.
       return { ok: true, data: await savePending(sender.tab.id, sender.url, message.loginForm === true) };
+    case "site_alert_check":
+      // The warning about a breach: the page only.
+      if (sender.frameId !== 0) return { ok: true, data: false };
+      return { ok: true, data: await checkSiteAlert(sender.tab.id, sender.url) };
     case "page_state": {
       const current = await quickStatus();
       const settings = await loadSettings();

@@ -262,7 +262,7 @@ iframe { position: fixed; z-index: 2147483647; border: 0; margin: 0; padding: 0;
 iframe.open { visibility: visible; pointer-events: auto; }
 iframe.card { top: 0; left: max(0px, calc(50% - ${(CARD_WIDTH + 2 * PAD) / 2}px)); }
 iframe.detached { top: 0; left: max(0px, calc(50% - ${(MENU_WIDTH + 2 * PAD) / 2}px)); }
-iframe.save, iframe.passkey { top: 0; right: 12px; }
+iframe.save, iframe.passkey, iframe.alert { top: 0; right: 12px; }
 /* Dims the page behind the passkey prompt; clicks on the page wait. */
 .scrim { position: fixed; z-index: 2147483645; inset: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,.42); display: none; }
 `;
@@ -571,12 +571,12 @@ class Frame {
   height = 0;
 
   constructor(
-    readonly mode: "menu" | "card" | "save" | "passkey",
+    readonly mode: "menu" | "card" | "save" | "passkey" | "alert",
     className: string = mode,
   ) {
     this.iframe.className = className;
     this.iframe.title = "Keyless";
-    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH, passkey: PASSKEY_WIDTH }[mode];
+    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH, passkey: PASSKEY_WIDTH, alert: SAVE_WIDTH }[mode];
     this.iframe.style.width = `${width + 2 * PAD}px`;
     root.append(this.iframe);
   }
@@ -663,8 +663,11 @@ let elsewhere = false;
 /** A site's passkey request (see background.ts). */
 let passkeyFrame: Frame | null = null;
 
+/** The warning about a breach of the website (see background.ts). */
+let alertFrame: Frame | null = null;
+
 function openFrames(): (Frame | null)[] {
-  return [menu, card, saveFrame, detached, passkeyFrame];
+  return [menu, card, saveFrame, detached, passkeyFrame, alertFrame];
 }
 
 function hidePasskey() {
@@ -1195,7 +1198,15 @@ document.addEventListener(
 // for pages that draw their forms with scripts.
 setTimeout(() => {
   if (!TOP) return;
-  void send<boolean>({ type: "save_pending", loginForm: hasLoginForm() }).then((reply) => reply.ok && reply.data && showSavePrompt());
+  void send<boolean>({ type: "save_pending", loginForm: hasLoginForm() }).then(async (reply) => {
+    if (reply.ok && reply.data) return showSavePrompt();
+    // Otherwise, a warning when Sentinel found this website breached.
+    const alert = await send<boolean>({ type: "site_alert_check" });
+    if (alert.ok && alert.data && !saveFrame?.open) {
+      alertFrame ??= new Frame("alert");
+      alertFrame.show();
+    }
+  });
 }, 700);
 
 // Fill requested from a Keyless menu, the popup or the keyboard shortcuts;

@@ -13,6 +13,11 @@ const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const DIGITS: &str = "0123456789";
 const SYMBOLS: &str = "!@#$%^&*()-_=+[]{};:,.<>/?~";
 const AMBIGUOUS: &str = "Il1O0o|`'\"";
+/// Syllables: a consonant and a vowel, sometimes closed by a consonant.
+const CONSONANTS: &str = "bcdfghjklmnprstvz";
+const VOWELS: &str = "aeiou";
+/// Symbols between words, which any website takes.
+const SEPARATOR_SYMBOLS: &str = "!#$%&*+-.=?@_";
 
 const WORDLIST: &str = include_str!("../data/eff_large_wordlist.txt");
 
@@ -40,14 +45,76 @@ pub enum GeneratorOptions {
         capitalize: bool,
         #[serde(default)]
         include_number: bool,
+        /// What each word is.
+        #[serde(default)]
+        style: MemorableStyle,
+        /// What goes between them: `separator`, or something random.
+        #[serde(default)]
+        separators: SeparatorStyle,
     },
     Pin {
         length: usize,
     },
 }
 
+/// The parts of a memorable password.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemorableStyle {
+    /// Words from the EFF's long list.
+    #[default]
+    Words,
+    /// Made-up words of three syllables ("tavomi"), easy to say.
+    Syllables,
+    /// Three random letters each.
+    ThreeLetters,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SeparatorStyle {
+    /// The chosen separator, the same each time.
+    #[default]
+    Fixed,
+    /// A random digit each time.
+    Digits,
+    /// A random digit or symbol each time.
+    DigitsSymbols,
+}
+
 fn yes() -> bool {
     true
+}
+
+fn pick(set: &str) -> Result<char> {
+    let chars: Vec<char> = set.chars().collect();
+    Ok(chars[uniform(chars.len())?])
+}
+
+/// One part of a memorable password, and its entropy in bits.
+fn memorable_word(style: MemorableStyle) -> Result<(String, f64)> {
+    match style {
+        MemorableStyle::Words => {
+            let list = wordlist();
+            Ok((list[uniform(list.len())?].to_string(), (list.len() as f64).log2()))
+        }
+        MemorableStyle::Syllables => {
+            let (c, v) = (CONSONANTS.len() as f64, VOWELS.len() as f64);
+            let mut word = String::new();
+            for _ in 0..3 {
+                word.push(pick(CONSONANTS)?);
+                word.push(pick(VOWELS)?);
+            }
+            Ok((word, 3.0 * (c * v).log2()))
+        }
+        MemorableStyle::ThreeLetters => {
+            let mut word = String::new();
+            for _ in 0..3 {
+                word.push(pick(LOWER)?);
+            }
+            Ok((word, 3.0 * 26f64.log2()))
+        }
+    }
 }
 
 fn default_separator() -> String {
@@ -116,21 +183,33 @@ pub fn generate(options: &GeneratorOptions) -> Result<GeneratedPassword> {
                 }
             }
         }
-        GeneratorOptions::Memorable { words, separator, capitalize, include_number } => {
+        GeneratorOptions::Memorable { words, separator, capitalize, include_number, style, separators } => {
             if !(3..=20).contains(words) {
                 return Err(Error::InvalidGeneratorOptions("use between 3 and 20 words".into()));
             }
             if separator.chars().count() > 3 {
                 return Err(Error::InvalidGeneratorOptions("the separator is too long".into()));
             }
-            let list = wordlist();
             let number_position = if *include_number { Some(uniform(*words)?) } else { None };
             let mut password = Zeroizing::new(String::new());
+            let mut entropy_bits = 0.0;
             for i in 0..*words {
                 if i > 0 {
-                    password.push_str(separator);
+                    match separators {
+                        SeparatorStyle::Fixed => password.push_str(separator),
+                        SeparatorStyle::Digits => {
+                            password.push(pick(DIGITS)?);
+                            entropy_bits += 10f64.log2();
+                        }
+                        SeparatorStyle::DigitsSymbols => {
+                            let set = [DIGITS, SEPARATOR_SYMBOLS].concat();
+                            password.push(pick(&set)?);
+                            entropy_bits += (set.len() as f64).log2();
+                        }
+                    }
                 }
-                let word = list[uniform(list.len())?];
+                let (word, bits) = memorable_word(*style)?;
+                entropy_bits += bits;
                 if *capitalize {
                     let mut chars = word.chars();
                     if let Some(first) = chars.next() {
@@ -138,13 +217,12 @@ pub fn generate(options: &GeneratorOptions) -> Result<GeneratedPassword> {
                         password.push_str(chars.as_str());
                     }
                 } else {
-                    password.push_str(word);
+                    password.push_str(&word);
                 }
                 if number_position == Some(i) {
                     password.push(char::from(b'0' + uniform(10)? as u8));
                 }
             }
-            let mut entropy_bits = *words as f64 * (list.len() as f64).log2();
             if *include_number {
                 entropy_bits += (10.0 * *words as f64).log2();
             }
@@ -228,6 +306,8 @@ mod tests {
             separator: ".".into(),
             capitalize: true,
             include_number: true,
+            style: MemorableStyle::Words,
+            separators: SeparatorStyle::Fixed,
         })
         .unwrap();
         let parts: Vec<&str> = generated.password.split('.').collect();
@@ -239,6 +319,38 @@ mod tests {
         let pin = generate(&GeneratorOptions::Pin { length: 6 }).unwrap();
         assert_eq!(pin.password.len(), 6);
         assert!(pin.password.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn memorable_styles_and_separators() {
+        let options = |style, separators| GeneratorOptions::Memorable {
+            words: 4,
+            separator: "-".into(),
+            capitalize: false,
+            include_number: false,
+            style,
+            separators,
+        };
+        for _ in 0..50 {
+            let syllables = generate(&options(MemorableStyle::Syllables, SeparatorStyle::Fixed)).unwrap();
+            let parts: Vec<&str> = syllables.password.split('-').collect();
+            assert_eq!(parts.len(), 4);
+            assert!(parts.iter().all(|p| p.len() == 6 && p.chars().enumerate().all(|(i, c)| (i % 2 == 1) == VOWELS.contains(c))));
+
+            let letters = generate(&options(MemorableStyle::ThreeLetters, SeparatorStyle::Digits)).unwrap();
+            let chars: Vec<char> = letters.password.chars().collect();
+            assert_eq!(chars.len(), 4 * 3 + 3);
+            for (i, c) in chars.iter().enumerate() {
+                assert_eq!(i % 4 == 3, c.is_ascii_digit(), "{}", letters.password.as_str());
+            }
+
+            let mixed = generate(&options(MemorableStyle::Words, SeparatorStyle::DigitsSymbols)).unwrap();
+            assert_eq!(mixed.password.chars().filter(|c| !c.is_ascii_lowercase()).count(), 3);
+        }
+        // Random separators add to the strength; fixed ones do not.
+        let fixed = generate(&options(MemorableStyle::Words, SeparatorStyle::Fixed)).unwrap().entropy_bits;
+        let digits = generate(&options(MemorableStyle::Words, SeparatorStyle::Digits)).unwrap().entropy_bits;
+        assert!((digits - fixed - 3.0 * 10f64.log2()).abs() < 1e-9);
     }
 
     #[test]

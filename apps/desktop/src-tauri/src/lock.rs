@@ -1,5 +1,5 @@
-//! Automatic locking: after inactivity, when the computer sleeps and when
-//! the screen is locked.
+//! Automatic locking: after inactivity (of the computer, or of Keyless only),
+//! when the computer sleeps and when the screen is locked.
 
 use std::time::{Duration, SystemTime};
 
@@ -52,8 +52,20 @@ fn start_idle_watch(app: AppHandle) {
             if state.session.lock().await.is_none() {
                 continue;
             }
-            let timeout = Duration::from_secs(state.settings().auto_lock_minutes as u64 * 60);
-            if state.idle_for() >= timeout {
+            let settings = state.settings();
+            if settings.auto_lock_minutes == 0 {
+                continue;
+            }
+            let timeout = Duration::from_secs(settings.auto_lock_minutes as u64 * 60);
+            // Using the computer counts, where the system tells; Keyless's own
+            // use (and the browser extension's) always does.
+            let mut idle = state.idle_for();
+            if !settings.auto_lock_app_only
+                && let Some(system) = crate::idle::system_idle().await
+            {
+                idle = idle.min(system);
+            }
+            if idle >= timeout {
                 auth::lock_for(&app, LockReason::Idle).await;
             }
         }

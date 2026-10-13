@@ -1,5 +1,6 @@
 //! CSV import for browser and password manager exports (Chrome, Edge,
-//! Firefox, Bitwarden, 1Password CSV, generic "title,url,username,password").
+//! Firefox, Bitwarden, LastPass, 1Password CSV, generic
+//! "title,url,username,password").
 
 use std::io::Read;
 
@@ -55,7 +56,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         password: find(&headers, &["password", "login_password"]),
         notes: find(&headers, &["notes", "note", "extra", "comments"]),
         totp: find(&headers, &["otpauth", "totp", "login_totp", "one-time password"]),
-        favorite: find(&headers, &["favorite"]),
+        favorite: find(&headers, &["favorite", "fav"]),
         tags: find(&headers, &["tags", "folder", "grouping"]),
         kind: find(&headers, &["type"]),
         fields: find(&headers, &["fields"]),
@@ -64,6 +65,8 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
     // commas; a plain `url` column holds one address (which may contain
     // commas).
     let url_list = cols.url.is_some_and(|i| headers[i] == "login_uri");
+    // LastPass's export ("url,username,password,totp,extra,name,grouping,fav").
+    let lastpass = ["url", "username", "password", "extra", "name", "grouping"].iter().all(|h| headers.iter().any(|x| x == h));
     if cols.password.is_none() && cols.notes.is_none() {
         return Err(Error::Import(
             "could not find a password column; supported: Chrome, Edge, Firefox, Bitwarden and 1Password CSV".into(),
@@ -91,7 +94,8 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         let urls: Vec<String> = if url_list {
             cell(cols.url).split(',').map(str::trim).filter(|u| !u.is_empty()).map(String::from).collect()
         } else {
-            Some(cell(cols.url)).filter(|u| !u.is_empty()).into_iter().collect()
+            // LastPass gives secure notes the address "http://sn".
+            Some(cell(cols.url)).filter(|u| !u.is_empty() && !(lastpass && u == "http://sn")).into_iter().collect()
         };
         let url = urls.first().cloned().unwrap_or_default();
         let username = cell(cols.username);
@@ -184,6 +188,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 urls: urls.into_iter().map(|href| ItemUrl { href, ..Default::default() }).collect(),
                 tags,
                 favorite,
+                imported_from: if lastpass { "lastpass".into() } else { String::new() },
                 ..Default::default()
             },
             details,
@@ -232,6 +237,24 @@ mod tests {
         assert_eq!(items[0].overview.tags, vec!["Work"]);
         assert!(items[0].details.fields.iter().any(|f| f.kind == FieldKind::Totp));
         assert_eq!(items[1].overview.category, Category::SecureNote);
+    }
+
+    #[test]
+    fn lastpass_export() {
+        let csv = "url,username,password,totp,extra,name,grouping,fav\n\
+                   https://shop.example.com,me@example.com,pw,,,Shop,Personal,1\n\
+                   http://sn,,,,The wifi is in the hall,Home notes,,0\n";
+        let result = parse_csv(csv.as_bytes(), "Imported").unwrap();
+        let items = &result.vaults[0].items;
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].overview.title, "Shop");
+        assert!(items[0].overview.favorite);
+        assert_eq!(items[0].overview.imported_from, "lastpass");
+        assert_eq!(items[1].overview.category, Category::SecureNote);
+        assert!(items[1].overview.urls.is_empty());
+        // Other exports are not marked.
+        let chrome = parse_csv("name,url,username,password\nA,https://a.example,me,pw\n".as_bytes(), "x").unwrap();
+        assert_eq!(chrome.vaults[0].items[0].overview.imported_from, "");
     }
 
     #[test]

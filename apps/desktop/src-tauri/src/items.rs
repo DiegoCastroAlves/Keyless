@@ -124,7 +124,7 @@ pub struct ItemDetailView {
 }
 
 /// Full plaintext of an item, used only by the edit form.
-#[derive(Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemDraft {
     pub id: Option<String>,
@@ -748,6 +748,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
         let mut created_at = now;
         let mut archived = false;
         let sentinel_ignored = existing.as_ref().map(|(_, _, o)| o.sentinel_ignored.clone()).unwrap_or_default();
+        let imported_from = existing.as_ref().map(|(_, _, o)| o.imported_from.clone()).unwrap_or_default();
         // What a later version added to the item stays.
         let unknown = existing.as_ref().map(|(_, _, o)| o.unknown.clone()).unwrap_or_default();
         if let Some((_, old_details, _)) = &existing {
@@ -799,6 +800,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
             updated_at: now,
             sentinel_ignored,
             custom_icon: !details.icon.is_empty(),
+            imported_from,
             unknown,
             ..Default::default()
         };
@@ -1021,7 +1023,7 @@ async fn update_overview(app: &AppHandle, item_id: &str, change: impl FnOnce(&mu
 
 /// Ignores (or watches again) a Sentinel alert for the item.
 pub async fn set_sentinel_ignored(app: &AppHandle, item_id: &str, alert: &str, ignored: bool) -> AppResult<()> {
-    const ALERTS: [&str; 7] = ["weak", "reused", "breached", "compromised", "unsecured", "expiring", "two_factor"];
+    const ALERTS: [&str; 10] = ["weak", "reused", "breached", "compromised", "unsecured", "expiring", "two_factor", "passkey", "duplicate", "lastpass"];
     if !ALERTS.contains(&alert) {
         return Err(AppError::Invalid(Msg::new("invalid_request")));
     }

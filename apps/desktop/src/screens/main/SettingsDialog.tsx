@@ -123,10 +123,13 @@ function GeneralTab() {
   if (!settings) return null;
   const save = (patch: Partial<Settings>) => setSettings({ ...settings, ...patch }).catch((err) => toast.error(errorMessage(err)));
 
-  const durations = [1, 2, 5, 10, 15, 30, 60, 120, 240, 480].map((m) => ({
-    value: String(m),
-    label: m < 60 ? t("settings.minutes", { count: m }) : t("settings.hours", { count: m / 60 }),
-  }));
+  const durations = [
+    ...[1, 2, 5, 10, 15, 30, 60, 120, 240, 480].map((m) => ({
+      value: String(m),
+      label: m < 60 ? t("settings.minutes", { count: m }) : t("settings.hours", { count: m / 60 }),
+    })),
+    { value: "0", label: t("settings.never") },
+  ];
   const clipboard = [10, 30, 60, 90, 120, 300, 600].map((s) => ({
     value: String(s),
     label: s % 60 === 0 ? t("settings.minutes", { count: s / 60 }) : t("settings.seconds", { count: s }),
@@ -209,6 +212,16 @@ function GeneralTab() {
           searchPlaceholder={t("common.searchPlaceholder")}
         />
       </Row>
+      <Row title={t("settings.autoLockAppOnly")} hint={t("settings.autoLockAppOnlyHint")}>
+        <div className="flex justify-end">
+          <Switch
+            checked={settings.auto_lock_app_only}
+            disabled={settings.auto_lock_minutes === 0}
+            onChange={(auto_lock_app_only) => save({ auto_lock_app_only })}
+            label={t("settings.autoLockAppOnly")}
+          />
+        </div>
+      </Row>
       <Row title={t("settings.lockOnSleep")}>
         <div className="flex justify-end">
           <Switch checked={settings.lock_on_sleep} onChange={(lock_on_sleep) => save({ lock_on_sleep })} label={t("settings.lockOnSleep")} />
@@ -235,6 +248,13 @@ function GeneralTab() {
           <Switch checked={settings.close_to_tray} onChange={(close_to_tray) => save({ close_to_tray })} label={t("settings.closeToTray")} />
         </div>
       </Row>
+      {settings.close_to_tray && (
+        <Row title={t("settings.lockOnClose")}>
+          <div className="flex justify-end">
+            <Switch checked={settings.lock_on_close} onChange={(lock_on_close) => save({ lock_on_close })} label={t("settings.lockOnClose")} />
+          </div>
+        </Row>
+      )}
       <Row title={t("settings.startAtLogin")}>
         <div className="flex justify-end">
           <Switch checked={settings.start_at_login} onChange={(start_at_login) => save({ start_at_login })} label={t("settings.startAtLogin")} />
@@ -586,6 +606,44 @@ function SystemUnlockSection() {
           <ErrorText>{error}</ErrorText>
         </form>
       )}
+      {settings.system_unlock && <MasterPasswordInterval days={settings.master_password_days} onSaved={saved} />}
+    </div>
+  );
+}
+
+/** How often system unlock needs the master password again. "Never" only
+ * with a recovery key, which gets the user back in if they forget it. */
+function MasterPasswordInterval({ days, onSaved }: { days: number; onSaved: (settings: Settings) => void }) {
+  const { t } = useTranslation();
+  const [recoveryKey, setRecoveryKey] = useState<boolean | null>(null);
+  useEffect(() => {
+    api
+      .recoveryKeyStatus()
+      .then((created) => setRecoveryKey(created !== null))
+      .catch(() => setRecoveryKey(null));
+  }, []);
+  const options = [
+    ...[1, 7, 14, 30].map((d) => ({ value: String(d), label: t("settings.everyDays", { count: d }) })),
+    ...(recoveryKey || days === 0 ? [{ value: "0", label: t("settings.never") }] : []),
+  ];
+  const change = async (value: string) => {
+    try {
+      onSaved(await api.setMasterPasswordDays(Number(value)));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <div className="mt-4 flex items-start justify-between gap-4">
+      <div>
+        <div className="text-sm font-medium">{t("settings.masterPasswordDays")}</div>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted">
+          {recoveryKey === false ? t("settings.masterPasswordDaysNoRecovery") : t("settings.masterPasswordDaysHint")}
+        </p>
+      </div>
+      <div className="w-48 shrink-0">
+        <Combobox value={String(days)} onChange={(v) => void change(v)} options={options} />
+      </div>
     </div>
   );
 }

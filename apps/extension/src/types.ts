@@ -130,6 +130,25 @@ export interface SaveState {
   vaults: Vault[];
 }
 
+/** A login with a serious Sentinel alert, for the warning on its website. */
+export interface SiteAlert {
+  itemId: string;
+  title: string;
+  username: string;
+  /** Its password was seen in breaches, or the website lost it in a breach
+   * after it was set. */
+  kind: "breached" | "compromised";
+  /** The website's breach date (YYYY-MM-DD). */
+  date?: string;
+}
+
+/** The warning shown at the top of a page (see background.ts). */
+export interface AlertView {
+  host: string;
+  url: string;
+  alerts: SiteAlert[];
+}
+
 /** What the Keyless menus shown in a page get. */
 export interface InlineState {
   state: Status["state"];

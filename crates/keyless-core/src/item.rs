@@ -136,13 +136,17 @@ pub struct ItemOverview {
     pub content_id: String,
     /// Sentinel alerts the user chose to ignore for this item ("weak",
     /// "reused", "breached", "compromised", "unsecured", "expiring",
-    /// "two_factor").
+    /// "two_factor", "passkey", "duplicate", "lastpass").
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sentinel_ignored: Vec<String>,
     /// The item has its own icon ([`ItemDetails::icon`]), shown instead of
     /// the website's or the category's.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub custom_icon: bool,
+    /// Where the item was imported from, when Sentinel cares: "lastpass"
+    /// (LastPass's stored vaults were stolen in 2022).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub imported_from: String,
     #[serde(flatten)]
     pub unknown: Unknown,
 }

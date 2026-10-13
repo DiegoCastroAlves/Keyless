@@ -627,5 +627,31 @@
   },
   "strength6": {
     "message": "Excelente"
+  },
+  "breachTitle": {
+    "message": "Cambia esta contraseña"
+  },
+  "breachSite": {
+    "message": "$HOST$ sufrió una filtración de datos el $DATE$, después de que se definiera esta contraseña. Cámbiala ahora, y en todos los sitios donde la uses.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      },
+      "date": {
+        "content": "$2"
+      }
+    }
+  },
+  "breachPassword": {
+    "message": "Esta contraseña apareció en filtraciones de datos. Cualquiera puede probarla: cámbiala ahora, y en todos los sitios donde la uses."
+  },
+  "breachChange": {
+    "message": "Cambiar la contraseña"
+  },
+  "breachLater": {
+    "message": "Ahora no"
+  },
+  "setBreachWarnings": {
+    "message": "Avisarme en los sitios con una contraseña filtrada"
   }
 }

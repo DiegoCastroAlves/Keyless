@@ -199,6 +199,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         </div>
       )}
       {view.kind === "trash" && <DeletedVaults />}
+      {alert === "duplicate" && <DeleteDuplicates />}
 
       <div
         ref={listRef}
@@ -795,6 +796,71 @@ function DeletedVaults() {
           {t("list.showMoreVaults", { count: vaults.length - 3 })}
         </button>
       )}
+    </div>
+  );
+}
+
+/** Sentinel's duplicates: keeps the most recently changed item of each
+ * account and moves the others to Recently Deleted (with undo). */
+function DeleteDuplicates() {
+  const { t } = useTranslation();
+  const report = useSentinel((s) => s.report);
+  const issues = useIssues();
+  const items = useApp((s) => s.items);
+  const vaults = useApp((s) => s.vaults);
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const byId = new Map(items.map((i) => [i.id, i]));
+  const writable = new Set(vaults.filter((v) => v.canWrite).map((v) => v.id));
+  const listed = issues.get("duplicate")!;
+  const extra = (report?.duplicates ?? []).flatMap((group) => {
+    const shown = group.filter((id) => listed.has(id) && byId.has(id));
+    if (shown.length < 2) return [];
+    const newest = [...shown].sort((a, b) => byId.get(b)!.updatedAt - byId.get(a)!.updatedAt);
+    return newest.slice(1).filter((id) => writable.has(byId.get(id)!.vaultId));
+  });
+  if (extra.length === 0) return null;
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await Promise.all(extra.map((id) => api.trashItem(id)));
+      await useApp.getState().loadData();
+      void useSentinel.getState().loadReport();
+      toast.undoable(t("sentinel.duplicatesDeleted", { count: extra.length }), () =>
+        void Promise.all(extra.map((id) => api.restoreItem(id)))
+          .then(() => useApp.getState().loadData())
+          .then(() => useSentinel.getState().loadReport())
+          .catch((err) => toast.error(errorMessage(err))),
+      );
+      setConfirm(false);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mx-3 mb-2 space-y-1 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
+      <p>{t("sentinel.duplicatesHint")}</p>
+      <button onClick={() => setConfirm(true)} className="font-medium text-danger hover:underline">
+        {t("sentinel.deleteDuplicates", { count: extra.length })}
+      </button>
+      <Dialog
+        open={confirm}
+        onOpenChange={setConfirm}
+        title={t("sentinel.deleteDuplicatesTitle", { count: extra.length })}
+        description={t("sentinel.deleteDuplicatesBody")}
+      >
+        <div className="flex justify-end gap-2">
+          <Button onClick={() => setConfirm(false)}>{t("common.cancel")}</Button>
+          <Button variant="danger" loading={busy} onClick={() => void remove()}>
+            {t("sentinel.deleteDuplicatesAction")}
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

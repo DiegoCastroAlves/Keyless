@@ -11,11 +11,13 @@ mod bridge;
 mod clipboard;
 mod commands;
 mod config;
+mod dev_scan;
 mod dialog_text;
 mod error;
 mod generator_history;
 mod guarded_key;
 mod hardening;
+mod idle;
 mod health;
 mod import;
 mod item_icons;
@@ -24,11 +26,13 @@ mod item_windows;
 mod item_versions;
 mod items;
 mod lock;
+mod notify;
 mod oauth;
 mod qr;
 mod shares;
 mod quick_access;
 mod recovery;
+mod secret_patterns;
 mod secrets;
 mod site_icons;
 mod ssh_agent;
@@ -212,6 +216,7 @@ pub fn run() {
             });
 
             apply_zoom(app.handle(), zoom);
+            idle::init();
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
             bridge::server::start(app.handle().clone());
@@ -259,13 +264,20 @@ pub fn run() {
             }
             tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
                 let app = window.app_handle();
-                if app.state::<AppState>().settings().close_to_tray && tray::available(app) {
+                let settings = app.state::<AppState>().settings();
+                if settings.close_to_tray && tray::available(app) {
                     api.prevent_close();
                     let _ = window.hide();
+                    if settings.lock_on_close {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move { auth::lock(&app).await });
+                    }
                 }
             }
             // Files dropped on the window can be attached (see attachments).
-            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) if window.label() == "main" => {
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })
+                if window.label() == "main" || window.label().starts_with(item_windows::PREFIX) =>
+            {
                 attachments::offer(paths);
             }
             tauri::WindowEvent::Destroyed if window.label() == ssh_agent::LABEL => {
@@ -321,6 +333,14 @@ pub fn run() {
             commands::deleted_vaults,
             commands::restore_vault,
             commands::open_item_window,
+            commands::open_change_password,
+            commands::dev_scan,
+            commands::dev_secret_save,
+            commands::dev_secret_trash,
+            commands::dev_secret_reveal,
+            commands::dev_secret_ignore,
+            commands::configure_notifications,
+            commands::set_master_password_days,
             commands::take_item_request,
             commands::list_items,
             commands::get_item,

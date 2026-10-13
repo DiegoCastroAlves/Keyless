@@ -215,6 +215,13 @@ attachments a vault has and their sizes (not their names or contents).
 - Auto-lock after inactivity, on system sleep and on screen lock. Locking drops
   every key from memory (keys are zeroized on drop), and wipes the decrypted
   item overviews (titles, usernames, websites, tags) and vault names.
+  Inactivity is of the whole computer where the system tells Keyless (the
+  last input on Windows; the Wayland compositor's input-idle notification,
+  which a playing video does not hold back, or the desktop's D-Bus service
+  in X11 sessions), or of Keyless only, by choice; if the compositor stops
+  telling, only Keyless's own use counts again. The auto-lock can be turned
+  off ("never"), and closing the main window can lock. Item windows close
+  when Keyless locks.
 - Keys (the user key, vault keys, the account's private key and the keys
   derived from them) each live on a 4 KiB memory page of their own, locked
   in RAM (mlock / VirtualLock), so they are never written to a swap or page
@@ -261,10 +268,14 @@ attachments a vault has and their sizes (not their names or contents).
   process) on Windows. A memory dump or swap file of a locked Keyless does
   not hold the user key. The rest of the account keys are opened from the
   local account with it. The kept key is dropped when Keyless quits, when
-  the computer sleeps, on sign out, when the setting is turned off and 24
-  hours after the master password was last entered (on Linux the kernel
-  deletes the sealing key then too). Turning it on requires the master
-  password. Where no key can be guarded (a sandbox without the kernel
+  the computer sleeps, on sign out, when the setting is turned off and when
+  the master password was last entered too long ago (on Linux the kernel
+  deletes the sealing key then too). How long the master password lasts
+  for this is the user's choice: one day (the default), 7, 14 or 30 days,
+  or until Keyless quits or the computer sleeps, which can only be chosen,
+  after checking with the server, for an account with a recovery key (and
+  goes back to 30 days if the recovery key is removed). Turning it on
+  requires the master password. Where no key can be guarded (a sandbox without the kernel
   keyring), the option is not offered.
 - The local database contains what the server stores, plus a few things that
   never leave the device: the refresh token, website icons, the password
@@ -369,8 +380,12 @@ SSH keys kept in items; private keys never leave Keyless.
 ## Sentinel
 
 - Weak and reused passwords, duplicate items (the same website and user
-  name), unsecured (`http`) websites and expiring cards are found on this
-  device, from the unlocked vault.
+  name, in the same vault), unsecured (`http`) websites, dates due (as far
+  ahead as each date field's alert says; a month ahead for expiry dates
+  with no alert chosen) and logins imported from LastPass whose password
+  was not changed since are found on this device, from the unlocked vault.
+  Where an item came from is marked on import ("lastpass", in its
+  encrypted overview) and kept when it is edited.
 - Nothing about items is sent to compare websites: the public lists of
   breached websites (Have I Been Pwned), of websites with two-factor codes
   (2fa.directory) and of websites that accept passkeys (its Passkeys
@@ -393,6 +408,31 @@ SSH keys kept in items; private keys never leave Keyless.
   passwords are never sent anywhere (a series of hash prefixes for a
   password being typed could reveal it).
 - Ignored alerts are stored in the item's encrypted overview.
+- New serious alerts (breached passwords and websites, dates due, LastPass
+  imports) can be announced with a system notification, which says how
+  many there are and never which items (notifications can show on a
+  locked screen). Which alerts were announced is kept like the checks:
+  encrypted, by item id. Notification texts come translated from the page.
+- On a website, the browser extension can warn about its logins whose
+  password was found in breaches, or that the website lost after the
+  password was set. It asks Keyless only about the page it is on (as it
+  already does to fill), and only the logins' titles and user names come
+  back. "Change password" opens the website's
+  `/.well-known/change-password` (checked first with a request without
+  cookies; the home page when it has none). "Not now" quiets the website for
+  7 days, stored in the extension's own database.
+- Secrets in files (Sentinel for developers): only when the user asks,
+  Keyless reads `.env` files under the home folder (not in hidden,
+  dependency or build folders, at most 256 KB each, a few hundred
+  thousand entries and 90 seconds in all), the usual credential files and
+  `~/.ssh`. It recognizes about 80 public token formats and variables named
+  like secrets, and SSH private keys without a passphrase. Nothing leaves
+  the computer: no secret is ever tried against its service. The page gets
+  only where a secret is, what kind it is and a few of its characters.
+  Saving one reads the file again and checks it still holds the same secret
+  (by hash) before making the item; moving a file to the trash is only for
+  files the last search found, and goes to the system's trash. Ignored
+  findings are kept encrypted like the checks.
 
 ## Share links page
 

@@ -627,5 +627,31 @@
   },
   "strength6": {
     "message": "Excellent"
+  },
+  "breachTitle": {
+    "message": "Change this password"
+  },
+  "breachSite": {
+    "message": "$HOST$ had a data breach on $DATE$, after this password was set. Change it now, and anywhere else you use it.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      },
+      "date": {
+        "content": "$2"
+      }
+    }
+  },
+  "breachPassword": {
+    "message": "This password showed up in data breaches. Anyone can try it: change it now, and anywhere else you use it."
+  },
+  "breachChange": {
+    "message": "Change password"
+  },
+  "breachLater": {
+    "message": "Not now"
+  },
+  "setBreachWarnings": {
+    "message": "Warn me on websites with a breached password"
   }
 }

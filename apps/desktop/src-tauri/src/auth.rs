@@ -444,7 +444,7 @@ pub async fn unlock_with_system(app: &AppHandle) -> AppResult<()> {
     // Taken only after the system confirmed the user, and checked again in
     // case it expired while the dialog was open.
     let kept = state.kept_keys.lock().unwrap_or_else(|e| e.into_inner()).take().ok_or_else(unavailable)?;
-    if !system_unlock::fresh(kept.password_at, SystemTime::now()) {
+    if !system_unlock::fresh(kept.password_at, SystemTime::now(), system_unlock::max_age(state.settings().master_password_days)) {
         return Err(unavailable());
     }
     let local = state.store().account()?.ok_or(AppError::NoAccount)?;
@@ -555,9 +555,11 @@ pub async fn lock_for(app: &AppHandle, reason: LockReason) {
 fn keep_keys(state: &AppState, session: Option<Session>) {
     let Some(session) = session else { return };
     let password_at = *state.password_at.lock().unwrap_or_else(|e| e.into_inner());
+    let settings = state.settings();
+    let max_age = system_unlock::max_age(settings.master_password_days);
     let kept = match password_at {
-        Some(at) if state.settings().system_unlock && system_unlock::supported() && system_unlock::fresh(at, SystemTime::now()) => {
-            KeptKeys::keep(session.user_id.clone(), session.email.clone(), &session.account, at)
+        Some(at) if settings.system_unlock && system_unlock::supported() && system_unlock::fresh(at, SystemTime::now(), max_age) => {
+            KeptKeys::keep(session.user_id.clone(), session.email.clone(), &session.account, at, max_age)
         }
         _ => None,
     };

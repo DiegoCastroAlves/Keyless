@@ -23,7 +23,8 @@ export const useToasts = create<ToastStore>((set, get) => ({
   push: (message, tone = "neutral", action) => {
     const id = nextId++;
     set({ toasts: [...get().toasts.slice(-2), { id, message, tone, action }] });
-    setTimeout(() => get().dismiss(id), tone === "error" || action ? 6000 : 2600);
+    // Long enough to reach "Undo".
+    setTimeout(() => get().dismiss(id), action ? 10_000 : tone === "error" ? 6000 : 2600);
   },
   dismiss: (id) => set({ toasts: get().toasts.filter((t) => t.id !== id) }),
 }));

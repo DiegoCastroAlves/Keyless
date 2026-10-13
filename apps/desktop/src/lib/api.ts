@@ -115,6 +115,7 @@ export interface Strength {
 }
 
 export interface Settings {
+  /** 0: never locks by itself. */
   auto_lock_minutes: number;
   clipboard_clear_seconds: number;
   lock_on_sleep: boolean;
@@ -139,6 +140,8 @@ export interface Settings {
   ssh_agent: boolean;
   /** Run Sentinel's online check by itself once a day. */
   sentinel_check_passwords: boolean;
+  /** Announce Sentinel's new serious alerts with system notifications. */
+  sentinel_notifications: boolean;
   /** Vault for new items ("" picks one). */
   default_vault: string;
   /** New logins start with the username used most. */
@@ -153,6 +156,12 @@ export interface Settings {
   lock_shortcut: string;
   /** Attached files go to the system's trash afterwards. */
   trash_attached_files: boolean;
+  /** Only Keyless's own use counts as activity. */
+  auto_lock_app_only: boolean;
+  /** Lock when the main window is closed to the tray. */
+  lock_on_close: boolean;
+  /** How often system unlock needs the master password (days; 0 never). */
+  master_password_days: number;
 }
 
 export interface SiteIcon {
@@ -202,6 +211,35 @@ export interface Vault {
   canWrite: boolean;
   itemCount: number;
   orphaned: boolean;
+}
+
+/** A secret the developer scan found in a file. */
+export interface DevFinding {
+  id: string;
+  /** The format ("github_token"…), "ssh_key" or "secret_variable". */
+  format: string;
+  /** What it is ("token", "key", "private_key"…), for the UI to word. */
+  kind: string;
+  /** The service it is for ("GitHub"), when known. */
+  service: string;
+  path: string;
+  /** "~/…" under the home folder. */
+  shownPath: string;
+  /** 1-based; 0 for a whole file. */
+  line: number;
+  /** The variable that holds it, or the key's file name. */
+  key: string;
+  /** Mostly hidden, or an SSH key's fingerprint. */
+  preview: string;
+  ignored: boolean;
+}
+
+export interface DevScan {
+  findings: DevFinding[];
+  files: number;
+  partial: boolean;
+  formats: number;
+  scannedAt: number;
 }
 
 export interface DeletedVault {
@@ -459,6 +497,10 @@ export type GeneratorOptions =
       separator: string;
       capitalize: boolean;
       include_number: boolean;
+      /** Words, made-up words of syllables, or three letters each. */
+      style?: "words" | "syllables" | "three_letters";
+      /** The separator, or a random digit (or digit or symbol) each time. */
+      separators?: "fixed" | "digits" | "digits_symbols";
     }
   | { kind: "pin"; length: number };
 
@@ -484,6 +526,8 @@ export interface HealthReport {
   twoFactor: SiteIssue[];
   /** Websites that accept passkeys, for items without one. */
   passkeys: SiteIssue[];
+  /** Logins imported from LastPass whose password was not changed since. */
+  lastpass: string[];
   /** Alerts not known yet: their list was never downloaded, or the passwords
    * never checked online. */
   pending: SentinelAlert[];
@@ -507,7 +551,17 @@ export interface PasswordCheck {
   reused: number;
 }
 
-export type SentinelAlert = "weak" | "reused" | "breached" | "compromised" | "unsecured" | "expiring" | "two_factor" | "passkey" | "duplicate";
+export type SentinelAlert =
+  | "weak"
+  | "reused"
+  | "breached"
+  | "compromised"
+  | "unsecured"
+  | "expiring"
+  | "two_factor"
+  | "passkey"
+  | "duplicate"
+  | "lastpass";
 
 export interface SiteIssue {
   id: string;
@@ -623,6 +677,9 @@ export const api = {
   cancelAccountDeletion: () => invoke<void>("cancel_account_deletion"),
   versionInfo: () => invoke<VersionInfo>("version_info"),
   configureTray: (labels: { open: string; quickAccess: string; lock: string; quit: string }) => invoke<void>("configure_tray", { labels }),
+  /** Texts of the system notifications ("{count}" stands for the number). */
+  configureNotifications: (labels: { sentinelTitle: string; newAlertsOne: string; newAlertsOther: string }) =>
+    invoke<void>("configure_notifications", { labels }),
   showQuickAccess: () => invoke<void>("show_quick_access"),
   hideQuickAccess: () => invoke<void>("hide_quick_access"),
   quickAccessReady: () => invoke<void>("quick_access_ready"),
@@ -654,8 +711,17 @@ export const api = {
   createVault: (meta: VaultMeta) => invoke<string>("create_vault", { meta }),
   updateVault: (vaultId: string, meta: VaultMeta) => invoke<void>("update_vault", { vaultId, meta }),
   deleteVault: (vaultId: string) => invoke<void>("delete_vault", { vaultId }),
+  setMasterPasswordDays: (days: number) => invoke<Settings>("set_master_password_days", { days }),
   /** The item a `keyless://` link asked for, once. */
   takeItemRequest: () => invoke<string | null>("take_item_request"),
+  /** Looks for secrets left in files on this computer. */
+  devScan: () => invoke<DevScan>("dev_scan"),
+  devSecretSave: (id: string, vaultId: string, label: string, notes: string) => invoke<ItemSummary>("dev_secret_save", { id, vaultId, label, notes }),
+  devSecretTrash: (id: string) => invoke<void>("dev_secret_trash", { id }),
+  devSecretReveal: (id: string) => invoke<void>("dev_secret_reveal", { id }),
+  devSecretIgnore: (id: string, ignored: boolean) => invoke<void>("dev_secret_ignore", { id, ignored }),
+  /** Opens the item's website at its page to change the password. */
+  openChangePassword: (itemId: string) => invoke<void>("open_change_password", { itemId }),
   /** Opens an item in a window of its own, above the others. */
   openItemWindow: (itemId: string) => invoke<void>("open_item_window", { itemId }),
   /** Vaults deleted in the last 30 days, which can still be restored. */
@@ -767,6 +833,8 @@ export const events = {
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
   onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
   onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),
+  /** A notification asked for Sentinel. */
+  onOpenSentinel: (cb: () => void): Promise<UnlistenFn> => listen("keyless://open-sentinel", () => cb()),
   /** A `keyless://` link asked for an item (see `takeItemRequest`). */
   onItemRequested: (cb: () => void): Promise<UnlistenFn> => listen("keyless://item-requested", () => cb()),
   /** The browser extension's "+": a new item, with the tab's address for a login. */

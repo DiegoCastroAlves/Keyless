@@ -14,8 +14,10 @@ import {
   KeyRound,
   LockOpen,
   Repeat,
+  RotateCcwKey,
   ShieldAlert,
   ShieldCheck,
+  ShieldQuestion,
   ShieldX,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +29,8 @@ import { api, errorMessage, type SentinelAlert } from "../../lib/api";
 import { ALERT_TITLE, SENTINEL_ALERTS, isPending, useIssues, useSentinel, type AlertDetail } from "../../lib/sentinel";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
+import { DevSecrets } from "./DevSecrets";
+import { RecoveryAlert } from "./RecoveryKey";
 
 export const ALERT_ICONS: Record<SentinelAlert, LucideIcon> = {
   breached: ShieldX,
@@ -38,6 +42,7 @@ export const ALERT_ICONS: Record<SentinelAlert, LucideIcon> = {
   two_factor: KeyRound,
   passkey: Fingerprint,
   duplicate: Copy,
+  lastpass: ShieldQuestion,
 };
 
 type Tone = "danger" | "warning" | "info";
@@ -52,6 +57,7 @@ const ALERT_TONE: Record<SentinelAlert, Tone> = {
   two_factor: "info",
   passkey: "info",
   duplicate: "info",
+  lastpass: "danger",
 };
 
 const ALERT_HINT: Record<SentinelAlert, string> = {
@@ -64,6 +70,7 @@ const ALERT_HINT: Record<SentinelAlert, string> = {
   two_factor: "sentinel.twoFactorHint",
   passkey: "sentinel.passkeyHint",
   duplicate: "sentinel.duplicateHint",
+  lastpass: "sentinel.lastpassHint",
 };
 
 /** A date as the alerts show it: unix seconds, or YYYY-MM-DD (UTC). */
@@ -109,7 +116,7 @@ export function Sentinel() {
     );
   }
 
-  const problems = new Set(["breached", "compromised", "weak", "reused", "unsecured"].flatMap((a) => [...issues.get(a as SentinelAlert)!.keys()]));
+  const problems = new Set(["breached", "compromised", "lastpass", "weak", "reused", "unsecured"].flatMap((a) => [...issues.get(a as SentinelAlert)!.keys()]));
   const score = report.checked ? Math.max(0, Math.round(((report.checked - problems.size) / report.checked) * 100)) : 100;
   const anything = SENTINEL_ALERTS.some((a) => issues.get(a)!.size > 0);
   const when = (at: number) => new Date(at * 1000).toLocaleString(i18n.language, { dateStyle: "medium", timeStyle: "short" });
@@ -125,6 +132,8 @@ export function Sentinel() {
             <p className="mt-1 text-xs text-subtle">{t("sentinel.checked", { count: report.checked })}</p>
           </div>
         </div>
+
+        <RecoveryAlert />
 
         <div className="mt-8 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
           {SENTINEL_ALERTS.map((alert) => (
@@ -158,21 +167,31 @@ export function Sentinel() {
           </div>
           {settings && (
             <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line pt-3 pl-8">
-              <label className="flex flex-1 items-center gap-2.5 text-xs">
-                <Switch
-                  checked={settings.sentinel_check_passwords}
-                  label={t("sentinel.autoCheck")}
-                  onChange={(on) => {
-                    void setSettings({ ...settings, sentinel_check_passwords: on })
-                      .then(() => {
-                        // Turned on: the first check now rather than later.
-                        if (on && report.passwordsCheckedAt === null) void checkBreaches();
-                      })
-                      .catch((err) => toast.error(errorMessage(err)));
-                  }}
-                />
-                {t("sentinel.autoCheck")}
-              </label>
+              <div className="flex flex-1 flex-col gap-1.5">
+                <label className="flex items-center gap-2.5 text-xs">
+                  <Switch
+                    checked={settings.sentinel_check_passwords}
+                    label={t("sentinel.autoCheck")}
+                    onChange={(on) => {
+                      void setSettings({ ...settings, sentinel_check_passwords: on })
+                        .then(() => {
+                          // Turned on: the first check now rather than later.
+                          if (on && report.passwordsCheckedAt === null) void checkBreaches();
+                        })
+                        .catch((err) => toast.error(errorMessage(err)));
+                    }}
+                  />
+                  {t("sentinel.autoCheck")}
+                </label>
+                <label className="flex items-center gap-2.5 text-xs">
+                  <Switch
+                    checked={settings.sentinel_notifications}
+                    label={t("sentinel.notifications")}
+                    onChange={(on) => void setSettings({ ...settings, sentinel_notifications: on }).catch((err) => toast.error(errorMessage(err)))}
+                  />
+                  {t("sentinel.notifications")}
+                </label>
+              </div>
               <div className="flex flex-col items-end text-xs text-subtle">
                 {report.passwordsCheckedAt !== null && <span>{t("sentinel.lastChecked", { when: when(report.passwordsCheckedAt) })}</span>}
                 {report.listsUpdatedAt !== null && <span>{t("sentinel.listsUpdated", { when: when(report.listsUpdatedAt) })}</span>}
@@ -183,6 +202,8 @@ export function Sentinel() {
             </div>
           )}
         </div>
+
+        <DevSecrets />
 
         {!anything && (
           <div className="mt-10 flex flex-col items-center text-center">
@@ -335,6 +356,8 @@ export function SentinelBanners({ itemId, hasUrl, canEdit }: { itemId: string; h
     }
   };
   const openSite = () => api.openItemUrl(itemId, 0).catch((err) => toast.error(errorMessage(err)));
+  const changePassword = () => api.openChangePassword(itemId).catch((err) => toast.error(errorMessage(err)));
+  const PASSWORD_ALERTS: SentinelAlert[] = ["breached", "compromised", "lastpass", "weak", "reused"];
 
   const note = (alert: SentinelAlert, d: AlertDetail): string | null => {
     switch (alert) {
@@ -380,12 +403,22 @@ export function SentinelBanners({ itemId, hasUrl, canEdit }: { itemId: string; h
                 {line && <div className="text-xs leading-snug text-muted">{line}</div>}
               </div>
             </Tooltip>
-            {hasUrl && alert !== "expiring" && alert !== "duplicate" && (
-              <Tooltip content={t("sentinel.openSite")}>
-                <IconButton label={t("sentinel.openSite")} onClick={() => void openSite()} className="size-7">
-                  <ExternalLink className="size-3.5" />
+            {hasUrl && PASSWORD_ALERTS.includes(alert) ? (
+              <Tooltip content={t("sentinel.changePassword")}>
+                <IconButton label={t("sentinel.changePassword")} onClick={() => void changePassword()} className="size-7">
+                  <RotateCcwKey className="size-3.5" />
                 </IconButton>
               </Tooltip>
+            ) : (
+              hasUrl &&
+              alert !== "expiring" &&
+              alert !== "duplicate" && (
+                <Tooltip content={t("sentinel.openSite")}>
+                  <IconButton label={t("sentinel.openSite")} onClick={() => void openSite()} className="size-7">
+                    <ExternalLink className="size-3.5" />
+                  </IconButton>
+                </Tooltip>
+              )
             )}
             {canEdit && (
               <Tooltip content={t("sentinel.ignore")}>

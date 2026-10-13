@@ -25,7 +25,11 @@ interface Prefs {
   separator: string;
   capitalize: boolean;
   include_number: boolean;
+  style: "words" | "syllables" | "three_letters";
+  separators: "fixed" | "digits" | "digits_symbols";
   pinLength: number;
+  /** The password stays hidden until shown (someone may be looking). */
+  hidden: boolean;
 }
 
 const DEFAULT_PREFS: Prefs = {
@@ -40,7 +44,10 @@ const DEFAULT_PREFS: Prefs = {
   separator: "-",
   capitalize: true,
   include_number: true,
+  style: "words",
+  separators: "fixed",
   pinLength: 6,
+  hidden: false,
 };
 
 function loadPrefs(): Prefs {
@@ -65,7 +72,15 @@ function toOptions(p: Prefs): GeneratorOptions {
         avoid_ambiguous: p.avoid_ambiguous,
       };
     case "memorable":
-      return { kind: "memorable", words: p.words, separator: p.separator, capitalize: p.capitalize, include_number: p.include_number };
+      return {
+        kind: "memorable",
+        words: p.words,
+        separator: p.separator,
+        capitalize: p.capitalize,
+        include_number: p.include_number,
+        style: p.style,
+        separators: p.separators,
+      };
     case "pin":
       return { kind: "pin", length: p.pinLength };
   }
@@ -111,6 +126,8 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
   const [result, setResult] = useState<GeneratedPassword | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Shown for now, while the preference hides it. */
+  const [peek, setPeek] = useState(false);
 
   const regenerate = useCallback(async (p: Prefs) => {
     try {
@@ -161,8 +178,19 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
       <div className="rounded-lg border border-line bg-panel-2 px-3 py-2.5">
         <div className="flex items-start gap-0.5">
           <div className="min-h-10 flex-1 pt-0.5 text-[14px] leading-snug">
-            {result ? <PasswordText value={result.password} /> : <span className="text-danger">{error}</span>}
+            {!result ? (
+              <span className="text-danger">{error}</span>
+            ) : prefs.hidden && !peek ? (
+              <span className="tracking-[0.2em] text-muted">{"•".repeat(Math.min(result.password.length, 24))}</span>
+            ) : (
+              <PasswordText value={result.password} />
+            )}
           </div>
+          {prefs.hidden && (
+            <IconButton label={peek ? t("item.conceal") : t("item.reveal")} onClick={() => setPeek((v) => !v)}>
+              {peek ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </IconButton>
+          )}
           <IconButton label={t("generator.regenerate")} onClick={() => regenerate(prefs)}>
             <RefreshCw className="size-4" />
           </IconButton>
@@ -205,13 +233,26 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
       )}
       {prefs.mode === "memorable" && (
         <div className="space-y-2.5">
+          <div className="grid grid-cols-3 gap-1">
+            {(["words", "syllables", "three_letters"] as const).map((style) => (
+              <Chip key={style} label={t(`generator.style.${style}`)} title={t(`generator.styleHint.${style}`)} pressed={prefs.style === style} onToggle={() => update({ style })} />
+            ))}
+          </div>
           <LengthSlider label={t("generator.words")} value={prefs.words} min={3} max={12} onChange={(words) => update({ words })} />
           <div className="flex items-center gap-3">
             <span className="w-16 shrink-0 text-xs text-muted">{t("generator.separator")}</span>
-            <div className="grid flex-1 grid-cols-6 gap-1">
+            <div className="grid flex-1 grid-cols-4 gap-1">
               {separators.map((sep) => (
-                <Chip key={sep.title} label={sep.label} title={sep.title} pressed={prefs.separator === sep.value} onToggle={() => update({ separator: sep.value })} />
+                <Chip
+                  key={sep.title}
+                  label={sep.label}
+                  title={sep.title}
+                  pressed={prefs.separators === "fixed" && prefs.separator === sep.value}
+                  onToggle={() => update({ separator: sep.value, separators: "fixed" })}
+                />
               ))}
+              <Chip label="0-9" title={t("generator.sepDigits")} pressed={prefs.separators === "digits"} onToggle={() => update({ separators: "digits" })} />
+              <Chip label="0-9!@" title={t("generator.sepDigitsSymbols")} pressed={prefs.separators === "digits_symbols"} onToggle={() => update({ separators: "digits_symbols" })} />
             </div>
           </div>
           <Toggle label={t("generator.capitalize")} checked={prefs.capitalize} onChange={(capitalize) => update({ capitalize })} />
@@ -221,6 +262,7 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
       {prefs.mode === "pin" && (
         <LengthSlider label={t("generator.length")} value={prefs.pinLength} min={4} max={12} onChange={(pinLength) => update({ pinLength })} />
       )}
+      <Toggle label={t("generator.hidePassword")} checked={prefs.hidden} onChange={(hidden) => update({ hidden })} />
 
       {onUse && result && (
         <Button

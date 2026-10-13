@@ -84,7 +84,14 @@ pub async fn remove(app: &AppHandle, master_password: Zeroizing<String>) -> AppR
     let state = app.state::<AppState>();
     auth::verify_master_password(&state, master_password).await?;
     let (_, token) = sync::ensure_token(&state).await?;
-    state.api.remove_recovery_key(&token).await
+    state.api.remove_recovery_key(&token).await?;
+    // "Never ask for the master password" needed the recovery key.
+    let mut settings = state.settings();
+    if settings.master_password_days == 0 {
+        settings.master_password_days = 30;
+        state.save_settings(&settings)?;
+    }
+    Ok(())
 }
 
 /// The text the recovery screens offer to copy: `"recovery_key"` (the one

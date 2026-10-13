@@ -627,5 +627,31 @@
   },
   "strength6": {
     "message": "Excelente"
+  },
+  "breachTitle": {
+    "message": "Troque esta senha"
+  },
+  "breachSite": {
+    "message": "$HOST$ teve um vazamento de dados em $DATE$, depois que esta senha foi definida. Troque-a agora, e em todo lugar onde você a usa.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      },
+      "date": {
+        "content": "$2"
+      }
+    }
+  },
+  "breachPassword": {
+    "message": "Esta senha apareceu em vazamentos de dados. Qualquer um pode tentá-la: troque-a agora, e em todo lugar onde você a usa."
+  },
+  "breachChange": {
+    "message": "Trocar a senha"
+  },
+  "breachLater": {
+    "message": "Agora não"
+  },
+  "setBreachWarnings": {
+    "message": "Avisar nos sites com senha vazada"
   }
 }

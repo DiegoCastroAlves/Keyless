@@ -17,7 +17,8 @@
 //! - when Keyless quits or the computer restarts (they only live in memory,
 //!   and the kernel drops the keyring key with the process);
 //! - when the computer sleeps or hibernates;
-//! - `MAX_AGE` after the master password was last entered;
+//! - some days after the master password was last entered (one by
+//!   default; never, by choice, only for an account with a recovery key);
 //! - on sign out, or when the setting is turned off.
 //!
 //! Turning the setting on, showing the Secret Key, changing the master
@@ -41,8 +42,11 @@ const POLKIT_POLICY_FILE: &str = "io.github.diegocastroalves.keyless.policy";
 /// The action it defines.
 #[cfg(target_os = "linux")]
 pub const POLKIT_ACTION: &str = "io.github.diegocastroalves.keyless.unlock";
-/// The master password is asked again at least this often.
-pub const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+/// How long the master password lets system unlock work, from the setting
+/// in days (0: until Keyless quits or the computer sleeps).
+pub fn max_age(days: u32) -> Option<Duration> {
+    (days != 0).then(|| Duration::from_secs(u64::from(days) * 24 * 60 * 60))
+}
 
 /// Account keys kept while locked.
 pub struct KeptKeys {
@@ -60,11 +64,14 @@ fn kept_key_context(user_id: &str) -> Vec<u8> {
 }
 
 impl KeptKeys {
-    /// Seals the account's user key for the rest of `MAX_AGE`. `None` when
+    /// Seals the account's user key for the rest of `max_age`. `None` when
     /// that time is over or no key can be guarded here.
-    pub fn keep(user_id: String, email: String, account: &UnlockedAccount, password_at: SystemTime) -> Option<KeptKeys> {
+    pub fn keep(user_id: String, email: String, account: &UnlockedAccount, password_at: SystemTime, max_age: Option<Duration>) -> Option<KeptKeys> {
         let age = SystemTime::now().duration_since(password_at).ok()?;
-        let left = MAX_AGE.checked_sub(age).filter(|left| !left.is_zero())?;
+        let left = match max_age {
+            Some(max_age) => max_age.checked_sub(age).filter(|left| !left.is_zero())?,
+            None => Duration::from_secs(u64::from(u32::MAX)),
+        };
         let (guard, key) = GuardedKey::create(left)?;
         let sealed_user_key = key.seal(account.user_key().as_bytes(), &kept_key_context(&user_id)).ok()?;
         Some(KeptKeys { user_id, email, sealed_user_key, guard, password_at })
@@ -100,9 +107,9 @@ impl LockReason {
 }
 
 /// Whether the master password entered at `password_at` still allows system
-/// unlock at `now`.
-pub fn fresh(password_at: SystemTime, now: SystemTime) -> bool {
-    now.duration_since(password_at).is_ok_and(|age| age < MAX_AGE)
+/// unlock at `now`, `max_age` (see [`max_age`]) after it.
+pub fn fresh(password_at: SystemTime, now: SystemTime, max_age: Option<Duration>) -> bool {
+    now.duration_since(password_at).is_ok_and(|age| max_age.is_none_or(|max_age| age < max_age))
 }
 
 /// Whether this installation can use system unlock.
@@ -141,7 +148,8 @@ pub fn forget(state: &AppState) {
 /// Whether the lock screen can offer system unlock right now.
 pub fn available(state: &AppState) -> bool {
     let mut kept = state.kept_keys.lock().unwrap_or_else(|e| e.into_inner());
-    if kept.as_ref().is_some_and(|k| !fresh(k.password_at, SystemTime::now())) {
+    let max_age = max_age(state.settings().master_password_days);
+    if kept.as_ref().is_some_and(|k| !fresh(k.password_at, SystemTime::now(), max_age)) {
         kept.take();
     }
     kept.is_some() && state.settings().system_unlock && supported()
@@ -276,7 +284,7 @@ mod tests {
         }
         let kek = SymmetricKey::generate().unwrap();
         let (bundle, account) = create_account(&kek, KdfParams::recommended(), "user-1").unwrap();
-        let kept = KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, SystemTime::now()).unwrap();
+        let kept = KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, SystemTime::now(), max_age(1)).unwrap();
         let reopened = kept.open(&bundle).unwrap();
         assert_eq!(reopened.user_key().as_bytes(), account.user_key().as_bytes());
         assert_eq!(reopened.public_key_encoded(), account.public_key_encoded());
@@ -285,8 +293,10 @@ mod tests {
         assert!(kept.open(&other).is_none());
 
         // The master password was entered too long ago: nothing is kept.
-        let old = SystemTime::now() - MAX_AGE - Duration::from_secs(1);
-        assert!(KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, old).is_none());
+        let old = SystemTime::now() - Duration::from_secs(24 * 60 * 60 + 1);
+        assert!(KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, old, max_age(1)).is_none());
+        // Unless it is never asked again.
+        assert!(KeptKeys::keep("user-1".into(), "a@b.c".into(), &account, old, None).is_some());
     }
 
     /// Talks to the real polkit; run with `cargo test -- --ignored polkit`.
@@ -325,10 +335,17 @@ mod tests {
     #[test]
     fn master_password_is_needed_again_after_max_age() {
         let entered = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
-        assert!(fresh(entered, entered));
-        assert!(fresh(entered, entered + MAX_AGE - Duration::from_secs(1)));
-        assert!(!fresh(entered, entered + MAX_AGE));
+        let day = max_age(1);
+        assert_eq!(day, Some(Duration::from_secs(24 * 60 * 60)));
+        assert!(fresh(entered, entered, day));
+        assert!(fresh(entered, entered + Duration::from_secs(24 * 60 * 60 - 1), day));
+        assert!(!fresh(entered, entered + Duration::from_secs(24 * 60 * 60), day));
+        assert!(fresh(entered, entered + Duration::from_secs(29 * 24 * 60 * 60), max_age(30)));
+        // Never: until Keyless quits or the computer sleeps.
+        assert_eq!(max_age(0), None);
+        assert!(fresh(entered, entered + Duration::from_secs(400 * 24 * 60 * 60), None));
         // A clock set backwards does not extend it.
-        assert!(!fresh(entered, entered - Duration::from_secs(60)));
+        assert!(!fresh(entered, entered - Duration::from_secs(60), day));
+        assert!(!fresh(entered, entered - Duration::from_secs(60), None));
     }
 }

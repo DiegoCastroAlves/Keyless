@@ -18,6 +18,8 @@ export interface Settings {
   copyTotp: boolean;
   /** Offer to create and use passkeys with Keyless. */
   passkeys: boolean;
+  /** Warn on a website whose login Sentinel found breached. */
+  breachWarnings: boolean;
   /** Sites (host names) where saving logins is never offered. */
   neverSave: string[];
   /** Sites where Keyless stays out of the page: no button, menus, card or
@@ -32,12 +34,13 @@ export const DEFAULT_SETTINGS: Settings = {
   autoSubmit: true,
   copyTotp: true,
   passkeys: true,
+  breachWarnings: true,
   neverSave: [],
   hidden: [],
 };
 
 const KEY = "settings";
-const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp", "passkeys"] as const;
+const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp", "passkeys", "breachWarnings"] as const;
 const MAX_SITES = 500;
 
 /** "https://www.Example.com/login" -> "example.com"; null for other pages. */

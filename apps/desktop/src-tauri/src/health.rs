@@ -45,8 +45,9 @@ use crate::{
     store::Store,
 };
 
-/// Cards and documents expiring this soon are reported.
-const EXPIRING_SOON: i64 = 30 * 24 * 3600;
+/// Dates whose label says they expire, with no alert chosen, are reported
+/// this many days ahead.
+const DEFAULT_ALERT_DAYS: i64 = 30;
 /// The public lists are a few megabytes; anything far larger is refused.
 const MAX_LIST_BYTES: usize = 20 * 1024 * 1024;
 
@@ -93,6 +94,9 @@ pub struct HealthReport {
     pub two_factor: Vec<SiteIssue>,
     /// Websites that accept passkeys, for items without one.
     pub passkeys: Vec<SiteIssue>,
+    /// Logins imported from LastPass whose password was not changed since:
+    /// LastPass's stored vaults were stolen in 2022.
+    pub lastpass: Vec<String>,
     /// Alerts not known yet: their list was never downloaded, or the
     /// passwords never checked online.
     pub pending: Vec<&'static str>,
@@ -170,6 +174,8 @@ struct Entry {
     category: Category,
     urls: Vec<ItemUrl>,
     created_at: i64,
+    imported_from: String,
+    vault_id: String,
     details: ItemDetails,
 }
 
@@ -239,6 +245,8 @@ async fn entries(state: &AppState) -> AppResult<Vec<Entry>> {
             category: o.category,
             urls: o.urls.clone(),
             created_at: o.created_at,
+            imported_from: o.imported_from.clone(),
+            vault_id: local.vault_id.clone(),
             details,
         });
     }
@@ -246,6 +254,12 @@ async fn entries(state: &AppState) -> AppResult<Vec<Entry>> {
 }
 
 pub async fn report(app: &AppHandle) -> AppResult<HealthReport> {
+    compute(app, true).await
+}
+
+/// The report; with `wake`, new passwords not checked online yet start the
+/// automatic check.
+async fn compute(app: &AppHandle, wake: bool) -> AppResult<HealthReport> {
     let state = app.state::<AppState>();
     let entries = entries(&state).await?;
     let now = now_secs();
@@ -264,12 +278,14 @@ pub async fn report(app: &AppHandle) -> AppResult<HealthReport> {
             }
             // Grouped even when ignored: the other items still share it.
             by_password.entry(password).or_default().push(entry.id.clone());
+            if entry.imported_from == "lastpass" && entry.details.password_history.is_empty() && !skip("lastpass") {
+                report.lastpass.push(entry.id.clone());
+            }
         }
         if entry.urls.iter().any(|u| unsecured(&u.href)) && !skip("unsecured") {
             report.unsecured.push(entry.id.clone());
         }
-        if let Some(expires_at) = expiry(&entry.details)
-            && expires_at - now < EXPIRING_SOON
+        if let Some(expires_at) = expiry(&entry.details, now)
             && !skip("expiring")
         {
             report.expiring.push(Expiry { id: entry.id.clone(), expires_at, expired: expires_at < now });
@@ -308,10 +324,89 @@ pub async fn report(app: &AppHandle) -> AppResult<HealthReport> {
     }
     report.lists_updated_at = LISTS.iter().map(|kind| lists.get(kind).map(|list| list.fetched_at)).collect::<Option<Vec<_>>>().and_then(|at| at.into_iter().min());
     // New passwords: checked in the background, with the setting on.
-    if report.unchecked > 0 {
+    if wake && report.unchecked > 0 {
         state.sentinel.wake.notify_one();
     }
     Ok(report)
+}
+
+/// Serious alerts not announced yet (breached passwords and websites, dates
+/// due, LastPass imports): a notification says how many there are, then
+/// they are remembered (encrypted, like the checks). The first time, what is
+/// there already is only remembered.
+async fn notify_new_alerts(app: &AppHandle) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let report = compute(app, false).await?;
+    let current: std::collections::BTreeSet<String> = report
+        .breached
+        .iter()
+        .map(|(id, _)| format!("breached:{id}"))
+        .chain(report.compromised.iter().map(|issue| format!("compromised:{}:{}", issue.id, issue.site)))
+        .chain(report.expiring.iter().map(|e| format!("expiring:{}:{}", e.id, e.expires_at)))
+        .chain(report.lastpass.iter().map(|id| format!("lastpass:{id}")))
+        .collect();
+    let key = checks_key(&state).await?;
+    let previous: Option<std::collections::BTreeSet<String>> = key.load_row(&state.store(), ChecksKey::NOTIFIED);
+    key.save_row(&state.store(), ChecksKey::NOTIFIED, &current)?;
+    let new = previous.map_or(0, |seen| current.difference(&seen).count());
+    if new > 0 && state.settings().sentinel_notifications {
+        crate::notify::sentinel(app, new);
+    }
+    Ok(())
+}
+
+/// What the browser extension warns about on a website: its logins whose
+/// password was seen in breaches, or that the website lost in a breach
+/// after the password was set.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteAlert {
+    pub item_id: String,
+    pub title: String,
+    pub username: String,
+    /// "breached" or "compromised".
+    pub kind: &'static str,
+    /// The website's breach date (YYYY-MM-DD).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+}
+
+/// The serious alerts of the logins for `site` (a registrable domain).
+/// Ignored alerts are left out; nothing is looked up online.
+pub async fn site_alerts(app: &AppHandle, site: &str) -> AppResult<Vec<SiteAlert>> {
+    let state = app.state::<AppState>();
+    let entries: Vec<Entry> = entries(&state).await?.into_iter().filter(|e| e.is_login() && e.sites().contains(site)).collect();
+    if entries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let key = checks_key(&state).await?;
+    let checks = key.load(&state.store());
+    let mut alerts = Vec::new();
+    let alert = |entry: &Entry, kind, date| SiteAlert {
+        item_id: entry.id.clone(),
+        title: entry.title.clone(),
+        username: entry.username().unwrap_or_default(),
+        kind,
+        date,
+    };
+    for entry in &entries {
+        if let Some(password) = entry.password()
+            && checks.seen.get(&key.id(password)).is_some_and(|&seen| seen > 0)
+            && !entry.ignores("breached")
+        {
+            alerts.push(alert(entry, "breached", None));
+        }
+    }
+    if let Some(list) = lists(app).get(&ListKind::Breaches) {
+        for issue in compromised(&entries, &list.sites).into_iter().filter(|i| i.site == site) {
+            if let Some(entry) = entries.iter().find(|e| e.id == issue.id)
+                && !alerts.iter().any(|a: &SiteAlert| a.item_id == issue.id)
+            {
+                alerts.push(alert(entry, "compromised", issue.date));
+            }
+        }
+    }
+    Ok(alerts)
 }
 
 /// A password being typed in the editor: its strength (against the item's
@@ -323,14 +418,16 @@ pub async fn check_password(state: &AppState, password: &str, item_id: Option<&s
     Ok(PasswordCheck { level: strength(password, inputs).level, reused })
 }
 
-/// Groups of logins for the same account: the first website's site and the
-/// user name. Grouped even when ignored, like reused passwords.
+/// Groups of logins for the same account in the same vault: the first
+/// website's site and the user name (a copy in another vault, shared with
+/// other people, is on purpose). Grouped even when ignored, like reused
+/// passwords.
 fn duplicate_accounts(entries: &[Entry]) -> Vec<Vec<String>> {
-    let mut by_account: HashMap<(String, String), Vec<String>> = HashMap::new();
+    let mut by_account: HashMap<(String, String, String), Vec<String>> = HashMap::new();
     for entry in entries.iter().filter(|e| e.is_login()) {
         let site = entry.urls.first().and_then(|u| url_host(&u.href)).map(|h| site_of(&h));
         if let (Some(site), Some(user)) = (site, entry.username()) {
-            by_account.entry((site, user)).or_default().push(entry.id.clone());
+            by_account.entry((entry.vault_id.clone(), site, user)).or_default().push(entry.id.clone());
         }
     }
     by_account.into_values().filter(|ids| ids.len() > 1).collect()
@@ -364,18 +461,28 @@ fn is_expiry_label(label: &str) -> bool {
         .any(|word| label.contains(word))
 }
 
-/// The earliest expiry date in the item, in Unix seconds.
-fn expiry(details: &ItemDetails) -> Option<i64> {
+/// The earliest date in the item that is due to be warned about at `now`,
+/// in Unix seconds: a date field warns as early as its alert says, or, with
+/// no alert chosen, a month ahead when its label says it expires.
+fn expiry(details: &ItemDetails, now: i64) -> Option<i64> {
     details
         .all_fields()
-        .filter(|f| matches!(f.kind, FieldKind::Date | FieldKind::MonthYear) && is_expiry_label(&f.label))
-        .filter_map(|f| match f.kind {
-            FieldKind::Date => parse_date(&f.value),
-            // The end of the month.
-            _ => parse_expiry(&f.value).map(|(month, year)| {
-                let (year, month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
-                unix_day(year as i64, month, 1) - 1
-            }),
+        .filter(|f| f.kind.is_date())
+        .filter_map(|f| {
+            let ahead = match f.extra.alert {
+                Some(alert) => alert.days()?,
+                None if is_expiry_label(&f.label) => DEFAULT_ALERT_DAYS,
+                None => return None,
+            };
+            let at = match f.kind {
+                FieldKind::Date => parse_date(&f.value)?,
+                // The end of the month.
+                _ => parse_expiry(&f.value).map(|(month, year)| {
+                    let (year, month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+                    unix_day(year as i64, month, 1) - 1
+                })?,
+            };
+            (at - now < ahead * 86_400).then_some(at)
         })
         .min()
 }
@@ -524,6 +631,9 @@ async fn run_due(app: &AppHandle) {
     }
     if changed {
         let _ = app.emit(EVENT_UPDATED, ());
+    }
+    if let Err(err) = notify_new_alerts(app).await {
+        log::info!("Sentinel notifications: {err}");
     }
 }
 
@@ -822,6 +932,8 @@ struct ChecksKey {
 
 impl ChecksKey {
     const ROW: &str = "passwords";
+    /// The alerts already announced.
+    const NOTIFIED: &str = "notified";
 
     fn new(account: &UnlockedAccount) -> AppResult<Self> {
         let hkdf = Hkdf::<Sha256>::new(Some(b"keyless/sentinel/v1"), account.user_key().as_bytes());
@@ -836,25 +948,44 @@ impl ChecksKey {
         hex::encode(id)
     }
 
-    fn context() -> Vec<u8> {
-        keyless_core::crypto::context("sentinel", &[Self::ROW])
+    fn context(row: &str) -> Vec<u8> {
+        keyless_core::crypto::context("sentinel", &[row])
     }
 
     /// Nothing yet, or another account's: nothing checked.
     fn load(&self, store: &Store) -> PasswordChecks {
-        store
-            .sentinel_data(Self::ROW)
-            .ok()
-            .flatten()
-            .and_then(|data| self.seal.open(&data, &Self::context()).ok())
-            .and_then(|plain| serde_json::from_slice(&plain).ok())
-            .unwrap_or_default()
+        self.load_row(store, Self::ROW).unwrap_or_default()
     }
 
     fn save(&self, store: &Store, checks: &PasswordChecks) -> AppResult<()> {
-        let plain = Zeroizing::new(serde_json::to_vec(checks)?);
-        store.set_sentinel_data(Self::ROW, &self.seal.seal(&plain, &Self::context())?)
+        self.save_row(store, Self::ROW, checks)
     }
+
+    fn load_row<T: serde::de::DeserializeOwned>(&self, store: &Store, row: &str) -> Option<T> {
+        store
+            .sentinel_data(row)
+            .ok()
+            .flatten()
+            .and_then(|data| self.seal.open(&data, &Self::context(row)).ok())
+            .and_then(|plain| serde_json::from_slice(&plain).ok())
+    }
+
+    fn save_row<T: Serialize>(&self, store: &Store, row: &str, value: &T) -> AppResult<()> {
+        let plain = Zeroizing::new(serde_json::to_vec(value)?);
+        store.set_sentinel_data(row, &self.seal.seal(&plain, &Self::context(row))?)
+    }
+}
+
+/// Sentinel data that never leaves this device (the developer scan's
+/// ignored findings), encrypted like the checks.
+pub(crate) async fn load_private<T: serde::de::DeserializeOwned>(state: &AppState, row: &str) -> AppResult<Option<T>> {
+    let key = checks_key(state).await?;
+    Ok(key.load_row(&state.store(), row))
+}
+
+pub(crate) async fn save_private<T: Serialize>(state: &AppState, row: &str, value: &T) -> AppResult<()> {
+    let key = checks_key(state).await?;
+    key.save_row(&state.store(), row, value)
 }
 
 async fn checks_key(state: &AppState) -> AppResult<ChecksKey> {
@@ -974,11 +1105,25 @@ mod tests {
         let mut details = ItemDetails::default();
         let field = |label: &str, kind, value: &str| Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose: None, extra: Default::default() };
         details.fields = vec![field("expiry date", FieldKind::MonthYear, "05/2027"), field("birth date", FieldKind::Date, "1990-01-01")];
+        let may_2027 = unix_day(2027, 5, 15);
         // The end of May 2027, not the birth date.
-        assert_eq!(expiry(&details), Some(unix_day(2027, 6, 1) - 1));
+        assert_eq!(expiry(&details, may_2027), Some(unix_day(2027, 6, 1) - 1));
+        // A month ahead by default: not yet in March.
+        assert_eq!(expiry(&details, unix_day(2027, 3, 1)), None);
         details.sections = vec![];
         details.fields.push(field("Validade", FieldKind::Date, "2026-01-10"));
-        assert_eq!(expiry(&details), Some(unix_day(2026, 1, 10) + 86_399));
+        assert_eq!(expiry(&details, may_2027), Some(unix_day(2026, 1, 10) + 86_399));
+
+        // Alerts chosen per field: any date, as far ahead as asked; never.
+        use keyless_core::item::ExpiryAlert;
+        let mut details = ItemDetails::default();
+        let mut renewal = field("renewal", FieldKind::Date, "2027-09-01");
+        renewal.extra.alert = Some(ExpiryAlert::SixMonths);
+        let mut card = field("expiry date", FieldKind::MonthYear, "05/2027");
+        card.extra.alert = Some(ExpiryAlert::Never);
+        details.fields = vec![renewal, card];
+        assert_eq!(expiry(&details, unix_day(2027, 4, 1)), Some(unix_day(2027, 9, 1) + 86_399));
+        assert_eq!(expiry(&details, unix_day(2027, 2, 1)), None);
     }
 
     fn login(id: &str, url: &str, created_at: i64, changed_at: Option<i64>, totp: bool) -> Entry {
@@ -1004,6 +1149,8 @@ mod tests {
             category: Category::Login,
             urls: vec![ItemUrl { href: url.into(), ..Default::default() }],
             created_at,
+            imported_from: String::new(),
+            vault_id: "v".into(),
             details,
         }
     }
