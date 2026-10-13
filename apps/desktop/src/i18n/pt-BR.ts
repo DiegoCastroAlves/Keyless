@@ -144,6 +144,11 @@ const ptBR: Translations = {
     recovery_key_needed: "Crie antes uma chave de recuperação: sem ela, esquecer a senha mestra deixaria você sem acesso.",
     dev_secret_changed: "O arquivo mudou desde a busca: procure de novo.",
     dev_trash_failed: "Não foi possível mover o arquivo para a lixeira.",
+    autotype_nothing: "Este item não tem usuário nem senha para digitar.",
+    autotype_own_window: "O Keyless não digita nas próprias janelas. Volte para o app e tente de novo.",
+    autotype_unavailable: "Aqui o Keyless não consegue digitar em outros apps.",
+    autotype_denied: "A permissão para digitar em outros apps foi negada.",
+    autotype_failed: "Não foi possível digitar.",
   },
   welcome: {
     title: "Boas-vindas ao Keyless",
@@ -193,6 +198,9 @@ const ptBR: Translations = {
     copied: "Copiado. Será apagado em {{seconds}} s.",
     locked: "O Keyless está bloqueado",
     noAccount: "Abra o Keyless para entrar primeiro.",
+    autoType: "Digitar no app anterior",
+    autoTypeTitle: "Escolha o login para digitar no app em que você estava",
+    typing: "Digitando…",
   },
   update: {
     available: "Atualização disponível",
@@ -941,6 +949,8 @@ const ptBR: Translations = {
     masterPasswordDaysNoRecovery: "De quanto em quanto tempo o desbloqueio pelo sistema volta a pedir a senha mestra. “Nunca” exige uma chave de recuperação, para o caso de você esquecer a senha.",
     everyDays_one: "Todo dia",
     everyDays_other: "A cada {{count}} dias",
+    fillShortcut: "Preencher ou digitar",
+    fillShortcutHint: "No navegador, preenche a página pela extensão do Keyless; em outros apps, abre o Acesso rápido para digitar um login (Auto-Type).",
   },
   importer: {
     title: "Importar",
@@ -1206,6 +1216,7 @@ const ptBR: Translations = {
     reorder: "Mover um campo ao editar",
     quickAccess: "Acesso rápido",
     showApp: "Mostrar o Keyless",
+    fill: "Preencher no navegador, ou digitar em outro app",
   },
   filters: {
     title: "Filtrar",

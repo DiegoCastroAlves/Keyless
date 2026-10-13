@@ -91,6 +91,9 @@ pub struct Settings {
     /// their shortcuts, which run `--show` and `--lock`); empty is off.
     pub show_shortcut: String,
     pub lock_shortcut: String,
+    /// Fills the page in the browser that has the focus, or types a login
+    /// into another app (Auto-Type, through Quick Access). Windows.
+    pub fill_shortcut: String,
     /// Files attached from disk go to the system's trash once they are
     /// safely in Keyless.
     pub trash_attached_files: bool,
@@ -98,7 +101,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, auto_lock_app_only: false, lock_on_close: false, master_password_days: 1, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, sentinel_notifications: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), trash_attached_files: false }
+        Self { auto_lock_minutes: 10, auto_lock_app_only: false, lock_on_close: false, master_password_days: 1, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, sentinel_notifications: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), fill_shortcut: "Ctrl+Backslash".into(), trash_attached_files: false }
     }
 }
 
@@ -282,6 +285,8 @@ pub struct AppState {
     pub quick_access_ready: std::sync::atomic::AtomicBool,
     /// Quick Access was asked for before its page loaded.
     pub quick_access_pending: std::sync::atomic::AtomicBool,
+    /// Quick Access was last opened to type a login (Auto-Type).
+    pub quick_access_auto_type: std::sync::atomic::AtomicBool,
     /// Browser extension requests waiting for the unlock prompt to close
     /// (true when Keyless was unlocked).
     pub unlock_prompt: Mutex<Vec<tokio::sync::oneshot::Sender<bool>>>,
@@ -297,6 +302,11 @@ pub struct AppState {
     /// An item a `keyless://` link (or the browser extension) asked for,
     /// until the main window shows it.
     pub item_request: Mutex<Option<crate::item_links::ItemRequest>>,
+    /// The fill shortcut, for the browser extensions waiting in
+    /// `wait_status`: how many times it was pressed, and when (Unix ms).
+    pub fill_requests: tokio::sync::watch::Sender<(u64, i64)>,
+    /// The last of those a browser filled (see `quick_access::fill`).
+    pub fill_done: tokio::sync::watch::Sender<u64>,
 }
 
 impl AppState {

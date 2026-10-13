@@ -290,7 +290,7 @@ function shortcutFrom(e: React.KeyboardEvent): string | null {
     ? e.code.slice(3)
     : e.code.startsWith("Digit")
       ? e.code.slice(5)
-      : /^(F\d{1,2}|Space)$/.test(e.code)
+      : /^(F\d{1,2}|Space|Backslash)$/.test(e.code)
         ? e.code
         : null;
   if (!key || !(e.ctrlKey || e.altKey || e.metaKey)) return null;
@@ -331,6 +331,7 @@ const SHORTCUT_COMMANDS = [
   { id: "quickAccess", command: "keyless-desktop --quick-access" },
   { id: "showApp", command: "keyless-desktop --show" },
   { id: "lockApp", command: "keyless-desktop --lock" },
+  { id: "fill", command: "keyless-desktop --fill" },
 ] as const;
 
 /** Quick Access, show Keyless and lock, from anywhere. */
@@ -339,10 +340,10 @@ function GlobalShortcuts() {
   const settings = useApp((s) => s.settings);
   if (!settings) return null;
 
-  const save = async (patch: { quick_access_shortcut?: string; show_shortcut?: string; lock_shortcut?: string }) => {
+  const save = async (patch: { quick_access_shortcut?: string; show_shortcut?: string; lock_shortcut?: string; fill_shortcut?: string }) => {
     const next = { ...settings, ...patch };
     try {
-      useApp.setState({ settings: await api.setGlobalShortcuts(next.quick_access_shortcut, next.show_shortcut, next.lock_shortcut) });
+      useApp.setState({ settings: await api.setGlobalShortcuts(next.quick_access_shortcut, next.show_shortcut, next.lock_shortcut, next.fill_shortcut) });
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -375,6 +376,11 @@ function GlobalShortcuts() {
         <Row title={t("settings.lockShortcut")}>
           <div className="flex justify-end">
             <ShortcutRecorder value={settings.lock_shortcut} onSave={(lock_shortcut) => void save({ lock_shortcut })} />
+          </div>
+        </Row>
+        <Row title={t("settings.fillShortcut")} hint={t("settings.fillShortcutHint")}>
+          <div className="flex justify-end">
+            <ShortcutRecorder value={settings.fill_shortcut} onSave={(fill_shortcut) => void save({ fill_shortcut })} />
           </div>
         </Row>
       </>

@@ -154,6 +154,7 @@ export interface Settings {
   /** Global shortcuts registered by the app (Windows). */
   show_shortcut: string;
   lock_shortcut: string;
+  fill_shortcut: string;
   /** Attached files go to the system's trash afterwards. */
   trash_attached_files: boolean;
   /** Only Keyless's own use counts as activity. */
@@ -690,7 +691,10 @@ export const api = {
   unlockPromptReady: () => invoke<void>("unlock_prompt_ready"),
   closeUnlockPrompt: () => invoke<void>("close_unlock_prompt"),
   showItemInApp: (itemId: string) => invoke<void>("show_item_in_app", { itemId }),
-  setGlobalShortcuts: (quickAccess: string, show: string, lock: string) => invoke<Settings>("set_global_shortcuts", { quickAccess, show, lock }),
+  setGlobalShortcuts: (quickAccess: string, show: string, lock: string, fill: string) =>
+    invoke<Settings>("set_global_shortcuts", { quickAccess, show, lock, fill }),
+  /** Types the item's login into the app Quick Access covered. */
+  autoType: (itemId: string) => invoke<void>("auto_type", { itemId }),
   checkForUpdates: () => invoke<VersionInfo>("check_for_updates"),
   openUpdatePage: () => invoke<void>("open_update_page"),
   installUpdate: () => invoke<void>("install_update"),
@@ -833,7 +837,10 @@ export const events = {
   onFilesProgress: (cb: (progress: FilesProgress) => void): Promise<UnlistenFn> =>
     listen<FilesProgress>("keyless://files-progress", (e) => cb(e.payload)),
   onUnlocked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://unlocked", () => cb()),
-  onQuickAccessOpened: (cb: () => void): Promise<UnlistenFn> => listen("keyless://quick-access-opened", () => cb()),
+  /** `autoType`: opened by the fill shortcut outside a browser, to type a
+   * login into the app that has the focus. */
+  onQuickAccessOpened: (cb: (opened: { autoType: boolean }) => void): Promise<UnlistenFn> =>
+    listen<{ autoType: boolean }>("keyless://quick-access-opened", (e) => cb({ autoType: e.payload?.autoType === true })),
   onSelectItem: (cb: (itemId: string) => void): Promise<UnlistenFn> => listen<string>("keyless://select-item", (e) => cb(e.payload)),
   /** A notification asked for Sentinel. */
   onOpenSentinel: (cb: () => void): Promise<UnlistenFn> => listen("keyless://open-sentinel", () => cb()),

@@ -53,11 +53,13 @@ export function ShortcutsDialog() {
             [settings?.quick_access_shortcut || "—", t("shortcuts.quickAccess")],
             [settings?.show_shortcut || "—", t("shortcuts.showApp")],
             [settings?.lock_shortcut || "—", t("shortcuts.lockApp")],
+            [settings?.fill_shortcut || "—", t("shortcuts.fill")],
           ]
         : [
             ["Ctrl+Shift+Space", t("shortcuts.quickAccess")],
             ["keyless-desktop --show", t("shortcuts.showApp")],
             ["keyless-desktop --lock", t("shortcuts.lockApp")],
+            ["keyless-desktop --fill", t("shortcuts.fill")],
           ],
     },
   ];

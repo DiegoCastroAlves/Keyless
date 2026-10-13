@@ -6,6 +6,7 @@
 mod api;
 mod attachments;
 mod auth;
+mod auto_type;
 mod autostart;
 mod bridge;
 mod clipboard;
@@ -156,6 +157,9 @@ pub fn run() {
                 }
             } else if args.iter().any(|a| a == quick_access::LOCK_ARG) {
                 tray::lock_now(app);
+            } else if args.iter().any(|a| a == quick_access::FILL_ARG) {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move { quick_access::fill(&app).await });
             } else {
                 tray::show_main(app);
             }
@@ -209,6 +213,9 @@ pub fn run() {
                 quick_access_pending: std::sync::atomic::AtomicBool::new(false),
                 unlock_prompt: Mutex::new(Vec::new()),
                 lock_state: tokio::sync::watch::Sender::new(true),
+                quick_access_auto_type: std::sync::atomic::AtomicBool::new(false),
+                fill_requests: tokio::sync::watch::Sender::new((0, 0)),
+                fill_done: tokio::sync::watch::Sender::new(0),
                 ssh: Default::default(),
                 sentinel: Default::default(),
                 unlock_reason: Default::default(),
@@ -342,6 +349,7 @@ pub fn run() {
             commands::configure_notifications,
             commands::set_master_password_days,
             commands::take_item_request,
+            commands::auto_type,
             commands::list_items,
             commands::get_item,
             commands::get_item_draft,

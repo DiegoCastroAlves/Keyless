@@ -285,9 +285,19 @@ async function quickStatus(): Promise<Status> {
 async function followLockState(): Promise<never> {
   const watcher = new NativeConnection();
   let known: boolean | undefined;
+  // Presses of the app's fill shortcut (see `fillForApp`).
+  let knownFill: number | undefined;
   for (;;) {
     try {
-      const result = await call<AppStatus>("wait_status", known === undefined ? {} : { locked: known }, watcher);
+      const result = await call<AppStatus & { fill?: number; fillAt?: number }>(
+        "wait_status",
+        { ...(known === undefined ? {} : { locked: known }), ...(knownFill === undefined ? {} : { fill: knownFill }) },
+        watcher,
+      );
+      if (knownFill !== undefined && typeof result.fill === "number" && result.fill > knownFill && Date.now() - (result.fillAt ?? 0) < FILL_REQUEST_TTL_MS) {
+        void fillForApp(result.fill);
+      }
+      knownFill = result.fill;
       known = result.locked;
       await showState(result.locked ? "locked" : "ready");
     } catch (err) {
@@ -2375,10 +2385,18 @@ chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
 
 // Keyboard shortcuts: fill the best match into the current page, or only
 // its one-time code (copied when the page has no field for it yet).
-chrome.commands?.onCommand.addListener(async (command) => {
-  if (command !== "fill-login" && command !== "fill-code") return;
+chrome.commands?.onCommand.addListener((command) => {
+  if (command === "fill-login" || command === "fill-code") void fillActiveTab(command, false);
+});
+
+/** Fills the page in the active tab: its best login (or only its one-time
+ * code). False when the tab has no web page. `orPopup`: the popup opens when
+ * there is nothing to fill (for the app's shortcut, which otherwise types
+ * into another app). */
+async function fillActiveTab(command: "fill-login" | "fill-code", orPopup: boolean): Promise<boolean> {
   const tab = await activeTab();
-  if (!tab?.id || !isWebPage(tab.url)) return;
+  if (!tab?.id || !isWebPage(tab.url)) return false;
+  const popup = () => void chrome.action.openPopup?.().catch(() => undefined);
   try {
     // The page's best login, or one for a login form in a frame of the same
     // site (another site's needs the popup, to confirm).
@@ -2387,11 +2405,32 @@ chrome.commands?.onCommand.addListener(async (command) => {
     const code = command === "fill-code" || entries[0]?.frame.code === true;
     const best = entries.find((entry) => !code || entry.login.totp);
     // A page without encryption: the popup asks first.
-    if (best && !isSecurePage(best.frame.url)) return void chrome.action.openPopup?.().catch(() => undefined);
-    if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId, code, submit: true });
+    if (!best || !isSecurePage(best.frame.url)) {
+      if (best || orPopup) popup();
+    } else if (best.login.signInWith && !code) {
+      if (!(await signInWith(tab.id, tab.url, best.login.id)).ok && orPopup) popup();
+    } else {
+      await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId, code, submit: true });
+    }
   } catch {
     // Not connected or locked: the popup explains what to do.
+    if (orPopup) popup();
   }
-});
+  return true;
+}
+
+/** A fill request from the app (its fill shortcut, pressed while a browser
+ * window may be in front) is this long ago at most. */
+const FILL_REQUEST_TTL_MS = 3000;
+
+/** The app's fill shortcut: the browser in front fills its page and tells
+ * the app, which otherwise opens Quick Access to type into another app. */
+async function fillForApp(request: number) {
+  const focused = await chrome.windows.getLastFocused().then(
+    (window) => window.focused,
+    () => false,
+  );
+  if (focused && (await fillActiveTab("fill-login", true))) await call("fill_done", { request }).catch(() => undefined);
+}
 
 void followLockState();

@@ -342,6 +342,18 @@ attachments a vault has and their sizes (not their names or contents).
   can open one, so a link can only show an item, by its id, once Keyless
   is unlocked: Keyless takes nothing else from it, and the id must be a
   plain id.
+- **Auto-Type** (Quick Access, or the fill shortcut outside a browser)
+  types a login's username and password into the window that had the focus
+  before Quick Access opened: SendInput on Windows, XTest on X11, and on
+  Wayland the desktop's RemoteDesktop portal, which asks the user first; that
+  permission is kept in memory only and ends when Keyless locks. Keyless
+  refuses to type when the window that would get the keys is one of its own.
+  Like any typed text, the target app sees the password; the user picks the
+  login and the moment.
+- **The fill shortcut** tells the paired browser extensions through their
+  status long poll (a counter and a time, nothing else); only an extension
+  whose browser window has the focus fills its page, and only for a request
+  under three seconds old. Otherwise Quick Access opens to type.
 - When the user turns it on, a file attached from disk is moved to the
   system's trash once its encrypted copy is saved (never deleted outright),
   and only files the user just chose or dropped can be attached at all.

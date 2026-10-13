@@ -142,6 +142,11 @@ const en = {
     recovery_key_needed: "Create a recovery key first: without it, forgetting the master password would lock you out.",
     dev_secret_changed: "The file changed since the search: look again.",
     dev_trash_failed: "The file could not go to the trash.",
+    autotype_nothing: "This item has no username or password to type.",
+    autotype_own_window: "Keyless does not type into its own windows. Go back to the app and try again.",
+    autotype_unavailable: "Keyless cannot type into other apps here.",
+    autotype_denied: "Typing into other apps was not allowed.",
+    autotype_failed: "Typing did not work.",
   },
   welcome: {
     title: "Welcome to Keyless",
@@ -191,6 +196,9 @@ const en = {
     copied: "Copied. Clears in {{seconds}} s.",
     locked: "Keyless is locked",
     noAccount: "Open Keyless to sign in first.",
+    autoType: "Type into the previous app",
+    autoTypeTitle: "Pick the login to type into the app you were in",
+    typing: "Typing…",
   },
   update: {
     available: "Update available",
@@ -938,6 +946,8 @@ const en = {
     masterPasswordDaysNoRecovery: "How often unlocking with the system needs your master password again. “Never” needs a recovery key, in case you forget the password.",
     everyDays_one: "Every day",
     everyDays_other: "Every {{count}} days",
+    fillShortcut: "Fill or type",
+    fillShortcutHint: "In a browser, fills the page through the Keyless extension; in other apps, opens Quick Access to type a login (Auto-Type).",
   },
   importer: {
     title: "Import",
@@ -1202,6 +1212,7 @@ const en = {
     reorder: "Move a field while editing",
     quickAccess: "Quick Access",
     showApp: "Show Keyless",
+    fill: "Fill in the browser, or type into another app",
   },
   filters: {
     title: "Filter",

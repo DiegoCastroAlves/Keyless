@@ -957,6 +957,13 @@ pub fn hide_quick_access(app: AppHandle) {
     crate::quick_access::hide(&app);
 }
 
+/// Types the item's login into the app Quick Access covered (Auto-Type).
+#[tauri::command]
+pub async fn auto_type(app: AppHandle, state: State<'_, AppState>, item_id: String) -> AppResult<()> {
+    state.touch();
+    crate::auto_type::run(&app, &item_id).await
+}
+
 // ----- Unlock prompt for the browser extension --------------------------------
 
 #[tauri::command]
@@ -983,11 +990,12 @@ pub fn show_item_in_app(app: AppHandle, item_id: String) {
 /// Changes the global shortcuts the app registers itself (Windows): Quick
 /// Access, show Keyless and lock.
 #[tauri::command]
-pub fn set_global_shortcuts(app: AppHandle, state: State<'_, AppState>, quick_access: String, show: String, lock: String) -> AppResult<Settings> {
+pub fn set_global_shortcuts(app: AppHandle, state: State<'_, AppState>, quick_access: String, show: String, lock: String, fill: String) -> AppResult<Settings> {
     let mut settings = state.settings();
     settings.quick_access_shortcut = quick_access.trim().to_string();
     settings.show_shortcut = show.trim().to_string();
     settings.lock_shortcut = lock.trim().to_string();
+    settings.fill_shortcut = fill.trim().to_string();
     #[cfg(windows)]
     {
         let shortcuts = crate::quick_access::settings_shortcuts(&settings);

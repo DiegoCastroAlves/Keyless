@@ -144,6 +144,11 @@ const es: Translations = {
     recovery_key_needed: "Crea antes una clave de recuperación: sin ella, olvidar la contraseña maestra te dejaría sin acceso.",
     dev_secret_changed: "El archivo cambió desde la búsqueda: busca de nuevo.",
     dev_trash_failed: "No se pudo mover el archivo a la papelera.",
+    autotype_nothing: "Este elemento no tiene usuario ni contraseña que escribir.",
+    autotype_own_window: "Keyless no escribe en sus propias ventanas. Vuelve a la app y prueba otra vez.",
+    autotype_unavailable: "Aquí Keyless no puede escribir en otras apps.",
+    autotype_denied: "Se denegó el permiso para escribir en otras apps.",
+    autotype_failed: "No se pudo escribir.",
   },
   welcome: {
     title: "Te damos la bienvenida a Keyless",
@@ -193,6 +198,9 @@ const es: Translations = {
     copied: "Copiado. Se borra en {{seconds}} s.",
     locked: "Keyless está bloqueado",
     noAccount: "Abre Keyless para iniciar sesión primero.",
+    autoType: "Escribir en la app anterior",
+    autoTypeTitle: "Elige el inicio de sesión que escribir en la app en la que estabas",
+    typing: "Escribiendo…",
   },
   update: {
     available: "Actualización disponible",
@@ -942,6 +950,8 @@ const es: Translations = {
     masterPasswordDaysNoRecovery: "Cada cuánto el desbloqueo con el sistema vuelve a pedir la contraseña maestra. “Nunca” requiere una clave de recuperación, por si olvidas la contraseña.",
     everyDays_one: "Cada día",
     everyDays_other: "Cada {{count}} días",
+    fillShortcut: "Rellenar o escribir",
+    fillShortcutHint: "En el navegador, rellena la página con la extensión de Keyless; en otras apps, abre el Acceso rápido para escribir un inicio de sesión (Auto-Type).",
   },
   importer: {
     title: "Importar",
@@ -1206,6 +1216,7 @@ const es: Translations = {
     reorder: "Mover un campo al editar",
     quickAccess: "Acceso rápido",
     showApp: "Mostrar Keyless",
+    fill: "Rellenar en el navegador, o escribir en otra app",
   },
   filters: {
     title: "Filtrar",

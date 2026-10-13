@@ -9,7 +9,10 @@ import { api, errorCode, errorMessage, events, type AppStatus, type ItemSummary 
 import { sortItems } from "../lib/store";
 import { useTheme } from "../lib/theme";
 
-type Action = "open" | "app" | "username" | "password" | "totp";
+type Action = "type" | "open" | "app" | "username" | "password" | "totp";
+
+/** Kinds of item with a login to type (Auto-Type). */
+const TYPEABLE = new Set(["login", "password", "email_account", "server", "database", "api_credential"]);
 
 const MAX_RESULTS = 50;
 const SUGGESTIONS = 8;
@@ -61,6 +64,9 @@ export function QuickAccess() {
   const [index, setIndex] = useState(0);
   const [actions, setActions] = useState<{ open: boolean; index: number }>({ open: false, index: 0 });
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  /** Opened by the fill shortcut outside a browser: Enter types the login
+   * into the app that had the focus. */
+  const [autoType, setAutoType] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -74,7 +80,8 @@ export function QuickAccess() {
   }, []);
   const [autoUnlock, setAutoUnlock] = useState(0);
 
-  const reset = useCallback(() => {
+  const reset = useCallback((opened?: { autoType: boolean }) => {
+    setAutoType(opened?.autoType === true);
     setQuery("");
     setIndex(0);
     setActions({ open: false, index: 0 });
@@ -92,14 +99,15 @@ export function QuickAccess() {
 
   useEffect(() => {
     reset();
-    // Rust shows the window only once this page has rendered.
-    void api.quickAccessReady();
     const subscriptions = [
       events.onQuickAccessOpened(reset),
       events.onLocked(() => void refresh()),
       events.onUnlocked(() => void refresh()),
       events.onItemsChanged(() => void refresh()),
     ];
+    // Rust shows the window only once this page has rendered, and tells it
+    // how it was opened: once it listens.
+    void Promise.all(subscriptions).then(() => api.quickAccessReady());
     return () => subscriptions.forEach((p) => void p.then((unlisten) => unlisten()));
   }, [reset, refresh]);
 
@@ -114,9 +122,14 @@ export function QuickAccess() {
 
   const results = useMemo(() => search(items, query), [items, query]);
   const selected = results[Math.min(index, results.length - 1)] as ItemSummary | undefined;
+  const typeable = selected !== undefined && TYPEABLE.has(selected.category);
   const itemActions: Action[] = selected
-    ? [...(selected.urls.length ? (["open"] as Action[]) : []), "app", "username", "password", "totp"]
+    ? autoType && typeable
+      ? ["type", ...(selected.urls.length ? (["open"] as Action[]) : []), "app", "username", "password", "totp"]
+      : [...(selected.urls.length ? (["open"] as Action[]) : []), ...(typeable ? (["type"] as Action[]) : []), "app", "username", "password", "totp"]
     : [];
+  /** What Enter (or a click) does with an item. */
+  const mainAction = (item: ItemSummary): Action => (autoType && TYPEABLE.has(item.category) ? "type" : item.urls.length ? "open" : "app");
 
   useEffect(() => {
     listRef.current?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
@@ -127,7 +140,17 @@ export function QuickAccess() {
   const run = async (action: Action, item = selected) => {
     if (!item) return;
     try {
-      if (action === "open") {
+      if (action === "type") {
+        // Quick Access hides first, so the keys go to the app it covered.
+        setNotice({ text: t("quick.typing") });
+        try {
+          await api.autoType(item.id);
+          setNotice(null);
+        } catch (err) {
+          await api.showQuickAccess();
+          setNotice({ text: errorMessage(err), error: true });
+        }
+      } else if (action === "open") {
         await api.openItemUrl(item.id, 0);
         hide();
       } else if (action === "app") {
@@ -145,6 +168,11 @@ export function QuickAccess() {
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     const input = e.currentTarget;
     const key = e.key.toLowerCase();
+    if (e.ctrlKey && e.key === "Enter") {
+      e.preventDefault();
+      if (selected && TYPEABLE.has(selected.category)) void run("type");
+      return;
+    }
     if (e.ctrlKey && key === "c" && input.selectionStart === input.selectionEnd) {
       e.preventDefault();
       void run(e.altKey ? "totp" : e.shiftKey ? "password" : "username");
@@ -175,7 +203,8 @@ export function QuickAccess() {
         break;
       case "Enter":
         e.preventDefault();
-        void run(actions.open ? itemActions[actions.index] : itemActions[0]);
+        if (actions.open) void run(itemActions[actions.index]);
+        else if (selected) void run(mainAction(selected));
         break;
       case "Escape":
         e.preventDefault();
@@ -187,6 +216,7 @@ export function QuickAccess() {
 
   const actionLabel = (action: Action) =>
     ({
+      type: t("quick.autoType"),
       open: t("quick.openInBrowser"),
       app: t("quick.openInApp"),
       username: t("quick.copyUsername"),
@@ -224,6 +254,7 @@ export function QuickAccess() {
             <Logo className="size-6 shrink-0" />
           </div>
 
+          {autoType && <div className="border-b border-line bg-accent-soft px-4 py-2 text-xs text-accent">{t("quick.autoTypeTitle")}</div>}
           <div ref={listRef} className="flex-1 overflow-y-auto p-2">
             {actions.open && selected ? (
               <div>
@@ -258,7 +289,7 @@ export function QuickAccess() {
                   <button
                     key={item.id}
                     data-index={i}
-                    onClick={() => void run(item.urls.length ? "open" : "app", item)}
+                    onClick={() => void run(mainAction(item), item)}
                     onMouseMove={() => i !== index && setIndex(i)}
                     className={cx(
                       "flex w-full items-center gap-3 rounded-lg px-2.5 py-1.5 text-left",
@@ -273,7 +304,7 @@ export function QuickAccess() {
                     </span>
                     {i === index && (
                       <span className="flex shrink-0 items-center gap-1 text-xs font-medium">
-                        {actionLabel(item.urls.length ? "open" : "app")}
+                        {actionLabel(mainAction(item))}
                       </span>
                     )}
                   </button>
@@ -298,6 +329,13 @@ export function QuickAccess() {
                   <Kbd>C</Kbd>
                   {t("quick.copyPassword")}
                 </span>
+                {!autoType && (
+                  <span className="flex items-center gap-1.5">
+                    <Kbd>Ctrl</Kbd>
+                    <Kbd>Enter</Kbd>
+                    {t("quick.autoType")}
+                  </span>
+                )}
                 <span className="ml-auto flex items-center gap-1.5">
                   <Kbd>
                     <ArrowRight className="inline size-3" />

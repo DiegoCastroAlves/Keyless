@@ -67,6 +67,10 @@ zbus = "5"
 # for the whole app, and the keyring's blocking D-Bus calls would then panic
 # inside the runtime.
 rfd = { version = "0.16", default-features = false, features = ["xdg-portal", "async-std", "wayland"] }
+# Auto-Type (auto_type.rs): the RemoteDesktop portal on Wayland (async-std,
+# as above), XTest on X11.
+ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
+x11rb = { version = "0.13", features = ["xtest"] }
 # How long the computer has been idle, from the Wayland compositor (idle.rs).
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }

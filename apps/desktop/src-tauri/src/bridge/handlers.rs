@@ -126,12 +126,40 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
         "wait_status" => {
             // Long poll: answers as soon as Keyless locks or unlocks (or after
             // a while), so the extension's icon follows the app.
+            // Also as soon as the fill shortcut is pressed (`fill`: the
+            // presses the extension knows of; see `quick_access::fill`).
             let known = args.get("locked").and_then(Value::as_bool);
-            let mut changes = app.state::<AppState>().lock_state.subscribe();
-            if known == Some(*changes.borrow_and_update()) {
-                let _ = tokio::time::timeout(WAIT_STATUS, changes.changed()).await;
+            let known_fill = args.get("fill").and_then(Value::as_u64);
+            let state = app.state::<AppState>();
+            let mut changes = state.lock_state.subscribe();
+            let mut fills = state.fill_requests.subscribe();
+            let fill_now = fills.borrow_and_update().0;
+            if known == Some(*changes.borrow_and_update()) && known_fill.is_none_or(|n| n == fill_now) {
+                let _ = tokio::time::timeout(WAIT_STATUS, async {
+                    tokio::select! {
+                        _ = changes.changed() => {}
+                        _ = fills.changed() => {}
+                    }
+                })
+                .await;
             }
-            status(app).await
+            let mut result = status(app).await?;
+            let (fill, fill_at) = *state.fill_requests.borrow();
+            result["fill"] = json!(fill);
+            result["fillAt"] = json!(fill_at);
+            Ok(result)
+        }
+        "fill_done" => {
+            // The browser in front filled for the fill shortcut.
+            let request = args.get("request").and_then(Value::as_u64).ok_or("bad_request")?;
+            app.state::<AppState>().fill_done.send_if_modified(|done| {
+                let newer = request > *done;
+                if newer {
+                    *done = request;
+                }
+                newer
+            });
+            Ok(Value::Null)
         }
         "unlock" => {
             // Keyless asks the user itself (system prompt or its own

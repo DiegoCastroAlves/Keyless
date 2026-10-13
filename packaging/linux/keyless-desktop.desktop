@@ -11,7 +11,7 @@ StartupWMClass=keyless-desktop
 Terminal=false
 Categories=Utility;Security;
 Keywords=password;passwords;vault;login;2fa;totp;
-Actions=QuickAccess;Show;Lock;
+Actions=QuickAccess;Fill;Show;Lock;
 
 # Installed again in share/kglobalaccel, so KDE binds this shortcut by default
 # (System Settings > Shortcuts > Keyless to change it).
@@ -20,6 +20,15 @@ Name=Quick Access
 Name[es]=Acceso rápido
 Exec=keyless-desktop --quick-access
 X-KDE-Shortcuts=Ctrl+Shift+Space
+
+# In a browser, fills the page through the Keyless extension; in other apps,
+# opens Quick Access to type a login (Auto-Type).
+[Desktop Action Fill]
+Name=Fill or type
+Name[es]=Rellenar o escribir
+Name[pt_BR]=Preencher ou digitar
+Exec=keyless-desktop --fill
+X-KDE-Shortcuts=Ctrl+\\
 
 [Desktop Action Show]
 Name=Show Keyless
