@@ -180,11 +180,11 @@ pub async fn list(app: &AppHandle) -> Result<Value, &'static str> {
         if o.category == Category::CreditCard {
             if let Some(card) = card(&details) {
                 let number = card["number"].as_str().unwrap_or("");
-                cards.push(json!({ "id": id, "title": o.title, "holder": card["holder"], "last4": &number[number.len().saturating_sub(4)..], "brand": card["brand"] }));
+                cards.push(json!({ "id": id, "title": o.title, "holder": card["holder"], "last4": &number[number.len().saturating_sub(4)..], "brand": card["brand"], "vaultId": item.vault_id }));
             }
         } else {
             let person = identity(&details);
-            identities.push(json!({ "id": id, "title": o.title, "name": person["name"], "email": person["email"], "city": person["city"] }));
+            identities.push(json!({ "id": id, "title": o.title, "name": person["name"], "email": person["email"], "city": person["city"], "vaultId": item.vault_id }));
         }
     }
     let by_title = |a: &Value, b: &Value| a["title"].as_str().unwrap_or("").to_lowercase().cmp(&b["title"].as_str().unwrap_or("").to_lowercase());
@@ -209,9 +209,150 @@ pub async fn details(app: &AppHandle, id: &str) -> Result<Value, &'static str> {
     Ok(data)
 }
 
+// ----- saving what the user typed ------------------------------------------------------
+//
+// A payment or address form the user sent: offered to save as a card or an
+// identity (the extension asks; nothing is saved without the user).
+
+fn text<'a>(values: &'a Value, key: &str) -> &'a str {
+    values.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("")
+}
+
+fn digits(text: &str) -> String {
+    text.chars().filter(char::is_ascii_digit).collect()
+}
+
+/// A card typed in a form: its number (12 to 19 digits), and its expiry
+/// as "MM/YYYY" when the form had one.
+fn typed_card(values: &Value) -> Option<(String, Option<String>)> {
+    let number = digits(text(values, "number"));
+    if !(12..=19).contains(&number.len()) {
+        return None;
+    }
+    let combined = parse_expiry(text(values, "exp"));
+    let separate = parse_expiry(&format!("{}/{}", digits(text(values, "expMonth")), digits(text(values, "expYear"))));
+    let expiry = combined.or(separate).map(|(m, y)| format!("{m:02}/{y}"));
+    Some((number, expiry))
+}
+
+/// The identity's full name, as typed.
+fn typed_name(values: &Value) -> String {
+    let full = text(values, "name");
+    if !full.is_empty() {
+        return full.to_string();
+    }
+    [text(values, "firstName"), text(values, "lastName")].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ")
+}
+
+/// Whether Keyless already has this card (the same number) or this
+/// identity (the same email, or the same name and street).
+pub async fn check_typed(app: &AppHandle, kind: &str, values: &Value) -> Result<Value, &'static str> {
+    let state = app.state::<AppState>();
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or("locked")?;
+    let (number, name, email, street) = match kind {
+        "card" => (typed_card(values).ok_or("bad_request")?.0, String::new(), String::new(), String::new()),
+        "identity" => (String::new(), typed_name(values).to_lowercase(), text(values, "email").to_lowercase(), text(values, "street").to_lowercase()),
+        _ => return Err("bad_request"),
+    };
+    for (id, item) in &session.items {
+        let o = &item.overview;
+        if o.trashed_at.is_some() {
+            continue;
+        }
+        let Ok((_, details)) = items::load_details(&state, session, id) else { continue };
+        let same = match (kind, o.category) {
+            ("card", Category::CreditCard) => card_number(&details).is_some_and(|n| n == number),
+            ("identity", Category::Identity) => {
+                let person = identity(&details);
+                let field = |key: &str| person[key].as_str().unwrap_or("").trim().to_lowercase();
+                (!email.is_empty() && field("email") == email) || (!name.is_empty() && field("name") == name && field("street") == street)
+            }
+            _ => false,
+        };
+        if same {
+            return Ok(json!({ "exists": true }));
+        }
+    }
+    Ok(json!({ "exists": false }))
+}
+
+fn field(label: &str, kind: FieldKind, value: &str) -> Option<Field> {
+    (!value.trim().is_empty()).then(|| Field {
+        id: keyless_core::item::new_field_id(),
+        label: label.into(),
+        kind,
+        value: value.trim().into(),
+        purpose: None,
+        extra: Default::default(),
+    })
+}
+
+/// Saves a card or an identity typed in a form, in `vault_id` (or the
+/// default one), titled `title`.
+pub async fn save_typed(app: &AppHandle, kind: &str, values: &Value, title: &str, vault_id: Option<&str>) -> Result<Value, &'static str> {
+    let vault_id = super::logins::target_vault(app, vault_id).await?;
+    let (category, fields, default_title) = match kind {
+        "card" => {
+            let (number, expiry) = typed_card(values).ok_or("bad_request")?;
+            let holder = text(values, "holder");
+            let brand = brand(&number);
+            let fields = [
+                field("cardholder name", FieldKind::Text, holder),
+                field("number", FieldKind::CardNumber, &number),
+                expiry.as_deref().and_then(|e| field("expiry date", FieldKind::MonthYear, e)),
+                field("verification number", FieldKind::Pin, text(values, "code")),
+            ];
+            // The brand is a name; with none, the number's end says enough.
+            let last4 = &number[number.len() - 4..];
+            let title = if brand.is_empty() { format!("•••• {last4}") } else { format!("{}{} •••• {last4}", brand[..1].to_uppercase(), &brand[1..]) };
+            (Category::CreditCard, fields.into_iter().flatten().collect::<Vec<_>>(), title)
+        }
+        "identity" => {
+            let name = typed_name(values);
+            let (first, last) = match (text(values, "firstName"), text(values, "lastName")) {
+                ("", "") => name.split_once(' ').map_or((name.as_str(), ""), |(f, l)| (f, l)),
+                pair => pair,
+            };
+            let fields = [
+                field("first name", FieldKind::Text, first),
+                field("last name", FieldKind::Text, last),
+                field("email", FieldKind::Email, text(values, "email")),
+                field("phone", FieldKind::Phone, text(values, "phone")),
+                field("address", FieldKind::Text, &[text(values, "street"), text(values, "line2")].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ")),
+                field("city", FieldKind::Text, text(values, "city")),
+                field("state", FieldKind::Text, text(values, "state")),
+                field("zip code", FieldKind::Text, text(values, "zip")),
+                field("country", FieldKind::Text, text(values, "country")),
+                field("company", FieldKind::Text, text(values, "company")),
+            ];
+            (Category::Identity, fields.into_iter().flatten().collect::<Vec<_>>(), name.clone())
+        }
+        _ => return Err("bad_request"),
+    };
+    if fields.is_empty() {
+        return Err("bad_request");
+    }
+    let title = if title.trim().is_empty() { default_title } else { title.trim().to_string() };
+    let draft = items::ItemDraft { vault_id, title, category, fields, ..Default::default() };
+    let summary = items::save_item(app, draft).await.map_err(|_| "error")?;
+    Ok(json!({ "id": summary.id }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_cards_and_names() {
+        let card = json!({ "number": "4111 1111 1111 1111", "exp": "05/29", "holder": "Ana Test" });
+        assert_eq!(typed_card(&card), Some(("4111111111111111".into(), Some("05/2029".into()))));
+        let separate = json!({ "number": "5555555555554444", "expMonth": "7", "expYear": "2031" });
+        assert_eq!(typed_card(&separate), Some(("5555555555554444".into(), Some("07/2031".into()))));
+        assert_eq!(typed_card(&json!({ "number": "1234" })), None);
+        assert_eq!(typed_name(&json!({ "firstName": "Ana", "lastName": "Souza" })), "Ana Souza");
+        assert_eq!(typed_name(&json!({ "name": "Bia Lima", "firstName": "x" })), "Bia Lima");
+    }
     use keyless_core::item::{FieldPurpose, new_field_id};
 
     fn details(fields: &[(&str, FieldKind, &str)]) -> ItemDetails {

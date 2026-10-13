@@ -547,6 +547,49 @@ pub async fn item_url(state: &AppState, item_id: &str, index: usize) -> AppResul
     Ok(url)
 }
 
+/// Adds the website of `url` (its origin) to a login, from the browser
+/// extension, after the user filled it there on purpose.
+pub async fn add_website(app: &AppHandle, item_id: &str, url: &str) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let parsed = url::Url::parse(url).map_err(|_| AppError::Invalid(Msg::new("url_invalid")))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(AppError::Invalid(Msg::new("url_scheme")));
+    }
+    let origin = parsed.origin().ascii_serialization();
+    let mut draft = get_item_draft(&state, item_id).await?;
+    if draft.urls.iter().any(|u| normalize_url(&u.href).trim_end_matches('/') == origin) {
+        return Ok(());
+    }
+    draft.urls.push(ItemUrl { href: origin, ..Default::default() });
+    save_item(app, draft).await.map(|_| ())
+}
+
+/// Sets a login's one-time password (an `otpauth://` address), replacing the
+/// one it had; from the browser extension, for a login of the page whose
+/// setup QR code it read.
+pub async fn set_totp(app: &AppHandle, item_id: &str, uri: &str) -> AppResult<()> {
+    Totp::parse(uri).map_err(|_| AppError::Invalid(Msg::new("totp_invalid")))?;
+    let state = app.state::<AppState>();
+    let mut draft = get_item_draft(&state, item_id).await?;
+    let existing = draft
+        .fields
+        .iter_mut()
+        .chain(draft.sections.iter_mut().flat_map(|s| s.fields.iter_mut()))
+        .find(|f| f.kind == FieldKind::Totp);
+    match existing {
+        Some(field) => field.value = uri.to_string(),
+        None => draft.fields.push(Field {
+            id: new_field_id(),
+            label: "one-time password".into(),
+            kind: FieldKind::Totp,
+            value: uri.to_string(),
+            purpose: None,
+            extra: Default::default(),
+        }),
+    }
+    save_item(app, draft).await.map(|_| ())
+}
+
 // ----- writing items ------------------------------------------------------
 
 fn normalize_url(href: &str) -> String {
@@ -790,7 +833,7 @@ pub async fn save_item_with(app: &AppHandle, mut draft: ItemDraft, extras: Extra
                 .urls
                 .iter()
                 .filter(|u| !u.href.trim().is_empty())
-                .map(|u| ItemUrl { href: normalize_url(&u.href), label: u.label.trim().to_string(), fill: u.fill, unknown: u.unknown.clone() })
+                .map(|u| ItemUrl { href: normalize_url(&u.href), label: u.label.trim().to_string(), fill: u.fill, submit: u.submit, unknown: u.unknown.clone() })
                 .collect(),
             tags,
             favorite: draft.favorite,

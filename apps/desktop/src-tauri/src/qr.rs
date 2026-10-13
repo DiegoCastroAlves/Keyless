@@ -36,6 +36,18 @@ pub async fn scan(app: &AppHandle, source: &str, text: &DialogText) -> AppResult
     tokio::task::spawn_blocking(move || decode(&image)).await.map_err(|_| not_found())?.ok_or_else(not_found)
 }
 
+/// Reads a one-time password QR code from an image (a picture of a page the
+/// browser extension took), in memory.
+pub async fn scan_image(bytes: Vec<u8>) -> AppResult<String> {
+    if bytes.len() as u64 > MAX_FILE {
+        return Err(not_found());
+    }
+    tokio::task::spawn_blocking(move || load(&bytes).ok().and_then(|image| decode(&image)))
+        .await
+        .map_err(|_| not_found())?
+        .ok_or_else(not_found)
+}
+
 /// The first QR code in the image holding a valid one-time password setup.
 fn decode(image: &GrayImage) -> Option<String> {
     let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(image.width() as usize, image.height() as usize, |x, y| {

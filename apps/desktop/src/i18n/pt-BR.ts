@@ -542,6 +542,12 @@ const ptBR: Translations = {
     notesMarkdownHint: "As notas aceitam Markdown: **negrito**, *itálico*, listas, [links](https://…) e ![imagens](nome do arquivo anexado).",
     questionPlaceholder: "Pergunta",
     usernameSuggestions: "Nomes de usuário que você usa",
+    submitRule: "Entrar depois de preencher",
+    submit: {
+      default: "Como a extensão estiver configurada",
+      always: "Sempre",
+      never: "Nunca",
+    },
   },
   fieldKinds: {
     text: "Texto",

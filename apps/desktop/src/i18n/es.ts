@@ -542,6 +542,12 @@ const es: Translations = {
     notesMarkdownHint: "Las notas aceptan Markdown: **negrita**, *cursiva*, listas, [enlaces](https://…) e ![imágenes](nombre del archivo adjunto).",
     questionPlaceholder: "Pregunta",
     usernameSuggestions: "Nombres de usuario que usas",
+    submitRule: "Entrar después de rellenar",
+    submit: {
+      default: "Según la configuración de la extensión",
+      always: "Siempre",
+      never: "Nunca",
+    },
   },
   fieldKinds: {
     text: "Texto",

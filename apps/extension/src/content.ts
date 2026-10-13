@@ -32,6 +32,7 @@
 // fields get nothing.
 
 import {
+  highlight,
   composedParent,
   focusedField,
   deepQuery,
@@ -80,7 +81,7 @@ const SANDBOXED = location.origin === "null";
 const token = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, "0")).join("");
 
 const SEND_TEXT =
-  /\b(log ?in|sign ?in|sign ?up|entrar|acessar|iniciar sesi[oó]n|ingresar|continu[ea]r?|next|avan[cç]ar|pr[oó]ximo|siguiente|register|registr\w*|cadastr\w*|criar|create|crear|join|save|salvar|guardar|change|alterar|cambiar|update|atualizar|actualizar|submit|enviar)\b/i;
+  /\b(log ?in|sign ?in|sign ?up|entrar|acessar|iniciar sesi[oó]n|ingresar|continu[ea]r?|next|avan[cç]ar|pr[oó]ximo|siguiente|register|registr\w*|cadastr\w*|criar|create|crear|join|save|salvar|guardar|change|alterar|cambiar|update|atualizar|actualizar|submit|enviar|pay|pagar|buy|comprar|place order|finalizar|checkout|confirm\w*)\b/i;
 /** Fills a login; `codeOnly`: only its one-time code. The code goes into
  * the field the user is in when it asks for one, otherwise the form's (also
  * one asked next to the password). Returns the fields filled. */
@@ -160,6 +161,7 @@ function setControl(control: FormControl, values: string[]) {
     control.value = option.value;
     control.dispatchEvent(new Event("input", { bubbles: true }));
     control.dispatchEvent(new Event("change", { bubbles: true }));
+    highlight(control);
   } else if (values[0]) {
     setSplit(control, values[0]);
   }
@@ -571,12 +573,12 @@ class Frame {
   height = 0;
 
   constructor(
-    readonly mode: "menu" | "card" | "save" | "passkey" | "alert",
+    readonly mode: "menu" | "card" | "save" | "passkey" | "alert" | "ssh",
     className: string = mode,
   ) {
     this.iframe.className = className;
     this.iframe.title = "Keyless";
-    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH, passkey: PASSKEY_WIDTH, alert: SAVE_WIDTH }[mode];
+    const width = { menu: MENU_WIDTH, card: CARD_WIDTH, save: SAVE_WIDTH, passkey: PASSKEY_WIDTH, alert: SAVE_WIDTH, ssh: MENU_WIDTH }[mode];
     this.iframe.style.width = `${width + 2 * PAD}px`;
     root.append(this.iframe);
   }
@@ -663,11 +665,132 @@ let elsewhere = false;
 /** A site's passkey request (see background.ts). */
 let passkeyFrame: Frame | null = null;
 
-/** The warning about a breach of the website (see background.ts). */
+/** The warnings at the top of the page: a breach of the website, a
+ * password pasted that is another site's, the Secret Key pasted (see
+ * background.ts). */
 let alertFrame: Frame | null = null;
 
+function showAlertFrame() {
+  if (alertFrame?.open) return alertFrame.post({ type: "refresh" });
+  alertFrame ??= new Frame("alert");
+  alertFrame.show();
+}
+
+// ----- Pasting ----------------------------------------------------------------------
+//
+// A password pasted into the page is checked (by the app, over the
+// extension's channel) against the logins: one that is another site's
+// suggests this page is pretending to be that site. The Keyless Secret Key
+// should never be pasted into a website at all.
+
+/** "K1-ABCDEF-…": the prefix and 27 base-32 symbols (Crockford's, with its
+ * check symbols). */
+const SECRET_KEY = /^K1[0-9A-HJKMNP-TV-Z*~$=]{27}$/i;
+let pasteField: HTMLInputElement | HTMLTextAreaElement | null = null;
+
+document.addEventListener(
+  "paste",
+  (e) => {
+    const target = eventTarget(e);
+    if (SANDBOXED || !e.isTrusted || !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+    const text = e.clipboardData?.getData("text/plain")?.trim() ?? "";
+    if (!text) return;
+    if (SECRET_KEY.test(text.replace(/[\s-]/g, ""))) {
+      pasteField = target;
+      void send({ type: "secret_key_paste" });
+    } else if (target instanceof HTMLInputElement && fieldKind(target) === "password") {
+      pasteField = target;
+      void send({ type: "paste_check", password: text });
+    }
+  },
+  true,
+);
+
 function openFrames(): (Frame | null)[] {
-  return [menu, card, saveFrame, detached, passkeyFrame, alertFrame];
+  return [menu, card, saveFrame, detached, passkeyFrame, alertFrame, sshFrame];
+}
+
+// ----- SSH public keys ----------------------------------------------------------------
+//
+// Developer sites (GitHub, GitLab…) ask for an SSH public key in a text box:
+// a list of the vault's SSH keys shows under it. Public keys only, never a
+// private one.
+
+let sshFrame: Frame | null = null;
+let sshField: HTMLTextAreaElement | HTMLInputElement | null = null;
+
+/** A box for an SSH public key: its name, label or placeholder says so
+ * ("Begins with 'ssh-rsa'…"). */
+function isSshKeyField(element: Element): element is HTMLTextAreaElement | HTMLInputElement {
+  if (!(element instanceof HTMLTextAreaElement || (element instanceof HTMLInputElement && element.type === "text"))) return false;
+  if (element.disabled || element.readOnly || !visible(element)) return false;
+  const labels = Array.from(element.labels ?? []).map((l) => l.textContent ?? "");
+  const text = [element.name, element.id, element.placeholder, element.getAttribute("aria-label") ?? "", ...labels].join(" ").toLowerCase();
+  return (/\bssh\b|ssh[_-]?key/.test(text) && /key|chave|clave/.test(text)) || /ssh-(rsa|ed25519)|ecdsa-sha2/.test(text);
+}
+
+function placeSsh() {
+  if (!sshFrame?.open || !sshField) return;
+  const rect = sshField.getBoundingClientRect();
+  const outer = Math.min(MENU_WIDTH, window.innerWidth - 16) + 2 * PAD;
+  let top = rect.bottom + 4 - PAD;
+  if (rect.bottom + sshFrame.height > window.innerHeight && rect.top - sshFrame.height > 0) top = rect.top - 4 - sshFrame.height + PAD;
+  sshFrame.iframe.style.width = `${outer}px`;
+  sshFrame.iframe.style.top = `${top}px`;
+  sshFrame.iframe.style.left = `${Math.max(0, Math.min(rect.left - PAD, window.innerWidth - outer))}px`;
+}
+
+let sshFollow: ReturnType<typeof setInterval> | undefined;
+
+document.addEventListener(
+  "focusin",
+  (e) => {
+    const target = eventTarget(e);
+    if (SANDBOXED || !(target instanceof Element) || !isSshKeyField(target) || target.value.trim() !== "") return;
+    void getPageState().then((state) => {
+      // Filled meanwhile (Keyless focuses the box as it fills it).
+      if (state?.state !== "ready" || state.hidden || target.value.trim() !== "") return;
+      sshField = target;
+      sshFrame ??= new Frame("ssh");
+      sshFrame.show();
+      placeSsh();
+      sshFollow ??= setInterval(placeSsh, 200);
+    });
+  },
+  true,
+);
+
+document.addEventListener(
+  "mousedown",
+  (e) => {
+    if (!sshFrame?.open || e.composedPath().includes(host) || eventTarget(e) === sshField) return;
+    sshFrame.hide();
+    clearInterval(sshFollow);
+    sshFollow = undefined;
+  },
+  true,
+);
+
+/** Puts the public key in the box, and the key's name in the title box
+ * next to it when that is empty. */
+function fillSshKey(publicKey: string, title: string) {
+  if (!sshField?.isConnected) return;
+  // The way frameworks notice, as for any field (see setValue).
+  const put = (control: HTMLTextAreaElement | HTMLInputElement, value: string) => {
+    control.focus();
+    const prototype = control instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(control, value);
+    control.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    control.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+    highlight(control);
+  };
+  const scope: ParentNode = sshField.form ?? document;
+  const titleBox = Array.from(scope.querySelectorAll<HTMLInputElement>("input[type=text], input:not([type])")).find(
+    (input) => input !== sshField && input.value === "" && visible(input) && /title|label|name|t[íi]tulo|nome|nombre/i.test(`${input.name} ${input.id} ${input.placeholder}`),
+  );
+  if (titleBox) put(titleBox, title);
+  put(sshField, publicKey);
+  sshFrame?.hide();
 }
 
 function hidePasskey() {
@@ -1080,12 +1203,14 @@ function isLoginPassword(input: HTMLInputElement): boolean {
 
 /** The user sends a login, sign-up or change-password form: report what was
  * typed, for the "Save login?" prompt, which waits until the login worked. */
-function capture(anchor: HTMLInputElement | null) {
+function capture(anchor: HTMLInputElement | null, force = false) {
   if (SANDBOXED) return;
   const scope: ParentNode = anchor?.form ?? document;
-  // Payment forms are not logins.
-  if (formParts(anchor, "card").size >= 2) return;
+  // Payment forms are not logins: offered as a card.
+  if (formParts(anchor, "card").size >= 2) return captureForm(anchor, "card");
   const passwords = deepQuery<HTMLInputElement>(scope, 'input[type="password"]').filter(isLoginPassword);
+  // An address form, without a password: offered as an identity.
+  if (passwords.length === 0 && formParts(anchor, "identity").size >= 3) return captureForm(anchor, "identity");
   // Sign-up and change-password forms: the new password, and the current one.
   let chosen = passwords.find(isNewPassword) ?? null;
   let currentPassword = passwords.find((p) => !isNewPassword(p) && p.value !== chosen?.value) ?? null;
@@ -1104,7 +1229,7 @@ function capture(anchor: HTMLInputElement | null) {
   const password = field?.value ?? "";
   if (!password && !username) return;
   const key = `${username}\n${password}`;
-  if (filledKeys.has(key) || (key === lastCapture.key && Date.now() - lastCapture.at < 5000)) return;
+  if (!force && (filledKeys.has(key) || (key === lastCapture.key && Date.now() - lastCapture.at < 5000))) return;
   lastCapture = { key, at: Date.now() };
   void send({
     type: "capture",
@@ -1114,6 +1239,19 @@ function capture(anchor: HTMLInputElement | null) {
     generated: password !== "" && password === suggested,
   });
   if (field) watchOutcome(field);
+}
+
+/** A payment or address form being sent: what was typed in it, offered to
+ * save as a card or an identity (see background.ts). */
+function captureForm(anchor: HTMLInputElement | null, kind: FormKind) {
+  if (!TOP && kind === "identity") return;
+  const values: Record<string, string> = {};
+  for (const [control, part] of formParts(anchor, kind)) {
+    const value = control instanceof HTMLSelectElement ? (control.selectedOptions[0]?.text ?? control.value) : control.value;
+    if (value.trim()) values[part] = value.trim();
+  }
+  if (kind === "card" ? !values.number : Object.keys(values).length < 3) return;
+  void send({ type: "capture_form", kind, values });
 }
 
 /** Signing in worked when the form goes away for good (pages that do not
@@ -1202,10 +1340,7 @@ setTimeout(() => {
     if (reply.ok && reply.data) return showSavePrompt();
     // Otherwise, a warning when Sentinel found this website breached.
     const alert = await send<boolean>({ type: "site_alert_check" });
-    if (alert.ok && alert.data && !saveFrame?.open) {
-      alertFrame ??= new Frame("alert");
-      alertFrame.show();
-    }
+    if (alert.ok && alert.data && !saveFrame?.open) showAlertFrame();
   });
 }, 700);
 
@@ -1242,6 +1377,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message?.type === "keyless-save") {
     if (TOP) showSavePrompt();
+    return;
+  }
+  if (message?.type === "keyless-fill-ssh" && typeof message.publicKey === "string") {
+    fillSshKey(message.publicKey, typeof message.title === "string" ? message.title : "");
+    return;
+  }
+  if (message?.type === "keyless-alert") {
+    if (TOP) showAlertFrame();
+    return;
+  }
+  if (message?.type === "keyless-clear-paste") {
+    // The user took back what they pasted (see the warning).
+    if (pasteField?.isConnected) {
+      if (pasteField instanceof HTMLInputElement) setValue(pasteField, "");
+      else pasteField.value = "";
+    }
+    pasteField = null;
+    return;
+  }
+  if (message?.type === "keyless-context") {
+    // The page's context menu (see background.ts).
+    const focused = focusedField();
+    const field = current ?? (focused instanceof HTMLInputElement ? focused : null);
+    if (message.action === "menu" && field && (fieldKind(field) || formKindOf(field))) {
+      current = field;
+      openMenu(true);
+    } else if (message.action === "save" && field) {
+      // Saved now, without waiting for the sign-in to work.
+      capture(field, true);
+      void send({ type: "capture_done" });
+    } else if (message.action === "hide") {
+      pageState = null;
+      closeMenu();
+      if (card?.open) dismissCard();
+      void getPageState().then((state) => renderButton(kindFor(state)));
+    }
     return;
   }
   if (message?.type === "keyless-passkey-prompt") {

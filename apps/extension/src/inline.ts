@@ -19,7 +19,7 @@ import { avatar } from "./avatar";
 import type { AlertView, FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
-const MODES = ["card", "save", "passkey", "alert"] as const;
+const MODES = ["card", "save", "passkey", "alert", "ssh"] as const;
 const mode: "menu" | (typeof MODES)[number] = MODES.find((m) => location.hash === `#${m}`) ?? "menu";
 document.documentElement.dataset.mode = mode;
 const app = document.getElementById("app")!;
@@ -174,19 +174,69 @@ function unlockError(code: string | undefined): string {
 
 /** In a field for a one-time code (or the card on such a page), a login
  * fills only its code. */
-async function fillLogin(login: Login, submit: boolean) {
-  const reply = await send({ type: "fill", id: login.id, submit, code: field.code === true });
+async function fillLogin(login: Login, submit: boolean, insecureConfirmed = false) {
+  const reply = await send({ type: "fill", id: login.id, submit, code: field.code === true, insecureConfirmed });
   // The content script closes the menu, but not one the page shows for its
   // frame (see content.ts, `detached`).
   if (reply.ok) return toParent("close");
   if (reply.error === "locked") await refresh();
+  else if (reply.error === "insecure_confirm") confirmBox(t("insecureFillWarning", state?.host ?? ""), () => void fillLogin(login, submit, true));
   else showError(t("fillFailed"));
+}
+
+/** Asks before filling, in place of the menu's contents; Cancel brings them
+ * back. */
+function confirmBox(text: string, onConfirm: () => void) {
+  const cancel = el("button", { type: "button", className: "link", textContent: t("cancel") });
+  cancel.addEventListener("click", () => void refresh(true));
+  const go = el("button", { type: "button", className: "primary", textContent: t("fillAnyway") });
+  go.addEventListener("click", onConfirm);
+  app.replaceChildren(el("div", { className: "box confirm" }, el("p", { className: "note", textContent: text }), el("div", { className: "save-foot" }, cancel, go)));
+  report();
 }
 
 function loginRow(login: Login, options: { submit: boolean }): HTMLButtonElement {
   const row = el("button", { className: "row", type: "button" }, icon(login), texts(login));
   if (mode === "card") row.append(svg(ICON_KEY));
   row.addEventListener("click", () => void fillLogin(login, options.submit));
+  return row;
+}
+
+const ICON_QR = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>`;
+
+/** "Read the QR code on this page": keeps the site's one-time password in
+ * one of its logins and fills the code it gives now. */
+function scanRow(logins: Login[]): HTMLButtonElement {
+  const row = el(
+    "button",
+    { className: "row", type: "button" },
+    el("span", { className: "glyph" }, svg(ICON_QR)),
+    el("span", { className: "text" }, el("span", { className: "title", textContent: t("scanQr") }), el("span", { className: "sub", textContent: t("scanQrHint") })),
+  );
+  row.addEventListener("click", async () => {
+    const reply = await send<{ uri: string; issuer: string | null; account: string | null }>({ type: "scan_qr" });
+    if (!reply.ok || !reply.data) return showError(t("qrNotFound"));
+    const uri = reply.data.uri;
+    const save = async (login: Login) => {
+      const saved = await send({ type: "save_totp_fill", id: login.id, uri });
+      if (saved.ok) toParent("close");
+      else showError(t("fillFailed"));
+    };
+    // The account the code is for, when the QR code says it.
+    const account = reply.data.account?.trim().toLowerCase() ?? "";
+    const same = logins.filter((login) => account !== "" && login.username.trim().toLowerCase() === account);
+    if (logins.length === 1 || same.length === 1) return void save(same[0] ?? logins[0]);
+    // Which login the code goes in: those for that account first.
+    const ordered = [...same, ...logins.filter((login) => !same.includes(login))];
+    const box = el("div", { className: "box menu" }, el("div", { className: "head", textContent: t("saveCodeIn") }));
+    for (const login of ordered) {
+      const choice = el("button", { className: "row", type: "button" }, icon(login), texts(login));
+      choice.addEventListener("click", () => void save(login));
+      box.append(choice);
+    }
+    app.replaceChildren(box);
+    report();
+  });
   return row;
 }
 
@@ -376,11 +426,14 @@ function formRow(id: string, glyph: string, title: string, sub: string): HTMLBut
     el("span", { className: "glyph" }, svg(glyph)),
     el("span", { className: "text" }, el("span", { className: "title", textContent: title }), el("span", { className: "sub", textContent: sub })),
   );
-  row.addEventListener("click", async () => {
-    const reply = await send({ type: "fill_form", id });
+  const fillForm = async (confirmed: boolean) => {
+    const reply = await send({ type: "fill_form", id, confirmed });
     if (reply.ok) return; // The content script fills and closes this menu.
-    showError(reply.error === "insecure_page" ? t("insecurePage") : t("fillFailed"));
-  });
+    if (reply.error === "insecure_confirm") confirmBox(t("insecureFillWarning", state?.host ?? ""), () => void fillForm(true));
+    else if (reply.error === "confirm_form") confirmBox(t("confirmFormFill", title, state?.host ?? ""), () => void fillForm(true));
+    else showError(reply.error === "insecure_page" ? t("insecurePage") : t("fillFailed"));
+  };
+  row.addEventListener("click", () => void fillForm(false));
   return row;
 }
 
@@ -424,6 +477,9 @@ function renderMenu() {
       box.append(el("p", { className: "note", textContent: field.code ? t("noCodes") : t("noMatches") }));
     }
     logins.forEach((login) => box.append(loginRow(login, { submit: true })));
+    // A two-factor setup: the code the site asks for comes from its QR code.
+    const withoutCode = (state?.logins ?? []).filter((login) => !login.totp);
+    if (field.code && state?.state === "ready" && withoutCode.length > 0) box.append(scanRow(withoutCode));
   } else if (state.state === "locked") {
     box.append(lockedView());
   } else {
@@ -539,7 +595,9 @@ async function doSave() {
     else render();
     return;
   }
-  const reply = await send({ type: "save", mode: saveMode, itemId: chosenId, title: draftTitle, username: draftUser, vaultId });
+  const reply = saving.form
+    ? await send({ type: "save_form", title: draftTitle, vaultId })
+    : await send({ type: "save", mode: saveMode, itemId: chosenId, title: draftTitle, username: draftUser, vaultId });
   busy = false;
   if (reply.ok) {
     done = saveMode === "update" ? t("updated") : t("saved");
@@ -560,8 +618,53 @@ function input(value: string, placeholder: string, onInput: (value: string) => v
   return field;
 }
 
+/** "Save card?" / "Save address?": a payment or address form the user
+ * sent. */
+function renderFormSave() {
+  const s = saving!;
+  const form = s.form!;
+  const close = closeButton(async () => {
+    await send({ type: "dismiss_save" });
+    toParent("close");
+  });
+  const box = el(
+    "div",
+    { className: "box save" },
+    el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: form.kind === "card" ? t("saveCard") : t("saveIdentity") }), close),
+  );
+  if (done) {
+    box.append(el("p", { className: "done", textContent: done }));
+    app.replaceChildren(box);
+    return;
+  }
+  const glyph = el("span", { className: "glyph" }, svg(form.kind === "card" ? ICON_CARD : ICON_PERSON));
+  const details = el("div", { className: "edit" }, input(draftTitle, t("titleOptional"), (value) => (draftTitle = value)), el("span", { className: "sub", textContent: form.summary }));
+  box.append(el("div", { className: "save-item" }, glyph, details));
+  const footer = el("div", { className: "save-foot" });
+  if (s.vaults.length > 1) {
+    const select = el("select", { title: t("vaultLabel") });
+    for (const vault of s.vaults) select.append(el("option", { value: vault.id, textContent: vault.name, selected: vault.id === vaultId }));
+    select.addEventListener("change", () => (vaultId = select.value));
+    footer.append(select);
+  } else {
+    footer.append(el("span", { className: "vault", textContent: s.vaults[0]?.name ?? "" }));
+  }
+  const action = el("button", { type: "button", className: "primary", disabled: busy, textContent: s.locked ? t("unlockToSave") : t("save") });
+  action.addEventListener("click", () => void doSave());
+  footer.append(action);
+  box.append(footer);
+  const never = el("button", { type: "button", className: "link never", textContent: t("neverForSite", s.host) });
+  never.addEventListener("click", async () => {
+    await send({ type: "never_save" });
+    toParent("close");
+  });
+  box.append(never);
+  app.replaceChildren(box);
+}
+
 function renderSave() {
   const s = saving!;
+  if (s.form) return renderFormSave();
   const close = closeButton(async () => {
     await send({ type: "dismiss_save" });
     toParent("close");
@@ -714,6 +817,39 @@ function closePasskey() {
   else void passkeyAction("passkey_fallback");
 }
 
+// ----- SSH public keys --------------------------------------------------------------
+//
+// Under a developer site's box for an SSH public key: the vault's SSH keys
+// (public keys only); the chosen one goes in the box.
+
+let sshKeys: { id: string; title: string; fingerprint: string }[] | null = null;
+
+async function loadSsh() {
+  const reply = await send<{ id: string; title: string; fingerprint: string }[]>({ type: "ssh_keys" });
+  sshKeys = reply.ok ? (reply.data ?? []) : [];
+  render();
+}
+
+function renderSsh() {
+  const box = el("div", { className: "box menu" }, el("div", { className: "head" }, svg(LOGO), el("span", { textContent: t("sshKeys") })));
+  if (!sshKeys?.length) box.append(el("p", { className: "note", textContent: t("noSshKeys") }));
+  for (const key of sshKeys ?? []) {
+    const row = el(
+      "button",
+      { className: "row", type: "button" },
+      el("span", { className: "glyph" }, svg(ICON_KEY)),
+      el("span", { className: "text" }, el("span", { className: "title", textContent: key.title }), el("span", { className: "sub", textContent: key.fingerprint })),
+    );
+    row.addEventListener("click", async () => {
+      const reply = await send({ type: "fill_ssh_key", id: key.id });
+      if (reply.ok) toParent("close");
+      else showError(t("fillFailed"));
+    });
+    box.append(row);
+  }
+  app.replaceChildren(box);
+}
+
 // ----- Breach warning ------------------------------------------------------------
 //
 // Sentinel found this website's login breached: its password in breaches,
@@ -730,7 +866,7 @@ async function loadAlert() {
   render();
 }
 
-async function alertAction(type: "site_alert_change" | "site_alert_dismiss", extra: Record<string, unknown> = {}) {
+async function alertAction(type: "site_alert_change" | "site_alert_dismiss" | "site_alert_clear" | "site_alert_trust", extra: Record<string, unknown> = {}) {
   if (busy) return;
   busy = true;
   render();
@@ -741,6 +877,8 @@ async function alertAction(type: "site_alert_change" | "site_alert_dismiss", ext
 
 function renderAlert() {
   const v = siteAlert!;
+  if (v.kind === "paste") return renderPasteAlert(v);
+  if (v.kind === "secret_key") return renderSecretKeyAlert(v);
   const close = closeButton(() => void alertAction("site_alert_dismiss"));
   const box = el("div", { className: "box save alert" }, el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: t("breachTitle") }), close));
   const compromised = v.alerts.find((a) => a.kind === "compromised");
@@ -757,6 +895,42 @@ function renderAlert() {
   const later = el("button", { type: "button", className: "link", textContent: t("breachLater"), disabled: busy });
   later.addEventListener("click", () => void alertAction("site_alert_dismiss", { snooze: true }));
   box.append(el("div", { className: "save-foot" }, later, primaryButton(t("breachChange"), () => void alertAction("site_alert_change"))));
+  app.replaceChildren(box);
+}
+
+/** A password of another site's login was pasted here: maybe a page
+ * pretending to be that site. */
+function renderPasteAlert(v: Extract<AlertView, { kind: "paste" }>) {
+  const close = closeButton(() => void alertAction("site_alert_dismiss"));
+  const box = el("div", { className: "box save alert" }, el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: t("pasteTitle") }), close));
+  const sites = [...new Set(v.logins.map((l) => l.site).filter(Boolean))].join(", ");
+  box.append(el("p", { className: "note", textContent: t("pasteBody", sites || "?", v.host) }));
+  const list = el("div", { className: "choices" });
+  for (const l of v.logins) {
+    const login: Login = { id: l.itemId, title: l.title, username: l.site, url: l.site ? `https://${l.site}` : v.url, vault: "", favorite: false };
+    list.append(el("div", { className: "save-item" }, avatar(login, login.url), el("span", { className: "text" }, el("span", { className: "title", textContent: l.title }), el("span", { className: "sub", textContent: l.site }))));
+  }
+  box.append(list);
+  const foot = el("div", { className: "save-foot" });
+  if (v.logins.length === 1) {
+    const trust = el("button", { type: "button", className: "link", textContent: t("pasteTrust"), disabled: busy });
+    trust.addEventListener("click", () => void alertAction("site_alert_trust"));
+    foot.append(trust);
+  } else {
+    foot.append(el("span"));
+  }
+  foot.append(primaryButton(t("pasteClear"), () => void alertAction("site_alert_clear")));
+  box.append(foot);
+  app.replaceChildren(box);
+}
+
+/** The Secret Key was pasted into a website: Keyless never asks for it on
+ * one. */
+function renderSecretKeyAlert(v: Extract<AlertView, { kind: "secret_key" }>) {
+  const close = closeButton(() => void alertAction("site_alert_dismiss"));
+  const box = el("div", { className: "box save alert" }, el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: t("secretKeyTitle") }), close));
+  box.append(el("p", { className: "note", textContent: t("secretKeyBody", v.host) }));
+  box.append(el("div", { className: "save-foot" }, el("span"), primaryButton(t("pasteClear"), () => void alertAction("site_alert_clear"))));
   app.replaceChildren(box);
 }
 
@@ -837,6 +1011,8 @@ function render() {
     if (passkey) renderPasskey();
   } else if (mode === "alert") {
     if (siteAlert) renderAlert();
+  } else if (mode === "ssh") {
+    if (sshKeys) renderSsh();
   } else if (saving) renderSave();
   report();
 }
@@ -846,6 +1022,7 @@ async function refresh(force = false) {
   if (mode === "save") return loadSave();
   if (mode === "passkey") return loadPasskey();
   if (mode === "alert") return loadAlert();
+  if (mode === "ssh") return loadSsh();
   const reply = await send<InlineState>({ type: "state" });
   state = reply.ok && reply.data ? reply.data : { state: "error", url: null, host: null, logins: [] };
   if (mode === "menu" && field.newPassword && state.state === "ready" && suggestion === null) await newSuggestion();

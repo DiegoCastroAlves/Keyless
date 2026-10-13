@@ -118,6 +118,8 @@ export interface Vault {
 /** What the "Save login?" prompt shows. The password stays in the
  * background script. */
 export interface SaveState {
+  /** A card or an identity typed in a form, instead of a login. */
+  form?: { kind: "card" | "identity"; summary: string };
   locked: boolean;
   url: string;
   host: string;
@@ -142,12 +144,27 @@ export interface SiteAlert {
   date?: string;
 }
 
-/** The warning shown at the top of a page (see background.ts). */
-export interface AlertView {
-  host: string;
-  url: string;
-  alerts: SiteAlert[];
+/** A one-time password setup read from a QR code on the page. */
+export interface ScannedCode {
+  uri: string;
+  issuer: string | null;
+  account: string | null;
 }
+
+/** A login whose password was pasted on another site. */
+export interface PastedLogin {
+  itemId: string;
+  title: string;
+  site: string;
+}
+
+/** The warning shown at the top of a page (see background.ts): the
+ * website's logins are breached, a password of another site's login was
+ * pasted there, or the Keyless Secret Key was. */
+export type AlertView =
+  | { kind: "breach"; host: string; url: string; alerts: SiteAlert[] }
+  | { kind: "paste"; host: string; url: string; logins: PastedLogin[] }
+  | { kind: "secret_key"; host: string; url: string };
 
 /** What the Keyless menus shown in a page get. */
 export interface InlineState {
@@ -164,6 +181,9 @@ export interface Credentials {
   username: string;
   password: string;
   totp: string | null;
+  /** The item's website says whether filling signs in; null follows the
+   * extension's setting. */
+  submit?: boolean | null;
 }
 
 /** The browser's own password manager: on, off (by Keyless, or by the user

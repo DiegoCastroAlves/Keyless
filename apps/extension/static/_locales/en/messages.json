@@ -653,5 +653,133 @@
   },
   "setBreachWarnings": {
     "message": "Warn me on websites with a breached password"
+  },
+  "insecureFillWarning": {
+    "message": "$HOST$ does not encrypt its connection (http): anyone on the network can see what is sent. Fill anyway?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmFormFill": {
+    "message": "Fill $TITLE$ on $HOST$?",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "host": {
+        "content": "$2"
+      }
+    }
+  },
+  "fillAndAddSite": {
+    "message": "Fill and add this site"
+  },
+  "setConfirmFormFill": {
+    "message": "Ask before filling cards and personal details"
+  },
+  "ctxShowMenu": {
+    "message": "Keyless menu"
+  },
+  "ctxSaveLogin": {
+    "message": "Save this login in Keyless"
+  },
+  "ctxHide": {
+    "message": "Hide Keyless on this site"
+  },
+  "ctxLock": {
+    "message": "Lock Keyless"
+  },
+  "vaultsInBrowser": {
+    "message": "Vaults used in this browser"
+  },
+  "pasteTitle": {
+    "message": "Is this the right site?"
+  },
+  "pasteBody": {
+    "message": "You pasted the password of your login for $SITES$, but this is $HOST$. If this page only looks like that site, it may be trying to steal the password.",
+    "placeholders": {
+      "sites": {
+        "content": "$1"
+      },
+      "host": {
+        "content": "$2"
+      }
+    }
+  },
+  "pasteClear": {
+    "message": "Undo"
+  },
+  "pasteTrust": {
+    "message": "This site is the login's: add it"
+  },
+  "secretKeyTitle": {
+    "message": "Never paste your Secret Key here"
+  },
+  "secretKeyBody": {
+    "message": "You pasted your Keyless Secret Key into $HOST$. Keyless never asks for it on a website: with your master password, it opens your account.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "setPasteWarnings": {
+    "message": "Warn me when I paste a password on another site"
+  },
+  "scanQr": {
+    "message": "Read the QR code on this page"
+  },
+  "scanQrHint": {
+    "message": "Keeps the code in the login and fills it"
+  },
+  "qrNotFound": {
+    "message": "No one-time password QR code is visible on the page."
+  },
+  "saveCodeIn": {
+    "message": "Keep the code in"
+  },
+  "scanPageQr": {
+    "message": "Read QR code on the page"
+  },
+  "qrFoundChoose": {
+    "message": "Found a one-time password ($LABEL$). Keep it in which login?",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "qrFoundNoLogin": {
+    "message": "Found a one-time password ($LABEL$), but this site has no login in Keyless yet. Save the login first.",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "codeSaved": {
+    "message": "Code kept in $TITLE$",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "sshKeys": {
+    "message": "SSH keys"
+  },
+  "noSshKeys": {
+    "message": "No SSH keys in Keyless yet."
+  },
+  "saveCard": {
+    "message": "Save card?"
+  },
+  "saveIdentity": {
+    "message": "Save these details?"
+  },
+  "titleOptional": {
+    "message": "Name (optional)"
   }
 }

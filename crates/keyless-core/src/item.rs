@@ -74,6 +74,10 @@ pub struct ItemUrl {
     /// Where the login may be filled, like 1Password's "autofill behavior".
     #[serde(default, skip_serializing_if = "UrlMatch::is_default")]
     pub fill: UrlMatch,
+    /// Whether filling it there also signs in (sends the form); `None`
+    /// follows the browser extension's setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub submit: Option<bool>,
     #[serde(flatten)]
     pub unknown: Unknown,
 }

@@ -703,6 +703,16 @@ export function setValue(input: HTMLInputElement, value: string) {
   setter?.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
   input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  highlight(input);
+}
+
+/** Shows for a moment which fields Keyless filled: an animation of the
+ * field's outline, so nothing on the page changes for good. */
+export function highlight(element: Element) {
+  element.animate?.(
+    [{ boxShadow: "0 0 0 2px rgba(20, 184, 166, 0.95), 0 0 0 6px rgba(20, 184, 166, 0.3)" }, { boxShadow: "0 0 0 2px rgba(20, 184, 166, 0)" }],
+    { duration: 1600, easing: "ease-out" },
+  );
 }
 
 /** Fills a value split over several boxes when the page asks for it that

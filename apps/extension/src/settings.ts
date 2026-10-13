@@ -20,11 +20,17 @@ export interface Settings {
   passkeys: boolean;
   /** Warn on a website whose login Sentinel found breached. */
   breachWarnings: boolean;
+  /** Ask before filling a card or personal details. */
+  confirmFormFill: boolean;
+  /** Warn when a password is pasted on a site that is not its login's. */
+  pasteWarnings: boolean;
   /** Sites (host names) where saving logins is never offered. */
   neverSave: string[];
   /** Sites where Keyless stays out of the page: no button, menus, card or
    * prompt. The popup still works there. */
   hidden: string[];
+  /** The vaults this browser fills from (ids); empty: all of them. */
+  vaults: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -35,12 +41,15 @@ export const DEFAULT_SETTINGS: Settings = {
   copyTotp: true,
   passkeys: true,
   breachWarnings: true,
+  confirmFormFill: false,
+  pasteWarnings: true,
   neverSave: [],
   hidden: [],
+  vaults: [],
 };
 
 const KEY = "settings";
-const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp", "passkeys", "breachWarnings"] as const;
+const FLAGS = ["offerSave", "signInCard", "autoOpen", "autoSubmit", "copyTotp", "passkeys", "breachWarnings", "confirmFormFill", "pasteWarnings"] as const;
 const MAX_SITES = 500;
 
 /** "https://www.Example.com/login" -> "example.com"; null for other pages. */
@@ -65,10 +74,13 @@ function sites(value: unknown): string[] {
  * dropped. */
 export function sanitize(value: unknown, base: Settings = DEFAULT_SETTINGS): Settings {
   const input = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
-  const result: Settings = { ...base, neverSave: [...base.neverSave], hidden: [...base.hidden] };
+  const result: Settings = { ...base, neverSave: [...base.neverSave], hidden: [...base.hidden], vaults: [...base.vaults] };
   for (const flag of FLAGS) if (typeof input[flag] === "boolean") result[flag] = input[flag] as boolean;
   if ("neverSave" in input) result.neverSave = sites(input.neverSave);
   if ("hidden" in input) result.hidden = sites(input.hidden);
+  if ("vaults" in input && Array.isArray(input.vaults)) {
+    result.vaults = Array.from(new Set(input.vaults.filter((v): v is string => typeof v === "string" && v.length > 0 && v.length <= 64))).slice(0, 200);
+  }
   return result;
 }
 

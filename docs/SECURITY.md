@@ -693,6 +693,40 @@ or a password it suggested.
   which content scripts cannot read; pages only learn what applies to them.
   Turning off the browser's own password manager needs the optional
   `privacy` permission, asked only when the user chooses to.
+- **Vaults per browser.** The user can choose which vaults a browser uses.
+  The extension sends that list with each request and the app leaves the
+  other vaults out of every answer (matches, searches, cards and
+  identities, passkeys, save choices) and refuses requests for their items
+  by id.
+- **Asking before filling.** A login on a page without encryption (`http`,
+  except this computer) is filled only after the user confirms, from the
+  popup or the menu; the keyboard shortcut opens the popup instead. A login
+  saved for another site is filled from the popup only after a warning,
+  which can also add the page's site to the login (the app adds the page's
+  origin, nothing else). Cards and personal details can be confirmed every
+  time, by choice. Each website of a login can say whether filling signs in,
+  overriding the extension's setting.
+- **Pasted passwords and the Secret Key.** When a password is pasted into a
+  password field, the extension asks the app (over the same channel)
+  whether it belongs to a login for that page; if it is another site's
+  login, the page warns, names those logins, and offers to take the paste
+  back (or, for a single login, to add the page's site to it). Text shaped
+  like a Keyless Secret Key pasted into any website but Keyless's own warns
+  the same way. Nothing is checked online.
+- **Two-factor setup QR codes.** "Read the QR code on this page" takes a
+  picture of the visible tab (for this the extension holds the
+  `<all_urls>` host permission; its scripts still run in http and https
+  pages only) and sends it to the app, which decodes it in memory and keeps
+  only a valid `otpauth://` address; the code is saved only in a login for
+  that page.
+- **SSH public keys** of the vault's SSH key items are offered in a site's
+  box for one (its name or hint says SSH key). Private keys never leave the
+  app.
+- **Cards and identities typed in forms** are offered for saving like
+  logins (not when Keyless already has the same card or identity, and not
+  on sites where saving is off), and saved only when the user says so.
+- **Context menu**: open the Keyless menu at a field, save the login typed
+  in its form now, hide Keyless on the site, lock.
 - Turning off "Browser integration" in Settings removes the host manifests,
   so browsers can no longer start the bridge.
 

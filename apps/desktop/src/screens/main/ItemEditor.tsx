@@ -15,6 +15,7 @@ import {
   MenuLabel,
   MenuRadioGroup,
   MenuRadioItem,
+  MenuSeparator,
   MenuTrigger,
   Textarea,
   cx,
@@ -359,7 +360,9 @@ export function ItemEditor() {
                   />
                   <FillRuleButton
                     value={url.fill ?? "domain"}
+                    submit={url.submit ?? null}
                     onChange={(fill) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, fill } : u)) })}
+                    onSubmitChange={(submit) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, submit } : u)) })}
                   />
                   <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
                     <X className="size-4" />
@@ -964,16 +967,36 @@ const FILL_RULES: { value: UrlFill; icon: typeof Globe }[] = [
   { value: "never", icon: Ban },
 ];
 
+const SUBMIT_RULES = [
+  { value: "default", submit: null },
+  { value: "always", submit: true },
+  { value: "never", submit: false },
+] as const;
+
 /** Where the browser extension may fill the login, per website (like
- * 1Password's "autofill behavior"). */
-function FillRuleButton({ value, onChange }: { value: UrlFill; onChange: (value: UrlFill) => void }) {
+ * 1Password's "autofill behavior"), and whether filling also signs in. */
+function FillRuleButton({
+  value,
+  submit,
+  onChange,
+  onSubmitChange,
+}: {
+  value: UrlFill;
+  submit: boolean | null;
+  onChange: (value: UrlFill) => void;
+  onSubmitChange: (submit: boolean | null) => void;
+}) {
   const { t } = useTranslation();
   const Current = FILL_RULES.find((r) => r.value === value)?.icon ?? Globe;
   const [open, setOpen] = useState(false);
   return (
     <Menu open={open} onOpenChange={setOpen}>
       <MenuTrigger asChild>
-        <IconButton label={`${t("editor.fillRule")}: ${t(`editor.fill.${value}`)}`} tabIndex={-1} className={cx(value !== "domain" && "text-accent")}>
+        <IconButton
+          label={`${t("editor.fillRule")}: ${t(`editor.fill.${value}`)}`}
+          tabIndex={-1}
+          className={cx((value !== "domain" || submit !== null) && "text-accent")}
+        >
           <Current className="size-4" />
         </IconButton>
       </MenuTrigger>
@@ -992,6 +1015,21 @@ function FillRuleButton({ value, onChange }: { value: UrlFill; onChange: (value:
                 <rule.icon className="size-4 text-muted" />
                 {t(`editor.fill.${rule.value}`)}
               </span>
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+        <MenuSeparator />
+        <MenuLabel>{t("editor.submitRule")}</MenuLabel>
+        <MenuRadioGroup
+          value={SUBMIT_RULES.find((rule) => rule.submit === submit)?.value ?? "default"}
+          onValueChange={(next) => {
+            onSubmitChange(SUBMIT_RULES.find((rule) => rule.value === next)?.submit ?? null);
+            setOpen(false);
+          }}
+        >
+          {SUBMIT_RULES.map((rule) => (
+            <MenuRadioItem key={rule.value} value={rule.value}>
+              {t(`editor.submit.${rule.value}`)}
             </MenuRadioItem>
           ))}
         </MenuRadioGroup>

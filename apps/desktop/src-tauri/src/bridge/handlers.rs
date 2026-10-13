@@ -21,7 +21,93 @@ pub const EVENT_NEW_ITEM: &str = "keyless://new-item";
 /// How long `wait_status` waits for Keyless to lock or unlock.
 const WAIT_STATUS: std::time::Duration = std::time::Duration::from_secs(50);
 
+/// The vaults this browser may use, chosen in its extension (`vaults` in
+/// each request); none chosen means all of them.
+struct Scope(Option<std::collections::HashSet<String>>);
+
+impl Scope {
+    fn of(args: &Value) -> Scope {
+        let ids: std::collections::HashSet<String> =
+            args.get("vaults").and_then(Value::as_array).map(|list| list.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
+        Scope((!ids.is_empty()).then_some(ids))
+    }
+
+    fn allows(&self, vault_id: &str) -> bool {
+        self.0.as_ref().is_none_or(|ids| ids.contains(vault_id))
+    }
+
+    /// The vault of item `id`, if this browser may use it.
+    async fn allows_item(&self, app: &AppHandle, id: &str) -> bool {
+        if self.0.is_none() {
+            return true;
+        }
+        let state = app.state::<AppState>();
+        let guard = state.session.lock().await;
+        guard.as_ref().and_then(|s| s.items.get(id)).is_some_and(|item| self.allows(&item.vault_id))
+    }
+
+    /// Keeps the entries (objects with `vaultId`, or `itemId`) this browser
+    /// may use.
+    async fn filter(&self, app: &AppHandle, list: &mut Vec<Value>) {
+        if self.0.is_none() {
+            return;
+        }
+        let mut kept = Vec::with_capacity(list.len());
+        for entry in list.drain(..) {
+            let allowed = match (entry.get("vaultId").and_then(Value::as_str), entry.get("itemId").and_then(Value::as_str)) {
+                (Some(vault), _) => self.allows(vault),
+                (None, Some(item)) => self.allows_item(app, item).await,
+                _ => true,
+            };
+            if allowed {
+                kept.push(entry);
+            }
+        }
+        *list = kept;
+    }
+}
+
+/// Handles a request from the browser extension, within the vaults this
+/// browser may use.
 pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Value, &'static str> {
+    let scope = Scope::of(args);
+    const BY_ID: [&str; 7] = ["item_details", "credentials", "add_site", "copy", "form_details", "update_login", "set_totp"];
+    if BY_ID.contains(&cmd) {
+        let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+        if !scope.allows_item(app, id).await {
+            return Err("not_found");
+        }
+    }
+    let mut result = dispatch_all(app, cmd, args).await?;
+    match cmd {
+        "match" | "search" | "passkey_list" | "vaults" | "ssh_public_keys" => {
+            if let Value::Array(list) = &mut result {
+                if cmd == "vaults" {
+                    list.retain(|v| v.get("id").and_then(Value::as_str).is_some_and(|id| scope.allows(id)));
+                } else {
+                    scope.filter(app, list).await;
+                }
+            }
+        }
+        "form_items" => {
+            for key in ["cards", "identities"] {
+                if let Some(Value::Array(list)) = result.get_mut(key) {
+                    scope.filter(app, list).await;
+                }
+            }
+        }
+        "check_login" | "password_owner" => {
+            let key = if cmd == "check_login" { "candidates" } else { "logins" };
+            if let Some(Value::Array(list)) = result.get_mut(key) {
+                scope.filter(app, list).await;
+            }
+        }
+        _ => {}
+    }
+    Ok(result)
+}
+
+async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Value, &'static str> {
     match cmd {
         "status" => status(app).await,
         "wait_status" => {
@@ -149,10 +235,28 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             Ok(Value::Bool(super::shared_sites::same_owner(&site("a"), &site("b"))))
         }
         "vaults" => super::logins::vaults(app).await,
+        "all_vaults" => {
+            // Every vault, for choosing the ones this browser uses.
+            let state = app.state::<AppState>();
+            let vaults = crate::items::list_vaults(&state).await.map_err(|_| "locked")?;
+            Ok(Value::Array(vaults.into_iter().filter(|v| !v.orphaned).map(|v| json!({ "id": v.id, "name": v.name })).collect()))
+        }
         "form_items" => super::forms::list(app).await,
         "form_details" => {
             let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?.to_string();
             super::forms::details(app, &id).await
+        }
+        "check_form" => {
+            let kind = args.get("kind").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let values = args.get("values").cloned().ok_or("bad_request")?;
+            super::forms::check_typed(app, &kind, &values).await
+        }
+        "save_form" => {
+            let kind = args.get("kind").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let values = args.get("values").cloned().ok_or("bad_request")?;
+            let title = args.get("title").and_then(Value::as_str).unwrap_or("").to_string();
+            let vault = args.get("vaultId").and_then(Value::as_str).map(str::to_string);
+            super::forms::save_typed(app, &kind, &values, &title, vault.as_deref()).await
         }
         "check_login" => {
             let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
@@ -206,6 +310,60 @@ pub async fn dispatch(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let url = args.get("url").and_then(Value::as_str);
             let any_site = args.get("anySite").and_then(Value::as_bool).unwrap_or(false);
             credentials(app, id, url, any_site).await
+        }
+        "scan_qr_image" => {
+            // A picture of the page (the extension took it, for a site's
+            // two-factor setup): the one-time password QR code in it.
+            use base64::Engine;
+            let image = args.get("image").and_then(Value::as_str).ok_or("bad_request")?;
+            let data = image.split_once("base64,").map_or(image, |(_, data)| data);
+            let bytes = base64::engine::general_purpose::STANDARD.decode(data).map_err(|_| "bad_request")?;
+            let uri = crate::qr::scan_image(bytes).await.map_err(|_| "not_found")?;
+            let totp = Totp::parse(&uri).map_err(|_| "not_found")?;
+            Ok(json!({ "uri": uri, "issuer": totp.issuer, "account": totp.account }))
+        }
+        "set_totp" => {
+            // Only a login for the page the code was read on.
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?;
+            let uri = args.get("uri").and_then(Value::as_str).ok_or("bad_request")?;
+            let page = Page::parse(url).ok_or("bad_request")?;
+            {
+                let state = app.state::<AppState>();
+                let guard = state.session.lock().await;
+                let session = guard.as_ref().ok_or("locked")?;
+                let item = session.items.get(id).ok_or("not_found")?;
+                if !item.overview.urls.iter().any(|u| match_score(&page, u) > 0) {
+                    return Err("url_mismatch");
+                }
+            }
+            crate::items::set_totp(app, id, uri).await.map_err(|err| match err {
+                AppError::Locked => "locked",
+                _ => "error",
+            })?;
+            Ok(json!({}))
+        }
+        "ssh_public_keys" => ssh_public_keys(app).await,
+        "password_owner" => {
+            // A password pasted into a page: whether it belongs to a login
+            // for this page, or to logins for other sites (a page that may
+            // be pretending to be one of them).
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let password = take_secret(args, "password")?;
+            password_owner(app, &url, &password).await
+        }
+        "add_site" => {
+            // The page's site, added to a login the user just filled there
+            // on purpose (the extension asked first).
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?;
+            crate::items::add_website(app, id, url).await.map_err(|err| match err {
+                AppError::Locked => "locked",
+                AppError::NotFound => "not_found",
+                AppError::Invalid(msg) if msg.key == "vault_read_only" => "read_only",
+                _ => "error",
+            })?;
+            Ok(json!({}))
         }
         "copy" => {
             // Copied by the app: kept out of clipboard history and cleared
@@ -392,6 +550,7 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, limit: usize) 
                 "username": o.subtitle,
                 "url": o.urls.first().map(|u| u.href.clone()).unwrap_or_default(),
                 "vault": vault,
+                "vaultId": item.vault_id,
                 "favorite": o.favorite,
             }),
         ));
@@ -473,6 +632,73 @@ async fn item_details(app: &AppHandle, id: &str, reveal: bool) -> Result<Value, 
 /// `any_site` is set when the user explicitly confirmed, in the extension's
 /// own UI, filling a login saved for another site. A login saved for an https
 /// address still never goes to a plain http page.
+/// SSH key items' public keys (nothing secret), for the forms where a
+/// developer site asks for one.
+async fn ssh_public_keys(app: &AppHandle) -> Result<Value, &'static str> {
+    let state = app.state::<AppState>();
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or("locked")?;
+    let mut keys = Vec::new();
+    for (id, item) in &session.items {
+        let o = &item.overview;
+        if o.category != Category::SshKey || o.trashed_at.is_some() || o.archived {
+            continue;
+        }
+        let Ok((_, details)) = crate::items::load_details(&state, session, id) else { continue };
+        let from_private = details
+            .all_fields()
+            .find(|f| f.kind == FieldKind::Concealed && f.value.contains("-----BEGIN "))
+            .and_then(|f| crate::ssh_keys::parse_private(&f.value, None).ok())
+            .and_then(|key| Some((key.public_key().to_openssh().ok()?, key.fingerprint(ssh_key::HashAlg::Sha256).to_string())));
+        let from_field = || {
+            details
+                .all_fields()
+                .map(|f| f.value.trim())
+                .find(|v| v.starts_with("ssh-") || v.starts_with("ecdsa-sha2-") || v.starts_with("sk-"))
+                .and_then(|v| ssh_key::PublicKey::from_openssh(v).ok())
+                .map(|key| (key.to_openssh().unwrap_or_default(), key.fingerprint(ssh_key::HashAlg::Sha256).to_string()))
+        };
+        let Some((public_key, fingerprint)) = from_private.or_else(from_field) else { continue };
+        keys.push(json!({ "id": id, "title": o.title, "publicKey": public_key, "fingerprint": fingerprint, "vaultId": item.vault_id }));
+    }
+    keys.sort_by_key(|k| k["title"].as_str().unwrap_or("").to_lowercase());
+    Ok(Value::Array(keys))
+}
+
+/// The logins whose password is `password`: none matched for this page
+/// (`matched` false) means it is another site's password.
+async fn password_owner(app: &AppHandle, url: &str, password: &str) -> Result<Value, &'static str> {
+    let state = app.state::<AppState>();
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or("locked")?;
+    let page = Page::parse(url).ok_or("bad_request")?;
+    let mut matched = false;
+    let mut logins = Vec::new();
+    for (id, item) in &session.items {
+        let o = &item.overview;
+        if o.trashed_at.is_some() || !is_fillable(o.category) {
+            continue;
+        }
+        let Ok((_, details)) = crate::items::load_details(&state, session, id) else { continue };
+        if details.password() != Some(password) {
+            continue;
+        }
+        if o.urls.iter().any(|u| match_score(&page, u) > 0) {
+            matched = true;
+            break;
+        }
+        if logins.len() < 5 {
+            logins.push(json!({
+                "itemId": id,
+                "title": o.title,
+                "site": o.urls.first().and_then(|u| url_host(&u.href)).unwrap_or_default(),
+                "vaultId": item.vault_id,
+            }));
+        }
+    }
+    Ok(json!({ "matched": matched, "logins": if matched { Vec::new() } else { logins } }))
+}
+
 async fn credentials(app: &AppHandle, id: &str, url: Option<&str>, any_site: bool) -> Result<Value, &'static str> {
     let state = app.state::<AppState>();
     let guard = state.session.lock().await;
@@ -480,8 +706,11 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>, any_site: boo
     let cached = session.items.get(id).ok_or("not_found")?;
 
     // Requests that come from a page must match that page's site.
+    let mut submit = None;
     if let Some(url) = url {
         let page = Page::parse(url).ok_or("bad_request")?;
+        // What the website that matches best says about signing in.
+        submit = cached.overview.urls.iter().filter(|u| match_score(&page, u) > 0).max_by_key(|u| match_score(&page, u)).and_then(|u| u.submit);
         if !cached.overview.urls.iter().any(|u| match_score(&page, u) > 0) {
             if !any_site {
                 return Err("url_mismatch");
@@ -508,6 +737,7 @@ async fn credentials(app: &AppHandle, id: &str, url: Option<&str>, any_site: boo
         "username": details.field_by_purpose(FieldPurpose::Username).map(|f| f.value.clone()).unwrap_or_default(),
         "password": details.field_by_purpose(FieldPurpose::Password).map(|f| f.value.clone()).unwrap_or_default(),
         "totp": totp,
+        "submit": submit,
     }))
 }
 

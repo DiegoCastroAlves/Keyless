@@ -1127,3 +1127,10 @@ input.switch:checked::after {
   cursor: default;
   user-select: text;
 }
+
+.dialog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}

@@ -18,7 +18,23 @@
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
 import { loadSettings, siteKey, updateSettings } from "./settings";
-import type { AlertView, BrowserManager, Credentials, FormItems, InlineState, Login, PageState, PasskeyEntry, SaveCandidate, SaveState, SiteAlert, Status, Vault } from "./types";
+import type {
+  AlertView,
+  BrowserManager,
+  Credentials,
+  FormItems,
+  InlineState,
+  Login,
+  PageState,
+  PasskeyEntry,
+  PastedLogin,
+  SaveCandidate,
+  ScannedCode,
+  SaveState,
+  SiteAlert,
+  Status,
+  Vault,
+} from "./types";
 
 const HOST = "io.github.diegocastroalves.keyless";
 const REQUEST_TIMEOUT_MS = 130_000;
@@ -132,6 +148,10 @@ async function connect(): Promise<Status> {
 }
 
 async function call<T = any>(cmd: string, args: Record<string, unknown> = {}, connection = native): Promise<T> {
+  // The vaults this browser uses: the app keeps the others out of every
+  // answer (see the app's bridge).
+  const { vaults } = await loadSettings();
+  if (vaults.length > 0) args = { ...args, vaults };
   try {
     return await send<T>(cmd, args, connection);
   } catch (err) {
@@ -340,7 +360,9 @@ async function fillTab(
 ): Promise<void> {
   const settings = await loadSettings();
   const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
-  const submit = Boolean(options.submit) && settings.autoSubmit;
+  // The item's website can say otherwise than the setting.
+  const signsIn = credentials.submit ?? settings.autoSubmit;
+  const submit = Boolean(options.submit) && signsIn;
   const filled = (await chrome.tabs.sendMessage(
     tabId,
     {
@@ -358,7 +380,7 @@ async function fillTab(
   if (credentials.totp && !filled?.otp && !options.step && (settings.copyTotp || options.code)) await call("copy", { id, field: "totp" }).catch(() => undefined);
   // Another site's login (after the user confirmed it) or signing in by
   // hand: no next steps.
-  if (options.anySite || !settings.autoSubmit) return;
+  if (options.anySite || !signsIn) return;
   // What is left for the next steps.
   let needs: Step[] = [];
   if (options.step) {
@@ -740,6 +762,48 @@ const CAPTURE_TTL_MS = 5 * 60_000;
 /** A username typed in the first step of a two-step sign-in. */
 const USERNAME_TTL_MS = 2 * 60_000;
 const captureKey = (tabId: number) => `capture:${tabId}`;
+const formCaptureKey = (tabId: number) => `formCapture:${tabId}`;
+
+/** A card or an identity typed in a form the user sent. */
+interface FormCapture {
+  kind: "card" | "identity";
+  url: string;
+  values: Record<string, string>;
+  at: number;
+}
+
+async function getFormCapture(tabId: number): Promise<FormCapture | null> {
+  const capture = await sessionGet<FormCapture>(formCaptureKey(tabId));
+  return capture && Date.now() - capture.at < CAPTURE_TTL_MS ? capture : null;
+}
+
+async function setFormCapture(tabId: number, capture: FormCapture | null): Promise<void> {
+  if (capture) await chrome.storage.session.set({ [formCaptureKey(tabId)]: capture });
+  else await chrome.storage.session.remove(formCaptureKey(tabId));
+}
+
+/** What a card or identity prompt shows: the card's end, or who it is. */
+function formSummary(capture: FormCapture): string {
+  const v = capture.values;
+  if (capture.kind === "card") {
+    const digits = (v.number ?? "").replace(/\D/g, "");
+    return [`•••• ${digits.slice(-4)}`, v.holder].filter(Boolean).join(" · ");
+  }
+  const name = v.name || [v.firstName, v.lastName].filter(Boolean).join(" ");
+  return [name, v.email, v.city].filter(Boolean).join(" · ");
+}
+
+/** A payment or address form was sent: offered to save, unless Keyless has
+ * it already. */
+async function onFormCapture(tabId: number, url: string, kind: "card" | "identity", values: Record<string, string>) {
+  const clean = Object.fromEntries(Object.entries(values).filter(([k, v]) => typeof v === "string" && v.length <= 200 && /^[a-zA-Z0-9]{1,20}$/.test(k)).slice(0, 20));
+  if ((await quickStatus()).state === "ready") {
+    const check = await call<{ exists: boolean }>("check_form", { kind, values: clean }).catch(() => null);
+    if (!check || check.exists) return;
+  }
+  await setFormCapture(tabId, { kind, url, values: clean, at: Date.now() });
+  chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
+}
 const usernameKey = (tabId: number) => `username:${tabId}`;
 const suggestionKey = (tabId: number) => `suggestion:${tabId}`;
 
@@ -962,8 +1026,39 @@ async function checkSiteAlert(tabId: number, url: string | undefined): Promise<b
   if ((await quickStatus()).state !== "ready" || ((await snoozedUntil())[site] ?? 0) > Date.now()) return false;
   const alerts = await call<SiteAlert[]>("site_alerts", { url }).catch(() => null);
   if (!Array.isArray(alerts) || alerts.length === 0) return false;
-  tabAlerts.set(tabId, { host: new URL(url).hostname, url, alerts });
+  tabAlerts.set(tabId, { kind: "breach", host: new URL(url).hostname, url, alerts });
   return true;
+}
+
+/** The one-time password QR code on the tab's page (a site's two-factor
+ * setup): a picture of the visible page goes to the app, which reads it in
+ * memory. */
+async function scanTabQr(windowId: number): Promise<ScannedCode | null> {
+  const image = await chrome.tabs.captureVisibleTab(windowId, { format: "png" }).catch(() => null);
+  if (!image) return null;
+  return call<ScannedCode>("scan_qr_image", { image }).catch(() => null);
+}
+
+/** Where a password was pasted, to clear it if the user wants. */
+const pastedIn = new Map<number, number>();
+/** The only website that may ever ask for the Secret Key. */
+const KEYLESS_ORIGIN = "https://keyless.diegoalves.dev";
+
+/** Shows a warning at the top of the tab (see content.ts). */
+function showAlert(tabId: number, view: AlertView) {
+  tabAlerts.set(tabId, view);
+  chrome.tabs.sendMessage(tabId, { type: "keyless-alert" }, { frameId: 0 }).catch(() => undefined);
+}
+
+/** A password pasted into a field of the page: another site's? */
+async function checkPaste(tabId: number, frameId: number, url: string, password: string) {
+  if (!(await loadSettings()).pasteWarnings || (await quickStatus()).state !== "ready") return;
+  const owner = await call<{ matched: boolean; logins: PastedLogin[] }>("password_owner", { url, password }).catch(() => null);
+  if (!owner || owner.matched || owner.logins.length === 0) return;
+  pastedIn.set(tabId, frameId);
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  const page = isWebPage(tab?.url) ? tab.url : url;
+  showAlert(tabId, { kind: "paste", host: new URL(page).hostname, url: page, logins: owner.logins });
 }
 
 /** The website's page to change a password, or its home page when it has
@@ -981,6 +1076,22 @@ async function changePasswordUrl(url: string): Promise<string> {
 }
 
 async function saveState(tabId: number, url: string | undefined): Promise<SaveState | null> {
+  const form = await getFormCapture(tabId);
+  if (form && (await sameSites(form.url, url)) && !(await getCapture(tabId))?.ready) {
+    const locked = (await quickStatus()).state !== "ready";
+    return {
+      form: { kind: form.kind, summary: formSummary(form) },
+      locked,
+      url: form.url,
+      host: new URL(form.url).hostname.replace(/^www\./, ""),
+      username: "",
+      generated: false,
+      title: "",
+      state: "new",
+      candidates: [],
+      vaults: locked ? [] : await call<Vault[]>("vaults").catch(() => []),
+    };
+  }
   const capture = await getCapture(tabId);
   if (!capture || !capture.ready || !(await sameSite(capture, url))) return null;
   const locked = (await quickStatus()).state !== "ready";
@@ -1006,7 +1117,7 @@ async function saveState(tabId: number, url: string | undefined): Promise<SaveSt
 }
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  void chrome.storage.session.remove([captureKey(tabId), usernameKey(tabId), suggestionKey(tabId)]).catch(() => undefined);
+  void chrome.storage.session.remove([captureKey(tabId), formCaptureKey(tabId), usernameKey(tabId), suggestionKey(tabId)]).catch(() => undefined);
 });
 
 // ----- The browser's own password manager ------------------------------------------
@@ -1434,14 +1545,36 @@ async function handlePopup(message: any): Promise<Reply> {
         // A sign-in form from another site inside this page.
         return { ok: false, error: "cross_site_frame" };
       }
-      await fillTab(tab.id, frame?.url ?? tab.url, id, { anySite: Boolean(message.anySite), frameId: frame?.frameId ?? 0, submit: true });
+      const target = frame?.url ?? tab.url;
+      // A page without encryption: anyone on the network sees what is sent.
+      if (!isSecurePage(target) && message.insecureConfirmed !== true) return { ok: false, error: "insecure_confirm" };
+      await fillTab(tab.id, target, id, { anySite: Boolean(message.anySite), frameId: frame?.frameId ?? 0, submit: true });
+      // Asked for with the other site's warning: the login gets this site.
+      if (message.anySite && message.addSite === true) await call("add_site", { id, url: tab.url }).catch(() => undefined);
       return { ok: true };
     }
     case "copy":
       return { ok: true, data: await call("copy", { id: String(message.id), field: String(message.field) }) };
+    case "scan_page_qr": {
+      // The popup's "Read QR code on the page": the code, and the page's
+      // logins to keep it in.
+      const tab = await activeTab();
+      if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
+      const code = await scanTabQr(tab.windowId);
+      if (!code) return { ok: false, error: "qr_not_found" };
+      const logins = (await tabLogins({ ...tab, id: tab.id, url: tab.url })).filter((entry) => !entry.login.frame).map((entry) => entry.login);
+      return { ok: true, data: { ...code, logins } };
+    }
+    case "save_totp": {
+      const tab = await activeTab();
+      if (!tab?.id || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
+      await call("set_totp", { id: String(message.id ?? ""), url: tab.url, uri: String(message.uri ?? "") });
+      return { ok: true };
+    }
     case "settings": {
       const tab = await activeTab();
-      return { ok: true, data: { settings: await loadSettings(), site: siteKey(isWebPage(tab?.url) ? tab.url : null) } };
+      const vaults = await send<{ id: string; name: string }[]>("all_vaults", {}, native).catch(() => []);
+      return { ok: true, data: { settings: await loadSettings(), site: siteKey(isWebPage(tab?.url) ? tab.url : null), vaults } };
     }
     case "set_settings":
       return { ok: true, data: await updateSettings(message.settings) };
@@ -1466,7 +1599,8 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
   const frameUrl = reg.frameId === 0 ? tab.url : reg.url;
   const url = isWebPage(frameUrl) ? frameUrl : null;
   // The "Save login?" prompt and the sign-in card are the page's only.
-  if (reg.frameId !== 0 && ["save_state", "save", "dismiss_save", "never_save", "site_alert", "site_alert_change", "site_alert_dismiss"].includes(message.type)) {
+  const topOnly = ["save_state", "save", "dismiss_save", "never_save", "site_alert", "site_alert_change", "site_alert_dismiss", "site_alert_clear", "site_alert_trust"];
+  if (reg.frameId !== 0 && topOnly.includes(message.type)) {
     return { ok: false, error: "forbidden" };
   }
   switch (message.type) {
@@ -1478,6 +1612,8 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       // Only the frame's own logins: a login saved for another site is filled
       // from the toolbar popup, which a page cannot cover or fake.
       if (!url) return { ok: false, error: "no_tab" };
+      // A page without encryption: the menu asks first.
+      if (!isSecurePage(url) && message.insecureConfirmed !== true) return { ok: false, error: "insecure_confirm" };
       await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), frameId: reg.frameId, code: message.code === true });
       return { ok: true };
     case "passkey_view":
@@ -1517,9 +1653,57 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       return { ok: true };
     }
     case "site_alert_dismiss": {
-      const site = siteKey(tabAlerts.get(tab.id)?.url);
+      const view = tabAlerts.get(tab.id);
+      const site = siteKey(view?.url);
       tabAlerts.delete(tab.id);
-      if (site && message.snooze === true) await snooze(site);
+      if (site && view?.kind === "breach" && message.snooze === true) await snooze(site);
+      return { ok: true };
+    }
+    case "scan_qr": {
+      const code = await scanTabQr(tab.windowId);
+      return code ? { ok: true, data: code } : { ok: false, error: "qr_not_found" };
+    }
+    case "ssh_keys":
+      return { ok: true, data: await call("ssh_public_keys") };
+    case "fill_ssh_key": {
+      // A public key, into the frame's box for one.
+      const keys = await call<{ id: string; title: string; publicKey: string }[]>("ssh_public_keys");
+      const key = keys.find((k) => k.id === message.id);
+      if (!key) return { ok: false, error: "not_found" };
+      await chrome.tabs.sendMessage(tab.id, { type: "keyless-fill-ssh", publicKey: key.publicKey, title: key.title }, { frameId: reg.frameId });
+      return { ok: true };
+    }
+    case "save_totp_fill": {
+      // Saved in the login, then its code filled into the field.
+      if (!url) return { ok: false, error: "no_tab" };
+      const id = String(message.id ?? "");
+      await call("set_totp", { id, url, uri: String(message.uri ?? "") });
+      await fillTab(tab.id, url, id, { frameId: reg.frameId, code: true });
+      return { ok: true };
+    }
+    case "site_alert_clear": {
+      // Takes back what was pasted, in the frame it went into.
+      const frameId = pastedIn.get(tab.id);
+      tabAlerts.delete(tab.id);
+      if (frameId !== undefined) await chrome.tabs.sendMessage(tab.id, { type: "keyless-clear-paste" }, { frameId }).catch(() => undefined);
+      return { ok: true };
+    }
+    case "site_alert_trust": {
+      // The page is the login's after all: it gets this website.
+      const view = tabAlerts.get(tab.id);
+      tabAlerts.delete(tab.id);
+      if (view?.kind !== "paste" || view.logins.length !== 1) return { ok: false, error: "expired" };
+      await call("add_site", { id: view.logins[0].itemId, url: view.url });
+      return { ok: true };
+    }
+    case "save_form": {
+      const form = await getFormCapture(tab.id);
+      if (!form || !(await sameSites(form.url, tab.url))) return { ok: false, error: "expired" };
+      const vaultId = typeof message.vaultId === "string" ? message.vaultId : undefined;
+      await call("save_form", { kind: form.kind, values: form.values, title: String(message.title ?? ""), vaultId });
+      await setFormCapture(tab.id, null);
+      formItems = null;
+      await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
       return { ok: true };
     }
     case "save": {
@@ -1547,6 +1731,12 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       const data = await call<{ kind: string }>("form_details", { id: String(message.id ?? "") });
       if (data.kind !== "card" && data.kind !== "identity") return { ok: false, error: "bad_request" };
       if (data.kind === "card" && !isSecurePage(url)) return { ok: false, error: "insecure_page" };
+      if (message.confirmed !== true) {
+        // Personal details on a page without encryption, or the user wants
+        // to be asked every time.
+        if (!isSecurePage(url)) return { ok: false, error: "insecure_confirm" };
+        if ((await loadSettings()).confirmFormFill) return { ok: false, error: "confirm_form" };
+      }
       // Also the frames a payment service holds the card's fields in.
       for (const target of await formTargets(tab.id, tab.url, { frameId: reg.frameId, url }, data.kind)) {
         const message = { type: "keyless-fill-form", ...data, origin: new URL(target.url).origin };
@@ -1556,15 +1746,19 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
     }
     case "dismiss_save":
       await setCapture(tab.id, null);
+      await setFormCapture(tab.id, null);
       return { ok: true };
     case "never_save": {
       // Never offered again on this site (removable in the popup's settings).
       const capture = await getCapture(tab.id);
-      const site = siteKey(capture?.url);
-      if (!capture || !site || !(await sameSite(capture, tab.url))) return { ok: false, error: "expired" };
+      const form = await getFormCapture(tab.id);
+      const site = siteKey(form?.url ?? capture?.url);
+      const current = form ? await sameSites(form.url, tab.url) : capture ? await sameSite(capture, tab.url) : false;
+      if (!site || !current) return { ok: false, error: "expired" };
       const settings = await loadSettings();
       await updateSettings({ neverSave: [...settings.neverSave, site] });
       await setCapture(tab.id, null);
+      await setFormCapture(tab.id, null);
       return { ok: true };
     }
     case "suggest": {
@@ -1692,6 +1886,17 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       await onCapture(sender.tab.id, sender.url, text(message.username).trim(), text(message.password), text(message.current), message.generated === true);
       return { ok: true };
     }
+    case "capture_form": {
+      // A payment or address form, sent: the page only, or a frame of its
+      // site (a card in a payment service's frame is not offered).
+      const settings = await loadSettings();
+      const site = siteKey(sender.url);
+      const kind = message.kind === "card" || message.kind === "identity" ? message.kind : null;
+      if (!kind || !settings.offerSave || !site || settings.neverSave.includes(site) || settings.hidden.includes(site)) return { ok: true };
+      if (sender.frameId !== 0 && !(await sameSites(sender.url, sender.tab.url))) return { ok: true };
+      if (message.values && typeof message.values === "object") await onFormCapture(sender.tab.id, sender.tab.url ?? sender.url, kind, message.values);
+      return { ok: true };
+    }
     case "capture_done":
       // The login form went away without leaving the page.
       await captureDone(sender.tab.id, sender.url);
@@ -1704,6 +1909,21 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       // The warning about a breach: the page only.
       if (sender.frameId !== 0) return { ok: true, data: false };
       return { ok: true, data: await checkSiteAlert(sender.tab.id, sender.url) };
+    case "paste_check":
+      // A password pasted in any frame of the page.
+      if (typeof message.password === "string" && message.password.length >= 4 && message.password.length <= 256) {
+        void checkPaste(sender.tab.id, sender.frameId ?? 0, sender.url, message.password);
+      }
+      return { ok: true };
+    case "secret_key_paste":
+      // Keyless never asks for the Secret Key on a website (but its own).
+      if (new URL(sender.url).origin !== KEYLESS_ORIGIN) {
+        pastedIn.set(sender.tab.id, sender.frameId ?? 0);
+        const tab = await chrome.tabs.get(sender.tab.id).catch(() => null);
+        const page = isWebPage(tab?.url) ? tab.url : sender.url;
+        showAlert(sender.tab.id, { kind: "secret_key", host: new URL(page).hostname, url: page });
+      }
+      return { ok: true };
     case "page_state": {
       const current = await quickStatus();
       const settings = await loadSettings();
@@ -1754,6 +1974,48 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// ----- Context menu ----------------------------------------------------------------
+//
+// On a page: open the Keyless menu at a field, save the login typed in its
+// form now, hide Keyless on the site, or lock.
+
+function createContextMenus() {
+  chrome.contextMenus?.removeAll(() => {
+    const pages = ["http://*/*", "https://*/*"];
+    type Context = `${chrome.contextMenus.ContextType}`;
+    const add = (id: string, title: string, contexts: [Context, ...Context[]]) =>
+      chrome.contextMenus.create({ id, title, contexts, documentUrlPatterns: pages }, () => void chrome.runtime.lastError);
+    add("keyless-menu", chrome.i18n.getMessage("ctxShowMenu"), ["editable"]);
+    add("keyless-save", chrome.i18n.getMessage("ctxSaveLogin"), ["editable"]);
+    add("keyless-hide", chrome.i18n.getMessage("ctxHide"), ["page", "editable", "frame"]);
+    add("keyless-lock", chrome.i18n.getMessage("ctxLock"), ["page", "editable", "frame"]);
+  });
+}
+chrome.runtime.onInstalled.addListener(createContextMenus);
+chrome.runtime.onStartup.addListener(createContextMenus);
+
+chrome.contextMenus?.onClicked.addListener(async (info, tab) => {
+  if (tab?.id === undefined || !isWebPage(tab.url)) return;
+  const frameId = info.frameId ?? 0;
+  switch (info.menuItemId) {
+    case "keyless-menu":
+    case "keyless-save":
+      await chrome.tabs.sendMessage(tab.id, { type: "keyless-context", action: info.menuItemId === "keyless-menu" ? "menu" : "save" }, { frameId }).catch(() => undefined);
+      break;
+    case "keyless-hide": {
+      // Shown again from the popup's settings.
+      const site = siteKey(tab.url);
+      const settings = await loadSettings();
+      if (site && !settings.hidden.includes(site)) await updateSettings({ hidden: [...settings.hidden, site] });
+      await chrome.tabs.sendMessage(tab.id, { type: "keyless-context", action: "hide" }).catch(() => undefined);
+      break;
+    }
+    case "keyless-lock":
+      await call("lock").catch(() => undefined);
+      break;
+  }
+});
+
 // Keyboard shortcuts: fill the best match into the current page, or only
 // its one-time code (copied when the page has no field for it yet).
 chrome.commands?.onCommand.addListener(async (command) => {
@@ -1767,6 +2029,8 @@ chrome.commands?.onCommand.addListener(async (command) => {
     // On a page asking only for the code, the login's code.
     const code = command === "fill-code" || entries[0]?.frame.code === true;
     const best = entries.find((entry) => !code || entry.login.totp);
+    // A page without encryption: the popup asks first.
+    if (best && !isSecurePage(best.frame.url)) return void chrome.action.openPopup?.().catch(() => undefined);
     if (best) await fillTab(tab.id, best.frame.url, best.login.id, { frameId: best.frame.frameId, code, submit: true });
   } catch {
     // Not connected or locked: the popup explains what to do.

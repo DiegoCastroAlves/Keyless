@@ -80,7 +80,7 @@ pub async fn check(app: &AppHandle, url: &str, username: &str, password: &str, c
         let vault = session.vaults.get(&item.vault_id).map(|v| v.meta.name.clone()).unwrap_or_default();
         candidates.push((
             (is_current, same_user),
-            json!({ "id": id, "title": o.title, "username": saved_user, "vault": vault, "sameUser": same_user, "current": is_current }),
+            json!({ "id": id, "title": o.title, "username": saved_user, "vault": vault, "vaultId": item.vault_id, "sameUser": same_user, "current": is_current }),
         ));
     }
     candidates.sort_by_key(|((is_current, same_user), _)| (!is_current, !same_user));
@@ -145,6 +145,18 @@ fn login_field(purpose: FieldPurpose, value: &str) -> Field {
     Field { id: new_field_id(), label: label.into(), kind, value: value.into(), purpose: Some(purpose), extra: Default::default() }
 }
 
+/// The vault a new item from the browser goes into: the one chosen, or the
+/// first the user can write to.
+pub(crate) async fn target_vault(app: &AppHandle, vault_id: Option<&str>) -> Result<String, &'static str> {
+    match vault_id {
+        Some(id) => Ok(id.to_string()),
+        None => {
+            let vaults = vaults(app).await?;
+            Ok(vaults.as_array().and_then(|list| list.first()).and_then(|v| v["id"].as_str()).ok_or("no_vault")?.to_string())
+        }
+    }
+}
+
 /// Saves a new login for the page.
 pub async fn save_new(
     app: &AppHandle,
@@ -155,13 +167,7 @@ pub async fn save_new(
     vault_id: Option<&str>,
 ) -> Result<Value, &'static str> {
     let state = app.state::<AppState>();
-    let vault_id = match vault_id {
-        Some(id) => id.to_string(),
-        None => {
-            let vaults = vaults(app).await?;
-            vaults[0]["id"].as_str().ok_or("no_vault")?.to_string()
-        }
-    };
+    let vault_id = target_vault(app, vault_id).await?;
     let title = match title.trim() {
         "" => suggested_title(&page_host(url)),
         title => title.to_string(),

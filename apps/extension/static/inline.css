@@ -665,3 +665,14 @@ button {
 .note.small.top {
   margin: -4px 2px 8px;
 }
+
+/* ----- Asking before filling ----- */
+
+.confirm {
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.confirm .note {
+  margin: 0 2px;
+}

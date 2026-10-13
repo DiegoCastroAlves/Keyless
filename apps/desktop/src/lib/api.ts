@@ -317,6 +317,8 @@ export interface ItemUrl {
   href: string;
   label?: string;
   fill?: UrlFill;
+  /** Filling it also signs in; unset follows the browser extension. */
+  submit?: boolean | null;
 }
 
 export interface FieldView {

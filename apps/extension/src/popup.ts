@@ -33,6 +33,7 @@ const icon = (paths: string, size = 16) =>
 const ICONS = {
   search: icon('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>', 15),
   key: icon('<circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M15 8l2 2"/>'),
+  qr: icon('<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/>'),
   plus: icon('<path d="M12 5v14M5 12h14"/>'),
   more: icon('<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>'),
   chevron: icon('<path d="m7 15 5 5 5-5M7 9l5-5 5 5"/>', 14),
@@ -608,26 +609,40 @@ async function defaultAction() {
   else toast(t("fillFailed"));
 }
 
-async function fill(login: Login) {
-  const reply = await send({ type: "fill", id: login.id });
+async function fill(login: Login, extra: Record<string, unknown> = {}) {
+  const request = { type: "fill", id: login.id, ...extra };
+  const reply = await send(request);
   if (reply.ok) window.close();
-  else if (reply.error === "cross_site_frame") confirmFill(t("frameWarning", login.frame ?? "", view.pageHost ?? ""), { type: "fill", id: login.id, frameConfirmed: true });
+  else if (reply.error === "cross_site_frame") confirmFill(t("frameWarning", login.frame ?? "", view.pageHost ?? ""), { ...request, frameConfirmed: true });
+  else if (reply.error === "insecure_confirm") confirmFill(t("insecureFillWarning", view.pageHost ?? ""), { ...request, insecureConfirmed: true });
   else toast(t("fillFailed"));
 }
 
-/** A dialog over the details: fill only after the user confirms. */
-function confirmFill(text: string, request: Record<string, unknown>) {
+/** A dialog over the details: fill only after the user confirms. `also`:
+ * a second way to go on (fill and add this website to the login). */
+function confirmFill(text: string, request: Record<string, unknown>, also?: { label: string; request: Record<string, unknown> }) {
   const fillButton = el("button", { className: "primary", type: "button", textContent: t("fillAnyway") });
   const cancel = el("button", { className: "secondary", type: "button", textContent: t("cancel") });
-  const dialog = el("div", { className: "dialog-backdrop" }, el("div", { className: "dialog", role: "alertdialog" }, el("p", { textContent: text }), el("div", { className: "dialog-actions" }, cancel, fillButton)));
-  fillButton.addEventListener("click", async () => {
-    const reply = await send(request);
+  const actions = el("div", { className: "dialog-actions" }, cancel);
+  const dialog = el("div", { className: "dialog-backdrop" }, el("div", { className: "dialog", role: "alertdialog" }, el("p", { textContent: text }), actions));
+  const run = async (next: Record<string, unknown>) => {
+    const reply = await send(next);
     if (reply.ok) window.close();
-    else {
+    else if (reply.error === "insecure_confirm") {
+      dialog.remove();
+      confirmFill(t("insecureFillWarning", view.pageHost ?? ""), { ...next, insecureConfirmed: true });
+    } else {
       dialog.remove();
       toast(t("fillFailed"));
     }
-  });
+  };
+  if (also) {
+    const alsoButton = el("button", { className: "secondary", type: "button", textContent: also.label });
+    alsoButton.addEventListener("click", () => void run(also.request));
+    actions.append(alsoButton);
+  }
+  actions.append(fillButton);
+  fillButton.addEventListener("click", () => void run(request));
   cancel.addEventListener("click", () => {
     dialog.remove();
     searchInput.focus();
@@ -649,7 +664,12 @@ function showItemMenu(anchor: HTMLElement, login: Login, details: Details) {
     entries.push({
       label: t("fill"),
       icon: ICONS.login,
-      run: () => confirmFill(t("otherSiteWarning", login.title, hostOf(details.urls[0]?.href ?? login.url), view.pageHost ?? ""), { type: "fill", id: login.id, anySite: true }),
+      run: () =>
+        confirmFill(
+          t("otherSiteWarning", login.title, hostOf(details.urls[0]?.href ?? login.url), view.pageHost ?? ""),
+          { type: "fill", id: login.id, anySite: true },
+          { label: t("fillAndAddSite"), request: { type: "fill", id: login.id, anySite: true, addSite: true } },
+        ),
     });
   }
   entries.push("divider");
@@ -679,11 +699,41 @@ function showMainMenu(anchor: HTMLElement) {
   entries.push(
     { label: t("openApp"), icon: ICONS.app, run: () => void send({ type: "open_app" }).then(() => window.close()) },
     { label: t("generator"), icon: ICONS.key, hint: "Ctrl G", run: () => toggleGenerator(true) },
+    ...(view.pageHost ? [{ label: t("scanPageQr"), icon: ICONS.qr, run: () => void scanPageQr() }] : []),
     { label: t("extensionSettings"), icon: ICONS.gear, run: () => void renderSettings() },
     "divider",
     { label: t("lockKeyless"), icon: ICONS.lock, hint: "Ctrl Shift L", run: () => void lock() },
   );
   showMenu(anchor, entries);
+}
+
+/** Reads the page's one-time password QR code (a site's two-factor setup)
+ * and keeps it in one of the page's logins. */
+async function scanPageQr() {
+  const reply = await send<{ uri: string; issuer: string | null; account: string | null; logins: Login[] }>({ type: "scan_page_qr" });
+  if (!reply.ok || !reply.data) return toast(t("qrNotFound"));
+  const { uri, issuer, account, logins } = reply.data;
+  const label = [issuer, account].filter(Boolean).join(" · ");
+  const list = el("div", { className: "dialog-list" });
+  const dialog = el(
+    "div",
+    { className: "dialog-backdrop" },
+    el("div", { className: "dialog", role: "dialog" }, el("p", { textContent: logins.length ? t("qrFoundChoose", label) : t("qrFoundNoLogin", label) }), list),
+  );
+  const close = () => dialog.remove();
+  for (const login of logins) {
+    const row = el("button", { className: "secondary", type: "button", textContent: login.username ? `${login.title} · ${login.username}` : login.title });
+    row.addEventListener("click", async () => {
+      const saved = await send({ type: "save_totp", id: login.id, uri });
+      close();
+      toast(saved.ok ? t("codeSaved", login.title) : t("errorTitle"));
+    });
+    list.append(row);
+  }
+  const cancel = el("button", { className: "secondary", type: "button", textContent: t("cancel") });
+  cancel.addEventListener("click", close);
+  list.append(cancel);
+  document.body.append(dialog);
 }
 
 async function lock() {
@@ -889,10 +939,10 @@ document.addEventListener("keydown", (e) => {
 // ----- Extension settings ---------------------------------------------------------------
 
 async function renderSettings() {
-  const reply = await send<{ settings: Settings; site: string | null }>({ type: "settings" });
+  const reply = await send<{ settings: Settings; site: string | null; vaults: { id: string; name: string }[] }>({ type: "settings" });
   if (!reply.ok || !reply.data) return toast(t("errorTitle"));
   let { settings } = reply.data;
-  const { site } = reply.data;
+  const { site, vaults } = reply.data;
   const save = async (patch: Partial<Settings>) => {
     const saved = await send<Settings>({ type: "set_settings", settings: patch });
     if (saved.ok && saved.data) settings = saved.data;
@@ -937,8 +987,28 @@ async function renderSettings() {
       toggle(t("setCopyTotp"), settings.copyTotp, (value) => save({ copyTotp: value })),
       toggle(t("setPasskeys"), settings.passkeys, (value) => save({ passkeys: value })),
       toggle(t("setBreachWarnings"), settings.breachWarnings, (value) => save({ breachWarnings: value })),
+      toggle(t("setConfirmFormFill"), settings.confirmFormFill, (value) => save({ confirmFormFill: value })),
+      toggle(t("setPasteWarnings"), settings.pasteWarnings, (value) => save({ pasteWarnings: value })),
     ),
   );
+
+  // Which vaults this browser fills from (a work browser, say, only the
+  // work vault). None ticked would be all: the last one stays ticked.
+  if (vaults.length > 1) {
+    const chosen = () => (settings.vaults.length ? settings.vaults.filter((id) => vaults.some((v) => v.id === id)) : vaults.map((v) => v.id));
+    body.append(
+      group(
+        t("vaultsInBrowser"),
+        ...vaults.map((vault) =>
+          toggle(vault.name, chosen().includes(vault.id), async (on) => {
+            const next = on ? [...chosen(), vault.id] : chosen().filter((id) => id !== vault.id);
+            if (next.length === 0) return void renderSettings();
+            await save({ vaults: next.length === vaults.length ? [] : next });
+          }),
+        ),
+      ),
+    );
+  }
 
   // The browser's own password manager. Changed by the background script:
   // the browser's permission prompt closes the popup.

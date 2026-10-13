@@ -18,10 +18,13 @@ const base = {
   default_locale: "en",
   icons: { 16: "icons/icon-16.png", 32: "icons/icon-32.png", 48: "icons/icon-48.png", 128: "icons/icon-128.png" },
   action: { default_popup: "popup.html", default_icon: { 16: "icons/icon-16.png", 32: "icons/icon-32.png" } },
-  permissions: ["nativeMessaging", "tabs", "storage"],
+  permissions: ["nativeMessaging", "tabs", "storage", "contextMenus"],
   // Asked only if the user turns off the browser's own password manager.
   optional_permissions: ["privacy"],
-  host_permissions: ["http://*/*", "https://*/*"],
+  // Every web page (the content scripts run in http and https pages only);
+  // "<all_urls>" also lets the extension take a picture of the visible page,
+  // to read a two-factor setup QR code (see background.ts, scanTabQr).
+  host_permissions: ["<all_urls>"],
   content_scripts: [
     // Also in frames inside pages, for login forms there (see src/content.ts).
     { matches: ["http://*/*", "https://*/*"], js: ["content.js"], run_at: "document_idle", all_frames: true },
@@ -34,6 +37,8 @@ const base = {
   // The Keyless menus shown inside pages (see src/inline.ts).
   web_accessible_resources: [{ resources: ["inline.html"], matches: ["http://*/*", "https://*/*"] }],
   commands: {
+    // Opens the popup.
+    _execute_action: { suggested_key: { default: "Ctrl+Shift+Period", mac: "Command+Shift+Period" } },
     "fill-login": { suggested_key: { default: "Ctrl+Shift+L", mac: "Command+Shift+L" }, description: "__MSG_commandFill__" },
     // No key of its own by default (set one in the browser's shortcuts page).
     "fill-code": { description: "__MSG_commandFillCode__" },

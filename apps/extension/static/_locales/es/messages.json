@@ -653,5 +653,133 @@
   },
   "setBreachWarnings": {
     "message": "Avisarme en los sitios con una contraseña filtrada"
+  },
+  "insecureFillWarning": {
+    "message": "$HOST$ no cifra la conexión (http): cualquiera en la red puede ver lo que se envía. ¿Rellenar de todos modos?",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "confirmFormFill": {
+    "message": "¿Rellenar $TITLE$ en $HOST$?",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      },
+      "host": {
+        "content": "$2"
+      }
+    }
+  },
+  "fillAndAddSite": {
+    "message": "Rellenar y añadir este sitio"
+  },
+  "setConfirmFormFill": {
+    "message": "Preguntar antes de rellenar tarjetas y datos personales"
+  },
+  "ctxShowMenu": {
+    "message": "Menú de Keyless"
+  },
+  "ctxSaveLogin": {
+    "message": "Guardar este inicio de sesión en Keyless"
+  },
+  "ctxHide": {
+    "message": "Ocultar Keyless en este sitio"
+  },
+  "ctxLock": {
+    "message": "Bloquear Keyless"
+  },
+  "vaultsInBrowser": {
+    "message": "Bóvedas usadas en este navegador"
+  },
+  "pasteTitle": {
+    "message": "¿Es este el sitio correcto?"
+  },
+  "pasteBody": {
+    "message": "Pegaste la contraseña de tu inicio de sesión de $SITES$, pero aquí es $HOST$. Si esta página solo se parece a ese sitio, puede estar intentando robar la contraseña.",
+    "placeholders": {
+      "sites": {
+        "content": "$1"
+      },
+      "host": {
+        "content": "$2"
+      }
+    }
+  },
+  "pasteClear": {
+    "message": "Deshacer"
+  },
+  "pasteTrust": {
+    "message": "Este sitio es del inicio de sesión: añadirlo"
+  },
+  "secretKeyTitle": {
+    "message": "Nunca pegues aquí tu Clave secreta"
+  },
+  "secretKeyBody": {
+    "message": "Pegaste tu Clave secreta de Keyless en $HOST$. Keyless nunca la pide en un sitio web: junto con la contraseña maestra, abre tu cuenta.",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "setPasteWarnings": {
+    "message": "Avisarme cuando pegue una contraseña en otro sitio"
+  },
+  "scanQr": {
+    "message": "Leer el código QR de esta página"
+  },
+  "scanQrHint": {
+    "message": "Guarda el código en el inicio de sesión y lo rellena"
+  },
+  "qrNotFound": {
+    "message": "No hay ningún código QR de contraseña de un solo uso visible en la página."
+  },
+  "saveCodeIn": {
+    "message": "Guardar el código en"
+  },
+  "scanPageQr": {
+    "message": "Leer código QR de la página"
+  },
+  "qrFoundChoose": {
+    "message": "Se encontró una contraseña de un solo uso ($LABEL$). ¿En qué inicio de sesión guardarla?",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "qrFoundNoLogin": {
+    "message": "Se encontró una contraseña de un solo uso ($LABEL$), pero este sitio aún no tiene inicio de sesión en Keyless. Guarda primero el inicio de sesión.",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      }
+    }
+  },
+  "codeSaved": {
+    "message": "Código guardado en $TITLE$",
+    "placeholders": {
+      "title": {
+        "content": "$1"
+      }
+    }
+  },
+  "sshKeys": {
+    "message": "Claves SSH"
+  },
+  "noSshKeys": {
+    "message": "Aún no hay claves SSH en Keyless."
+  },
+  "saveCard": {
+    "message": "¿Guardar tarjeta?"
+  },
+  "saveIdentity": {
+    "message": "¿Guardar estos datos?"
+  },
+  "titleOptional": {
+    "message": "Nombre (opcional)"
   }
 }

@@ -539,6 +539,12 @@ const en = {
     notesMarkdownHint: "Notes accept Markdown: **bold**, *italic*, lists, [links](https://…) and ![images](attached file name).",
     questionPlaceholder: "Question",
     usernameSuggestions: "Usernames you use",
+    submitRule: "Sign in after filling",
+    submit: {
+      default: "As the extension is set",
+      always: "Always",
+      never: "Never",
+    },
   },
   fieldKinds: {
     text: "Text",
