@@ -16,6 +16,7 @@
 //!   after comparing a code. Other programs that reach the socket can neither
 //!   read nor forge requests.
 
+pub mod api_keys;
 pub mod crypto;
 pub mod forms;
 pub mod passkeys;

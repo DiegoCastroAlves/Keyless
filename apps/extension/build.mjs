@@ -51,13 +51,16 @@ const targets = {
     ...base,
     key: CHROME_KEY,
     minimum_chrome_version: "133",
-    // Site icons from the browser's own cache, for the login lists.
-    permissions: [...base.permissions, "favicon"],
+    // Site icons from the browser's own cache, for the login lists; the
+    // websites' own sign-in dialogs (see background.ts).
+    permissions: [...base.permissions, "favicon", "webRequest", "webRequestAuthProvider"],
     background: { service_worker: "background.js" },
   },
   firefox: {
     ...base,
     background: { scripts: ["background.js"] },
+    // The websites' own sign-in dialogs (see background.ts).
+    permissions: [...base.permissions, "webRequest", "webRequestBlocking"],
     browser_specific_settings: { gecko: { id: FIREFOX_ID, strict_min_version: "130.0" } },
   },
 };
@@ -73,10 +76,11 @@ for (const [name, manifest] of Object.entries(targets)) {
       popup: "src/popup.ts",
       inline: "src/inline.ts",
       passkey: "src/passkey.ts",
+      auth: "src/auth.ts",
       webauthn: "src/webauthn.ts",
       "webauthn-page": "src/webauthn-page.ts",
     },
-    define: { __FAVICONS__: String(name === "chrome") },
+    define: { __FAVICONS__: String(name === "chrome"), __FIREFOX__: String(name === "firefox") },
     bundle: true,
     format: "iife",
     target: name === "chrome" ? "chrome133" : "firefox130",

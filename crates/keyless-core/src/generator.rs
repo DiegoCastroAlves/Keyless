@@ -345,7 +345,9 @@ mod tests {
             }
 
             let mixed = generate(&options(MemorableStyle::Words, SeparatorStyle::DigitsSymbols)).unwrap();
-            assert_eq!(mixed.password.chars().filter(|c| !c.is_ascii_lowercase()).count(), 3);
+            // A few words have a hyphen of their own ("t-shirt").
+            let hyphens: usize = wordlist().iter().filter(|w| w.contains('-')).map(|w| mixed.password.matches(w).count()).sum();
+            assert_eq!(mixed.password.chars().filter(|c| !c.is_ascii_lowercase()).count(), 3 + hyphens, "{}", mixed.password.as_str());
         }
         // Random separators add to the strength; fixed ones do not.
         let fixed = generate(&options(MemorableStyle::Words, SeparatorStyle::Fixed)).unwrap().entropy_bits;

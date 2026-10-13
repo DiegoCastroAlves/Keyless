@@ -9,7 +9,7 @@
 use keyless_core::{
     generator::{GeneratorOptions, generate},
     password_rules,
-    item::{Category, Field, FieldKind, FieldPurpose, ItemUrl, new_field_id},
+    item::{Category, Field, FieldExtra, FieldKind, FieldPurpose, ItemUrl, new_field_id},
 };
 use serde_json::{Value, json};
 use tauri::{AppHandle, Emitter, Manager};
@@ -155,6 +155,66 @@ pub(crate) async fn target_vault(app: &AppHandle, vault_id: Option<&str>) -> Res
             Ok(vaults.as_array().and_then(|list| list.first()).and_then(|v| v["id"].as_str()).ok_or("no_vault")?.to_string())
         }
     }
+}
+
+/// Providers a login can sign in through (the desktop's list).
+const PROVIDERS: [&str; 12] = ["google", "apple", "microsoft", "github", "facebook", "x", "amazon", "discord", "slack", "linkedin", "gitlab", "okta"];
+
+/// Saves a login for the page that signs in through `provider`, unless the
+/// page has one already. `account`: the provider's login the user signed
+/// in with, when the extension knows it.
+pub async fn save_sign_in_with(
+    app: &AppHandle,
+    url: &str,
+    provider: &str,
+    title: &str,
+    account: Option<&str>,
+    vault_id: Option<&str>,
+) -> Result<Value, &'static str> {
+    if !PROVIDERS.contains(&provider) {
+        return Err("bad_request");
+    }
+    let page = Page::parse(url).ok_or("bad_request")?;
+    let link = {
+        let state = app.state::<AppState>();
+        let guard = state.session.lock().await;
+        let session = guard.as_ref().ok_or("locked")?;
+        // Only a login the user has (not in the trash).
+        let link = account
+            .and_then(|id| session.items.get(id).filter(|i| i.overview.category == Category::Login && i.overview.trashed_at.is_none()).map(|_| id.to_string()))
+            .unwrap_or_default();
+        for (id, item) in &session.items {
+            if item.overview.trashed_at.is_some() || !item.overview.urls.iter().any(|u| match_score(&page, u) > 0) {
+                continue;
+            }
+            let Ok((_, details)) = items::load_details(&state, session, id) else { continue };
+            if details.all_fields().any(|f| f.kind == FieldKind::SignInWith && f.value == provider) {
+                return Ok(json!({ "id": id, "existed": true }));
+            }
+        }
+        link
+    };
+    let vault_id = target_vault(app, vault_id).await?;
+    let draft = ItemDraft {
+        vault_id,
+        title: match title.trim() {
+            "" => suggested_title(&page_host(url)),
+            title => title.to_string(),
+        },
+        category: Category::Login,
+        urls: vec![ItemUrl { href: origin(url)?, ..Default::default() }],
+        fields: vec![Field {
+            id: new_field_id(),
+            label: "sign in with".into(),
+            kind: FieldKind::SignInWith,
+            value: provider.to_string(),
+            purpose: None,
+            extra: FieldExtra { link, ..Default::default() },
+        }],
+        ..Default::default()
+    };
+    let summary = items::save_item(app, draft).await.map_err(|_| "error")?;
+    Ok(json!({ "id": summary.id }))
 }
 
 /// Saves a new login for the page.

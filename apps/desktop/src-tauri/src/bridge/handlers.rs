@@ -246,6 +246,29 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?.to_string();
             super::forms::details(app, &id).await
         }
+        "save_sign_in_with" => {
+            // A site the user signed in to through a provider ("Sign in
+            // with Google"): a login that says so.
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let provider = args.get("provider").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let title = args.get("title").and_then(Value::as_str).unwrap_or("").to_string();
+            let account = args.get("account").and_then(Value::as_str).filter(|a| !a.is_empty()).map(str::to_string);
+            let vault = args.get("vaultId").and_then(Value::as_str).map(str::to_string);
+            super::logins::save_sign_in_with(app, &url, &provider, &title, account.as_deref(), vault.as_deref()).await
+        }
+        "check_secret" => {
+            // Text the user copied on a page: an API key worth saving?
+            let text = args.get("text").and_then(Value::as_str).ok_or("bad_request")?;
+            Ok(super::api_keys::check(app, text).await)
+        }
+        "save_secret" => {
+            let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let text = args.get("text").and_then(Value::as_str).ok_or("bad_request")?.to_string();
+            let title = args.get("title").and_then(Value::as_str).unwrap_or("").to_string();
+            let label = args.get("label").and_then(Value::as_str).unwrap_or("").to_string();
+            let vault = args.get("vaultId").and_then(Value::as_str).map(str::to_string);
+            super::api_keys::save(app, &url, &text, &title, &label, vault.as_deref()).await
+        }
         "check_form" => {
             let kind = args.get("kind").and_then(Value::as_str).ok_or("bad_request")?.to_string();
             let values = args.get("values").cloned().ok_or("bad_request")?;
@@ -583,6 +606,19 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, limit: usize) 
     for login in logins.iter_mut().take(MAX_RESULTS) {
         if let Some(icon) = login["url"].as_str().and_then(|url| icons.get(url)) {
             login["icon"] = json!(icon);
+        }
+    }
+    // Logins that sign in through another provider ("Sign in with
+    // Google"): which provider, and the account there (the first ones only,
+    // as for icons).
+    for login in logins.iter_mut().take(MAX_RESULTS) {
+        let Some(id) = login["id"].as_str().map(str::to_string) else { continue };
+        let Ok((_, details)) = crate::items::load_details(&state, session, &id) else { continue };
+        let Some(field) = details.all_fields().find(|f| f.kind == FieldKind::SignInWith && !f.value.is_empty()) else { continue };
+        login["signInWith"] = json!(field.value);
+        let account = session.items.get(&field.extra.link).map(|linked| linked.overview.subtitle.clone()).unwrap_or_default();
+        if !account.is_empty() {
+            login["providerAccount"] = json!(account);
         }
     }
     Ok(Value::Array(logins))

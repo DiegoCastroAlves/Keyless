@@ -781,5 +781,83 @@
   },
   "titleOptional": {
     "message": "Nombre (opcional)"
+  },
+  "authTitle": {
+    "message": "Iniciar sesión en $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "authRealm": {
+    "message": "El sitio dice: “$REALM$”",
+    "placeholders": {
+      "realm": {
+        "content": "$1"
+      }
+    }
+  },
+  "authHint": {
+    "message": "Elige un inicio de sesión para la ventana de acceso del sitio."
+  },
+  "authLocked": {
+    "message": "Desbloquea Keyless para usar un inicio de sesión guardado."
+  },
+  "authBrowser": {
+    "message": "Usar la ventana del navegador"
+  },
+  "signInWith": {
+    "message": "Iniciar sesión con $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "signInWithAccount": {
+    "message": "$PROVIDER$ · $ACCOUNT$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "signInWithMissing": {
+    "message": "Esta página no tiene botón para iniciar sesión con $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveSignInWith": {
+    "message": "¿Guardar el inicio de sesión con $PROVIDER$?",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveApiKey": {
+    "message": "¿Guardar la clave de API?"
+  },
+  "secretKind_token": {
+    "message": "token"
+  },
+  "secretKind_key": {
+    "message": "clave"
+  },
+  "secretKind_secret": {
+    "message": "secreto"
+  },
+  "secretKind_webhook": {
+    "message": "webhook"
+  },
+  "secretKind_webhook_secret": {
+    "message": "secreto de webhook"
   }
 }

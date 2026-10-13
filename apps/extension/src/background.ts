@@ -17,6 +17,7 @@
 // user itself (the system's password prompt or its own small window).
 
 import { channelKey, equalBytes, fromBase64, identity, kvGet, kvSet, open, pairingCode, seal, toBase64 } from "./crypto";
+import { isProviderPage, PROVIDERS, providerName } from "./providers";
 import { loadSettings, siteKey, updateSettings } from "./settings";
 import type {
   AlertView,
@@ -360,6 +361,7 @@ async function fillTab(
 ): Promise<void> {
   const settings = await loadSettings();
   const credentials = await call<Credentials>("credentials", { id, url, anySite: Boolean(options.anySite) });
+  void providerFilled(tabId, url, id).catch(() => undefined);
   // The item's website can say otherwise than the setting.
   const signsIn = credentials.submit ?? settings.autoSubmit;
   const submit = Boolean(options.submit) && signsIn;
@@ -553,12 +555,27 @@ function tabLoaded(tabId: number, timeoutMs: number): Promise<boolean> {
  * or when the tab leaves for something that is not a web page. */
 async function fillWhenReady(tabId: number, id: string): Promise<void> {
   if (!(await tabLoaded(tabId, 20_000))) return;
+  let followed = false;
   for (let attempt = 0; attempt < 16; attempt++) {
+    // A home page without the sign-in form: once, its "Sign in" link (the
+    // login is still checked against wherever it leads).
+    if (attempt === 4 && !followed && (await loginFrames(tabId)).length === 0) {
+      followed = (await chrome.tabs.sendMessage(tabId, { type: "keyless-find-signin" }, { frameId: 0 }).catch(() => false)) === true;
+      if (followed) {
+        await tabLoaded(tabId, 20_000);
+        attempt = 0;
+      }
+    }
     const tab = await chrome.tabs.get(tabId).catch(() => undefined);
     if (tab?.id === undefined) return;
     if (isWebPage(tab.url)) {
-      // Only once a frame reported a sign-in form (see content.ts).
-      if ((await loginFrames(tab.id)).length > 0) {
+      // A login that signs in through a provider: its button, once the page
+      // shows it.
+      const login = (await call<Login[]>("match", { url: tab.url }).catch(() => [])).find((l) => l.id === id);
+      if (login?.signInWith) {
+        if ((await signInWith(tab.id, tab.url, id)).ok) return;
+      } else if ((await loginFrames(tab.id)).length > 0) {
+        // Only once a frame reported a sign-in form (see content.ts).
         const frame = await fillTarget({ ...tab, id: tab.id, url: tab.url }, id).catch(() => null);
         // Not for this login here (the site sent the tab somewhere else), or
         // a frame of another site inside the page, which needs the user's
@@ -764,9 +781,11 @@ const USERNAME_TTL_MS = 2 * 60_000;
 const captureKey = (tabId: number) => `capture:${tabId}`;
 const formCaptureKey = (tabId: number) => `formCapture:${tabId}`;
 
-/** A card or an identity typed in a form the user sent. */
+/** A card or an identity typed in a form the user sent, a site the user
+ * signed in to through a provider (`values.provider`), or an API key the
+ * user copied (`values.key`). */
 interface FormCapture {
-  kind: "card" | "identity";
+  kind: "card" | "identity" | "sign_in_with" | "api_key";
   url: string;
   values: Record<string, string>;
   at: number;
@@ -785,6 +804,8 @@ async function setFormCapture(tabId: number, capture: FormCapture | null): Promi
 /** What a card or identity prompt shows: the card's end, or who it is. */
 function formSummary(capture: FormCapture): string {
   const v = capture.values;
+  if (capture.kind === "sign_in_with") return [providerName(v.provider ?? ""), v.accountName].filter(Boolean).join(" · ");
+  if (capture.kind === "api_key") return [v.label, maskedKey(v.key ?? "")].filter(Boolean).join(" · ");
   if (capture.kind === "card") {
     const digits = (v.number ?? "").replace(/\D/g, "");
     return [`•••• ${digits.slice(-4)}`, v.holder].filter(Boolean).join(" · ");
@@ -802,6 +823,28 @@ async function onFormCapture(tabId: number, url: string, kind: "card" | "identit
     if (!check || check.exists) return;
   }
   await setFormCapture(tabId, { kind, url, values: clean, at: Date.now() });
+  chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
+}
+/** Enough of a key to recognize it: its start and its end. */
+function maskedKey(key: string): string {
+  return `${key.slice(0, Math.min(8, Math.floor(key.length / 3)))}…${key.slice(-3)}`;
+}
+
+/** What Keyless calls a kind of secret ("Stripe key"). */
+function secretLabel(service: string, kind: string): string {
+  const word = chrome.i18n.getMessage(`secretKind_${kind}`) || chrome.i18n.getMessage("secretKind_key");
+  return service ? `${service} ${word}` : word;
+}
+
+/** The user copied a word that may be an API key: offered to be saved, if
+ * its format is a service's and Keyless does not have it. */
+async function onCopied(tabId: number, url: string, text: string) {
+  const settings = await loadSettings();
+  const site = siteKey(url);
+  if (!settings.offerSave || !site || settings.neverSave.includes(site) || settings.hidden.includes(site) || !isWebPage(url)) return;
+  const found = await call<{ format: string; service: string; kind: string; exists: boolean } | null>("check_secret", { text }).catch(() => null);
+  if (!found || found.exists) return;
+  await setFormCapture(tabId, { kind: "api_key", url, values: { key: text.trim(), label: secretLabel(found.service, found.kind) }, at: Date.now() });
   chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
 }
 const usernameKey = (tabId: number) => `username:${tabId}`;
@@ -972,6 +1015,7 @@ async function captureDone(tabId: number, url: string): Promise<void> {
 
 /** A page loaded in the tab: whether it shows the prompt. */
 async function savePending(tabId: number, url: string, loginForm: boolean): Promise<boolean> {
+  if (await providerReturn(tabId, url)) return true;
   const capture = await getCapture(tabId);
   if (!capture || !(await sameSite(capture, url))) return false;
   if (capture.deferred) return capture.url !== url;
@@ -1080,7 +1124,7 @@ async function saveState(tabId: number, url: string | undefined): Promise<SaveSt
   if (form && (await sameSites(form.url, url)) && !(await getCapture(tabId))?.ready) {
     const locked = (await quickStatus()).state !== "ready";
     return {
-      form: { kind: form.kind, summary: formSummary(form) },
+      form: { kind: form.kind, summary: formSummary(form), provider: form.kind === "sign_in_with" ? providerName(form.values.provider ?? "") : undefined },
       locked,
       url: form.url,
       host: new URL(form.url).hostname.replace(/^www\./, ""),
@@ -1118,6 +1162,148 @@ async function saveState(tabId: number, url: string | undefined): Promise<SaveSt
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   void chrome.storage.session.remove([captureKey(tabId), formCaptureKey(tabId), usernameKey(tabId), suggestionKey(tabId)]).catch(() => undefined);
+});
+
+// ----- "Sign in with …" -----------------------------------------------------------
+//
+// A login that signs in through a provider ("Sign in with Google") is
+// filled by pressing the page's button for it; on the provider's pages that
+// follow, in the tab or in a window the page opened, the account the login
+// names is picked. A provider button the user presses on a site with no
+// such login is remembered, and once the user is back on the site, Keyless
+// offers to save one.
+
+/** How long the provider's pages have to show up. */
+const PROVIDER_TTL_MS = 3 * 60_000;
+/** How long after pressing a provider button saving is offered. */
+const PROVIDER_SAVE_TTL_MS = 10 * 60_000;
+const providerFlowKey = (tabId: number) => `providerFlow:${tabId}`;
+const providerClickKey = (tabId: number) => `providerClick:${tabId}`;
+
+interface ProviderFlow {
+  provider: string;
+  account: string;
+  at: number;
+}
+
+interface ProviderClick {
+  provider: string;
+  url: string;
+  at: number;
+  /** The provider's pages were seen since (so the user went through them). */
+  visited: boolean;
+  /** The window the site opened for them, if it did. */
+  popupTabId?: number;
+  /** The first of the provider's pages. */
+  providerUrl?: string;
+  /** The provider's login Keyless filled there. */
+  accountId?: string;
+}
+
+/** The tab a provider's page belongs to: its own, or the one that opened
+ * its window. */
+async function providerTabs(tabId: number): Promise<number[]> {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  return tab?.openerTabId !== undefined ? [tabId, tab.openerTabId] : [tabId];
+}
+
+/** "Sign in with …" from the menu: presses the page's button for the
+ * provider, and keeps the account to pick on its pages. */
+async function signInWith(tabId: number, url: string, id: string): Promise<Reply> {
+  const login = (await call<Login[]>("match", { url })).find((l) => l.id === id);
+  if (!login?.signInWith || !(PROVIDERS as readonly string[]).includes(login.signInWith)) return { ok: false, error: "bad_request" };
+  const flow: ProviderFlow = { provider: login.signInWith, account: login.providerAccount ?? "", at: Date.now() };
+  await chrome.storage.session.set({ [providerFlowKey(tabId)]: flow });
+  // Any frame of the page: some show the button inside the provider's own
+  // frame. Only a frame that has it answers.
+  const pressed = await chrome.tabs.sendMessage(tabId, { type: "keyless-sign-in-with", provider: flow.provider }).catch(() => false);
+  if (pressed !== true) {
+    await chrome.storage.session.remove(providerFlowKey(tabId));
+    return { ok: false, error: "no_button" };
+  }
+  return { ok: true };
+}
+
+/** A provider's page loaded: the account to pick on it, when a "sign in
+ * with" Keyless started is on its way through. Marks a provider button the
+ * user pressed as gone through, too. */
+async function providerStep(tabId: number, url: string): Promise<{ account: string } | null> {
+  let account: { account: string } | null = null;
+  for (const owner of await providerTabs(tabId)) {
+    const click = await sessionGet<ProviderClick>(providerClickKey(owner));
+    if (click && !click.visited && isProviderPage(click.provider, url)) {
+      const visited: ProviderClick = { ...click, visited: true, providerUrl: url, popupTabId: owner !== tabId ? tabId : undefined };
+      await chrome.storage.session.set({ [providerClickKey(owner)]: visited });
+    }
+    const flow = await sessionGet<ProviderFlow>(providerFlowKey(owner));
+    if (!account && flow && flow.account && Date.now() - flow.at < PROVIDER_TTL_MS && isProviderPage(flow.provider, url)) account = { account: flow.account };
+  }
+  return account;
+}
+
+/** A login filled on a provider's page while the user signs in to a site
+ * through it: the account to link the site's login to. */
+async function providerFilled(tabId: number, url: string, id: string) {
+  for (const owner of await providerTabs(tabId)) {
+    const click = await sessionGet<ProviderClick>(providerClickKey(owner));
+    if (click?.visited && isProviderPage(click.provider, url)) await chrome.storage.session.set({ [providerClickKey(owner)]: { ...click, accountId: id } });
+  }
+}
+
+/** The account was picked: not again on the pages that follow (asking for
+ * the password shows it too). */
+async function providerPicked(tabId: number) {
+  await chrome.storage.session.remove((await providerTabs(tabId)).map(providerFlowKey));
+}
+
+/** The user pressed a provider button on a site: remembered, to offer
+ * saving it once they are back, unless the site has a login for it. */
+async function providerClicked(tabId: number, url: string, provider: string) {
+  if (!(PROVIDERS as readonly string[]).includes(provider) || isProviderPage(provider, url)) return;
+  const settings = await loadSettings();
+  const site = siteKey(url);
+  if (!settings.offerSave || !site || settings.neverSave.includes(site) || settings.hidden.includes(site)) return;
+  if ((await quickStatus()).state === "ready") {
+    const logins = await call<Login[]>("match", { url }).catch(() => null);
+    if (!logins || logins.some((login) => login.signInWith === provider)) return;
+  }
+  const click: ProviderClick = { provider, url, at: Date.now(), visited: false };
+  await chrome.storage.session.set({ [providerClickKey(tabId)]: click });
+}
+
+/** Back on the site after going through the provider's pages: the offer
+ * to save the login. */
+async function providerReturn(tabId: number, url: string): Promise<boolean> {
+  const click = await sessionGet<ProviderClick>(providerClickKey(tabId));
+  if (!click?.visited || Date.now() - click.at > PROVIDER_SAVE_TTL_MS || isProviderPage(click.provider, url) || !(await sameSites(click.url, url))) return false;
+  await chrome.storage.session.remove(providerClickKey(tabId));
+  // The account: the one filled on the provider's page, or the only login
+  // Keyless has there.
+  let account = click.accountId ?? "";
+  let accountName = "";
+  if (click.providerUrl && (await quickStatus()).state === "ready") {
+    const there = (await call<Login[]>("match", { url: click.providerUrl }).catch(() => [])).filter((login) => !login.signInWith);
+    if (!account && there.length === 1) account = there[0].id;
+    accountName = there.find((login) => login.id === account)?.username ?? "";
+  }
+  await setFormCapture(tabId, { kind: "sign_in_with", url: click.url, values: { provider: click.provider, account, accountName }, at: Date.now() });
+  return true;
+}
+
+chrome.tabs.onRemoved.addListener((closed) => {
+  void chrome.storage.session.remove([providerFlowKey(closed), providerClickKey(closed)]).catch(() => undefined);
+  // The provider's window closed: the site often signs in without leaving
+  // the page, so the offer shows on it now.
+  void (async () => {
+    const all = await chrome.storage.session.get(null).catch(() => ({}) as Record<string, unknown>);
+    for (const [key, value] of Object.entries(all)) {
+      const click = value as ProviderClick;
+      if (!key.startsWith("providerClick:") || click.popupTabId !== closed) continue;
+      const tabId = Number(key.slice("providerClick:".length));
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (tab?.url && (await providerReturn(tabId, tab.url))) chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
+    }
+  })();
 });
 
 // ----- The browser's own password manager ------------------------------------------
@@ -1496,6 +1682,11 @@ async function handlePopup(message: any): Promise<Reply> {
       const logins = (await tabLogins({ ...tab, id: tab.id, url: tab.url })).map((entry) => entry.login);
       return { ok: true, data: { url: tab.url, logins } };
     }
+    case "sign_in_with": {
+      const tab = await activeTab();
+      if (tab?.id === undefined || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
+      return signInWith(tab.id, tab.url, String(message.id));
+    }
     case "search":
       return {
         ok: true,
@@ -1616,6 +1807,10 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       if (!isSecurePage(url) && message.insecureConfirmed !== true) return { ok: false, error: "insecure_confirm" };
       await fillTab(tab.id, url, String(message.id), { submit: Boolean(message.submit), frameId: reg.frameId, code: message.code === true });
       return { ok: true };
+    case "sign_in_with":
+      // A login the page's own: its provider's button, on the page.
+      if (!url || !isWebPage(tab.url)) return { ok: false, error: "no_tab" };
+      return signInWith(tab.id, tab.url, String(message.id));
     case "passkey_view":
     case "passkey_unlock":
     case "passkey_fallback":
@@ -1700,7 +1895,10 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       const form = await getFormCapture(tab.id);
       if (!form || !(await sameSites(form.url, tab.url))) return { ok: false, error: "expired" };
       const vaultId = typeof message.vaultId === "string" ? message.vaultId : undefined;
-      await call("save_form", { kind: form.kind, values: form.values, title: String(message.title ?? ""), vaultId });
+      const title = String(message.title ?? "");
+      if (form.kind === "sign_in_with") await call("save_sign_in_with", { url: form.url, provider: form.values.provider, account: form.values.account, title, vaultId });
+      else if (form.kind === "api_key") await call("save_secret", { url: form.url, text: form.values.key, label: form.values.label, title, vaultId });
+      else await call("save_form", { kind: form.kind, values: form.values, title, vaultId });
       await setFormCapture(tab.id, null);
       formItems = null;
       await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
@@ -1884,6 +2082,7 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       if (!settings.offerSave || !site || settings.neverSave.includes(site) || settings.hidden.includes(site)) return { ok: true };
       const text = (value: unknown) => (typeof value === "string" ? value : "");
       await onCapture(sender.tab.id, sender.url, text(message.username).trim(), text(message.password), text(message.current), message.generated === true);
+      if (message.now === true) await captureDone(sender.tab.id, sender.url);
       return { ok: true };
     }
     case "capture_form": {
@@ -1897,6 +2096,20 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       if (message.values && typeof message.values === "object") await onFormCapture(sender.tab.id, sender.tab.url ?? sender.url, kind, message.values);
       return { ok: true };
     }
+    case "copied": {
+      // Text copied on a page: an API key, offered to be saved.
+      if (typeof message.text === "string" && message.text.length <= 600) await onCopied(sender.tab.id, sender.tab.url ?? sender.url, message.text);
+      return { ok: true };
+    }
+    case "provider_clicked":
+      if (typeof message.provider === "string") await providerClicked(sender.tab.id, sender.tab.url ?? sender.url, message.provider);
+      return { ok: true };
+    case "provider_step":
+      if (sender.frameId !== 0) return { ok: true, data: null };
+      return { ok: true, data: await providerStep(sender.tab.id, sender.url) };
+    case "provider_picked":
+      await providerPicked(sender.tab.id);
+      return { ok: true };
     case "capture_done":
       // The login form went away without leaving the page.
       await captureDone(sender.tab.id, sender.url);
@@ -1964,6 +2177,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         ? handleInline(message, sender)
         : page === "/passkey.html"
           ? handlePasskeyWindow(message)
+          : page === "/auth.html"
+            ? handleAuthWindow(message)
           : page === null
             ? handleContent(message, sender)
             : null;
@@ -1973,6 +2188,117 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     .catch((err: Error) => sendResponse({ ok: false, error: err instanceof BridgeError ? err.message : "error" }));
   return true;
 });
+
+// ----- The website's own sign-in dialog ---------------------------------------------
+//
+// A website that asks for a login with HTTP authentication (Basic or
+// Digest) makes the browser show its own dialog. When Keyless has logins
+// for the address, a Keyless window asks which one (or leaves it to the
+// browser's dialog); the login goes straight to the browser, never to a
+// page. If the website refuses it, the next attempt is the browser's.
+
+declare const __FIREFOX__: boolean;
+
+interface AuthRequest {
+  id: string;
+  requestId: string;
+  url: string;
+  host: string;
+  realm: string;
+  windowId: number | null;
+  answer: (response: chrome.webRequest.BlockingResponse) => void;
+}
+
+const authRequests = new Map<string, AuthRequest>();
+/** Requests already given a login once. */
+const authAnswered = new Set<string>();
+
+async function authLogins(url: string): Promise<Login[]> {
+  return call<Login[]>("match", { url }).catch(() => []);
+}
+
+async function handleAuth(details: chrome.webRequest.OnAuthRequiredDetails): Promise<chrome.webRequest.BlockingResponse> {
+  if (details.isProxy || authAnswered.has(details.requestId) || !isWebPage(details.url)) return {};
+  const site = siteKey(details.url);
+  if (!site || (await loadSettings()).hidden.includes(site)) return {};
+  const current = await quickStatus();
+  if (current.state !== "ready" && current.state !== "locked") return {};
+  if (current.state === "ready" && (await authLogins(details.url)).length === 0) return {};
+  return new Promise((resolve) => {
+    const id = crypto.randomUUID();
+    const entry: AuthRequest = {
+      id,
+      requestId: details.requestId,
+      url: details.url,
+      host: new URL(details.url).host,
+      realm: details.realm ?? "",
+      windowId: null,
+      answer: (response) => {
+        if (!authRequests.delete(id)) return;
+        if (entry.windowId !== null) void chrome.windows.remove(entry.windowId).catch(() => undefined);
+        resolve(response);
+      },
+    };
+    authRequests.set(id, entry);
+    chrome.windows
+      .create({ url: chrome.runtime.getURL(`auth.html#${id}`), type: "popup", width: 420, height: 460, focused: true })
+      .then((created) => (entry.windowId = created?.id ?? null))
+      .catch(() => entry.answer({}));
+    // Not answered in time: the browser's dialog.
+    setTimeout(() => entry.answer({}), 180_000);
+  });
+}
+
+if (__FIREFOX__) {
+  // Firefox waits for a promise.
+  chrome.webRequest?.onAuthRequired.addListener(handleAuth as never, { urls: ["<all_urls>"] }, ["blocking"]);
+} else {
+  chrome.webRequest?.onAuthRequired.addListener(
+    (details, callback) => void handleAuth(details).then((response) => callback?.(response)),
+    { urls: ["<all_urls>"] },
+    ["asyncBlocking"],
+  );
+}
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  // Closing the window leaves it to the browser's dialog.
+  for (const entry of authRequests.values()) if (entry.windowId === windowId) entry.answer({});
+});
+
+async function handleAuthWindow(message: any): Promise<Reply> {
+  const entry = authRequests.get(String(message.id ?? ""));
+  if (!entry) return { ok: false, error: "expired" };
+  const view = async () => {
+    const locked = (await quickStatus()).state !== "ready";
+    return { host: entry.host, realm: entry.realm, locked, logins: locked ? [] : await authLogins(entry.url) };
+  };
+  switch (message.type) {
+    case "auth_view":
+      return { ok: true, data: await view() };
+    case "auth_unlock": {
+      await requestUnlock();
+      const shown = await view();
+      // Unlocked, but nothing for this address: the browser's dialog.
+      if (!shown.locked && shown.logins.length === 0) entry.answer({});
+      return { ok: true, data: shown };
+    }
+    case "auth_choose": {
+      const credentials = await call<Credentials>("credentials", { id: String(message.itemId ?? ""), url: entry.url });
+      authAnswered.add(entry.requestId);
+      setTimeout(() => authAnswered.delete(entry.requestId), 600_000);
+      entry.answer({ authCredentials: { username: credentials.username, password: credentials.password } });
+      return { ok: true };
+    }
+    case "auth_browser":
+      entry.answer({});
+      return { ok: true };
+    case "auth_cancel":
+      entry.answer({ cancel: true });
+      return { ok: true };
+    default:
+      return { ok: false, error: "bad_request" };
+  }
+}
 
 // ----- Context menu ----------------------------------------------------------------
 //

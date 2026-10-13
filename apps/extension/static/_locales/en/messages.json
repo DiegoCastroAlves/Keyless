@@ -781,5 +781,83 @@
   },
   "titleOptional": {
     "message": "Name (optional)"
+  },
+  "authTitle": {
+    "message": "Sign in to $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "authRealm": {
+    "message": "The website says: “$REALM$”",
+    "placeholders": {
+      "realm": {
+        "content": "$1"
+      }
+    }
+  },
+  "authHint": {
+    "message": "Choose a login for the website’s sign-in box."
+  },
+  "authLocked": {
+    "message": "Unlock Keyless to use a saved login."
+  },
+  "authBrowser": {
+    "message": "Use the browser’s box"
+  },
+  "signInWith": {
+    "message": "Sign in with $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "signInWithAccount": {
+    "message": "$PROVIDER$ · $ACCOUNT$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "signInWithMissing": {
+    "message": "This page has no button to sign in with $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveSignInWith": {
+    "message": "Save sign in with $PROVIDER$?",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveApiKey": {
+    "message": "Save API key?"
+  },
+  "secretKind_token": {
+    "message": "token"
+  },
+  "secretKind_key": {
+    "message": "key"
+  },
+  "secretKind_secret": {
+    "message": "secret"
+  },
+  "secretKind_webhook": {
+    "message": "webhook"
+  },
+  "secretKind_webhook_secret": {
+    "message": "webhook secret"
   }
 }

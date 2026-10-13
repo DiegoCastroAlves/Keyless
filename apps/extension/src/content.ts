@@ -59,6 +59,7 @@ import {
   wantsPasskey,
   type FormControl,
 } from "./fields";
+import { providerOf } from "./providers";
 import type { Credentials, FieldInfo, FormKind, PageState, Status } from "./types";
 
 const t = (key: string) => chrome.i18n.getMessage(key) || key;
@@ -665,6 +666,92 @@ let elsewhere = false;
 /** A site's passkey request (see background.ts). */
 let passkeyFrame: Frame | null = null;
 
+// ----- "Sign in with …" ----------------------------------------------------------
+//
+// A login that signs in through a provider: Keyless presses the page's
+// button for it, then on the provider's page picks the account the login
+// names. A click on such a button where nothing is saved yet is reported,
+// to offer saving the login once the user is back (see background.ts).
+
+const CLICKABLE = 'button, a[href], [role="button"], [role="link"], input[type="button"], input[type="submit"]';
+
+/** The page's button for signing in with `provider`. */
+function providerButton(provider: string): HTMLElement | null {
+  return deepQuery<HTMLElement>(document, CLICKABLE).find((element) => visible(element) && providerOf(element) === provider) ?? null;
+}
+
+/** On the provider's page: the account with this email, in its list, or
+ * typed into its email box. */
+function pickAccount(account: string): boolean {
+  const wanted = account.trim().toLowerCase();
+  if (!wanted) return false;
+  const marked = document.querySelector<HTMLElement>(`[data-identifier="${CSS.escape(wanted)}"], [data-email="${CSS.escape(wanted)}"]`);
+  const listed =
+    marked ??
+    deepQuery<HTMLElement>(document, `${CLICKABLE}, li, [role="option"], [tabindex]`).find((element) => {
+      const text = (element.textContent ?? "").trim().toLowerCase();
+      return visible(element) && text.length < 160 && text.includes(wanted);
+    });
+  if (listed) {
+    listed.click();
+    return true;
+  }
+  const email = deepQuery<HTMLInputElement>(document, 'input[type="email"], input[name="identifier"], input[name="loginfmt"], input[autocomplete~="username"]').find(
+    (input) => visible(input) && input.value === "",
+  );
+  if (email) {
+    setValue(email, account);
+    return true;
+  }
+  return false;
+}
+
+/** On a provider's page in a "sign in with" just started: picks the
+ * account, waiting a while for the page to draw its list. */
+async function providerStep() {
+  const reply = await send<{ account: string } | null>({ type: "provider_step" });
+  const account = reply.ok ? reply.data?.account : undefined;
+  if (!account) return;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    if (pickAccount(account)) return void send({ type: "provider_picked" });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const origin = e.composedPath()[0];
+    if (SANDBOXED || !e.isTrusted || !(origin instanceof Element) || e.composedPath().includes(host)) return;
+    const control = origin.closest<HTMLElement>(CLICKABLE);
+    const provider = control ? providerOf(control) : null;
+    if (provider) void send({ type: "provider_clicked", provider });
+  },
+  true,
+);
+
+const SIGN_IN_LINK = /^(sign ?in|log ?in|entrar|fazer login|acessar( (a )?conta)?|iniciar sesi[oó]n|ingresar|identif[ií]ca(te|r-se))$/i;
+
+/** The page's own link to its sign-in page, visible and plainly named. */
+function signInLink(): HTMLElement | null {
+  const candidates = deepQuery<HTMLElement>(document, 'a[href], button, [role="button"], [role="link"]');
+  return (
+    candidates.find((element) => {
+      const text = (element.textContent ?? element.getAttribute("aria-label") ?? "").replace(/\s+/g, " ").trim();
+      if (!SIGN_IN_LINK.test(text) || !visible(element)) return false;
+      // Links that leave for another site are not followed.
+      if (element instanceof HTMLAnchorElement) {
+        try {
+          return new URL(element.href, location.href).hostname.split(".").slice(-2).join(".") === location.hostname.split(".").slice(-2).join(".");
+        } catch {
+          return false;
+        }
+      }
+      return true;
+    }) ?? null
+  );
+}
+
 /** The warnings at the top of the page: a breach of the website, a
  * password pasted that is another site's, the Secret Key pasted (see
  * background.ts). */
@@ -702,6 +789,66 @@ document.addEventListener(
       pasteField = target;
       void send({ type: "paste_check", password: text });
     }
+  },
+  true,
+);
+
+// ----- API keys copied --------------------------------------------------------------
+//
+// A key the user copies on a page (with the keyboard or the page's own "Copy"
+// button) whose format a service documents: Keyless offers to save it. Only
+// a single word that could be one goes to the app, which knows the formats.
+
+/** "Copy", "Copy to clipboard", "Copiar chave"… */
+const COPY_LABEL = /^(copy|copiar)(\s+\S+){0,5}$/i;
+
+function mayBeSecret(text: string): boolean {
+  return text.length >= 16 && text.length <= 600 && !/\s/.test(text) && /[a-z]/i.test(text) && /\d/.test(text);
+}
+
+function copied(text: string) {
+  const word = text.trim();
+  if (mayBeSecret(word)) void send({ type: "copied", text: word });
+}
+
+document.addEventListener(
+  "copy",
+  (e) => {
+    if (SANDBOXED || !e.isTrusted) return;
+    const target = eventTarget(e);
+    const selected =
+      target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+        ? target.value.slice(target.selectionStart ?? 0, target.selectionEnd ?? 0)
+        : (document.getSelection()?.toString() ?? "");
+    copied(selected);
+  },
+  true,
+);
+
+/** The text a page's "Copy" button copies: the box or code next to it. */
+function copiedBy(button: Element): string | null {
+  let around: Element | null = button;
+  for (let level = 0; level < 4 && around; level++, around = around.parentElement) {
+    const boxes = Array.from(around.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea")).filter((box) => box.type !== "hidden" && box.type !== "checkbox");
+    const codes = Array.from(around.querySelectorAll<HTMLElement>("code, pre, kbd, samp, [class*='token' i], [class*='secret' i], [class*='key' i]"));
+    const texts = [...boxes.map((box) => box.value), ...codes.map((code) => code.textContent ?? "")].map((text) => text.trim()).filter(mayBeSecret);
+    if (texts.length === 1) return texts[0];
+    if (texts.length > 1) return null;
+  }
+  return null;
+}
+
+document.addEventListener(
+  "click",
+  (e) => {
+    const origin = e.composedPath()[0];
+    if (SANDBOXED || !e.isTrusted || !(origin instanceof Element) || e.composedPath().includes(host)) return;
+    const button = origin.closest<HTMLElement>(CLICKABLE);
+    if (!button) return;
+    const labels = [button.textContent ?? "", button.getAttribute("aria-label") ?? "", button.getAttribute("title") ?? ""];
+    if (!labels.some((label) => COPY_LABEL.test(label.trim()))) return;
+    const text = copiedBy(button);
+    if (text) copied(text);
   },
   true,
 );
@@ -916,7 +1063,7 @@ function openMenu(activate = false) {
   if (!current) return;
   if (tooSmall() || unseen) return menuElsewhere(current, activate);
   menu ??= new Frame("menu");
-  menu.show({ activate, field: fieldInfo(current) });
+  menu.show({ activate, field: { ...fieldInfo(current), savable: typedLogin(current) } });
   place();
   follow ??= setInterval(place, 200);
 }
@@ -1170,6 +1317,14 @@ window.addEventListener("message", (event) => {
       pageState = null;
       void scan();
       break;
+    case "save_now":
+      // "Save in Keyless" in the menu: now, without waiting for the sign-in
+      // to work (as from the context menu).
+      if (frame === menu && current) {
+        capture(current, true);
+        closeMenu();
+      }
+      break;
   }
 });
 
@@ -1195,6 +1350,14 @@ let lastCapture = { key: "", at: 0 };
 function showSavePrompt() {
   saveFrame ??= new Frame("save");
   saveFrame.show();
+}
+
+/** A password the user typed in the field's form, not one Keyless filled. */
+function typedLogin(field: HTMLInputElement): boolean {
+  const password = deepQuery<HTMLInputElement>(field.form ?? document, 'input[type="password"]').find(isLoginPassword);
+  if (!password || SANDBOXED) return false;
+  const username = loginFields(password).username?.value.trim() ?? "";
+  return !filledKeys.has(`${username}\n${password.value}`) && !filledKeys.has(`\n${password.value}`);
 }
 
 function isLoginPassword(input: HTMLInputElement): boolean {
@@ -1237,6 +1400,8 @@ function capture(anchor: HTMLInputElement | null, force = false) {
     password,
     current: chosen && currentPassword ? currentPassword.value : "",
     generated: password !== "" && password === suggested,
+    // Asked for by the user: offered now, without waiting for the sign-in.
+    now: force,
   });
   if (field) watchOutcome(field);
 }
@@ -1336,6 +1501,7 @@ document.addEventListener(
 // for pages that draw their forms with scripts.
 setTimeout(() => {
   if (!TOP) return;
+  void providerStep();
   void send<boolean>({ type: "save_pending", loginForm: hasLoginForm() }).then(async (reply) => {
     if (reply.ok && reply.data) return showSavePrompt();
     // Otherwise, a warning when Sentinel found this website breached.
@@ -1383,6 +1549,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     fillSshKey(message.publicKey, typeof message.title === "string" ? message.title : "");
     return;
   }
+  if (message?.type === "keyless-sign-in-with" && typeof message.provider === "string") {
+    const button = providerButton(message.provider);
+    sendResponse(button !== null);
+    button?.click();
+    return;
+  }
+  if (message?.type === "keyless-find-signin") {
+    // "Open and fill" landed on a page without the sign-in form: its link
+    // to it, if there is one (see background.ts).
+    if (!TOP) return;
+    const link = signInLink();
+    sendResponse(link !== null);
+    link?.click();
+    return;
+  }
   if (message?.type === "keyless-alert") {
     if (TOP) showAlertFrame();
     return;
@@ -1406,7 +1587,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.action === "save" && field) {
       // Saved now, without waiting for the sign-in to work.
       capture(field, true);
-      void send({ type: "capture_done" });
     } else if (message.action === "hide") {
       pageState = null;
       closeMenu();

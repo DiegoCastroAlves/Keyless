@@ -6,6 +6,7 @@
 // the arrows move, Enter fills, Escape clears the search and then closes.
 
 import { avatar, hostOf } from "./avatar";
+import { providerName } from "./providers";
 import type { Settings } from "./settings";
 import type { BrowserManager, Login, Status } from "./types";
 
@@ -427,7 +428,8 @@ function renderList() {
 
 function listRow(login: Login, index: number): HTMLElement {
   const canFill = fillable(login);
-  const sub = login.frame ? [login.username, t("inFrame", login.frame)].filter(Boolean).join(" · ") : login.username || login.vault;
+  const through = login.signInWith ? (login.providerAccount ? t("signInWithAccount", providerName(login.signInWith), login.providerAccount) : t("signInWith", providerName(login.signInWith))) : "";
+  const sub = login.frame ? [login.username, t("inFrame", login.frame)].filter(Boolean).join(" · ") : through || login.username || login.vault;
   const node = el(
     "div",
     { className: "item", role: "option", id: `item-${index}` },
@@ -610,6 +612,13 @@ async function defaultAction() {
 }
 
 async function fill(login: Login, extra: Record<string, unknown> = {}) {
+  if (login.signInWith && !extra.anySite) {
+    // Through the page's button for the provider (see background.ts).
+    const reply = await send({ type: "sign_in_with", id: login.id });
+    if (reply.ok) window.close();
+    else toast(t("signInWithMissing", providerName(login.signInWith)));
+    return;
+  }
   const request = { type: "fill", id: login.id, ...extra };
   const reply = await send(request);
   if (reply.ok) window.close();

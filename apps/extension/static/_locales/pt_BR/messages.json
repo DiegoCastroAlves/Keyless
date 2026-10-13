@@ -781,5 +781,83 @@
   },
   "titleOptional": {
     "message": "Nome (opcional)"
+  },
+  "authTitle": {
+    "message": "Entrar em $HOST$",
+    "placeholders": {
+      "host": {
+        "content": "$1"
+      }
+    }
+  },
+  "authRealm": {
+    "message": "O site diz: “$REALM$”",
+    "placeholders": {
+      "realm": {
+        "content": "$1"
+      }
+    }
+  },
+  "authHint": {
+    "message": "Escolha um login para a janela de acesso do site."
+  },
+  "authLocked": {
+    "message": "Desbloqueie o Keyless para usar um login salvo."
+  },
+  "authBrowser": {
+    "message": "Usar a janela do navegador"
+  },
+  "signInWith": {
+    "message": "Entrar com $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "signInWithAccount": {
+    "message": "$PROVIDER$ · $ACCOUNT$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "signInWithMissing": {
+    "message": "Esta página não tem botão para entrar com $PROVIDER$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveSignInWith": {
+    "message": "Salvar o acesso com $PROVIDER$?",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "saveApiKey": {
+    "message": "Salvar a chave de API?"
+  },
+  "secretKind_token": {
+    "message": "token"
+  },
+  "secretKind_key": {
+    "message": "chave"
+  },
+  "secretKind_secret": {
+    "message": "segredo"
+  },
+  "secretKind_webhook": {
+    "message": "webhook"
+  },
+  "secretKind_webhook_secret": {
+    "message": "segredo de webhook"
   }
 }

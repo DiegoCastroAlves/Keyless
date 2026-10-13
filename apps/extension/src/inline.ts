@@ -16,6 +16,7 @@
 // the content script reports what the page did to the menu.
 
 import { avatar } from "./avatar";
+import { providerName } from "./providers";
 import type { AlertView, FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
@@ -139,12 +140,15 @@ function icon(login: Login): HTMLElement {
 }
 
 function texts(login: Login): HTMLElement {
-  return el(
-    "span",
-    { className: "text" },
-    el("span", { className: "title", textContent: login.title }),
-    el("span", { className: "sub", textContent: login.username || login.vault }),
-  );
+  return el("span", { className: "text" }, el("span", { className: "title", textContent: login.title }), el("span", { className: "sub", textContent: subtitle(login) }));
+}
+
+/** Who a login signs in as: its username, or its provider and the account
+ * there ("Google · ana@gmail.com"). */
+function subtitle(login: Login): string {
+  if (!login.signInWith) return login.username || login.vault;
+  const provider = providerName(login.signInWith);
+  return login.providerAccount ? t("signInWithAccount", provider, login.providerAccount) : t("signInWith", provider);
 }
 
 function closeButton(run: () => void): HTMLButtonElement {
@@ -175,6 +179,7 @@ function unlockError(code: string | undefined): string {
 /** In a field for a one-time code (or the card on such a page), a login
  * fills only its code. */
 async function fillLogin(login: Login, submit: boolean, insecureConfirmed = false) {
+  if (login.signInWith) return signInWith(login);
   const reply = await send({ type: "fill", id: login.id, submit, code: field.code === true, insecureConfirmed });
   // The content script closes the menu, but not one the page shows for its
   // frame (see content.ts, `detached`).
@@ -199,6 +204,29 @@ function loginRow(login: Login, options: { submit: boolean }): HTMLButtonElement
   const row = el("button", { className: "row", type: "button" }, icon(login), texts(login));
   if (mode === "card") row.append(svg(ICON_KEY));
   row.addEventListener("click", () => void fillLogin(login, options.submit));
+  return row;
+}
+
+/** A login that signs in through a provider: presses the page's button for
+ * it, and Keyless picks the account on the provider's page. */
+async function signInWith(login: Login) {
+  const reply = await send({ type: "sign_in_with", id: login.id });
+  if (reply.ok) return toParent("close");
+  if (reply.error === "locked") await refresh();
+  else showError(t("signInWithMissing", providerName(login.signInWith ?? "")));
+}
+
+const ICON_SAVE = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/></svg>`;
+
+/** "Save in Keyless": the login typed in the form, saved before sending it. */
+function saveNowRow(): HTMLButtonElement {
+  const row = el(
+    "button",
+    { className: "row", type: "button" },
+    el("span", { className: "glyph" }, svg(ICON_SAVE)),
+    el("span", { className: "text" }, el("span", { className: "title", textContent: t("ctxSaveLogin") })),
+  );
+  row.addEventListener("click", () => toParent("save_now"));
   return row;
 }
 
@@ -480,6 +508,7 @@ function renderMenu() {
     // A two-factor setup: the code the site asks for comes from its QR code.
     const withoutCode = (state?.logins ?? []).filter((login) => !login.totp);
     if (field.code && state?.state === "ready" && withoutCode.length > 0) box.append(scanRow(withoutCode));
+    if (field.savable && state?.state === "ready") box.append(saveNowRow());
   } else if (state.state === "locked") {
     box.append(lockedView());
   } else {
@@ -620,6 +649,13 @@ function input(value: string, placeholder: string, onInput: (value: string) => v
 
 /** "Save card?" / "Save address?": a payment or address form the user
  * sent. */
+function formSaveTitle(form: NonNullable<SaveState["form"]>): string {
+  if (form.kind === "card") return t("saveCard");
+  if (form.kind === "identity") return t("saveIdentity");
+  if (form.kind === "api_key") return t("saveApiKey");
+  return t("saveSignInWith", form.provider ?? "");
+}
+
 function renderFormSave() {
   const s = saving!;
   const form = s.form!;
@@ -630,14 +666,14 @@ function renderFormSave() {
   const box = el(
     "div",
     { className: "box save" },
-    el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: form.kind === "card" ? t("saveCard") : t("saveIdentity") }), close),
+    el("div", { className: "save-head" }, svg(LOGO), el("strong", { textContent: formSaveTitle(form) }), close),
   );
   if (done) {
     box.append(el("p", { className: "done", textContent: done }));
     app.replaceChildren(box);
     return;
   }
-  const glyph = el("span", { className: "glyph" }, svg(form.kind === "card" ? ICON_CARD : ICON_PERSON));
+  const glyph = el("span", { className: "glyph" }, svg(form.kind === "card" ? ICON_CARD : form.kind === "identity" ? ICON_PERSON : ICON_KEY));
   const details = el("div", { className: "edit" }, input(draftTitle, t("titleOptional"), (value) => (draftTitle = value)), el("span", { className: "sub", textContent: form.summary }));
   box.append(el("div", { className: "save-item" }, glyph, details));
   const footer = el("div", { className: "save-foot" });

@@ -10,6 +10,10 @@ export interface Login {
   /** For a login form in a frame from another site inside the page: that
    * frame's host. */
   frame?: string;
+  /** It signs in through another provider ("google", "apple"…), with that
+   * account there when known. */
+  signInWith?: string;
+  providerAccount?: string;
   /** It has a one-time code. */
   totp?: boolean;
 }
@@ -68,6 +72,9 @@ export interface FieldInfo {
   /** The page's own password rules for a new password (its
    * `passwordrules` attribute). */
   rules?: string;
+  /** A login the user typed in the field's form (not one Keyless filled):
+   * the menu offers to save it now. */
+  savable?: boolean;
 }
 
 /** A passkey the page's field can sign in with. */
@@ -119,7 +126,8 @@ export interface Vault {
  * background script. */
 export interface SaveState {
   /** A card or an identity typed in a form, instead of a login. */
-  form?: { kind: "card" | "identity"; summary: string };
+  /** `provider`: the name of a "sign in with" provider. */
+  form?: { kind: "card" | "identity" | "sign_in_with" | "api_key"; summary: string; provider?: string };
   locked: boolean;
   url: string;
   host: string;

@@ -726,7 +726,28 @@ or a password it suggested.
   logins (not when Keyless already has the same card or identity, and not
   on sites where saving is off), and saved only when the user says so.
 - **Context menu**: open the Keyless menu at a field, save the login typed
-  in its form now, hide Keyless on the site, lock.
+  in its form now, hide Keyless on the site, lock. The field's menu offers
+  the same "save now" when a password typed by hand (not filled by
+  Keyless) is in the form.
+- **The browser's own sign-in window** (HTTP Basic/Digest) is answered
+  from an extension window that lists the logins for that address only;
+  the credentials go to the browser through `webRequestAuthProvider`
+  (Chromium) or a blocking `onAuthRequired` (Firefox), never through a
+  page.
+- **"Sign in with" logins** (Google, Apple, Microsoft…) are filled by
+  pressing the page's button for the provider. On the provider's own sign-in
+  pages that follow (a fixed list of hosts per provider), the content
+  script is told the account's email to pick, and only there, for three
+  minutes. A provider button the user presses on a site without such a
+  login is remembered for ten minutes in session storage; back on the site,
+  Keyless offers to save one (linked to the provider's login the user filled
+  there, or the only one Keyless has for it).
+- **API keys copied on a page.** A copied word (by keyboard, or the page's
+  own "Copy" button next to it) that could be a key goes to the app, which
+  checks its shape against the known formats (`secret_patterns`) and
+  answers only whether it is one and whether it is saved already. Keyless
+  offers to save a new one as an API credential noting the site; it is never
+  used to fill pages.
 - Turning off "Browser integration" in Settings removes the host manifests,
   so browsers can no longer start the bridge.
 
