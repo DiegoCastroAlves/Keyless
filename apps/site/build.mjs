@@ -1,6 +1,7 @@
 // Builds the public site (keyless.diegoalves.dev) into dist/: the home
 // page, the page that opens share links (/share/), the browser extension's
-// tutorial (/tutorial/) and the privacy policy (/privacy/). Static files only, served by
+// tutorial (/tutorial/), the privacy policy (/privacy/) and where the links
+// confirming an email change lead (/email-changed/). Static files only, served by
 // Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -48,7 +49,7 @@ const fonts = {
 for (const [name, from] of Object.entries(fonts)) cpSync(`node_modules/${from}`, `dist/fonts/${name}`);
 
 await build({
-  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts" },
+  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts" },
   bundle: true,
   minify: true,
   format: "esm",
@@ -95,6 +96,10 @@ writeFileSync(
   Content-Security-Policy: ${csp("'none'")}
 /privacy/*
   Content-Security-Policy: ${csp("'none'")}
+/email-changed/*
+  Content-Security-Policy: ${csp("'none'")}
+  Cache-Control: no-store
+  X-Robots-Tag: noindex
 /share/*
   Content-Security-Policy: ${csp(SUPABASE_URL)}
   Cache-Control: no-store

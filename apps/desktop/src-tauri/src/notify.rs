@@ -1,6 +1,6 @@
-//! The system's own notifications, for Sentinel's new alerts. They say how
-//! many there are, never which items: notifications can show on a locked
-//! screen. Clicking one opens Sentinel.
+//! The system's own notifications: Sentinel's new alerts (how many there
+//! are, never which items: notifications can show on a locked screen), and a
+//! new device asking to sign in. Clicking one opens what it is about.
 
 use std::sync::Mutex;
 
@@ -17,6 +17,10 @@ pub struct NotificationLabels {
     pub sentinel_title: String,
     pub new_alerts_one: String,
     pub new_alerts_other: String,
+    #[serde(default)]
+    pub device_setup_title: String,
+    #[serde(default)]
+    pub device_setup_body: String,
 }
 
 static LABELS: Mutex<Option<NotificationLabels>> = Mutex::new(None);
@@ -29,7 +33,16 @@ pub fn configure(labels: NotificationLabels) {
 pub fn sentinel(app: &AppHandle, count: usize) {
     let Some(labels) = LABELS.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
     let body = if count == 1 { &labels.new_alerts_one } else { &labels.new_alerts_other }.replace("{count}", &count.to_string());
-    show(app, labels.sentinel_title, body);
+    show(app, labels.sentinel_title, body, open_sentinel);
+}
+
+/// "A new device asks to sign in to your account".
+pub fn device_setup(app: &AppHandle) {
+    let Some(labels) = LABELS.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
+    if labels.device_setup_title.is_empty() {
+        return;
+    }
+    show(app, labels.device_setup_title, labels.device_setup_body, open_device_setup);
 }
 
 fn open_sentinel(app: &AppHandle) {
@@ -37,25 +50,33 @@ fn open_sentinel(app: &AppHandle) {
     let _ = app.emit(EVENT_OPEN_SENTINEL, ());
 }
 
+fn open_device_setup(app: &AppHandle) {
+    crate::tray::show_main(app);
+    let _ = app.emit(crate::device_setup::EVENT_SETUP_REQUESTED, ());
+}
+
+/// What clicking the notification does.
+type OnClick = fn(&AppHandle);
+
 #[cfg(target_os = "linux")]
-fn show(app: &AppHandle, title: String, body: String) {
+fn show(app: &AppHandle, title: String, body: String, on_click: OnClick) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        if let Err(err) = linux::show(&app, &title, &body).await {
+        if let Err(err) = linux::show(&app, &title, &body, on_click).await {
             log::info!("notification: {err}");
         }
     });
 }
 
 #[cfg(windows)]
-fn show(app: &AppHandle, title: String, body: String) {
-    if let Err(err) = windows::show(app, &title, &body) {
+fn show(app: &AppHandle, title: String, body: String, on_click: OnClick) {
+    if let Err(err) = windows::show(app, &title, &body, on_click) {
         log::info!("notification: {err}");
     }
 }
 
 #[cfg(not(any(target_os = "linux", windows)))]
-fn show(_: &AppHandle, _: String, _: String) {}
+fn show(_: &AppHandle, _: String, _: String, _: OnClick) {}
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -69,7 +90,7 @@ mod linux {
     const PATH: &str = "/org/freedesktop/Notifications";
 
     /// Through the desktop's notification service; waits a while for a click.
-    pub async fn show(app: &AppHandle, title: &str, body: &str) -> zbus::Result<()> {
+    pub async fn show(app: &AppHandle, title: &str, body: &str, on_click: super::OnClick) -> zbus::Result<()> {
         let conn = zbus::Connection::session().await?;
         let hints: HashMap<&str, Value> = HashMap::from([("desktop-entry", Value::from("keyless-desktop"))]);
         let reply = conn
@@ -86,7 +107,7 @@ mod linux {
                 tokio::select! {
                     Some(Ok(msg)) = invoked.next() => {
                         if msg.body().deserialize::<(u32, String)>().is_ok_and(|(n, _)| n == id) {
-                            super::open_sentinel(app);
+                            on_click(app);
                             return;
                         }
                     }
@@ -122,7 +143,7 @@ mod windows {
         text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
     }
 
-    pub fn show(app: &AppHandle, title: &str, body: &str) -> windows::core::Result<()> {
+    pub fn show(app: &AppHandle, title: &str, body: &str, on_click: super::OnClick) -> windows::core::Result<()> {
         let xml = XmlDocument::new()?;
         xml.LoadXml(&HSTRING::from(format!(
             "<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>",
@@ -132,7 +153,7 @@ mod windows {
         let toast = ToastNotification::CreateToastNotification(&xml)?;
         let app = app.clone();
         toast.Activated(&TypedEventHandler::<ToastNotification, IInspectable>::new(move |_, _| {
-            super::open_sentinel(&app);
+            on_click(&app);
             Ok(())
         }))?;
         ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(APP_ID))?.Show(&toast)

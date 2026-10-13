@@ -20,5 +20,11 @@ pub const SHARE_PAGE_URL: &str = match option_env!("KEYLESS_SHARE_URL") {
     None => "https://keyless.diegoalves.dev/share/",
 };
 
+/// Where the links that confirm a change of the account's email lead.
+pub const EMAIL_CHANGED_URL: &str = match option_env!("KEYLESS_EMAIL_CHANGED_URL") {
+    Some(url) => url,
+    None => "https://keyless.diegoalves.dev/email-changed/",
+};
+
 /// Service name used for entries in the OS credential store.
 pub const KEYRING_SERVICE: &str = "Keyless";

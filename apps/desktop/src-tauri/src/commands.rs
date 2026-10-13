@@ -1033,3 +1033,127 @@ pub async fn move_vault_items(app: AppHandle, state: State<'_, AppState>, from_v
     state.touch();
     items::move_vault_items(&app, &from_vault, &to_vault, delete_source).await
 }
+
+// ----- devices --------------------------------------------------------------
+
+#[tauri::command]
+pub async fn list_devices(app: AppHandle, state: State<'_, AppState>) -> AppResult<Vec<crate::devices::DeviceView>> {
+    state.touch();
+    crate::devices::list(&app).await
+}
+
+#[tauri::command]
+pub async fn revoke_device(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.touch();
+    crate::devices::revoke(&app, &id).await
+}
+
+#[tauri::command]
+pub async fn sign_out_other_devices(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    state.touch();
+    crate::devices::sign_out_others(&app).await
+}
+
+// ----- setting up a new device ------------------------------------------------
+
+#[tauri::command]
+pub async fn request_device_setup(app: AppHandle, email: String) -> AppResult<()> {
+    crate::device_setup::request(&app, &email).await
+}
+
+#[tauri::command]
+pub async fn poll_device_setup(app: AppHandle) -> AppResult<crate::device_setup::SetupProgress> {
+    crate::device_setup::poll(&app).await
+}
+
+#[tauri::command]
+pub async fn cancel_device_setup(app: AppHandle) -> AppResult<()> {
+    crate::device_setup::cancel(&app).await;
+    Ok(())
+}
+
+/// A pasted setup link; returns its email.
+#[tauri::command]
+pub fn use_setup_link(state: State<'_, AppState>, link: String) -> AppResult<String> {
+    crate::device_setup::use_link(&state, &Zeroizing::new(link))
+}
+
+/// A setup code read from the screen, the clipboard or a file (picture or
+/// Emergency Kit PDF); returns its email.
+#[tauri::command]
+pub async fn scan_setup_code(app: AppHandle, source: String, dialog: Option<DialogText>) -> AppResult<String> {
+    crate::device_setup::scan(&app, &source, &dialog.unwrap_or_default()).await
+}
+
+#[tauri::command]
+pub fn clear_setup_code(state: State<'_, AppState>) {
+    crate::device_setup::clear_received(&state);
+}
+
+#[tauri::command]
+pub async fn pending_device_setups(app: AppHandle) -> AppResult<Vec<crate::device_setup::SetupRequestView>> {
+    crate::device_setup::pending(&app).await
+}
+
+#[tauri::command]
+pub async fn answer_device_setup(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.touch();
+    crate::device_setup::answer(&app, &id).await
+}
+
+#[tauri::command]
+pub async fn approve_device_setup(app: AppHandle, state: State<'_, AppState>, id: String, code: String) -> AppResult<()> {
+    state.touch();
+    crate::device_setup::approve(&app, &id, &code).await
+}
+
+#[tauri::command]
+pub async fn deny_device_setup(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.touch();
+    crate::device_setup::deny(&app, &id).await
+}
+
+/// The account's setup code (QR and link), after the master password.
+#[tauri::command]
+pub async fn account_setup_code(state: State<'_, AppState>, master_password: String) -> AppResult<crate::device_setup::SetupQr> {
+    state.touch();
+    crate::device_setup::account_qr(&state, Zeroizing::new(master_password)).await
+}
+
+/// The setup code an Emergency Kit prints.
+#[tauri::command]
+pub fn kit_setup_code(email: String, secret_key: String) -> AppResult<crate::device_setup::SetupQr> {
+    crate::device_setup::kit_qr(&email, &Zeroizing::new(secret_key))
+}
+
+#[tauri::command]
+pub async fn save_emergency_kit(
+    app: AppHandle,
+    labels: crate::kit_pdf::KitLabels,
+    email: String,
+    secret_key: String,
+    dialog: DialogText,
+) -> AppResult<()> {
+    crate::device_setup::save_kit(&app, labels, email, secret_key, &dialog).await
+}
+
+// ----- account credentials ------------------------------------------------------
+
+#[tauri::command]
+pub async fn change_secret_key(app: AppHandle, state: State<'_, AppState>, master_password: String) -> AppResult<String> {
+    state.touch();
+    auth::change_secret_key(&app, Zeroizing::new(master_password)).await
+}
+
+#[tauri::command]
+pub async fn change_email(app: AppHandle, state: State<'_, AppState>, master_password: String, new_email: String) -> AppResult<String> {
+    state.touch();
+    auth::change_email(&app, Zeroizing::new(master_password), &new_email).await
+}
+
+/// The email a change is waiting to confirm (after following the change
+/// made meanwhile, if any).
+#[tauri::command]
+pub async fn email_change_status(app: AppHandle) -> AppResult<Option<String>> {
+    auth::sync_email(&app).await
+}

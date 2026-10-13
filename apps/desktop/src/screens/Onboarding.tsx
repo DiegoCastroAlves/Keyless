@@ -1,5 +1,20 @@
-import { ArrowLeft, ArrowRight, Cloud, KeyRound, LifeBuoy, Loader2, MailCheck, ShieldCheck } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ClipboardPaste,
+  Cloud,
+  FileText,
+  KeyRound,
+  LifeBuoy,
+  Loader2,
+  MailCheck,
+  MonitorSmartphone,
+  ScanLine,
+  ShieldAlert,
+  ShieldCheck,
+} from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
 import { AuthShell, Logo, PasswordInput, StrengthMeter, useStrength } from "../components/common";
@@ -15,6 +30,7 @@ type Step =
   | { kind: "create"; googleEmail?: string }
   | { kind: "kit"; email: string; secretKey: string; confirmationRequired: boolean }
   | { kind: "signin"; email?: string; notice?: "confirm" | "google" | "recovered" }
+  | { kind: "otherDevice"; email: string }
   | { kind: "recover"; email?: string }
   | { kind: "recoverPassword"; email: string }
   | { kind: "recoverKits"; prepared: RecoveryPrepare };
@@ -27,8 +43,14 @@ export function Onboarding({ status }: { status: AppStatus }) {
       useApp.setState({ recoverEmail: null });
       return { kind: "recover", email: recoverEmail };
     }
+    if (status.setupEmail) return { kind: "signin", email: status.setupEmail };
     return status.pendingEmail ? { kind: "signin", email: status.pendingEmail, notice: "confirm" } : { kind: "welcome" };
   });
+
+  // A setup code arrived (a keyless://setup link was opened): sign in with it.
+  useEffect(() => {
+    if (status.setupEmail) setStep((current) => (current.kind === "signin" && current.email === status.setupEmail ? current : { kind: "signin", email: status.setupEmail ?? undefined }));
+  }, [status.setupEmail]);
 
   switch (step.kind) {
     case "welcome":
@@ -73,10 +95,14 @@ export function Onboarding({ status }: { status: AppStatus }) {
           initialEmail={step.email}
           notice={step.notice}
           knownSecretKey={status.hasSecretKey && !!step.email && step.email === status.pendingEmail}
+          setupEmail={status.setupEmail}
           onBack={() => setStep({ kind: "welcome" })}
           onRecover={(email) => setStep({ kind: "recover", email })}
+          onOtherDevice={(email) => setStep({ kind: "otherDevice", email })}
         />
       );
+    case "otherDevice":
+      return <OtherDevice email={step.email} onBack={() => setStep({ kind: "signin", email: step.email })} />;
     case "recover":
       return (
         <RecoverStart
@@ -133,6 +159,7 @@ function Welcome({
   const { t } = useTranslation();
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const revoked = useApp((s) => s.deviceRevoked);
 
   const continueWithGoogle = async () => {
     setWaiting(true);
@@ -158,6 +185,12 @@ function Welcome({
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">{t("welcome.title")}</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted">{t("welcome.subtitle")}</p>
       </div>
+      {revoked && (
+        <div className="mt-6 flex gap-3 rounded-xl border border-warning/30 bg-warning-soft p-3.5 text-[13px] leading-relaxed">
+          <ShieldAlert className="mt-0.5 size-5 shrink-0 text-warning" />
+          <div>{t("devices.revokedHere")}</div>
+        </div>
+      )}
       <div className="mt-8 space-y-2.5">
         {waiting ? (
           <div className="rounded-xl border border-line bg-panel-2 p-5 text-center">
@@ -329,14 +362,18 @@ function SignIn({
   initialEmail,
   notice,
   knownSecretKey,
+  setupEmail,
   onBack,
   onRecover,
+  onOtherDevice,
 }: {
   initialEmail?: string;
   notice?: "confirm" | "google" | "recovered";
   knownSecretKey: boolean;
+  setupEmail: string | null;
   onBack: () => void;
   onRecover: (email: string) => void;
+  onOtherDevice: (email: string) => void;
 }) {
   const [email, setEmail] = useState(initialEmail ?? "");
   const [secretKey, setSecretKey] = useState("");
@@ -347,7 +384,27 @@ function SignIn({
   const refreshStatus = useApp((s) => s.refreshStatus);
   const { t } = useTranslation();
 
-  const needsSecretKey = !(knownSecretKey && email.trim().toLowerCase() === (initialEmail ?? "").toLowerCase());
+  const typedEmail = email.trim().toLowerCase();
+  // The Secret Key came with a setup code or from another device.
+  const received = !!setupEmail && typedEmail === setupEmail.toLowerCase();
+  const needsSecretKey = !received && !(knownSecretKey && typedEmail === (initialEmail ?? "").toLowerCase());
+
+  const useSetup = async (read: () => Promise<string>) => {
+    setError(null);
+    try {
+      const found = await read();
+      setEmail(found);
+      setSecretKey("");
+      await refreshStatus();
+    } catch (err) {
+      if (!isCancelled(err)) setError(errorMessage(err));
+    }
+  };
+
+  const forgetSetup = async () => {
+    await api.clearSetupCode();
+    await refreshStatus();
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -415,17 +472,42 @@ function SignIn({
           <Label htmlFor="email">{t("common.email")}</Label>
           <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!initialEmail} className="h-10" />
         </div>
+        {received && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-success/30 bg-success/10 px-3.5 py-3 text-[13px] leading-relaxed">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
+            <div className="min-w-0 flex-1">
+              {t("signIn.keyReceived")}{" "}
+              <button type="button" onClick={forgetSetup} className="font-medium text-accent hover:underline">
+                {t("signIn.typeKeyInstead")}
+              </button>
+            </div>
+          </div>
+        )}
         {needsSecretKey && (
           <div>
             <Label htmlFor="secret-key">{t("common.secretKey")}</Label>
             <Input
               id="secret-key"
               value={secretKey}
-              onChange={(e) => setSecretKey(e.target.value.toUpperCase())}
+              onChange={(e) => {
+                const value = e.target.value;
+                // A setup link pasted here does the same as reading its code.
+                if (value.trim().toLowerCase().startsWith("keyless://setup")) {
+                  setSecretKey("");
+                  void useSetup(() => api.useSetupLink(value));
+                } else {
+                  setSecretKey(value.toUpperCase());
+                }
+              }}
               placeholder="K1-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX"
               className="h-10 font-mono tracking-wide"
             />
             <p className="mt-1 text-xs text-subtle">{t("signIn.secretKeyHint")}</p>
+            <SetupCodeOptions
+              canUseDevice={!!email.trim()}
+              onOtherDevice={() => onOtherDevice(email.trim())}
+              onRead={(source) => void useSetup(() => api.scanSetupCode(source))}
+            />
           </div>
         )}
         <div>
@@ -617,6 +699,159 @@ function RecoverKits({ prepared, onSignIn, onRestart }: { prepared: RecoveryPrep
         {t("recovery.finish")} <ArrowRight className="size-4" />
       </Button>
       <p className="mt-3 text-center text-xs text-subtle">{t("recovery.otherDevices")}</p>
+    </AuthShell>
+  );
+}
+
+/** Ways to skip typing the Secret Key: another signed-in device, or a setup
+ * code (QR) from the screen, a file (picture or Emergency Kit PDF) or the
+ * clipboard. */
+function SetupCodeOptions({
+  canUseDevice,
+  onOtherDevice,
+  onRead,
+}: {
+  canUseDevice: boolean;
+  onOtherDevice: () => void;
+  onRead: (source: "screen" | "clipboard" | "file") => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-3 rounded-xl border border-line bg-panel-2 p-3">
+      <div className="text-xs font-medium text-muted">{t("setup.noKeyTitle")}</div>
+      <div className="mt-2 grid gap-2">
+        <Button type="button" size="sm" className="justify-start" onClick={onOtherDevice} disabled={!canUseDevice} title={canUseDevice ? undefined : t("setup.emailFirst")}>
+          <MonitorSmartphone className="size-4" /> {t("setup.otherDevice")}
+        </Button>
+        <Button type="button" size="sm" className="justify-start" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          <ScanLine className="size-4" /> {t("setup.useCode")}
+        </Button>
+      </div>
+      {open && (
+        <div className="mt-2 space-y-1">
+          <p className="text-[11px] leading-relaxed text-subtle">{t("setup.codeHint")}</p>
+          <Button type="button" size="sm" variant="ghost" className="w-full justify-start" onClick={() => onRead("file")}>
+            <FileText className="size-4" /> {t("setup.fromFile")}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="w-full justify-start" onClick={() => onRead("screen")}>
+            <ScanLine className="size-4" /> {t("setup.fromScreen")}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" className="w-full justify-start" onClick={() => onRead("clipboard")}>
+            <ClipboardPaste className="size-4" /> {t("setup.fromClipboard")}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Asks a signed-in device to let this one in: shows the code to type
+ * there, then goes back to the sign-in form with the Secret Key received. */
+function OtherDevice({ email, onBack }: { email: string; onBack: () => void }) {
+  const { t } = useTranslation();
+  const refreshStatus = useApp((s) => s.refreshStatus);
+  const [phase, setPhase] = useState<"starting" | "waiting" | "code" | "denied" | "expired" | "error">("starting");
+  const [code, setCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const done = useRef(false);
+
+  useEffect(() => {
+    let live = true;
+    let timer: number | undefined;
+    done.current = false;
+    setPhase("starting");
+    setCode(null);
+    setError(null);
+    const poll = async () => {
+      try {
+        const progress = await api.pollDeviceSetup();
+        if (!live) return;
+        if (progress.status === "approved") {
+          done.current = true;
+          await refreshStatus();
+          onBack();
+          return;
+        }
+        if (progress.status === "denied" || progress.status === "expired") {
+          done.current = true;
+          setPhase(progress.status);
+          return;
+        }
+        if (progress.status === "code" && progress.code) {
+          setCode(progress.code);
+          setPhase("code");
+        } else {
+          setPhase("waiting");
+        }
+      } catch (err) {
+        if (!live) return;
+        done.current = true;
+        setError(errorMessage(err));
+        setPhase("error");
+        return;
+      }
+      timer = window.setTimeout(poll, 2000);
+    };
+    api
+      .requestDeviceSetup(email)
+      .then(() => live && void poll())
+      .catch((err) => {
+        if (!live) return;
+        done.current = true;
+        setError(errorMessage(err));
+        setPhase("error");
+      });
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+      if (!done.current) void api.cancelDeviceSetup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email, attempt]);
+
+  return (
+    <AuthShell>
+      <button onClick={onBack} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+        <ArrowLeft className="size-4" /> {t("common.back")}
+      </button>
+      <div className="flex items-center gap-3">
+        <MonitorSmartphone className="size-9 text-accent" />
+        <h1 className="text-xl font-semibold tracking-tight">{t("setup.otherDeviceTitle")}</h1>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
+        <Trans i18nKey="setup.otherDeviceBody" values={{ email }} components={{ strong: <strong /> }} />
+      </p>
+      <div className="mt-6 flex min-h-40 flex-col items-center justify-center rounded-2xl border border-line bg-panel-2 px-6 py-6 text-center">
+        {(phase === "starting" || phase === "waiting") && (
+          <>
+            <Loader2 className="size-6 animate-spin text-accent" />
+            <p className="mt-3 text-[13px] leading-relaxed text-muted">{t("setup.waiting")}</p>
+          </>
+        )}
+        {phase === "code" && code && (
+          <>
+            <div className="text-xs font-medium uppercase tracking-wide text-subtle">{t("setup.codeLabel")}</div>
+            <div className="selectable mt-2 font-mono text-4xl font-semibold tracking-[0.25em]">
+              {code.slice(0, 3)} {code.slice(3)}
+            </div>
+            <p className="mt-3 text-[13px] leading-relaxed text-muted">{t("setup.typeCodeThere")}</p>
+          </>
+        )}
+        {(phase === "denied" || phase === "expired" || phase === "error") && (
+          <>
+            <ShieldAlert className="size-6 text-warning" />
+            <p className="mt-3 text-[13px] leading-relaxed text-muted">
+              {phase === "denied" ? t("setup.denied") : phase === "expired" ? t("setup.expired") : error}
+            </p>
+            <Button size="sm" className="mt-4" onClick={() => setAttempt((n) => n + 1)}>
+              {t("common.retry")}
+            </Button>
+          </>
+        )}
+      </div>
+      <p className="mt-4 text-center text-xs leading-relaxed text-subtle">{t("setup.passwordStill")}</p>
     </AuthShell>
   );
 }

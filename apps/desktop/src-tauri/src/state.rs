@@ -307,6 +307,10 @@ pub struct AppState {
     pub fill_requests: tokio::sync::watch::Sender<(u64, i64)>,
     /// The last of those a browser filled (see `quick_access::fill`).
     pub fill_done: tokio::sync::watch::Sender<u64>,
+    /// This device in the account's list (see `devices`).
+    pub devices: crate::devices::DeviceState,
+    /// Getting the account onto a new device (see `device_setup`).
+    pub setup: crate::device_setup::SetupState,
 }
 
 impl AppState {

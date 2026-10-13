@@ -42,6 +42,9 @@ pub struct AppStatus {
     pub system_unlock_supported: bool,
     /// "computer_password" (Linux, polkit) or "windows_hello".
     pub system_unlock_method: &'static str,
+    /// Email of a setup code (or another device's approval) waiting for the
+    /// sign-in form, whose Secret Key this device then has.
+    pub setup_email: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -110,6 +113,7 @@ pub async fn status(state: &AppState) -> AppResult<AppStatus> {
         system_unlock: system_unlock::available(state),
         system_unlock_supported: system_unlock::supported(),
         system_unlock_method: system_unlock::method(),
+        setup_email: crate::device_setup::received_email(state),
     })
 }
 
@@ -188,13 +192,20 @@ pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, m
     let state = app.state::<AppState>();
     let _busy = state.begin_unlock()?;
     let email = normalize_email(email)?;
-    let secret_key = match secret_key.map(Zeroizing::new).filter(|s| !s.trim().is_empty()) {
+    let secret_key = secret_key.map(Zeroizing::new).filter(|s| !s.trim().is_empty());
+    let secret_key_typed = secret_key.is_some();
+    let secret_key = match secret_key {
         Some(input) => SecretKey::parse(&input)
             .map_err(|_| AppError::Invalid(Msg::new("secret_key_invalid")))?,
-        None => state
-            .secrets
-            .load_secret_key(&email)?
-            .ok_or_else(|| AppError::Invalid(Msg::new("secret_key_required")))?,
+        // One received from a setup code or another device comes first: it
+        // may be newer than the one kept here.
+        None => match crate::device_setup::received_key(&state, &email) {
+            Some(key) => key,
+            None => state
+                .secrets
+                .load_secret_key(&email)?
+                .ok_or_else(|| AppError::Invalid(Msg::new("secret_key_required")))?,
+        },
     };
     if let Some(existing) = state.store().account()?
         && existing.email != email
@@ -202,9 +213,25 @@ pub async fn sign_in(app: &AppHandle, email: &str, secret_key: Option<String>, m
         return Err(AppError::Invalid(Msg::new("device_other_account").with("email", &existing.email)));
     }
 
+    let typed = secret_key_typed;
     let kdf = KdfParams::recommended();
-    let (keys, secret_key) = derive(master_password, secret_key, kdf.clone()).await?;
-    sign_in_with_keys(app, &email, kdf, keys, &secret_key).await
+    let (keys, secret_key) = derive(master_password.clone(), secret_key, kdf.clone()).await?;
+    match sign_in_with_keys(app, &email, kdf.clone(), keys, &secret_key).await {
+        Err(AppError::Auth(msg)) if msg.key == "invalid_credentials" && !typed => {
+            // A Secret Key change on this device may have stopped after the
+            // server took the new key: finish it with that one.
+            let Some(next) = state.secrets.load_next_secret_key() else { return Err(AppError::Auth(msg)) };
+            let (keys, next) = derive(master_password, next, kdf.clone()).await?;
+            sign_in_with_keys(app, &email, kdf, keys, &next).await?;
+            state.secrets.delete_next_secret_key();
+            Ok(())
+        }
+        Ok(()) => {
+            state.secrets.delete_next_secret_key();
+            Ok(())
+        }
+        other => other,
+    }
 }
 
 /// Signs in with keys already derived (with `kdf`) from the master password
@@ -302,7 +329,9 @@ async fn complete_sign_in(app: &AppHandle, email: &str, kdf: KdfParams, keys: Ac
     state.record_unlock_result(true);
     master_password_entered(&state);
     state.touch();
+    crate::device_setup::clear_received(&state);
     let _ = app.emit(EVENT_UNLOCKED, ());
+    crate::devices::spawn_register(app);
 
     // First sign-in on a device: wait for the data so the UI is not empty.
     if let Err(err) = sync::sync_now(app).await {
@@ -571,10 +600,16 @@ pub async fn sign_out(app: &AppHandle) -> AppResult<()> {
     let state = app.state::<AppState>();
     system_unlock::forget(&state);
     *state.password_at.lock().unwrap_or_else(|e| e.into_inner()) = None;
-    let session = state.session.lock().await.take();
+    // A working session (refreshed if need be) ends on the server too.
+    let access = match tokio::time::timeout(std::time::Duration::from_secs(5), sync::ensure_token(&state)).await {
+        Ok(Ok((_, token))) => Some(token),
+        _ => None,
+    };
+    let _session = state.session.lock().await.take();
     state.lock_state.send_replace(true);
-    if let Some(tokens) = session.as_ref().and_then(|s| s.tokens.as_ref()) {
-        let _ = state.api.sign_out(&tokens.access).await;
+    crate::devices::forget(&state, access.as_deref().map(|a| a.as_str())).await;
+    if let Some(access) = access {
+        let _ = state.api.sign_out(&access).await;
     }
     let store = state.store();
     let email = store.account()?.map(|a| a.email).or(store.setting::<String>(PENDING_EMAIL)?);
@@ -648,29 +683,32 @@ pub async fn change_master_password(app: &AppHandle, current: Zeroizing<String>,
     let new_bundle = rewrap_account(&local.bundle, &account, &new_keys.kek, kdf, &local.user_id)?;
 
     let (user_id, token) = sync::ensure_token(&state).await?;
-    // 1. Stage the new wrapping so a crash at any point stays recoverable.
+    commit_new_keys(&state, &token, &user_id, &new_bundle, &new_keys.auth_secret).await?;
+    let mut updated = local;
+    updated.bundle = new_bundle;
+    state.store().save_account(&updated)?;
+    Ok(())
+}
+
+/// Puts a new wrapping of the user key and the matching sign-in secret on
+/// the server, staged so that a crash at any point stays recoverable.
+async fn commit_new_keys(state: &AppState, token: &str, user_id: &str, new_bundle: &AccountBundle, auth_secret: &str) -> AppResult<()> {
+    // 1. Stage the new wrapping.
     state
         .api
-        .update_profile(
-            &token,
-            &user_id,
-            json!({ "pending_kdf": new_bundle.kdf, "pending_enc_user_key": new_bundle.enc_user_key }),
-        )
+        .update_profile(token, user_id, json!({ "pending_kdf": new_bundle.kdf, "pending_enc_user_key": new_bundle.enc_user_key }))
         .await?;
     // 2. Switch the sign-in secret. If that fails, drop the staged keys.
-    if let Err(err) = state.api.update_auth_secret(&token, &new_keys.auth_secret).await {
-        let _ = state
-            .api
-            .update_profile(&token, &user_id, json!({ "pending_kdf": null, "pending_enc_user_key": null }))
-            .await;
+    if let Err(err) = state.api.update_auth_secret(token, auth_secret).await {
+        let _ = state.api.update_profile(token, user_id, json!({ "pending_kdf": null, "pending_enc_user_key": null })).await;
         return Err(err);
     }
     // 3. Promote the staged keys.
     state
         .api
         .update_profile(
-            &token,
-            &user_id,
+            token,
+            user_id,
             json!({
                 "kdf": new_bundle.kdf,
                 "enc_user_key": new_bundle.enc_user_key,
@@ -678,11 +716,96 @@ pub async fn change_master_password(app: &AppHandle, current: Zeroizing<String>,
                 "pending_enc_user_key": null,
             }),
         )
-        .await?;
+        .await
+}
+
+/// Replaces the Secret Key, like 1Password's "Regenerate Secret Key": the
+/// same master password with a new Secret Key wraps the user key again.
+/// Every other device is signed out and needs the new key (a new Emergency
+/// Kit, or a setup code from this device). Returns the new key.
+pub async fn change_secret_key(app: &AppHandle, master_password: Zeroizing<String>) -> AppResult<String> {
+    let state = app.state::<AppState>();
+    let (local, current_keys, _) = {
+        let _busy = state.begin_unlock()?;
+        match verify_master_password(&state, master_password.clone()).await {
+            Ok(verified) => {
+                state.record_unlock_result(true);
+                verified
+            }
+            Err(err) => {
+                if matches!(err, AppError::WrongPassword) {
+                    state.record_unlock_result(false);
+                }
+                return Err(err);
+            }
+        }
+    };
+    let account = unlock_account(&local.bundle, &current_keys.kek, &local.user_id)?;
+    let kdf = KdfParams::recommended();
+    let (new_keys, new_secret_key) = derive(master_password, SecretKey::generate()?, kdf.clone()).await?;
+    let new_bundle = rewrap_account(&local.bundle, &account, &new_keys.kek, kdf, &local.user_id)?;
+
+    let (user_id, token) = sync::ensure_token(&state).await?;
+    // Kept apart until the server has it, so an interruption cannot leave
+    // this device without the key the server expects.
+    state.secrets.save_next_secret_key(&new_secret_key)?;
+    if let Err(err) = commit_new_keys(&state, &token, &user_id, &new_bundle, &new_keys.auth_secret).await {
+        state.secrets.delete_next_secret_key();
+        return Err(err);
+    }
+    state.secrets.save_secret_key(&local.email, &new_secret_key)?;
+    state.secrets.delete_next_secret_key();
     let mut updated = local;
     updated.bundle = new_bundle;
     state.store().save_account(&updated)?;
-    Ok(())
+    if let Err(err) = state.api.sign_out_others(&token).await {
+        log::warn!("could not sign the other devices out: {err}");
+    }
+    Ok(new_secret_key.to_display().to_string())
+}
+
+/// Asks to change the account's email (after the master password). Supabase
+/// Auth sends confirmation links; the change happens once they are followed
+/// (see `sync_email`). Returns the new email.
+pub async fn change_email(app: &AppHandle, master_password: Zeroizing<String>, new_email: &str) -> AppResult<String> {
+    let state = app.state::<AppState>();
+    let new_email = normalize_email(new_email)?;
+    confirm_master_password(&state, master_password).await?;
+    let current = state.session.lock().await.as_ref().map(|s| s.email.clone()).ok_or(AppError::Locked)?;
+    if current.eq_ignore_ascii_case(&new_email) {
+        return Err(AppError::Invalid(Msg::new("email_unchanged")));
+    }
+    let (_, token) = sync::ensure_token(&state).await?;
+    // Nobody exchanges the code these links lead to: the verifier is dropped.
+    let verifier = Zeroizing::new(base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, keyless_core::crypto::random_array::<32>()?.as_ref()));
+    let challenge = base64::Engine::encode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, <sha2::Sha256 as sha2::Digest>::digest(verifier.as_bytes()));
+    state.api.change_email(&token, &new_email, &challenge, crate::config::EMAIL_CHANGED_URL).await?;
+    Ok(new_email)
+}
+
+/// The account's email as the server has it: when it changed (confirmed
+/// here or on another device), this device follows. Returns the email a
+/// change is waiting to confirm, if any.
+pub async fn sync_email(app: &AppHandle) -> AppResult<Option<String>> {
+    let state = app.state::<AppState>();
+    let (_, token) = sync::ensure_token(&state).await?;
+    let user = state.api.user(&token).await?;
+    let Some(server_email) = user.email.as_deref().map(str::to_lowercase).filter(|e| !e.is_empty()) else {
+        return Ok(user.new_email);
+    };
+    let local = state.store().account()?.ok_or(AppError::NoAccount)?;
+    if local.email != server_email {
+        log::info!("the account's email changed");
+        state.secrets.move_secret_key(&local.email, &server_email)?;
+        let mut updated = local;
+        updated.email = server_email.clone();
+        state.store().save_account(&updated)?;
+        if let Some(session) = state.session.lock().await.as_mut() {
+            session.email = server_email;
+        }
+        let _ = app.emit(sync::EVENT_ACCOUNT_CHANGED, ());
+    }
+    Ok(user.new_email.filter(|e| !e.is_empty()))
 }
 
 /// Schedules the account for deletion in 7 days (cancellable by signing in

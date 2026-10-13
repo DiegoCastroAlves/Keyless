@@ -719,7 +719,7 @@ pub(crate) fn create_part(path: &Path) -> AppResult<File> {
     Ok(file)
 }
 
-fn write_private(path: &Path, contents: &[u8]) -> AppResult<()> {
+pub(crate) fn write_private(path: &Path, contents: &[u8]) -> AppResult<()> {
     let mut file = create_private(path)?;
     file.write_all(contents)
         .and_then(|_| file.sync_all())

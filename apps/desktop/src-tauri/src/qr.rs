@@ -1,5 +1,7 @@
 //! Reading a one-time password QR code (`otpauth://`) from the screen, the
-//! clipboard or an image file, like 1Password's "Scan QR Code".
+//! clipboard or an image file, like 1Password's "Scan QR Code"; and, the
+//! same way, a setup code (`keyless://setup`, see `device_setup`), also from
+//! the PDF of an Emergency Kit.
 //!
 //! The screen is captured through the system: the screenshot portal on
 //! Linux (the desktop may ask the user the first time), GDI on Windows. The
@@ -24,16 +26,53 @@ fn not_found() -> AppError {
     AppError::Invalid(Msg::new("qr_not_found"))
 }
 
+/// What a QR code must hold.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Wanted {
+    /// A one-time password setup (`otpauth://`).
+    Totp,
+    /// A Keyless setup code (`keyless://setup`).
+    Setup,
+}
+
+impl Wanted {
+    fn accepts(self, content: &str) -> bool {
+        match self {
+            Wanted::Totp => content.starts_with("otpauth://") && Totp::parse(content).is_ok(),
+            Wanted::Setup => keyless_core::setup_code::parse_setup_link(content).is_ok(),
+        }
+    }
+
+    fn not_found(self) -> AppError {
+        match self {
+            Wanted::Totp => not_found(),
+            Wanted::Setup => AppError::Invalid(Msg::new("setup_code_not_found")),
+        }
+    }
+}
+
 /// Reads a QR code from `source` ("screen", "clipboard" or "file") and
 /// returns its `otpauth://` address.
 pub async fn scan(app: &AppHandle, source: &str, text: &DialogText) -> AppResult<String> {
+    scan_for(app, source, text, Wanted::Totp).await
+}
+
+/// Reads a QR code holding what is `wanted` from `source`. A setup code can
+/// also come from a PDF file (an Emergency Kit), where it is a link.
+pub async fn scan_for(app: &AppHandle, source: &str, text: &DialogText, wanted: Wanted) -> AppResult<String> {
     let image = match source {
         "screen" => screenshot(app).await?,
         "clipboard" => tokio::task::spawn_blocking(clipboard_image).await.map_err(|_| not_found())??,
-        "file" => pick_image(app, text).await?,
+        "file" => match pick_file(app, text, wanted).await? {
+            Picked::Image(image) => image,
+            Picked::Link(link) => return Ok(link),
+        },
         _ => return Err(AppError::Invalid(Msg::new("invalid_request"))),
     };
-    tokio::task::spawn_blocking(move || decode(&image)).await.map_err(|_| not_found())?.ok_or_else(not_found)
+    tokio::task::spawn_blocking(move || decode(&image, wanted))
+        .await
+        .map_err(|_| wanted.not_found())?
+        .ok_or_else(|| wanted.not_found())
 }
 
 /// Reads a one-time password QR code from an image (a picture of a page the
@@ -42,14 +81,14 @@ pub async fn scan_image(bytes: Vec<u8>) -> AppResult<String> {
     if bytes.len() as u64 > MAX_FILE {
         return Err(not_found());
     }
-    tokio::task::spawn_blocking(move || load(&bytes).ok().and_then(|image| decode(&image)))
+    tokio::task::spawn_blocking(move || load(&bytes).ok().and_then(|image| decode(&image, Wanted::Totp)))
         .await
         .map_err(|_| not_found())?
         .ok_or_else(not_found)
 }
 
-/// The first QR code in the image holding a valid one-time password setup.
-fn decode(image: &GrayImage) -> Option<String> {
+/// The first QR code in the image holding what is `wanted`.
+fn decode(image: &GrayImage, wanted: Wanted) -> Option<String> {
     let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(image.width() as usize, image.height() as usize, |x, y| {
         image.get_pixel(x as u32, y as u32)[0]
     });
@@ -58,7 +97,7 @@ fn decode(image: &GrayImage) -> Option<String> {
         .into_iter()
         .filter_map(|grid| grid.decode().ok())
         .map(|(_, content)| content)
-        .find(|content| content.starts_with("otpauth://") && Totp::parse(content).is_ok())
+        .find(|content| wanted.accepts(content))
 }
 
 /// Decodes an image file's bytes with size limits.
@@ -81,20 +120,36 @@ fn clipboard_image() -> AppResult<GrayImage> {
     Ok(image::DynamicImage::ImageRgba8(rgba).to_luma8())
 }
 
-async fn pick_image(app: &AppHandle, text: &DialogText) -> AppResult<GrayImage> {
+enum Picked {
+    Image(GrayImage),
+    /// A setup link found in a PDF.
+    Link(String),
+}
+
+async fn pick_file(app: &AppHandle, text: &DialogText, wanted: Wanted) -> AppResult<Picked> {
     use tauri_plugin_dialog::DialogExt;
-    let dialog = text.apply(app.dialog().file(), &["png", "jpg", "jpeg", "gif", "bmp", "webp"]);
+    let mut extensions = vec!["png", "jpg", "jpeg", "gif", "bmp", "webp"];
+    if wanted == Wanted::Setup {
+        extensions.insert(0, "pdf");
+    }
+    let dialog = text.apply(app.dialog().file(), &extensions);
     let picked = tokio::task::spawn_blocking(move || dialog.blocking_pick_file()).await.map_err(|_| AppError::Cancelled)?;
     let path = picked.and_then(|p| p.into_path().ok()).ok_or(AppError::Cancelled)?;
     tokio::task::spawn_blocking(move || {
         let size = std::fs::metadata(&path).map_err(|e| AppError::Store(e.to_string()))?.len();
         if size > MAX_FILE {
-            return Err(not_found());
+            return Err(wanted.not_found());
         }
-        load(&std::fs::read(&path).map_err(|e| AppError::Store(e.to_string()))?)
+        let bytes = zeroize::Zeroizing::new(std::fs::read(&path).map_err(|e| AppError::Store(e.to_string()))?);
+        if wanted == Wanted::Setup && bytes.starts_with(b"%PDF") {
+            return keyless_core::setup_code::find_setup_link(&bytes)
+                .map(|link| Picked::Link(link.to_string()))
+                .ok_or_else(|| wanted.not_found());
+        }
+        load(&bytes).map(Picked::Image).map_err(|_| wanted.not_found())
     })
     .await
-    .map_err(|_| not_found())?
+    .map_err(|_| wanted.not_found())?
 }
 
 /// Captures the screen with Keyless's own windows out of the way.
@@ -246,10 +301,28 @@ mod tests {
     #[test]
     fn reads_otpauth_codes() {
         let image = load(QR_PNG).unwrap();
-        let uri = decode(&image).unwrap();
+        let uri = decode(&image, Wanted::Totp).unwrap();
         assert!(uri.starts_with("otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP"));
+        assert!(decode(&image, Wanted::Setup).is_none());
         // Noise is not a code.
-        assert!(decode(&GrayImage::from_fn(200, 200, |x, y| image::Luma([((x * 7 + y * 13) % 255) as u8]))).is_none());
+        assert!(decode(&GrayImage::from_fn(200, 200, |x, y| image::Luma([((x * 7 + y * 13) % 255) as u8])), Wanted::Totp).is_none());
         assert!(load(b"not an image").is_err());
+    }
+
+    #[test]
+    fn reads_setup_codes() {
+        let key = keyless_core::keys::SecretKey::generate().unwrap();
+        let link = keyless_core::setup_code::setup_link("me@example.com", &key);
+        let code = qrcode::QrCode::new(link.as_bytes()).unwrap();
+        let (modules, scale, quiet) = (code.width() as u32, 6, 4);
+        let colors = code.to_colors();
+        let size = (modules + 2 * quiet) * scale;
+        let image = GrayImage::from_fn(size, size, |x, y| {
+            let (mx, my) = ((x / scale) as i64 - quiet as i64, (y / scale) as i64 - quiet as i64);
+            let dark = mx >= 0 && my >= 0 && mx < modules as i64 && my < modules as i64 && colors[(my as u32 * modules + mx as u32) as usize] == qrcode::Color::Dark;
+            image::Luma([if dark { 0 } else { 255 }])
+        });
+        assert_eq!(decode(&image, Wanted::Setup).as_deref(), Some(link.as_str()));
+        assert!(decode(&image, Wanted::Totp).is_none());
     }
 }

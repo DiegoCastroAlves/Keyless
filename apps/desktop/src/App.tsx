@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Logo, Toaster } from "./components/common";
+import { DeviceApprovalDialog } from "./components/DeviceApprovalDialog";
 import { PairRequestDialog } from "./components/PairRequestDialog";
 import { TooltipProvider } from "./components/ui";
 import { applyLanguage } from "./i18n";
@@ -59,6 +60,8 @@ export function App() {
       // Plural forms with the number left for Rust to fill in.
       newAlertsOne: t("sentinel.newAlerts", { count: 1, n: "{count}" }),
       newAlertsOther: t("sentinel.newAlerts", { count: 2, n: "{count}" }),
+      deviceSetupTitle: t("approve.notificationTitle"),
+      deviceSetupBody: t("approve.notificationBody"),
     });
   }, [t, i18n.language]);
 
@@ -89,6 +92,15 @@ export function App() {
       events.onItemRequested(() => {
         if (useApp.getState().status?.state === "unlocked") void takeItemRequest();
       }),
+      // Signed out from another device: the account's data is gone.
+      events.onDeviceRevoked(() => {
+        reset();
+        useApp.setState({ deviceRevoked: true });
+        void refreshStatus();
+      }),
+      // A keyless://setup link: the sign-in form takes it.
+      events.onSetupReceived(() => void refreshStatus()),
+      events.onAccountChanged(() => void refreshStatus()),
       events.onSelectItem((id) => {
         const store = useApp.getState();
         store.setSearch("");
@@ -135,6 +147,7 @@ export function App() {
         <MainLayout />
       )}
       <PairRequestDialog />
+      {unlocked && <DeviceApprovalDialog />}
       <Toaster />
     </TooltipProvider>
   );

@@ -323,6 +323,23 @@ impl Api {
         Ok(())
     }
 
+    /// Asks to change the account's email: Supabase Auth sends confirmation
+    /// links (to both addresses, with secure email change on). The links use
+    /// the PKCE flow, so following them signs nobody in.
+    pub async fn change_email(&self, token: &str, new_email: &str, code_challenge: &str, redirect_to: &str) -> AppResult<()> {
+        let req = self
+            .request(Method::PUT, self.url("auth/v1/user", &[("redirect_to", redirect_to)]), Some(token))
+            .json(&json!({ "email": new_email, "code_challenge": code_challenge, "code_challenge_method": "s256" }));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
+    /// The signed-in user's email, and the one a change is waiting to confirm.
+    pub async fn user(&self, token: &str) -> AppResult<RemoteUser> {
+        let req = self.request(Method::GET, self.url("auth/v1/user", &[]), Some(token));
+        self.send(req).await
+    }
+
     // ----- profile --------------------------------------------------------
 
     pub async fn profile(&self, token: &str, user_id: &str) -> AppResult<Option<RemoteProfile>> {
@@ -623,6 +640,38 @@ impl Api {
         self.send(req).await
     }
 
+    // ----- devices -----------------------------------------------------------
+
+    /// Calls a database function; `token` is `None` for those open to anyone.
+    pub async fn rpc<T: DeserializeOwned>(&self, token: Option<&str>, name: &str, args: Value) -> AppResult<T> {
+        let req = self.request(Method::POST, self.url(&format!("rest/v1/rpc/{name}"), &[]), token).json(&args);
+        self.send(req).await
+    }
+
+    /// The account's devices that are not signed out.
+    pub async fn devices(&self, token: &str) -> AppResult<Vec<RemoteDevice>> {
+        let req = self.request(
+            Method::GET,
+            self.url(
+                "rest/v1/devices",
+                &[
+                    ("select", "id,enc_info,ip,country,created_at,last_seen_at"),
+                    ("revoked_at", "is.null"),
+                    ("order", "last_seen_at.desc"),
+                ],
+            ),
+            Some(token),
+        );
+        self.send(req).await
+    }
+
+    /// Ends every other session of the account (they must sign in again).
+    pub async fn sign_out_others(&self, access_token: &str) -> AppResult<()> {
+        let req = self.request(Method::POST, self.url("auth/v1/logout", &[("scope", "others")]), Some(access_token));
+        let _: Value = self.send(req).await?;
+        Ok(())
+    }
+
     // ----- recovery key ----------------------------------------------------
 
     pub async fn set_recovery_key(&self, token: &str, proof: &str, enc_user_key: &str) -> AppResult<()> {
@@ -700,6 +749,24 @@ impl Api {
 
 const ATTACHMENTS: &str = "attachments";
 const STORAGE_TIMEOUT: Duration = Duration::from_secs(300);
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemoteUser {
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub new_email: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemoteDevice {
+    pub id: String,
+    pub enc_info: String,
+    pub ip: Option<String>,
+    pub country: Option<String>,
+    pub created_at: String,
+    pub last_seen_at: String,
+}
 
 /// What opening an account with a recovery key needs.
 #[derive(Deserialize)]

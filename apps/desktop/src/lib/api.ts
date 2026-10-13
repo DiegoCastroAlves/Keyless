@@ -80,6 +80,63 @@ export interface AppStatus {
   systemUnlockSupported: boolean;
   /** How: the computer password (Linux) or Windows Hello. */
   systemUnlockMethod: "computer_password" | "windows_hello";
+  /** Email of a setup code (or another device's approval) waiting for the
+   * sign-in form; this device then has its Secret Key. */
+  setupEmail: string | null;
+}
+
+/** A device where the account is signed in. */
+export interface DeviceView {
+  id: string;
+  name: string;
+  platform: "linux" | "windows" | "macos" | "android" | "ios" | "web" | "";
+  os: string;
+  appVersion: string;
+  ip: string | null;
+  /** ISO 3166 code, when known. */
+  country: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  current: boolean;
+}
+
+/** This device's request to sign in with another one. */
+export interface SetupProgress {
+  status: "waiting" | "code" | "approved" | "denied" | "expired";
+  code: string | null;
+  email: string | null;
+}
+
+/** A new device asking to sign in to the account. */
+export interface SetupRequestView {
+  id: string;
+  platform: string;
+  ip: string | null;
+  country: string | null;
+  createdAt: string;
+  expiresAt: string;
+  /** "pending": nobody answered; "answering": this device waits for the new
+   * one's code; "code": type it here; "elsewhere": another device has it. */
+  status: "pending" | "answering" | "code" | "elsewhere";
+}
+
+/** A setup code: the QR code (SVG) and the keyless://setup link it holds. */
+export interface SetupQr {
+  svg: string;
+  link: string;
+}
+
+/** The Emergency Kit's texts for its PDF. */
+export interface KitLabels {
+  title: string;
+  created: string;
+  intro: string;
+  email: string;
+  secretKey: string;
+  masterPassword: string;
+  writeByHand: string;
+  setupCode: string;
+  setupCodeHelp: string;
 }
 
 export interface CreatedAccount {
@@ -640,7 +697,7 @@ export function errorCode(err: unknown): string | null {
 }
 
 /** The words of a system file dialog, in the user's language. */
-function dialogText(key: "qrImage" | "backup" | "attach" | "icon" | "saveAttachment" | "export" | "keyFile") {
+function dialogText(key: "qrImage" | "backup" | "attach" | "icon" | "saveAttachment" | "export" | "keyFile" | "setupCode" | "saveKit") {
   const filter = `dialogs.${key}.filter`;
   return { title: i18n.t(`dialogs.${key}.title`), filter: i18n.exists(filter) ? i18n.t(filter) : "" };
 }
@@ -682,8 +739,38 @@ export const api = {
   versionInfo: () => invoke<VersionInfo>("version_info"),
   configureTray: (labels: { open: string; quickAccess: string; lock: string; quit: string }) => invoke<void>("configure_tray", { labels }),
   /** Texts of the system notifications ("{count}" stands for the number). */
-  configureNotifications: (labels: { sentinelTitle: string; newAlertsOne: string; newAlertsOther: string }) =>
-    invoke<void>("configure_notifications", { labels }),
+  configureNotifications: (labels: {
+    sentinelTitle: string;
+    newAlertsOne: string;
+    newAlertsOther: string;
+    deviceSetupTitle: string;
+    deviceSetupBody: string;
+  }) => invoke<void>("configure_notifications", { labels }),
+  listDevices: () => invoke<DeviceView[]>("list_devices"),
+  revokeDevice: (id: string) => invoke<void>("revoke_device", { id }),
+  signOutOtherDevices: () => invoke<void>("sign_out_other_devices"),
+  requestDeviceSetup: (email: string) => invoke<void>("request_device_setup", { email }),
+  pollDeviceSetup: () => invoke<SetupProgress>("poll_device_setup"),
+  cancelDeviceSetup: () => invoke<void>("cancel_device_setup"),
+  /** A pasted keyless://setup link; returns its email. */
+  useSetupLink: (link: string) => invoke<string>("use_setup_link", { link }),
+  /** A setup code from the screen, the clipboard or a file (picture or Emergency Kit PDF). */
+  scanSetupCode: (source: "screen" | "clipboard" | "file") => invoke<string>("scan_setup_code", { source, dialog: dialogText("setupCode") }),
+  clearSetupCode: () => invoke<void>("clear_setup_code"),
+  pendingDeviceSetups: () => invoke<SetupRequestView[]>("pending_device_setups"),
+  answerDeviceSetup: (id: string) => invoke<void>("answer_device_setup", { id }),
+  approveDeviceSetup: (id: string, code: string) => invoke<void>("approve_device_setup", { id, code }),
+  denyDeviceSetup: (id: string) => invoke<void>("deny_device_setup", { id }),
+  accountSetupCode: (masterPassword: string) => invoke<SetupQr>("account_setup_code", { masterPassword }),
+  kitSetupCode: (email: string, secretKey: string) => invoke<SetupQr>("kit_setup_code", { email, secretKey }),
+  saveEmergencyKit: (labels: KitLabels, email: string, secretKey: string) =>
+    invoke<void>("save_emergency_kit", { labels, email, secretKey, dialog: dialogText("saveKit") }),
+  /** Returns the new Secret Key. */
+  changeSecretKey: (masterPassword: string) => invoke<string>("change_secret_key", { masterPassword }),
+  /** Returns the new email, which waits for its confirmation links. */
+  changeEmail: (masterPassword: string, newEmail: string) => invoke<string>("change_email", { masterPassword, newEmail }),
+  /** The email a change waits to confirm, if any. */
+  emailChangeStatus: () => invoke<string | null>("email_change_status"),
   showQuickAccess: () => invoke<void>("show_quick_access"),
   hideQuickAccess: () => invoke<void>("hide_quick_access"),
   quickAccessReady: () => invoke<void>("quick_access_ready"),
@@ -861,4 +948,12 @@ export const events = {
     listen<UpdateProgress>("keyless://update-progress", (e) => cb(e.payload)),
   onPairRequest: (cb: (r: PairRequest) => void): Promise<UnlistenFn> =>
     listen<PairRequest>("keyless://pair-request", (e) => cb(e.payload)),
+  /** This device was signed out from another one (its data is gone). */
+  onDeviceRevoked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://device-revoked", () => cb()),
+  /** A new device asks to sign in to the account. */
+  onDeviceSetupRequested: (cb: () => void): Promise<UnlistenFn> => listen("keyless://device-setup-requested", () => cb()),
+  /** A keyless://setup link was opened; its email. */
+  onSetupReceived: (cb: (email: string) => void): Promise<UnlistenFn> => listen<string>("keyless://setup-received", (e) => cb(e.payload)),
+  /** The account's email changed. */
+  onAccountChanged: (cb: () => void): Promise<UnlistenFn> => listen("keyless://account-changed", () => cb()),
 };

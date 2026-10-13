@@ -17,6 +17,10 @@ server, can read your vaults.
   approximate item sizes, and when they change.
 - Connection logs kept by our hosting provider (IP address, time, request
   type) for security and operations.
+- For each device signed in to your account: the IP address and country of
+  its last connection and when it was last used, so you can see where your
+  account is open and sign a device out. The device's name and system are
+  encrypted like your vaults.
 
 ## Sign in with Google
 

@@ -152,6 +152,68 @@ the Secret Key, and Google never sees either.
   So whoever controls the Google account can never obtain a session that
   could change the auth secret of an existing Keyless account.
 
+### Devices
+
+Each signed-in app registers itself (`public.devices`): a random id, the
+SHA-256 of a random device secret, its Supabase Auth session, and its name,
+system and app version sealed with the user key (`"device-info" | user id |
+device id`). The server adds the address and country of the device's last
+request (from the CDN's headers) and when it was last seen.
+
+- Signing a device out from another one (`revoke_device`) deletes its
+  session and refresh tokens. `private.password_session()` also requires the
+  session to still exist, so its access token stops working at once rather
+  than when it expires.
+- The signed-out device notices when the server refuses its session: it asks
+  `device_status` with its secret (open to anyone, but only the device knows
+  the secret), and on `revoked` it signs out, deleting the Secret Key and the
+  account's local data.
+- "Sign out all other devices" ends every other session of the account,
+  devices of older versions included; they keep their data and need the
+  master password to sign in again.
+
+### Signing in with another device
+
+Like 1Password's "Sign in with another device", but the server only relays
+(see `keyless_core::device_setup` and the `device_setup` migration):
+
+- The new device leaves a request for the email with an X25519 public key and
+  a commitment to a random nonce. A signed-in device answers with its own key
+  and nonce; the new device reveals its nonce; both derive a 6-digit code
+  from the two keys and nonces, and the user types on the signed-in device
+  the code the new device shows. Only then does it send the email and
+  Secret Key, sealed with a key from the X25519 exchange.
+- A relay that swaps the keys must pick its answer to the new device before
+  learning its nonce, so the codes match by chance only (one in a million
+  per attempt). Three wrong codes refuse the request; a request lasts 10
+  minutes; anyone can ask, so the server allows 3 waiting and 10 an hour per
+  account and 20 an hour per address, and an unknown email gets a request no
+  device will see.
+- What is sent is what an Emergency Kit holds: the master password is still
+  needed on the new device.
+
+### Setup codes
+
+A setup code is the account's email and Secret Key as a
+`keyless://setup#email=…&key=…` link (in the fragment, so it stays out of
+logs): shown as a QR code by a signed-in device after the master password,
+and printed on the Emergency Kit, whose PDF also links the QR code to it.
+Keyless reads one from the screen, the clipboard, a picture or the Kit's
+PDF (in memory), or takes the link opened or pasted, and keeps it only in
+memory until the sign-in.
+
+### Changing the Secret Key or the email
+
+- A new Secret Key wraps the same user key with keys derived from the same
+  master password and the new key, committed in the same staged steps as a
+  master password change. The new key is kept on the device under a separate
+  name until the server has it, so an interrupted change can be finished.
+  Every other session ends.
+- The email changes through Supabase Auth's secure email change (links to
+  both addresses), with a PKCE challenge whose verifier the app drops: the
+  links change the email but never create a session. Each device follows the
+  email the server has, moving its Secret Key entry.
+
 Libraries: RustCrypto `chacha20poly1305`, `argon2`, `hkdf`, `sha2`, `hmac`,
 `x25519-dalek`, `p256` (passkeys) and `aes-gcm` (the browser bridge);
 randomness from the operating system via `getrandom`; memory locking via

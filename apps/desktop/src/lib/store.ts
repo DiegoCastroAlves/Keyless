@@ -80,6 +80,8 @@ interface AppStore {
   revision: number;
   /** Set when the lock screen sends the user to account recovery. */
   recoverEmail: string | null;
+  /** This device was signed out from another one: the welcome screen says so. */
+  deviceRevoked: boolean;
   /** The list of keyboard shortcuts is open. */
   shortcutsOpen: boolean;
   /** Items selected together (two or more: the bulk actions show). */
@@ -134,6 +136,7 @@ export const useApp = create<AppStore>((set, get) => ({
   editing: null,
   revision: 0,
   recoverEmail: null,
+  deviceRevoked: false,
   shortcutsOpen: false,
   selection: [],
   filters: {},

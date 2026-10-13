@@ -1,20 +1,21 @@
-import { Copy, Download, Fingerprint, Globe, Info, KeyRound, Settings2, ShieldCheck, Terminal, Trash, User, X } from "lucide-react";
+import { Copy, Download, Fingerprint, Globe, Info, KeyRound, Mail, MonitorSmartphone, RefreshCw, Settings2, ShieldCheck, Terminal, Trash, User, X } from "lucide-react";
 import { Dialog as RDialog } from "radix-ui";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput, StrengthMeter, useStrength } from "../../components/common";
 import { EmergencyKit } from "../../components/EmergencyKit";
-import { Button, Combobox, Dialog, ErrorText, Label, Switch, cx } from "../../components/ui";
+import { Button, Combobox, Dialog, ErrorText, Input, Label, Switch, cx } from "../../components/ui";
 import { LANGUAGES } from "../../i18n";
 import { api, errorMessage, type AccountInfo, type BridgePeer, type Settings } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
 import { ExportPanel, ImportPanel, PlainExportPanel } from "./ImportDialog";
+import { DevicesTab } from "./DevicesTab";
 import { RecoverySection } from "./RecoveryKey";
 
-export type SettingsTab = "general" | "security" | "browser" | "developer" | "account" | "import" | "about";
+export type SettingsTab = "general" | "security" | "browser" | "developer" | "account" | "devices" | "import" | "about";
 
 export function SettingsDialog({
   open,
@@ -36,6 +37,7 @@ export function SettingsDialog({
     { id: "security", label: t("settings.security"), icon: <ShieldCheck className="size-4" /> },
     { id: "browser", label: t("settings.browser"), icon: <Globe className="size-4" /> },
     { id: "account", label: t("settings.account"), icon: <User className="size-4" /> },
+    { id: "devices", label: t("devices.tab"), icon: <MonitorSmartphone className="size-4" /> },
     { id: "developer", label: t("settings.developer"), icon: <Terminal className="size-4" /> },
     { id: "import", label: t("settings.import"), icon: <Download className="size-4" /> },
     { id: "about", label: t("settings.about"), icon: <Info className="size-4" /> },
@@ -84,6 +86,7 @@ export function SettingsDialog({
               {tab === "browser" && <BrowserTab />}
               {tab === "developer" && <DeveloperTab />}
               {tab === "account" && <AccountTab onClose={() => onOpenChange(false)} />}
+              {tab === "devices" && <DevicesTab />}
               {tab === "import" && (
                 <div className="space-y-8">
                   <ImportPanel onDone={() => onOpenChange(false)} />
@@ -506,9 +509,12 @@ function SecurityTab() {
             <ErrorText>{kitError}</ErrorText>
           </form>
         ) : (
-          <Button size="sm" className="mt-3" onClick={() => setKitPrompt(true)}>
-            {t("settings.showKit")}
-          </Button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setKitPrompt(true)}>
+              {t("settings.showKit")}
+            </Button>
+            <ChangeSecretKey onChanged={setSecretKey} />
+          </div>
         )}
       </div>
 
@@ -815,9 +821,12 @@ function AccountTab({ onClose }: { onClose: () => void }) {
       <div>
         <div className="text-xs text-muted">{t("settings.signedInAs")}</div>
         <div className="selectable mt-0.5 text-sm font-medium">{status?.email}</div>
-        <Button size="sm" className="mt-3" onClick={signOut}>
-          {t("common.signOutDevice")}
-        </Button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button size="sm" onClick={signOut}>
+            {t("common.signOutDevice")}
+          </Button>
+          <ChangeEmail />
+        </div>
       </div>
       <RecoverySection />
       <div className="rounded-xl border border-danger/30 bg-danger-soft p-4">
@@ -893,5 +902,131 @@ function AboutTab() {
       <p className="text-muted">{t("settings.aboutBody")}</p>
       <p className="rounded-lg bg-warning-soft px-3 py-2 text-xs text-warning">{t("settings.beta")}</p>
     </div>
+  );
+}
+
+/** "Regenerate Secret Key": a new Secret Key for the same master password.
+ * Every other device is signed out and needs the new key. */
+function ChangeSecretKey({ onChanged }: { onChanged: (secretKey: string) => void }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const change = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const secretKey = await api.changeSecretKey(password);
+      setPassword("");
+      setOpen(false);
+      onChanged(secretKey);
+      toast.success(t("secretKeyChange.done"));
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        <RefreshCw className="size-4" /> {t("secretKeyChange.button")}
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen} title={t("secretKeyChange.title")} description={t("secretKeyChange.body")}>
+        <form onSubmit={change} className="space-y-3">
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("common.masterPassword")} autoFocus />
+          <ErrorText>{error}</ErrorText>
+          <div className="flex justify-end gap-2">
+            <Button type="button" onClick={() => setOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" variant="danger" loading={busy} disabled={!password}>
+              {t("secretKeyChange.confirm")}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
+  );
+}
+
+/** Changes the account's email, once confirmed from the inbox(es). */
+function ChangeEmail() {
+  const { t } = useTranslation();
+  const refreshStatus = useApp((s) => s.refreshStatus);
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    const check = () =>
+      api
+        .emailChangeStatus()
+        .then((next) => {
+          if (!live) return;
+          setPending(next);
+          void refreshStatus();
+        })
+        .catch(() => {});
+    void check();
+    const timer = window.setInterval(check, 20_000);
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [refreshStatus]);
+
+  const change = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      setPending(await api.changeEmail(password, email));
+      setPassword("");
+      setEmail("");
+      setOpen(false);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        <Mail className="size-4" /> {t("emailChange.button")}
+      </Button>
+      {pending && <p className="basis-full text-xs leading-relaxed text-muted">{t("emailChange.pending", { email: pending })}</p>}
+      <Dialog open={open} onOpenChange={setOpen} title={t("emailChange.title")} description={t("emailChange.body")}>
+        <form onSubmit={change} className="space-y-3">
+          <div>
+            <Label>{t("emailChange.newEmail")}</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus className="h-10" />
+          </div>
+          <div>
+            <Label>{t("common.masterPassword")}</Label>
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
+          </div>
+          <ErrorText>{error}</ErrorText>
+          <div className="flex justify-end gap-2">
+            <Button type="button" onClick={() => setOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" variant="primary" loading={busy} disabled={!password || !email.includes("@")}>
+              {t("emailChange.confirm")}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </>
   );
 }

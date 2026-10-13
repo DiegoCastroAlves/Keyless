@@ -17,6 +17,8 @@ mod dialog_text;
 mod error;
 mod generator_history;
 mod guarded_key;
+mod device_setup;
+mod devices;
 mod hardening;
 mod idle;
 mod health;
@@ -26,6 +28,7 @@ mod item_links;
 mod item_windows;
 mod item_versions;
 mod items;
+mod kit_pdf;
 mod lock;
 mod notify;
 mod oauth;
@@ -149,8 +152,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // Launched again: a shortcut asking for Quick Access, or the app
             // opened from the menu.
-            if item_links::handle_args(app, &args) {
-                // A link to an item: the main window shows it.
+            if item_links::handle_args(app, &args) || device_setup::handle_args(app, &args) {
+                // A link to an item (the main window shows it), or a setup
+                // code (the sign-in form gets it).
             } else if args.iter().any(|a| a == quick_access::ARG) {
                 if let Err(err) = quick_access::show(app) {
                     log::warn!("could not open Quick Access: {err}");
@@ -218,6 +222,8 @@ pub fn run() {
                 fill_done: tokio::sync::watch::Sender::new(0),
                 ssh: Default::default(),
                 sentinel: Default::default(),
+                devices: Default::default(),
+                setup: Default::default(),
                 unlock_reason: Default::default(),
                 item_request: Mutex::new(None),
             });
@@ -239,7 +245,7 @@ pub fn run() {
             // The window is created hidden (tauri.conf.json): shown unless
             // Keyless was started at login to stay in the tray.
             let args: Vec<String> = std::env::args().collect();
-            if !item_links::handle_args(app.handle(), &args) && !start_hidden {
+            if !item_links::handle_args(app.handle(), &args) && !device_setup::handle_args(app.handle(), &args) && !start_hidden {
                 tray::show_main(app.handle());
             }
             if quick_access_requested && let Err(err) = quick_access::show(app.handle()) {
@@ -414,6 +420,25 @@ pub fn run() {
             commands::unlock_prompt_reason,
             commands::copy_secret_key,
             commands::account_info,
+            commands::list_devices,
+            commands::revoke_device,
+            commands::sign_out_other_devices,
+            commands::request_device_setup,
+            commands::poll_device_setup,
+            commands::cancel_device_setup,
+            commands::use_setup_link,
+            commands::scan_setup_code,
+            commands::clear_setup_code,
+            commands::pending_device_setups,
+            commands::answer_device_setup,
+            commands::approve_device_setup,
+            commands::deny_device_setup,
+            commands::account_setup_code,
+            commands::kit_setup_code,
+            commands::save_emergency_kit,
+            commands::change_secret_key,
+            commands::change_email,
+            commands::email_change_status,
             commands::cancel_account_deletion,
             commands::version_info,
             commands::configure_tray,

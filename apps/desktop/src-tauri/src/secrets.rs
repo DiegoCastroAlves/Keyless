@@ -190,7 +190,35 @@ impl SecretStore {
     pub fn delete_secret_key(&self, email: &str) {
         self.delete(&account_entry_name(email));
     }
+
+    /// Keeps the Secret Key under the account's new email.
+    pub fn move_secret_key(&self, old_email: &str, new_email: &str) -> AppResult<()> {
+        let key = self.load_secret_key(old_email)?.ok_or(AppError::NotFound)?;
+        self.save_secret_key(new_email, &key)?;
+        // The fallback file serves every email: only the credential store's
+        // entry for the old one goes.
+        if let Some(entry) = entry(&account_entry_name(old_email)) {
+            let _ = entry.delete_credential();
+        }
+        Ok(())
+    }
+
+    /// The Secret Key a change is putting in place, kept until the server
+    /// took it (so an interrupted change can be finished).
+    pub fn save_next_secret_key(&self, key: &SecretKey) -> AppResult<()> {
+        self.put(NEXT_SECRET_KEY, &key.to_display())
+    }
+
+    pub fn load_next_secret_key(&self) -> Option<SecretKey> {
+        self.get(NEXT_SECRET_KEY).ok().flatten().and_then(|display| SecretKey::parse(&display).ok())
+    }
+
+    pub fn delete_next_secret_key(&self) {
+        self.delete(NEXT_SECRET_KEY);
+    }
 }
+
+const NEXT_SECRET_KEY: &str = "next_secret_key";
 
 fn remove_file_securely(path: &Path) {
     if path.exists() {

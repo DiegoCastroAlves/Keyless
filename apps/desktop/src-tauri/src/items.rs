@@ -985,7 +985,7 @@ fn wifi_payload(name: &str, password: &str, security: &str) -> Zeroizing<String>
     payload
 }
 
-fn qr_svg(text: &str) -> AppResult<String> {
+pub(crate) fn qr_svg(text: &str) -> AppResult<String> {
     let code = qrcode::QrCode::new(text.as_bytes()).map_err(|_| AppError::Invalid(Msg::new("qr_too_long")))?;
     Ok(code
         .render::<qrcode::render::svg::Color>()

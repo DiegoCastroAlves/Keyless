@@ -41,6 +41,8 @@ pub const EVENT_SYNC_STATUS: &str = "keyless://sync-status";
 pub const EVENT_LOCKED: &str = "keyless://locked";
 /// The vault was unlocked (in any window).
 pub const EVENT_UNLOCKED: &str = "keyless://unlocked";
+/// The account's email changed (see `auth::sync_email`).
+pub const EVENT_ACCOUNT_CHANGED: &str = "keyless://account-changed";
 
 const PAGE: usize = 500;
 pub const ORPHANED_ROLE: &str = "orphaned";
@@ -700,9 +702,22 @@ pub async fn sync_now(app: &AppHandle) -> AppResult<()> {
             crate::site_icons::refresh(app);
             // Attachment deletions waiting for the network.
             crate::attachments::spawn_clean_up(app);
+            // The device list, and new devices asking to sign in.
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                crate::devices::seen(&app).await;
+                crate::device_setup::check_requests(&app).await;
+            });
             Ok(())
         }
-        Err(err) => Err(err),
+        Err(err) => {
+            if matches!(err, AppError::Auth(_)) {
+                // Maybe signed out from another device.
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move { crate::devices::check_revoked(&app).await });
+            }
+            Err(err)
+        }
     }
 }
 
