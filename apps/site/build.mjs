@@ -1,6 +1,6 @@
 // Builds the public site (keyless.diegoalves.dev) into dist/: the home
-// page, the page that opens share links (/share/) and the browser
-// extension's tutorial (/tutorial/). Static files only, served by
+// page, the page that opens share links (/share/), the browser extension's
+// tutorial (/tutorial/) and the privacy policy (/privacy/). Static files only, served by
 // Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -48,7 +48,7 @@ const fonts = {
 for (const [name, from] of Object.entries(fonts)) cpSync(`node_modules/${from}`, `dist/fonts/${name}`);
 
 await build({
-  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts" },
+  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts" },
   bundle: true,
   minify: true,
   format: "esm",
@@ -92,6 +92,8 @@ writeFileSync(
 /404.html
   Content-Security-Policy: ${csp("'none'")}
 /tutorial/*
+  Content-Security-Policy: ${csp("'none'")}
+/privacy/*
   Content-Security-Policy: ${csp("'none'")}
 /share/*
   Content-Security-Policy: ${csp(SUPABASE_URL)}

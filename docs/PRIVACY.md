@@ -1,6 +1,6 @@
 # Keyless privacy policy
 
-Last updated: October 8, 2026
+Last updated: October 13, 2026
 
 Keyless is a zero-knowledge password manager. Everything you store in your
 vaults is encrypted on your device before it is sent anywhere, with keys that
@@ -26,6 +26,20 @@ your account and used only to identify it. Keyless does not request access to
 any other Google data or service, and a Google sign-in never gives access to
 your vaults: unlocking them always requires your master password and Secret
 Key.
+
+## The browser extension
+
+- The extension talks only to the Keyless app on the same computer (the
+  browser's native messaging), over a channel encrypted with keys set up when
+  you pair them. Logins, cards and other details reach a page only when you
+  fill them, or when a setting you turned on fills them.
+- It reads the pages you visit to find sign-in, payment and address forms and
+  to offer Keyless there. What it finds stays in your browser and the app.
+- Text you copy on a page that looks like an API key goes to the app on your
+  computer, which checks its shape to offer saving it.
+- When you choose to change a breached password, it opens the website's
+  `/.well-known/change-password` address.
+- It has no analytics and no remote code, and sends nothing to us.
 
 ## Third parties
 

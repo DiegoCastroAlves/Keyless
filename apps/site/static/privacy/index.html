@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1113" media="(prefers-color-scheme: dark)" />
+    <title>Keyless privacy policy</title>
+    <meta name="description" content="What Keyless stores, what it sends, and to whom." />
+    <link rel="icon" href="/icon-32.png" />
+    <link rel="preload" href="/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/home.css" />
+    <link rel="stylesheet" href="/privacy/privacy.css" />
+    <script type="module" src="/privacy/app.js"></script>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="/" aria-label="Keyless">
+        <img src="/icon-32.png" width="26" height="26" alt="" />
+        <span>keyless</span>
+      </a>
+      <div class="lang" role="group" aria-label="Language">
+        <button type="button" data-lang="pt-BR" lang="pt-BR">PT</button>
+        <button type="button" data-lang="en" lang="en">EN</button>
+        <button type="button" data-lang="es" lang="es">ES</button>
+      </div>
+    </header>
+
+    <main class="policy">
+      <!-- The same policy as docs/PRIVACY.md, in each language. -->
+      <article lang="en" data-policy="en">
+        <p class="eyebrow mono">Last updated: October 13, 2026</p>
+        <h1>Privacy policy</h1>
+        <p>
+          Keyless is a zero-knowledge password manager. Everything you store in your vaults is encrypted on your device before it is sent
+          anywhere, with keys that are derived from your master password and your Secret Key. Neither of them ever leaves your devices, so
+          nobody else, including whoever runs the Keyless server, can read your vaults.
+        </p>
+        <h2>What the server stores</h2>
+        <ul>
+          <li>Your email address, used to identify your account.</li>
+          <li>Your encrypted vault data (ciphertext), your public key and your encrypted keys.</li>
+          <li>Technical metadata needed to sync: how many vaults and items you have, approximate item sizes, and when they change.</li>
+          <li>Connection logs kept by our hosting provider (IP address, time, request type) for security and operations.</li>
+        </ul>
+        <h2>Sign in with Google</h2>
+        <p>
+          If you choose to continue with Google, Keyless receives your verified email address, your name and your profile picture from Google.
+          They are stored with your account and used only to identify it. Keyless does not request access to any other Google data or service,
+          and a Google sign-in never gives access to your vaults: unlocking them always requires your master password and Secret Key.
+        </p>
+        <h2>The browser extension</h2>
+        <ul>
+          <li>
+            The extension talks only to the Keyless app on the same computer (the browser's native messaging), over a channel encrypted with
+            keys set up when you pair them. Logins, cards and other details reach a page only when you fill them, or when a setting you turned on
+            fills them.
+          </li>
+          <li>It reads the pages you visit to find sign-in, payment and address forms and to offer Keyless there. What it finds stays in your browser and the app.</li>
+          <li>Text you copy on a page that looks like an API key goes to the app on your computer, which checks its shape to offer saving it.</li>
+          <li>When you choose to change a breached password, it opens the website's <code>/.well-known/change-password</code> address.</li>
+          <li>It has no analytics and no remote code, and sends nothing to us.</li>
+        </ul>
+        <h2>Third parties</h2>
+        <ul>
+          <li><strong>Supabase</strong> hosts the Keyless server (authentication and database).</li>
+          <li>
+            <strong>Have I Been Pwned</strong> checks whether a password appears in known breaches for Sentinel: once a day and when you save a
+            new password (you can turn this off in Sentinel), or when you ask. Only the first 5 characters of the password's SHA-1 hash are sent
+            (k-anonymity); the password itself never leaves your device.
+          </li>
+          <li>
+            <strong>Have I Been Pwned</strong> and <strong>2fa.directory</strong> publish the lists of breached websites, and of websites with
+            two-factor codes or passkeys, that Sentinel downloads whole once a day and keeps on your device to compare there. Nothing about your
+            items is sent to them; like any download, they see the request's IP address.
+          </li>
+        </ul>
+        <p>Keyless has no ads, no analytics or tracking, and never sells or shares your data.</p>
+        <h2>Deleting your data</h2>
+        <p>
+          You can delete your account in the app (Settings &gt; Account). The account and everything stored with it are permanently deleted
+          after 7 days, a window in which you can cancel by signing in again. Items you delete are kept, still encrypted, for 30 days in
+          Recently Deleted.
+        </p>
+        <h2>Contact</h2>
+        <p>Questions about this policy: <a href="mailto:diego.castroalves1@gmail.com">diego.castroalves1@gmail.com</a>.</p>
+      </article>
+
+      <article lang="pt-BR" data-policy="pt-BR" hidden>
+        <p class="eyebrow mono">Atualizada em 13 de outubro de 2026</p>
+        <h1>Política de privacidade</h1>
+        <p>
+          O Keyless é um gerenciador de senhas de conhecimento zero. Tudo o que você guarda nos cofres é criptografado no seu dispositivo antes
+          de ir para qualquer lugar, com chaves que vêm da sua senha mestra e da sua Chave Secreta. Nenhuma das duas sai dos seus dispositivos,
+          então ninguém mais, nem quem cuida do servidor do Keyless, consegue ler seus cofres.
+        </p>
+        <h2>O que o servidor guarda</h2>
+        <ul>
+          <li>Seu e-mail, que identifica a sua conta.</li>
+          <li>Os dados criptografados dos cofres, sua chave pública e suas chaves criptografadas.</li>
+          <li>Metadados técnicos para sincronizar: quantos cofres e itens você tem, o tamanho aproximado dos itens e quando mudam.</li>
+          <li>Registros de conexão mantidos pelo provedor de hospedagem (endereço IP, horário, tipo de pedido), para segurança e operação.</li>
+        </ul>
+        <h2>Entrar com o Google</h2>
+        <p>
+          Se você escolher continuar com o Google, o Keyless recebe do Google seu e-mail verificado, seu nome e sua foto de perfil. Eles ficam
+          guardados com a sua conta e servem só para identificá-la. O Keyless não pede acesso a nenhum outro dado ou serviço do Google, e entrar
+          com o Google nunca dá acesso aos seus cofres: abri-los sempre exige a senha mestra e a Chave Secreta.
+        </p>
+        <h2>A extensão do navegador</h2>
+        <ul>
+          <li>
+            A extensão conversa apenas com o app do Keyless no mesmo computador (pelo native messaging do navegador), por um canal criptografado
+            com chaves combinadas quando você os conecta. Logins, cartões e outros dados chegam a uma página só quando você os preenche, ou quando
+            uma opção que você ligou preenche.
+          </li>
+          <li>Ela lê as páginas que você visita para achar formulários de login, pagamento e endereço e oferecer o Keyless ali. O que ela encontra fica no seu navegador e no app.</li>
+          <li>Um texto que você copia numa página e que parece uma chave de API vai para o app no seu computador, que confere o formato para oferecer guardá-lo.</li>
+          <li>Quando você escolhe trocar uma senha vazada, ela abre o endereço <code>/.well-known/change-password</code> do site.</li>
+          <li>Ela não tem análise de uso nem código remoto, e não nos envia nada.</li>
+        </ul>
+        <h2>Terceiros</h2>
+        <ul>
+          <li>O <strong>Supabase</strong> hospeda o servidor do Keyless (autenticação e banco de dados).</li>
+          <li>
+            O <strong>Have I Been Pwned</strong> verifica se uma senha aparece em vazamentos conhecidos, para o Sentinela: uma vez por dia e quando
+            você salva uma senha nova (dá para desligar no Sentinela), ou quando você pede. Só os 5 primeiros caracteres do hash SHA-1 da senha são
+            enviados (k-anonimato); a senha nunca sai do seu dispositivo.
+          </li>
+          <li>
+            O <strong>Have I Been Pwned</strong> e o <strong>2fa.directory</strong> publicam as listas de sites que vazaram dados e de sites com
+            códigos de verificação ou chaves de acesso, que o Sentinela baixa inteiras uma vez por dia e guarda no seu dispositivo para comparar ali.
+            Nada sobre os seus itens é enviado a eles; como em qualquer download, eles veem o endereço IP do pedido.
+          </li>
+        </ul>
+        <p>O Keyless não tem anúncios, análise de uso nem rastreamento, e nunca vende nem compartilha seus dados.</p>
+        <h2>Apagar seus dados</h2>
+        <p>
+          Você pode apagar sua conta no app (Configurações &gt; Conta). A conta e tudo o que está guardado com ela são apagados de vez depois de
+          7 dias, prazo em que dá para desistir entrando de novo. Itens que você apaga ficam guardados, ainda criptografados, por 30 dias em
+          Excluídos recentemente.
+        </p>
+        <h2>Contato</h2>
+        <p>Dúvidas sobre esta política: <a href="mailto:diego.castroalves1@gmail.com">diego.castroalves1@gmail.com</a>.</p>
+      </article>
+
+      <article lang="es" data-policy="es" hidden>
+        <p class="eyebrow mono">Actualizada el 13 de octubre de 2026</p>
+        <h1>Política de privacidad</h1>
+        <p>
+          Keyless es un gestor de contraseñas de conocimiento cero. Todo lo que guardas en tus bóvedas se cifra en tu dispositivo antes de
+          enviarse a cualquier sitio, con claves que salen de tu contraseña maestra y tu Clave Secreta. Ninguna de las dos sale de tus
+          dispositivos, así que nadie más, ni quien gestiona el servidor de Keyless, puede leer tus bóvedas.
+        </p>
+        <h2>Qué guarda el servidor</h2>
+        <ul>
+          <li>Tu correo electrónico, que identifica tu cuenta.</li>
+          <li>Los datos cifrados de tus bóvedas, tu clave pública y tus claves cifradas.</li>
+          <li>Metadatos técnicos para sincronizar: cuántas bóvedas y elementos tienes, su tamaño aproximado y cuándo cambian.</li>
+          <li>Registros de conexión del proveedor de alojamiento (dirección IP, hora, tipo de petición), por seguridad y operación.</li>
+        </ul>
+        <h2>Iniciar sesión con Google</h2>
+        <p>
+          Si eliges continuar con Google, Keyless recibe de Google tu correo verificado, tu nombre y tu foto de perfil. Se guardan con tu cuenta y
+          solo sirven para identificarla. Keyless no pide acceso a ningún otro dato o servicio de Google, y entrar con Google nunca da acceso a tus
+          bóvedas: abrirlas siempre exige la contraseña maestra y la Clave Secreta.
+        </p>
+        <h2>La extensión del navegador</h2>
+        <ul>
+          <li>
+            La extensión solo habla con la app de Keyless en el mismo ordenador (mediante el native messaging del navegador), por un canal cifrado
+            con claves acordadas al conectarlas. Los inicios de sesión, tarjetas y otros datos llegan a una página solo cuando los rellenas, o
+            cuando una opción que activaste los rellena.
+          </li>
+          <li>Lee las páginas que visitas para encontrar formularios de inicio de sesión, pago y dirección y ofrecer Keyless allí. Lo que encuentra se queda en tu navegador y en la app.</li>
+          <li>Un texto que copias en una página y que parece una clave de API va a la app en tu ordenador, que comprueba su formato para ofrecer guardarlo.</li>
+          <li>Cuando eliges cambiar una contraseña filtrada, abre la dirección <code>/.well-known/change-password</code> del sitio.</li>
+          <li>No tiene analítica ni código remoto, y no nos envía nada.</li>
+        </ul>
+        <h2>Terceros</h2>
+        <ul>
+          <li><strong>Supabase</strong> aloja el servidor de Keyless (autenticación y base de datos).</li>
+          <li>
+            <strong>Have I Been Pwned</strong> comprueba si una contraseña aparece en filtraciones conocidas, para Centinela: una vez al día y cuando
+            guardas una contraseña nueva (puedes desactivarlo en Centinela), o cuando lo pides. Solo se envían los 5 primeros caracteres del hash
+            SHA-1 de la contraseña (k-anonimato); la contraseña nunca sale de tu dispositivo.
+          </li>
+          <li>
+            <strong>Have I Been Pwned</strong> y <strong>2fa.directory</strong> publican las listas de sitios con filtraciones y de sitios con
+            códigos de verificación o llaves de acceso, que Centinela descarga enteras una vez al día y guarda en tu dispositivo para comparar allí.
+            No se les envía nada sobre tus elementos; como en cualquier descarga, ven la dirección IP de la petición.
+          </li>
+        </ul>
+        <p>Keyless no tiene anuncios, analítica ni rastreo, y nunca vende ni comparte tus datos.</p>
+        <h2>Borrar tus datos</h2>
+        <p>
+          Puedes borrar tu cuenta en la app (Ajustes &gt; Cuenta). La cuenta y todo lo guardado con ella se borran para siempre al cabo de 7
+          días, plazo en el que puedes cancelarlo iniciando sesión de nuevo. Los elementos que borras se guardan, aún cifrados, 30 días en
+          Eliminados recientemente.
+        </p>
+        <h2>Contacto</h2>
+        <p>Preguntas sobre esta política: <a href="mailto:diego.castroalves1@gmail.com">diego.castroalves1@gmail.com</a>.</p>
+      </article>
+    </main>
+  </body>
+</html>

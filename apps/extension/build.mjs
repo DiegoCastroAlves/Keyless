@@ -61,7 +61,9 @@ const targets = {
     background: { scripts: ["background.js"] },
     // The websites' own sign-in dialogs (see background.ts).
     permissions: [...base.permissions, "webRequest", "webRequestBlocking"],
-    browser_specific_settings: { gecko: { id: FIREFOX_ID, strict_min_version: "130.0" } },
+    // Mozilla asks every new extension what data it collects: none leaves the
+    // computer (it goes to the Keyless app only; see docs/PRIVACY.md).
+    browser_specific_settings: { gecko: { id: FIREFOX_ID, strict_min_version: "130.0", data_collection_permissions: { required: ["none"] } } },
   },
 };
 
