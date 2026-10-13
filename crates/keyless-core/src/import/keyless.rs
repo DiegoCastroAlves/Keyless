@@ -117,7 +117,8 @@ pub fn parse_export_json(json: &[u8], files: &HashMap<String, u64>) -> Result<Im
                     None => missing += 1,
                 }
             }
-            items.push(ImportedItem { overview, details, files: item_files });
+            let source_id = raw.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+            items.push(ImportedItem::new(source_id, overview, details, item_files));
         }
         result.vaults.push(ImportedVault { name, items });
     }
@@ -127,7 +128,7 @@ pub fn parse_export_json(json: &[u8], files: &HashMap<String, u64>) -> Result<Im
     if missing > 0 {
         result.warnings.push(ImportWarning::new("files_missing", missing));
     }
-    Ok(result)
+    Ok(result.link())
 }
 
 #[cfg(test)]
@@ -160,6 +161,7 @@ mod tests {
                 name: "Work".into(),
                 description: String::new(),
                 items: vec![BackupItem {
+                    id: String::new(),
                     overview: ItemOverview { title: "Mail".into(), category: Category::Login, favorite: true, ..Default::default() },
                     details,
                 }],

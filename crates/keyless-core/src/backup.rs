@@ -78,6 +78,10 @@ pub struct BackupVault {
 
 #[derive(Serialize, Deserialize)]
 pub struct BackupItem {
+    /// The item's id where it was backed up, so items keep their links to
+    /// one another when restored (older backups have none).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     pub overview: ItemOverview,
     pub details: ItemDetails,
 }
@@ -283,13 +287,13 @@ impl OpenedBackup {
                                 sealed: Some(attachment),
                             });
                         }
-                        ImportedItem { overview: i.overview, details: i.details, files }
+                        ImportedItem::new(i.id, i.overview, i.details, files)
                     })
                     .collect(),
             })
             .collect();
         let warnings = if missing > 0 { vec![ImportWarning::new("files_missing", missing)] } else { Vec::new() };
-        ImportResult { vaults, warnings }
+        ImportResult { vaults, warnings }.link()
     }
 }
 
@@ -320,6 +324,7 @@ mod tests {
                 name: "Personal".into(),
                 description: String::new(),
                 items: vec![BackupItem {
+                    id: String::new(),
                     overview: ItemOverview { title: "Example".into(), category: Category::Login, ..Default::default() },
                     details,
                 }],

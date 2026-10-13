@@ -350,6 +350,7 @@ pub fn run() {
             commands::set_master_password_days,
             commands::take_item_request,
             commands::auto_type,
+            commands::import_pick_key_file,
             commands::list_items,
             commands::get_item,
             commands::get_item_draft,

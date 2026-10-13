@@ -1220,12 +1220,14 @@ pub async fn purge_old_trash(app: &AppHandle) -> AppResult<()> {
 }
 
 /// Creates items in bulk (imports). Does not upload; the caller syncs.
-pub async fn insert_imported(state: &AppState, vault_id: &str, items: Vec<(ItemOverview, ItemDetails)>) -> AppResult<usize> {
+/// Saves imported items, with the ids the import gave them (their links to
+/// one another use those).
+pub async fn insert_imported(state: &AppState, vault_id: &str, items: Vec<(String, ItemOverview, ItemDetails)>) -> AppResult<usize> {
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;
     let now = now_secs();
     let mut count = 0;
-    for (mut overview, details) in items {
+    for (id, mut overview, details) in items {
         if overview.created_at == 0 {
             overview.created_at = now;
         }
@@ -1235,7 +1237,6 @@ pub async fn insert_imported(state: &AppState, vault_id: &str, items: Vec<(ItemO
         if overview.subtitle.is_empty() {
             overview.subtitle = compute_subtitle(overview.category, &details);
         }
-        let id = uuid::Uuid::new_v4().to_string();
         let mut details = details;
         write_local_item(state, session, &id, vault_id, 0, 1, &mut overview, &mut details)?;
         count += 1;

@@ -1,6 +1,8 @@
 //! CSV import for browser and password manager exports (Chrome, Edge,
-//! Firefox, Bitwarden, LastPass, 1Password CSV, generic
-//! "title,url,username,password").
+//! Firefox, Safari and iCloud, Bitwarden, LastPass, 1Password, Dashlane,
+//! RoboForm, KeePassXC, Dropbox Passwords, generic
+//! "title,url,username,password"), and Keeper's, which has no header row
+//! (`parse_keeper_csv`).
 
 use std::io::Read;
 
@@ -53,11 +55,14 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         title: find(&headers, &["title", "name"]),
         url: find(&headers, &["url", "login_uri", "website", "uri", "web site", "login url"]),
         username: find(&headers, &["username", "login_username", "user name", "email", "login"]),
-        password: find(&headers, &["password", "login_password"]),
+        // RoboForm: "pwd".
+        password: find(&headers, &["password", "login_password", "pwd"]),
         notes: find(&headers, &["notes", "note", "extra", "comments"]),
-        totp: find(&headers, &["otpauth", "totp", "login_totp", "one-time password"]),
+        // Safari: "otpauth"; Dashlane: "otpsecret".
+        totp: find(&headers, &["otpauth", "totp", "login_totp", "one-time password", "otpsecret", "otp"]),
         favorite: find(&headers, &["favorite", "fav"]),
-        tags: find(&headers, &["tags", "folder", "grouping"]),
+        // KeePassXC: "group"; Dashlane: "category".
+        tags: find(&headers, &["tags", "folder", "grouping", "group", "category"]),
         kind: find(&headers, &["type"]),
         fields: find(&headers, &["fields"]),
     };
@@ -69,7 +74,7 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
     let lastpass = ["url", "username", "password", "extra", "name", "grouping"].iter().all(|h| headers.iter().any(|x| x == h));
     if cols.password.is_none() && cols.notes.is_none() {
         return Err(Error::Import(
-            "could not find a password column; supported: Chrome, Edge, Firefox, Bitwarden and 1Password CSV".into(),
+            "could not find a password column; supported: Chrome, Edge, Firefox, Safari, Bitwarden, LastPass, 1Password, Dashlane, RoboForm and KeePassXC CSV".into(),
         ));
     }
 
@@ -173,15 +178,17 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
         }
 
         let favorite = matches!(get(cols.favorite).to_ascii_lowercase().as_str(), "1" | "true" | "yes");
+        // KeePassXC's groups are paths from its root group ("Root/Email").
         let tags = cell(cols.tags)
             .split([',', ';'])
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
+            .map(|t| t.trim().trim_start_matches("Root/").trim())
+            .filter(|t| !t.is_empty() && *t != "Root")
             .map(String::from)
             .collect();
 
-        items.push(ImportedItem {
-            overview: ItemOverview {
+        items.push(ImportedItem::new(
+            "",
+            ItemOverview {
                 title,
                 subtitle: username,
                 category,
@@ -192,14 +199,84 @@ pub fn parse_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
                 ..Default::default()
             },
             details,
-            files: Vec::new(),
-        });
+            Vec::new(),
+        ));
     }
 
     Ok(ImportResult {
         vaults: vec![ImportedVault { name: vault_name.to_string(), items }],
         warnings,
     })
+}
+
+/// Keeper's CSV export: no header row; each row is folder, title, login,
+/// password, website, notes, shared folder, then custom fields as name and
+/// value pairs (the one-time password among them, as "TFC:Keeper").
+pub fn parse_keeper_csv<R: Read>(reader: R, vault_name: &str) -> Result<ImportResult> {
+    let mut rdr = csv::ReaderBuilder::new().has_headers(false).flexible(true).from_reader(reader);
+    let mut items = Vec::new();
+    let mut warnings = Vec::new();
+    for (index, record) in rdr.records().enumerate() {
+        if index >= MAX_ROWS {
+            warnings.push(ImportWarning::new("rows_limited", MAX_ROWS));
+            break;
+        }
+        let Ok(record) = record else {
+            warnings.push(ImportWarning::new("row_skipped", index + 1));
+            continue;
+        };
+        if record.len() < 6 {
+            return Err(Error::Import("not a Keeper CSV export: too few columns".into()));
+        }
+        let get = |i: usize| record.get(i).unwrap_or("").trim().to_string();
+        let (folder, mut title, username, url, notes) = (get(0), get(1), get(2), get(4), get(5));
+        let password = record.get(3).unwrap_or("").to_string();
+        let mut details = ItemDetails::default();
+        details.notes = notes;
+        let mut field = |label: &str, kind: FieldKind, value: String, purpose: Option<FieldPurpose>| {
+            details.fields.push(Field { id: new_field_id(), label: label.into(), kind, value, purpose, extra: Default::default() });
+        };
+        if !username.is_empty() {
+            field("username", FieldKind::Text, username.clone(), Some(FieldPurpose::Username));
+        }
+        if !password.is_empty() {
+            field("password", FieldKind::Concealed, password.clone(), Some(FieldPurpose::Password));
+        }
+        let custom: Vec<String> = record.iter().skip(7).map(str::to_string).collect();
+        for pair in custom.chunks(2) {
+            let (name, value) = (pair[0].trim(), pair.get(1).map(|v| v.trim()).unwrap_or(""));
+            if name.is_empty() || value.is_empty() {
+                continue;
+            }
+            if name == "TFC:Keeper" || value.starts_with("otpauth://") {
+                field("one-time password", FieldKind::Totp, value.to_string(), None);
+            } else {
+                let secret = SECRET_LABEL.iter().any(|word| name.to_lowercase().contains(word));
+                field(name, if secret { FieldKind::Concealed } else { FieldKind::Text }, value.to_string(), None);
+            }
+        }
+        if url.is_empty() && username.is_empty() && password.is_empty() && details.notes.is_empty() && details.fields.is_empty() {
+            continue;
+        }
+        if title.is_empty() {
+            title = host_of(&url).unwrap_or_else(|| "Untitled".into());
+        }
+        let category = if username.is_empty() && password.is_empty() && url.is_empty() { Category::SecureNote } else { Category::Login };
+        items.push(ImportedItem::new(
+            "",
+            ItemOverview {
+                title,
+                subtitle: username,
+                category,
+                urls: Some(url).filter(|u| !u.is_empty()).map(|href| ItemUrl { href, ..Default::default() }).into_iter().collect(),
+                tags: folder.split('\\').map(str::trim).filter(|f| !f.is_empty()).map(String::from).collect(),
+                ..Default::default()
+            },
+            details,
+            Vec::new(),
+        ));
+    }
+    Ok(ImportResult { vaults: vec![ImportedVault { name: vault_name.to_string(), items }], warnings })
 }
 
 fn host_of(url: &str) -> Option<String> {
@@ -255,6 +332,40 @@ mod tests {
         // Other exports are not marked.
         let chrome = parse_csv("name,url,username,password\nA,https://a.example,me,pw\n".as_bytes(), "x").unwrap();
         assert_eq!(chrome.vaults[0].items[0].overview.imported_from, "");
+    }
+
+    #[test]
+    fn other_managers() {
+        // RoboForm.
+        let robo = parse_csv("Name,Url,MatchUrl,Login,Pwd,Note,Folder,RfFieldsV2\nBank,https://bank.example,,me,pw,,/Money,\n".as_bytes(), "x").unwrap();
+        assert_eq!(robo.vaults[0].items[0].details.password(), Some("pw"));
+        // Dashlane.
+        let dash = parse_csv(
+            "username,username2,username3,title,password,note,url,category,otpSecret\nme,,,Mail,pw,,https://mail.example,Email,JBSWY3DPEHPK3PXP\n".as_bytes(),
+            "x",
+        )
+        .unwrap();
+        let mail = &dash.vaults[0].items[0];
+        assert!(mail.details.fields.iter().any(|f| f.kind == FieldKind::Totp));
+        assert_eq!(mail.overview.tags, vec!["Email"]);
+        // KeePassXC.
+        let kp = parse_csv("\"Group\",\"Title\",\"Username\",\"Password\",\"URL\",\"Notes\",\"TOTP\"\n\"Root/Email\",\"Mail\",\"me\",\"pw\",\"\",\"\",\"\"\n".as_bytes(), "x").unwrap();
+        assert_eq!(kp.vaults[0].items[0].overview.tags, vec!["Email"]);
+        // Safari and iCloud.
+        let safari = parse_csv("Title,URL,Username,Password,Notes,OTPAuth\nShop,https://shop.example,me,pw,,otpauth://totp/x?secret=JBSWY3DPEHPK3PXP\n".as_bytes(), "x").unwrap();
+        assert!(safari.vaults[0].items[0].details.fields.iter().any(|f| f.kind == FieldKind::Totp));
+    }
+
+    #[test]
+    fn keeper_export() {
+        let csv = "Work\\Team,VPN,me,pw,https://vpn.example,note,,TFC:Keeper,otpauth://totp/x?secret=JBSWY3DPEHPK3PXP,PIN,1234\n";
+        let result = parse_keeper_csv(csv.as_bytes(), "Keeper").unwrap();
+        let item = &result.vaults[0].items[0];
+        assert_eq!(item.overview.tags, vec!["Work", "Team"]);
+        assert_eq!(item.details.password(), Some("pw"));
+        assert!(item.details.fields.iter().any(|f| f.kind == FieldKind::Totp));
+        assert!(item.details.fields.iter().any(|f| f.label == "PIN" && f.kind == FieldKind::Concealed));
+        assert!(parse_keeper_csv("a,b\n".as_bytes(), "x").is_err());
     }
 
     #[test]

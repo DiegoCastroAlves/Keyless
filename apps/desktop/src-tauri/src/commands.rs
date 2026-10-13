@@ -653,10 +653,18 @@ pub async fn import_pick(
     state: State<'_, AppState>,
     format: ImportFormat,
     password: Option<String>,
+    key_file: Option<String>,
     dialog: DialogText,
 ) -> AppResult<ImportSummary> {
     state.touch();
-    import::pick_and_parse(&app, format, password.map(Zeroizing::new), &dialog).await
+    import::pick_and_parse(&app, format, password.map(Zeroizing::new), key_file.map(std::path::PathBuf::from), &dialog).await
+}
+
+/// A KeePass key file to import with (its path).
+#[tauri::command]
+pub async fn import_pick_key_file(app: AppHandle, state: State<'_, AppState>, dialog: DialogText) -> AppResult<Option<String>> {
+    state.touch();
+    import::pick_key_file(&app, &dialog).await
 }
 
 #[tauri::command]

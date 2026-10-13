@@ -9,6 +9,8 @@
 //! - A zip archive with that JSON (`keyless-export.json`) and the attached
 //!   files in `attachments/<attachment id>/<name>`, as Bitwarden lays them
 //!   out; each attachment in the JSON names its file.
+//! - A 1Password export (`.1pux`): `export.data` and the files in
+//!   `files/<document id>__<name>`, which 1Password (and Keyless) import.
 //!
 //! Passkeys are never exported (as with 1Password): their private keys would
 //! sit in plain text, and no other password manager imports Keyless's.
@@ -150,10 +152,20 @@ fn json_with_files(data: &BackupData, files: &HashMap<String, String>) -> Result
     serde_json::to_vec_pretty(&value).map_err(Error::from)
 }
 
+/// The layout of a zip export.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ZipLayout {
+    /// Keyless's JSON and `attachments/`.
+    Keyless,
+    /// 1Password's `.1pux`.
+    OnePux,
+}
+
 /// Writes the zip export: the attached files first, as they are downloaded
 /// and decrypted, then the JSON.
 pub struct ExportZip<W: Write + Seek> {
     zip: zip::ZipWriter<W>,
+    layout: ZipLayout,
     /// The path of each attachment's file written whole, by attachment id.
     written: HashMap<String, String>,
     /// The file being written: attachment id and path.
@@ -162,7 +174,11 @@ pub struct ExportZip<W: Write + Seek> {
 
 impl<W: Write + Seek> ExportZip<W> {
     pub fn new(out: W) -> Self {
-        Self { zip: zip::ZipWriter::new(out), written: HashMap::new(), current: None }
+        Self::with_layout(out, ZipLayout::Keyless)
+    }
+
+    pub fn with_layout(out: W, layout: ZipLayout) -> Self {
+        Self { zip: zip::ZipWriter::new(out), layout, written: HashMap::new(), current: None }
     }
 
     fn fail(e: impl std::fmt::Display) -> Error {
@@ -178,7 +194,10 @@ impl<W: Write + Seek> ExportZip<W> {
             Ok(id) => id.hyphenated().to_string(),
             Err(_) => uuid::Uuid::new_v4().to_string(),
         };
-        let path = format!("attachments/{folder}/{}", clean_name(&attachment.name));
+        let path = match self.layout {
+            ZipLayout::Keyless => format!("attachments/{folder}/{}", clean_name(&attachment.name)),
+            ZipLayout::OnePux => format!("files/{folder}__{}", clean_name(&attachment.name)),
+        };
         let options = SimpleFileOptions::default()
             .compression_method(CompressionMethod::Deflated)
             .large_file(attachment.size >= u32::MAX as u64);
@@ -209,12 +228,190 @@ impl<W: Write + Seek> ExportZip<W> {
 
     /// Writes the JSON and ends the archive.
     pub fn finish(mut self, data: &BackupData) -> Result<W> {
-        let json = zeroize::Zeroizing::new(json_with_files(data, &self.written)?);
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        self.zip.start_file("keyless-export.json", options).map_err(Self::fail)?;
-        self.zip.write_all(&json).map_err(Self::fail)?;
+        match self.layout {
+            ZipLayout::Keyless => {
+                let json = zeroize::Zeroizing::new(json_with_files(data, &self.written)?);
+                self.zip.start_file("keyless-export.json", options).map_err(Self::fail)?;
+                self.zip.write_all(&json).map_err(Self::fail)?;
+            }
+            ZipLayout::OnePux => {
+                let attributes = serde_json::json!({ "version": 3, "description": "1Password Unencrypted Export", "createdAt": data.exported_at });
+                self.zip.start_file("export.attributes", options).map_err(Self::fail)?;
+                self.zip.write_all(&serde_json::to_vec_pretty(&attributes)?).map_err(Self::fail)?;
+                let json = zeroize::Zeroizing::new(onepux_data(data, &self.written)?);
+                self.zip.start_file("export.data", options).map_err(Self::fail)?;
+                self.zip.write_all(&json).map_err(Self::fail)?;
+            }
+        }
         self.zip.finish().map_err(Self::fail)
     }
+}
+
+// ----- 1PUX --------------------------------------------------------------------------
+
+fn onepux_category(category: Category) -> &'static str {
+    match category {
+        Category::Login => "001",
+        Category::CreditCard => "002",
+        Category::Identity => "004",
+        Category::Password => "005",
+        Category::Document => "006",
+        Category::SoftwareLicense => "100",
+        Category::BankAccount => "101",
+        Category::Database => "102",
+        Category::DriverLicense => "103",
+        Category::Membership => "105",
+        Category::Passport => "106",
+        Category::WirelessRouter => "109",
+        Category::Server => "110",
+        Category::EmailAccount => "111",
+        Category::ApiCredential => "112",
+        Category::MedicalRecord => "113",
+        Category::SshKey => "114",
+        Category::CryptoWallet => "115",
+        // 1Password has no kind of its own for the rest.
+        Category::SecureNote | Category::Other => "003",
+    }
+}
+
+/// A field as 1Password writes it: `{"title", "id", "value": {kind: …}}`.
+fn onepux_field(field: &Field, index: usize) -> Option<serde_json::Value> {
+    use serde_json::json;
+    let v = field.value.as_str();
+    let value = match field.kind {
+        FieldKind::Concealed | FieldKind::Pin | FieldKind::SecurityQuestion => json!({ "concealed": v }),
+        FieldKind::Email => json!({ "email": { "email_address": v, "provider": null } }),
+        FieldKind::Url => json!({ "url": v }),
+        FieldKind::Phone => json!({ "phone": v }),
+        FieldKind::Totp => json!({ "totp": v }),
+        FieldKind::CardNumber => json!({ "creditCardNumber": v }),
+        FieldKind::Date => match crate::import::bitwarden::date(Some(&serde_json::Value::String(v.to_string()))) {
+            0 => json!({ "string": v }),
+            secs => json!({ "date": secs }),
+        },
+        FieldKind::MonthYear => {
+            let parts: Vec<&str> = v.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).collect();
+            match parts.as_slice() {
+                [month, year] if year.len() == 4 => json!({ "monthYear": format!("{year}{month:0>2}").parse::<i64>().unwrap_or(0) }),
+                _ => json!({ "string": v }),
+            }
+        }
+        FieldKind::Address => match &field.extra.address {
+            Some(a) => {
+                let street = [a.street.as_str(), a.line2.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(", ");
+                json!({ "address": { "street": street, "city": a.city, "state": a.state, "zip": a.zip, "country": a.country } })
+            }
+            None => json!({ "string": v }),
+        },
+        FieldKind::Reference => json!({ "reference": v }),
+        FieldKind::File => return None,
+        _ => json!({ "string": v }),
+    };
+    if v.trim().is_empty() && field.kind != FieldKind::Address {
+        return None;
+    }
+    Some(json!({
+        "title": field.label,
+        "id": field.id,
+        "value": value,
+        "indexAtSource": index,
+        "guarded": false,
+        "multiline": field.kind == FieldKind::Multiline,
+        "dontGenerate": false,
+        "inputTraits": { "keyboard": "default", "correction": "default", "capitalization": "default" },
+    }))
+}
+
+/// `export.data`: an account, the vaults, the items; `files` are the
+/// attachments written to the archive (by id, their paths).
+pub fn onepux_data(data: &BackupData, files: &HashMap<String, String>) -> Result<Vec<u8>> {
+    use serde_json::json;
+    let file_of = |attachment: &Attachment| {
+        let path = files.get(&attachment.id)?;
+        let (document, name) = path.strip_prefix("files/")?.split_once("__")?;
+        Some(json!({ "fileName": name, "documentId": document, "decryptedSize": attachment.size }))
+    };
+    let vaults: Vec<serde_json::Value> = data
+        .vaults
+        .iter()
+        .enumerate()
+        .map(|(index, vault)| {
+            let items: Vec<serde_json::Value> = vault
+                .items
+                .iter()
+                .enumerate()
+                .map(|(position, item)| {
+                    let (o, d) = (&item.overview, &item.details);
+                    let username = d.field_by_purpose(FieldPurpose::Username);
+                    let password = d.field_by_purpose(FieldPurpose::Password);
+                    let mut login_fields = Vec::new();
+                    if o.category != Category::Password {
+                        if let Some(user) = username {
+                            login_fields.push(json!({ "value": user.value, "name": "username", "fieldType": "T", "designation": "username" }));
+                        }
+                        if let Some(pass) = password {
+                            login_fields.push(json!({ "value": pass.value, "name": "password", "fieldType": "P", "designation": "password" }));
+                        }
+                    }
+                    let skip = |f: &Field| o.category != Category::Password && (Some(f.id.as_str()) == username.map(|u| u.id.as_str()) || Some(f.id.as_str()) == password.map(|p| p.id.as_str()));
+                    let mut main: Vec<serde_json::Value> = d.fields.iter().filter(|f| !skip(f) && !(o.category == Category::Password && f.purpose == Some(FieldPurpose::Password))).enumerate().filter_map(|(i, f)| onepux_field(f, i)).collect();
+                    // Files: the document's own, and fields for the others.
+                    let mut document = None;
+                    for attachment in &d.attachments {
+                        let Some(file) = file_of(attachment) else { continue };
+                        if o.category == Category::Document && document.is_none() {
+                            document = Some(file);
+                        } else {
+                            main.push(json!({ "title": attachment.name, "id": attachment.id, "value": { "file": file } }));
+                        }
+                    }
+                    let mut sections = vec![json!({ "title": "", "name": "add more", "fields": main })];
+                    for section in &d.sections {
+                        let fields: Vec<serde_json::Value> = section.fields.iter().enumerate().filter_map(|(i, f)| onepux_field(f, i)).collect();
+                        sections.push(json!({ "title": section.title, "name": section.id, "fields": fields }));
+                    }
+                    let mut details = json!({
+                        "loginFields": login_fields,
+                        "notesPlain": d.notes,
+                        "sections": sections,
+                        "passwordHistory": d.password_history.iter().map(|h| json!({ "value": h.value, "time": h.changed_at })).collect::<Vec<_>>(),
+                    });
+                    if o.category == Category::Password
+                        && let Some(pass) = password
+                    {
+                        details["password"] = json!(pass.value);
+                    }
+                    if let Some(document) = document {
+                        details["documentAttributes"] = document;
+                    }
+                    let uuid = if item.id.is_empty() { format!("keyless{index}x{position}") } else { item.id.clone() };
+                    json!({
+                        "uuid": uuid,
+                        "favIndex": if o.favorite { 1 } else { 0 },
+                        "createdAt": o.created_at,
+                        "updatedAt": o.updated_at,
+                        "state": if o.archived { "archived" } else { "active" },
+                        "categoryUuid": onepux_category(o.category),
+                        "details": details,
+                        "overview": {
+                            "subtitle": o.subtitle,
+                            "title": o.title,
+                            "url": o.urls.first().map(|u| u.href.clone()).unwrap_or_default(),
+                            "urls": o.urls.iter().map(|u| json!({ "label": u.label, "url": u.href, "mode": "default" })).collect::<Vec<_>>(),
+                            "tags": o.tags,
+                            "ps": 0,
+                            "pbe": 0.0,
+                            "pgrng": false,
+                        },
+                    })
+                })
+                .collect();
+            json!({ "attrs": { "uuid": format!("vault{index}"), "desc": vault.description, "avatar": "", "name": vault.name, "type": "U" }, "items": items })
+        })
+        .collect();
+    let document = json!({ "accounts": [{ "attrs": { "accountName": "Keyless", "name": "Keyless", "avatar": "", "email": "", "uuid": "keyless", "domain": "" }, "vaults": vaults }] });
+    serde_json::to_vec_pretty(&document).map_err(Error::from)
 }
 
 #[cfg(test)]
@@ -248,6 +445,7 @@ mod tests {
                 description: String::new(),
                 items: vec![
                     BackupItem {
+                        id: String::new(),
                         overview: ItemOverview {
                             title: "Example".into(),
                             category: Category::Login,
@@ -258,7 +456,7 @@ mod tests {
                         },
                         details: login,
                     },
-                    BackupItem { overview: ItemOverview { title: "Visa".into(), category: Category::CreditCard, ..Default::default() }, details: card },
+                    BackupItem { id: String::new(), overview: ItemOverview { title: "Visa".into(), category: Category::CreditCard, ..Default::default() }, details: card },
                 ],
             }],
         }
@@ -396,5 +594,36 @@ mod tests {
         // The file that could not be read is listed without one.
         assert!(listed[2].get("file").is_none());
         assert!(listed.iter().all(|a| a.get("key").is_none()));
+    }
+
+    #[test]
+    fn onepux_round_trip() {
+        use std::io::Cursor;
+
+        let mut data = sample();
+        let mut passkeys = data.vaults[0].items[0].details.passkeys.clone();
+        passkeys.push(serde_json::from_value(serde_json::json!({"credentialId": "Y3JlZA", "rpId": "example.com", "userHandle": "dQ", "key": "secret-private-key"})).unwrap());
+        data.vaults[0].items[0].details.passkeys = passkeys;
+        let scan = Attachment::new("scan.pdf", 4, 1).unwrap();
+        data.vaults[0].items[0].details.attachments.push(scan.clone());
+        let mut zip = ExportZip::with_layout(Cursor::new(Vec::new()), ZipLayout::OnePux);
+        zip.start_file(&scan).unwrap();
+        zip.write(b"%PDF").unwrap();
+        zip.end_file();
+        let bytes = zip.finish(&data).unwrap().into_inner();
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("secret-private-key"), "passkeys stay out");
+
+        let result = crate::import::onepux::parse_1pux(Cursor::new(bytes)).unwrap();
+        let items = &result.vaults[0].items;
+        assert_eq!(items.len(), data.vaults[0].items.len());
+        let login = &items[0];
+        assert_eq!(login.overview.title, "Example");
+        assert_eq!(login.details.username(), Some("ana@example.com"));
+        assert_eq!(login.details.password(), Some("p,a\"ss\nword"));
+        assert!(login.details.fields.iter().any(|f| f.kind == FieldKind::Totp));
+        assert_eq!(login.files.len(), 1);
+        assert_eq!(login.files[0].name, "scan.pdf");
+        assert_eq!(items[1].overview.category, Category::CreditCard);
     }
 }

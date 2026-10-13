@@ -1,10 +1,10 @@
-import { Copy, DatabaseBackup, FileArchive, FileSpreadsheet, FileText, TriangleAlert } from "lucide-react";
+import { Braces, Copy, DatabaseBackup, FileArchive, FileKey, FileSpreadsheet, FileText, KeyRound, TriangleAlert } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput, StrengthMeter, useStrength } from "../../components/common";
 import { Button, Combobox, Dialog, ErrorText, Input, Label, cx } from "../../components/ui";
-import { api, errorCode, errorMessage, events, type ExportOutcome, type ImportFormat, type ImportSummary } from "../../lib/api";
+import { api, errorCode, errorMessage, events, type ExportOutcome, type ImportFormat, type ImportSummary, type PlainExportFormat } from "../../lib/api";
 import { formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
@@ -55,27 +55,90 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   const [newVaultName, setNewVaultName] = useState("");
   const writable = vaults.filter((v) => v.canWrite);
   const [vaultId, setVaultId] = useState<string>(writable[0]?.id ?? "");
-  const [backupPrompt, setBackupPrompt] = useState(false);
-  const [backupPassword, setBackupPassword] = useState("");
-  const [source, setSource] = useState<ImportFormat>("one_pux");
+  /** The source asking for a password (and, for KeePass, a key file)
+   * before its file is chosen. */
+  const [prompt, setPrompt] = useState<"keyless_backup" | "json" | "kdbx" | null>(null);
+  const [filePassword, setFilePassword] = useState("");
+  const [keyFile, setKeyFile] = useState<string | null>(null);
+  /** The file imported was encrypted (a backup, a KeePass database, a
+   * password-protected export): no need to tell to delete it. */
+  const [protectedFile, setProtectedFile] = useState(false);
   const percent = useFilesProgress(busy === "commit");
 
-  const pick = async (format: ImportFormat, password?: string) => {
+  const pick = async (format: ImportFormat, password?: string, key?: string) => {
     setBusy("pick");
     try {
-      const result = await api.importPick(format, password);
-      setSource(format);
-      setBackupPrompt(false);
-      setBackupPassword("");
+      const result = await api.importPick(format, password, key);
+      setProtectedFile(format === "keyless_backup" || format === "kdbx" || (format === "json" && !!password));
+      setPrompt(null);
+      setFilePassword("");
+      setKeyFile(null);
       setSummary(result);
       setMode(result.vaults.length > 1 ? "new_vaults" : "vault");
       setNewVaultName(result.vaults.length === 1 ? result.vaults[0][0] : t("importer.newVaultDefault"));
     } catch (err) {
+      // A protected file chosen without its password: the password box.
+      if ((err as { key?: string }).key === "import_password_required" && (format === "json" || format === "kdbx")) setPrompt(format);
       if (errorCode(err) !== "cancelled") toast.error(errorMessage(err));
     } finally {
       setBusy(null);
     }
   };
+
+  const ask = (format: "keyless_backup" | "json" | "kdbx") => {
+    setPrompt(prompt === format ? null : format);
+    setFilePassword("");
+    setKeyFile(null);
+  };
+
+  const chooseKeyFile = async () => {
+    try {
+      const path = await api.importPickKeyFile();
+      if (path) setKeyFile(path);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  /** The password (and key file) form under the source that asked for it. */
+  const passwordForm = (format: "keyless_backup" | "json" | "kdbx") =>
+    prompt === format && (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void pick(format, filePassword || undefined, keyFile ?? undefined);
+        }}
+        className="space-y-3 rounded-xl border border-accent/40 p-3"
+      >
+        <div>
+          <Label>{t(format === "keyless_backup" ? "importer.backupPassword" : format === "kdbx" ? "importer.keepassPassword" : "importer.jsonPassword")}</Label>
+          <PasswordInput value={filePassword} onChange={(e) => setFilePassword(e.target.value)} autoFocus />
+        </div>
+        {format === "kdbx" && (
+          <div>
+            <Label>{t("importer.keyFile")}</Label>
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[13px] text-muted" title={keyFile ?? undefined}>
+                {keyFile ? keyFile.split(/[\\/]/).pop() : t("importer.keyFileNone")}
+              </span>
+              {keyFile && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setKeyFile(null)}>
+                  {t("importer.keyFileClear")}
+                </Button>
+              )}
+              <Button type="button" size="sm" onClick={() => void chooseKeyFile()}>
+                {t("importer.keyFileChoose")}
+              </Button>
+            </div>
+          </div>
+        )}
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" disabled={format === "keyless_backup" ? !filePassword : format === "kdbx" ? !filePassword && !keyFile : false} loading={busy === "pick"}>
+            {t("importer.choose")}
+          </Button>
+        </div>
+      </form>
+    );
 
   const commit = async () => {
     setBusy("commit");
@@ -117,6 +180,43 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
             busy={busy === "pick"}
           />
           <SourceCard
+            icon={<Braces className="size-5" />}
+            title={t("importer.json")}
+            hint={t("importer.jsonHint")}
+            onClick={() => ask("json")}
+            busy={busy === "pick"}
+          />
+          {passwordForm("json")}
+          <SourceCard
+            icon={<KeyRound className="size-5" />}
+            title={t("importer.keepass")}
+            hint={t("importer.keepassHint")}
+            onClick={() => ask("kdbx")}
+            busy={busy === "pick"}
+          />
+          {passwordForm("kdbx")}
+          <SourceCard
+            icon={<FileArchive className="size-5" />}
+            title={t("importer.dashlane")}
+            hint={t("importer.dashlaneHint")}
+            onClick={() => pick("dashlane_zip")}
+            busy={busy === "pick"}
+          />
+          <SourceCard
+            icon={<FileSpreadsheet className="size-5" />}
+            title={t("importer.keeperCsv")}
+            hint={t("importer.keeperCsvHint")}
+            onClick={() => pick("keeper_csv")}
+            busy={busy === "pick"}
+          />
+          <SourceCard
+            icon={<FileKey className="size-5" />}
+            title={t("importer.onePif")}
+            hint={t("importer.onePifHint")}
+            onClick={() => pick("one_pif")}
+            busy={busy === "pick"}
+          />
+          <SourceCard
             icon={<FileArchive className="size-5" />}
             title={t("importer.keylessExport")}
             hint={t("importer.keylessExportHint")}
@@ -127,26 +227,10 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
             icon={<DatabaseBackup className="size-5" />}
             title={t("importer.backup")}
             hint={t("importer.backupHint")}
-            onClick={() => setBackupPrompt(true)}
+            onClick={() => ask("keyless_backup")}
             busy={busy === "pick"}
           />
-          {backupPrompt && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void pick("keyless_backup", backupPassword);
-              }}
-              className="flex items-end gap-2 rounded-xl border border-accent/40 p-3"
-            >
-              <div className="flex-1">
-                <Label>{t("importer.backupPassword")}</Label>
-                <PasswordInput value={backupPassword} onChange={(e) => setBackupPassword(e.target.value)} autoFocus />
-              </div>
-              <Button type="submit" variant="primary" disabled={!backupPassword} loading={busy === "pick"} className="h-10">
-                {t("importer.choose")}
-              </Button>
-            </form>
-          )}
+          {passwordForm("keyless_backup")}
         </div>
       </div>
     );
@@ -207,7 +291,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           )}
         </div>
       </div>
-      {source !== "keyless_backup" && <p className="text-xs text-warning">{t("importer.deleteExport")}</p>}
+      {!protectedFile && <p className="text-xs text-warning">{t("importer.deleteExport")}</p>}
       <FilesProgressLine percent={percent} />
       <div className="flex justify-end gap-2">
         <Button
@@ -393,12 +477,12 @@ export function ExportPanel() {
  * the warning and the explicit confirmation. */
 export function PlainExportPanel() {
   const { t } = useTranslation();
-  const [format, setFormat] = useState<"csv" | "json" | "zip">("csv");
+  const [format, setFormat] = useState<PlainExportFormat>("csv");
   const [masterPassword, setMasterPassword] = useState("");
   const [understood, setUnderstood] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const percent = useFilesProgress(busy && format === "zip");
+  const percent = useFilesProgress(busy && (format === "zip" || format === "1pux"));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -424,14 +508,14 @@ export function PlainExportPanel() {
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-danger" />
         <p className="text-xs leading-relaxed text-fg">{t("importer.plainWarning")}</p>
       </div>
-      <div className="flex gap-2">
-        {(["csv", "json", "zip"] as const).map((value) => (
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(["csv", "json", "zip", "cxf", "1pux"] as const).map((value) => (
           <button
             key={value}
             type="button"
             onClick={() => setFormat(value)}
             className={cx(
-              "flex-1 rounded-lg border px-3 py-2 text-left text-[13px]",
+              "rounded-lg border px-3 py-2 text-left text-[13px]",
               format === value ? "border-accent bg-accent-soft" : "border-line hover:bg-panel-2",
             )}
           >

@@ -244,7 +244,8 @@ attachments a vault has and their sizes (not their names or contents).
   else: with them, whoever imports it signs in as the user). The archive shows how many files there are and
   their sizes. Backups and exports are written to a hidden file that takes
   its name once complete.
-- An unencrypted export (CSV, JSON, or a ZIP with the JSON and the attached
+- An unencrypted export (CSV, JSON, a ZIP with the JSON and the attached
+  files, the Credential Exchange Format, or a 1Password `.1pux` with the
   files, for moving to another password manager) also requires the master
   password and an explicit confirmation after a warning; the file is
   written readable only by the current user. Folders in the ZIP are named
@@ -255,6 +256,17 @@ attachments a vault has and their sizes (not their names or contents).
   title and user name of a login created with its passkey) starts with `'`,
   which Keyless's own import removes; passwords and notes are kept as they
   are.
+- Imports read other password managers' files in memory, in Rust: CSV
+  (most managers), JSON (Bitwarden, Keeper, CXF), 1PUX, 1PIF, Dashlane's ZIP,
+  and encrypted ones with their password: Bitwarden's password-protected
+  JSON (PBKDF2 or Argon2id, its HMAC checked before AES-CBC) and KeePass
+  databases (KDBX 3.1 and 4, password and/or key file; the header HMAC or
+  the stream start bytes tell a wrong key). Their key derivation parameters
+  are bounded before use, sizes are capped (files, decompressed data), and
+  nothing from an import is written until the user confirms; the imported
+  items are then encrypted like any other. Links between imported items
+  (related items, "sign in with" accounts) are kept by giving each item its
+  Keyless id while reading.
 - Optional unlock with the computer password (Linux packages, via a polkit
   action with `auth_self`: the user's own password or fingerprint, never
   cached, active local session only) or Windows Hello (the system's user

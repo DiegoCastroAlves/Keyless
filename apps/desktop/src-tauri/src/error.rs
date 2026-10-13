@@ -95,6 +95,7 @@ impl AppError {
                 Core::EmptyPassword => Msg::new("empty_password"),
                 Core::InvalidTotp(detail) => Msg::new("totp_invalid_detail").with("detail", detail),
                 Core::Import(detail) => Msg::new("import_failed").with("detail", detail),
+                Core::PasswordRequired => Msg::new("import_password_required"),
                 Core::InvalidGeneratorOptions(detail) => Msg::new("generator_options").with("detail", detail),
                 other => Msg::new("internal").with("detail", other),
             },

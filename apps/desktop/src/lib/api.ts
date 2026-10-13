@@ -605,7 +605,8 @@ export interface FilesProgress {
   total: number;
 }
 
-export type ImportFormat = "one_pux" | "csv" | "keyless_backup" | "keyless_export";
+export type ImportFormat = "one_pux" | "csv" | "keyless_backup" | "keyless_export" | "json" | "kdbx" | "one_pif" | "keeper_csv" | "dashlane_zip";
+export type PlainExportFormat = "csv" | "json" | "zip" | "cxf" | "1pux";
 
 export type ImportTarget = { mode: "new_vaults" } | { mode: "vault"; vaultId: string } | { mode: "new_vault"; name: string };
 
@@ -639,7 +640,7 @@ export function errorCode(err: unknown): string | null {
 }
 
 /** The words of a system file dialog, in the user's language. */
-function dialogText(key: "qrImage" | "backup" | "attach" | "icon" | "saveAttachment" | "export") {
+function dialogText(key: "qrImage" | "backup" | "attach" | "icon" | "saveAttachment" | "export" | "keyFile") {
   const filter = `dialogs.${key}.filter`;
   return { title: i18n.t(`dialogs.${key}.title`), filter: i18n.exists(filter) ? i18n.t(filter) : "" };
 }
@@ -771,10 +772,11 @@ export const api = {
   suggestTitle: (url: string) => invoke<string | null>("suggest_title", { url }),
   checkItemPassword: (password: string, itemId: string | null, inputs: string[]) =>
     invoke<PasswordCheck>("check_item_password", { password, itemId, inputs }),
-  importPick: (format: ImportFormat, password?: string) =>
+  importPick: (format: ImportFormat, password?: string, keyFile?: string) =>
     invoke<ImportSummary>("import_pick", {
       format,
       password: password ?? null,
+      keyFile: keyFile ?? null,
       dialog: { title: i18n.t("dialogs.import.title"), filter: i18n.t(`dialogs.import.filters.${format}`) },
     }),
   exportBackup: (masterPassword: string, password: string, includePasskeys: boolean) =>
@@ -821,7 +823,9 @@ export const api = {
   sshImportKey: (privateKey: string, passphrase: string | null, comment: string) =>
     invoke<SshKeyFields>("ssh_import_key", { privateKey, passphrase, comment }),
   /** An unencrypted export, after the master password. */
-  exportPlain: (masterPassword: string, format: "csv" | "json" | "zip") =>
+  /** A KeePass key file, picked in the system's dialog: its path. */
+  importPickKeyFile: () => invoke<string | null>("import_pick_key_file", { dialog: dialogText("keyFile") }),
+  exportPlain: (masterPassword: string, format: PlainExportFormat) =>
     invoke<ExportOutcome>("export_plain", { masterPassword, format, dialog: dialogText("export") }),
   importCommit: (target: ImportTarget) => invoke<ImportOutcome>("import_commit", { target }),
   importCancel: () => invoke<void>("import_cancel"),

@@ -30,6 +30,9 @@ pub enum Error {
     InvalidTotp(String),
     #[error("import failed: {0}")]
     Import(String),
+    /// The file to import is protected by a password, and none was given.
+    #[error("this file is protected by a password")]
+    PasswordRequired,
     #[error("invalid generator options: {0}")]
     InvalidGeneratorOptions(String),
 }

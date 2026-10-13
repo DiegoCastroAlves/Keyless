@@ -11,6 +11,7 @@ pub mod account;
 pub mod attachment;
 pub mod backup;
 pub mod crypto;
+pub mod cxf;
 pub mod encoding;
 pub mod error;
 pub mod export;

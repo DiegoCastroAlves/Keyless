@@ -791,6 +791,7 @@ dependencies = [
  "block-buffer 0.12.1",
  "crypto-common 0.2.2",
  "inout 0.2.2",
+ "zeroize",
 ]
 
 [[package]]
@@ -2455,6 +2456,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27f864f10dfb56725ce5ce5472bc52252c8f93a4ab86327122cebf62c5f59a17"
 dependencies = [
  "typenum",
+ "zeroize",
 ]
 
 [[package]]
@@ -2993,14 +2995,19 @@ dependencies = [
 name = "keyless-core"
 version = "0.1.9"
 dependencies = [
+ "aes 0.9.3",
  "argon2",
  "base64 0.23.1",
+ "cbc 0.2.1",
+ "chacha20 0.10.2",
  "chacha20poly1305",
  "csv",
+ "flate2",
  "getrandom 0.4.3",
  "hkdf",
  "hmac 0.13.0",
  "p256",
+ "quick-xml 0.42.0",
  "region",
  "serde",
  "serde_json",

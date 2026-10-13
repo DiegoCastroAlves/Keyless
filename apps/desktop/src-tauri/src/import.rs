@@ -22,8 +22,11 @@ use std::{
 use keyless_core::{
     attachment::{Attachment, CHUNK_OVERHEAD, CHUNK_SIZE},
     backup::{BackupData, BackupItem, BackupVault, BackupWriter, open_backup},
-    export::ExportZip,
-    import::{ImportArchive, ImportResult, ImportSummary, ImportedFile, csv::parse_csv, keyless::parse_keyless_export, onepux::parse_1pux},
+    export::{ExportZip, ZipLayout},
+    import::{
+        ImportArchive, ImportResult, ImportSummary, ImportedFile, bitwarden, csv::parse_csv, csv::parse_keeper_csv, dashlane::parse_dashlane_zip, kdbx::parse_kdbx,
+        keeper, keyless::parse_keyless_export, onepif::parse_1pif, onepux::parse_1pux,
+    },
     vault::VaultMeta,
 };
 use serde::{Deserialize, Serialize};
@@ -58,6 +61,17 @@ pub enum ImportFormat {
     KeylessBackup,
     /// Keyless's unencrypted export: the JSON, or the zip with the files.
     KeylessExport,
+    /// A JSON export: Bitwarden's (also password protected), Keeper's, or
+    /// the Credential Exchange Format.
+    Json,
+    /// A KeePass database, with its password and/or a key file.
+    Kdbx,
+    /// 1Password 4 to 7's interchange format.
+    OnePif,
+    /// Keeper's CSV, which has no header row.
+    KeeperCsv,
+    /// Dashlane's CSV export (a zip archive).
+    DashlaneZip,
 }
 
 #[derive(Deserialize)]
@@ -120,7 +134,39 @@ impl Progress {
     }
 }
 
-pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Option<Zeroizing<String>>, text: &DialogText) -> AppResult<ImportSummary> {
+/// Reads the whole file, up to `MAX_CSV_BYTES`.
+fn read_all(file: &mut File) -> AppResult<Zeroizing<Vec<u8>>> {
+    if file.metadata().map(|m| m.len()).unwrap_or(0) > MAX_CSV_BYTES {
+        return Err(AppError::Invalid(Msg::new("file_too_large")));
+    }
+    let mut contents = Zeroizing::new(Vec::new());
+    file.take(MAX_CSV_BYTES).read_to_end(&mut contents).map_err(|e| AppError::Invalid(Msg::new("file_unreadable").with("detail", e)))?;
+    Ok(contents)
+}
+
+/// The errors of files protected by a password, in the import's words.
+fn locked_file(err: keyless_core::Error) -> AppError {
+    match err {
+        keyless_core::Error::Decryption => AppError::Invalid(Msg::new("import_wrong_password")),
+        other => other.into(),
+    }
+}
+
+/// A file to import with: a KeePass key file, picked in the system's
+/// dialog. Its path, for `pick_and_parse`.
+pub async fn pick_key_file(app: &AppHandle, text: &DialogText) -> AppResult<Option<String>> {
+    let dialog = text.apply(app.dialog().file(), &[]);
+    let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file()).await.map_err(|e| AppError::Store(e.to_string()))?;
+    Ok(picked.and_then(|p| p.into_path().ok()).map(|p| p.to_string_lossy().into_owned()))
+}
+
+pub async fn pick_and_parse(
+    app: &AppHandle,
+    format: ImportFormat,
+    password: Option<Zeroizing<String>>,
+    key_file: Option<std::path::PathBuf>,
+    text: &DialogText,
+) -> AppResult<ImportSummary> {
     let state = app.state::<AppState>();
     if state.session.lock().await.is_none() {
         return Err(AppError::Locked);
@@ -130,6 +176,11 @@ pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Opt
         ImportFormat::Csv => &["csv"],
         ImportFormat::KeylessBackup => &["keyless"],
         ImportFormat::KeylessExport => &["json", "zip"],
+        ImportFormat::Json => &["json"],
+        ImportFormat::Kdbx => &["kdbx"],
+        ImportFormat::OnePif => &["1pif"],
+        ImportFormat::KeeperCsv => &["csv"],
+        ImportFormat::DashlaneZip => &["zip"],
     };
     let dialog = text.apply(app.dialog().file(), extensions);
     let picked = tauri::async_runtime::spawn_blocking(move || dialog.blocking_pick_file())
@@ -140,26 +191,52 @@ pub async fn pick_and_parse(app: &AppHandle, format: ImportFormat, password: Opt
 
     let pending = tauri::async_runtime::spawn_blocking(move || -> AppResult<PendingImport> {
         let unreadable = |e: std::io::Error| AppError::Invalid(Msg::new("file_unreadable").with("detail", e));
-        let file = File::open(&path).map_err(unreadable)?;
+        let mut file = File::open(&path).map_err(unreadable)?;
+        // The vault for a file without vaults of its own: named after it.
+        let name = path.file_stem().and_then(|s| s.to_str()).map(|s| format!("Imported ({s})")).unwrap_or_else(|| "Imported".into());
+        let password = password.as_deref().map(|p| p.as_str());
         match format {
+            ImportFormat::Json => {
+                let contents = read_all(&mut file)?;
+                let json: serde_json::Value = serde_json::from_slice(&contents).map_err(|_| AppError::Invalid(Msg::new("import_unknown_json")))?;
+                let result = if keyless_core::cxf::detect(&json) {
+                    keyless_core::cxf::parse_cxf(&json)?
+                } else if bitwarden::detect(&json) {
+                    bitwarden::parse_bitwarden_json(&json, password, &name).map_err(locked_file)?
+                } else if keeper::detect(&json) {
+                    keeper::parse_keeper_json(&json, &name)?
+                } else {
+                    return Err(AppError::Invalid(Msg::new("import_unknown_json")));
+                };
+                Ok(PendingImport { result, file: None })
+            }
+            ImportFormat::Kdbx => {
+                let contents = read_all(&mut file)?;
+                let key = match &key_file {
+                    Some(key_path) => Some(read_all(&mut File::open(key_path).map_err(unreadable)?)?),
+                    None => None,
+                };
+                let result = parse_kdbx(&contents, password, key.as_ref().map(|k| k.as_slice()), &name).map_err(locked_file)?;
+                Ok(PendingImport { result, file: None })
+            }
+            ImportFormat::OnePif => {
+                let contents = read_all(&mut file)?;
+                Ok(PendingImport { result: parse_1pif(&String::from_utf8_lossy(&contents), &name)?, file: None })
+            }
+            ImportFormat::KeeperCsv => {
+                let contents = read_all(&mut file)?;
+                Ok(PendingImport { result: parse_keeper_csv(contents.as_slice(), &name)?, file: None })
+            }
+            ImportFormat::DashlaneZip => Ok(PendingImport { result: parse_dashlane_zip(BufReader::new(file), "Dashlane")?, file: None }),
             ImportFormat::OnePux => Ok(PendingImport { result: parse_1pux(BufReader::new(file))?, file: Some(path) }),
             ImportFormat::KeylessExport => Ok(PendingImport { result: parse_keyless_export(BufReader::new(file))?, file: Some(path) }),
             ImportFormat::Csv => {
-                if file.metadata().map(|m| m.len()).unwrap_or(0) > MAX_CSV_BYTES {
-                    return Err(AppError::Invalid(Msg::new("file_too_large")));
-                }
-                let mut contents = Zeroizing::new(Vec::new());
-                file.take(MAX_CSV_BYTES).read_to_end(&mut contents).map_err(unreadable)?;
-                let name = path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(|s| format!("Imported ({s})"))
-                    .unwrap_or_else(|| "Imported".into());
+                let contents = read_all(&mut file)?;
                 Ok(PendingImport { result: parse_csv(contents.as_slice(), &name)?, file: None })
             }
             ImportFormat::KeylessBackup => {
                 let password = password.ok_or_else(|| AppError::Invalid(Msg::new("backup_password_required")))?;
-                match open_backup(&password, BufReader::new(file)) {
+                match open_backup(password, BufReader::new(file)) {
                     Ok(backup) => Ok(PendingImport { result: backup.into_import(), file: Some(path) }),
                     Err(keyless_core::Error::Decryption) => Err(AppError::Invalid(Msg::new("backup_wrong_password"))),
                     Err(err) => Err(err.into()),
@@ -266,7 +343,7 @@ pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<ImportOu
                     }
                 }
             }
-            batch.push((item.overview, details));
+            batch.push((item.id, item.overview, details));
         }
         match items::insert_imported(&state, &vault_id, batch).await {
             Ok(count) => outcome.items += count,
@@ -340,7 +417,7 @@ async fn collect(state: &AppState) -> AppResult<(BackupData, Vec<String>)> {
         let (Some(enc), Ok(vault)) = (item.enc_details.as_deref(), session.vault(&item.vault_id)) else { continue };
         let details = vault.key.open_details(&item.vault_id, &item.id, enc)?;
         if let Some((_, target)) = vaults.iter_mut().find(|(id, _)| *id == item.vault_id) {
-            target.items.push(BackupItem { overview: cached.overview.clone(), details });
+            target.items.push(BackupItem { id: item.id.clone(), overview: cached.overview.clone(), details });
         }
     }
     let (ids, vaults) = vaults.into_iter().unzip();
@@ -451,6 +528,11 @@ pub enum PlainFormat {
     Json,
     /// The JSON and the attached files, in a zip archive.
     Zip,
+    /// The Credential Exchange Format (FIDO Alliance).
+    Cxf,
+    /// 1Password's `.1pux`, with the attached files.
+    #[serde(rename = "1pux")]
+    OnePux,
 }
 
 /// Exports every vault the user can read into a file that is NOT encrypted,
@@ -466,7 +548,10 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
         PlainFormat::Csv => ("CSV", "csv"),
         PlainFormat::Json => ("JSON", "json"),
         PlainFormat::Zip => ("ZIP", "zip"),
+        PlainFormat::Cxf => ("CXF", "json"),
+        PlainFormat::OnePux => ("1PUX", "1pux"),
     };
+    let email = state.session.lock().await.as_ref().map(|s| s.email.clone()).unwrap_or_default();
     let dialog = text
         .apply(app.dialog().file(), &[])
         .add_filter(filter, &[extension])
@@ -477,10 +562,11 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
         .ok_or(AppError::Cancelled)?;
     let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unwritable")))?;
 
-    if !matches!(format, PlainFormat::Zip) {
+    if !matches!(format, PlainFormat::Zip | PlainFormat::OnePux) {
         tauri::async_runtime::spawn_blocking(move || -> AppResult<()> {
             let contents = Zeroizing::new(match format {
                 PlainFormat::Json => keyless_core::export::to_json(&data)?,
+                PlainFormat::Cxf => keyless_core::cxf::to_cxf(&data, &email)?,
                 _ => keyless_core::export::to_csv(&data)?,
             });
             write_private(&path, &contents)
@@ -492,7 +578,8 @@ pub async fn export_plain(app: &AppHandle, master_password: Zeroizing<String>, f
 
     let part = part_of(&path);
     let written = async {
-        let mut export = ExportZip::new(BufWriter::new(create_part(&part)?));
+        let layout = if matches!(format, PlainFormat::OnePux) { ZipLayout::OnePux } else { ZipLayout::Keyless };
+        let mut export = ExportZip::with_layout(BufWriter::new(create_part(&part)?), layout);
         let failed = download_files(app, &data, &vault_ids, &mut export).await?;
         let files = unique_files(&data) - failed.len();
         finish_off_thread(move || export.finish(&data)).await?;

@@ -20,7 +20,7 @@ use crate::{
     Error, Result,
     attachment::clean_name,
     item::{
-        Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, UrlMatch,
+        Address, Category, Field, FieldExtra, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, UrlMatch,
         PasswordHistoryEntry, Section, new_field_id,
     },
 };
@@ -107,7 +107,7 @@ pub fn parse_export_data(json: &[u8], files: &HashMap<String, u64>) -> Result<Im
     if finder.missing > 0 {
         result.warnings.push(ImportWarning::new("files_missing", finder.missing));
     }
-    Ok(result)
+    Ok(result.link())
 }
 
 /// Finds the files items refer to in the archive.
@@ -281,7 +281,8 @@ fn convert_item(raw: &Value, finder: &mut FileFinder) -> Option<ImportedItem> {
         updated_at: raw.get("updatedAt").and_then(Value::as_i64).unwrap_or(0),
         ..Default::default()
     };
-    Some(ImportedItem { overview, details, files })
+    let source_id = raw.get("uuid").and_then(Value::as_str).unwrap_or("");
+    Some(ImportedItem::new(source_id, overview, details, files))
 }
 
 fn convert_field(raw: &Value) -> Option<Field> {
@@ -307,12 +308,24 @@ fn convert_field(raw: &Value) -> Option<Field> {
         "creditCardNumber" => (FieldKind::CardNumber, as_text(value)),
         "date" => (FieldKind::Date, value.as_i64().map(format_unix_date).unwrap_or_default()),
         "monthYear" => (FieldKind::MonthYear, value.as_i64().map(format_month_year).unwrap_or_default()),
-        "address" => (FieldKind::Multiline, format_address(value)),
+        "address" => {
+            // Kept in parts, as Keyless's own address fields are.
+            let part = |name: &str| value.get(name).and_then(Value::as_str).unwrap_or("").trim().to_string();
+            let address = Address { street: part("street"), city: part("city"), state: part("state"), zip: part("zip"), country: part("country"), ..Default::default() };
+            let text = address.formatted();
+            if text.is_empty() {
+                return None;
+            }
+            let extra = FieldExtra { address: Some(address), ..Default::default() };
+            return Some(Field { id: new_field_id(), label, kind: FieldKind::Address, value: text, purpose: None, extra });
+        }
+        // Another item in the export (see `ImportResult::link`).
+        "reference" => (FieldKind::Reference, as_text(value)),
         "sshKey" => (
             FieldKind::Concealed,
             value.get("privateKey").and_then(Value::as_str).unwrap_or("").to_string(),
         ),
-        "file" | "reference" => return None,
+        "file" => return None,
         // creditCardType, menu, gender, and anything newer: keep as text.
         _ => (FieldKind::Text, as_text(value)),
     };
@@ -332,15 +345,6 @@ fn as_text(value: &Value) -> String {
     }
 }
 
-fn format_address(value: &Value) -> String {
-    ["street", "city", "state", "zip", "country"]
-        .iter()
-        .filter_map(|k| value.get(k).and_then(Value::as_str))
-        .filter(|s| !s.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// 1PUX `monthYear` values are `YYYYMM` integers.
 fn format_month_year(v: i64) -> String {
     if v <= 0 {
@@ -350,7 +354,7 @@ fn format_month_year(v: i64) -> String {
 }
 
 /// Formats unix seconds as `YYYY-MM-DD` (UTC) without pulling in a date crate.
-fn format_unix_date(secs: i64) -> String {
+pub(crate) fn format_unix_date(secs: i64) -> String {
     let days = secs.div_euclid(86_400);
     // Civil-from-days algorithm (Howard Hinnant).
     let z = days + 719_468;
@@ -548,6 +552,28 @@ mod tests {
         assert!(archive.read_file(&wrong, |_| Ok(())).is_err());
         wrong.size = 2;
         assert!(archive.read_file(&wrong, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn keeps_addresses_and_related_items() {
+        let data = r#"{"accounts": [{"vaults": [{"attrs": {"name": "Personal"}, "items": [
+            {"uuid": "bank1", "categoryUuid": "101", "overview": {"title": "Bank"}, "details": {}},
+            {"uuid": "id1", "categoryUuid": "004", "overview": {"title": "Me"}, "details": {"sections": [{"title": "", "fields": [
+                {"title": "address", "id": "a", "value": {"address": {"street": "Rua A, 10", "city": "Recife", "state": "PE", "zip": "50000-000", "country": "br"}}},
+                {"title": "bank", "id": "r", "value": {"reference": "bank1"}},
+                {"title": "gone", "id": "g", "value": {"reference": "not-in-export"}}
+            ]}]}}
+        ]}]}]}"#;
+        let result = parse_export_data(data.as_bytes(), &HashMap::new()).unwrap();
+        let items = &result.vaults[0].items;
+        let (bank, me) = (&items[0], &items[1]);
+        let address = me.details.fields.iter().find(|f| f.kind == FieldKind::Address).unwrap();
+        assert_eq!(address.extra.address.as_ref().unwrap().city, "Recife");
+        assert_eq!(address.value, "Rua A, 10\nRecife, PE, 50000-000\nbr");
+        // The link points at the bank's new id; one to an item not exported goes.
+        let links: Vec<_> = me.details.fields.iter().filter(|f| f.kind == FieldKind::Reference).collect();
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].value, bank.id);
     }
 
     #[test]

@@ -1,8 +1,14 @@
 //! Importers from other password managers. Importers only parse; the client
 //! encrypts the result and decides which vaults to put it in.
 
+pub mod bitwarden;
 pub mod csv;
+pub mod dashlane;
+pub mod decrypt;
+pub mod kdbx;
+pub mod keeper;
 pub mod keyless;
+pub mod onepif;
 pub mod onepux;
 
 use std::io::{Read, Seek};
@@ -13,18 +19,29 @@ use zeroize::Zeroizing;
 use crate::{
     Error, Result,
     attachment::{Attachment, CHUNK_OVERHEAD},
-    item::{ItemDetails, ItemOverview},
+    item::{FieldKind, ItemDetails, ItemOverview},
 };
 
 /// Refuse to read more than this for a single attached file.
 pub const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 
 pub struct ImportedItem {
+    /// The item's id in Keyless, given here so that items can refer to one
+    /// another (related items, the login a "sign in with" account uses).
+    pub id: String,
+    /// Its id in the file, if it has one (see `ImportResult::link`).
+    pub source_id: String,
     pub overview: ItemOverview,
     pub details: ItemDetails,
     /// Files to attach, read from the import file once the import is
     /// confirmed.
     pub files: Vec<ImportedFile>,
+}
+
+impl ImportedItem {
+    pub fn new(source_id: impl Into<String>, overview: ItemOverview, details: ItemDetails, files: Vec<ImportedFile>) -> Self {
+        Self { id: uuid::Uuid::new_v4().to_string(), source_id: source_id.into(), overview, details, files }
+    }
 }
 
 /// A file that goes with an imported item, in a zip archive (a 1Password
@@ -77,6 +94,36 @@ pub struct ImportSummary {
 }
 
 impl ImportResult {
+    /// Points the items' links (related items, "sign in with" accounts) from
+    /// their ids in the file to the new ones; a link to an item that is not
+    /// in the import goes.
+    pub fn link(mut self) -> Self {
+        let ids: std::collections::HashMap<String, String> = self
+            .vaults
+            .iter()
+            .flat_map(|v| &v.items)
+            .filter(|i| !i.source_id.is_empty())
+            .map(|i| (i.source_id.clone(), i.id.clone()))
+            .collect();
+        for item in self.vaults.iter_mut().flat_map(|v| v.items.iter_mut()) {
+            let details = &mut item.details;
+            for field in details.fields.iter_mut().chain(details.sections.iter_mut().flat_map(|s| s.fields.iter_mut())) {
+                if field.kind == FieldKind::Reference {
+                    field.value = ids.get(field.value.trim()).cloned().unwrap_or_default();
+                }
+                if !field.extra.link.is_empty() {
+                    field.extra.link = ids.get(&field.extra.link).cloned().unwrap_or_default();
+                }
+            }
+            let dangling = |f: &crate::item::Field| f.kind == FieldKind::Reference && f.value.is_empty();
+            details.fields.retain(|f| !dangling(f));
+            for section in &mut details.sections {
+                section.fields.retain(|f| !dangling(f));
+            }
+        }
+        self
+    }
+
     pub fn summary(&self) -> ImportSummary {
         let files = || self.vaults.iter().flat_map(|v| &v.items).flat_map(|i| &i.files);
         ImportSummary {

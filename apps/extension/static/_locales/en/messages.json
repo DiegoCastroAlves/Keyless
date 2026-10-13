@@ -1215,5 +1215,17 @@
   },
   "tutorial": {
     "message": "Tutorial: practice here"
+  },
+  "fl_company": {
+    "message": "company"
+  },
+  "fl_passport_number": {
+    "message": "passport number"
+  },
+  "fl_license_number": {
+    "message": "license number"
+  },
+  "fl_routing_number": {
+    "message": "routing number"
   }
 }
