@@ -53,8 +53,25 @@ pub fn random_array<const N: usize>() -> Result<Zeroizing<[u8; N]>> {
 /// locked.
 pub struct SecretBytes {
     // Declared first so it is dropped (munlock) before the page is freed.
-    _lock: Option<region::LockGuard>,
+    _lock: Option<PageLock>,
     page: Box<SecretPage>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+type PageLock = region::LockGuard;
+
+/// WebAssembly memory cannot be locked (nor swapped by the page).
+#[cfg(target_arch = "wasm32")]
+type PageLock = ();
+
+#[cfg(not(target_arch = "wasm32"))]
+fn lock_page(page: &SecretPage) -> Option<PageLock> {
+    region::lock(page.0.as_ptr(), KEY_LEN).ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn lock_page(_: &SecretPage) -> Option<PageLock> {
+    None
 }
 
 #[repr(C, align(4096))]
@@ -64,7 +81,7 @@ impl SecretBytes {
     /// Zeros, locked before anything secret is written to them.
     fn zeroed() -> Self {
         let page = Box::new(SecretPage([0u8; KEY_LEN]));
-        let lock = region::lock(page.0.as_ptr(), KEY_LEN).ok();
+        let lock = lock_page(&page);
         Self { _lock: lock, page }
     }
 

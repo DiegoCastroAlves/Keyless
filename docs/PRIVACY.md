@@ -21,6 +21,9 @@ server, can read your vaults.
   its last connection and when it was last used, so you can see where your
   account is open and sign a device out. The device's name and system are
   encrypted like your vaults.
+- For each passkey you add to sign in: its credential ID, when it was added
+  and last used, and its name and an encrypted copy of what signing in needs
+  (readable only with the passkey).
 
 ## Sign in with Google
 

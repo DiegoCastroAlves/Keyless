@@ -549,6 +549,41 @@ This is a second lock, not encryption: the server, which sees the
 ciphertext anyway, decides who gets it; the key still travels only in the
 link.
 
+## Web vault
+
+`keyless.diegoalves.dev/vault/` shows the account's items in a browser,
+read-only. The keys are derived, the server's answers checked (the same
+rules as the desktop sync: content from one write, versions never going
+back, deletions with a tombstone) and items decrypted in WebAssembly built
+from `crates/keyless-client`, the client the Android app shares; the page
+only talks to the server and shows text (never HTML; only `http` and `https`
+addresses become links).
+
+- Nothing is kept in the browser except, for convenience, the email. Locking
+  (by hand, or after 10 minutes without use) or closing the page forgets
+  every key and ends the session on the server.
+- Copied values are cleared after 90 seconds while the page has the focus
+  (a page cannot clear the clipboard otherwise).
+- Its headers allow only its own scripts (and WebAssembly), connections only
+  to the Keyless server, no framing and no referrer. As with the share page,
+  whoever controls the site could serve a page that leaks what is typed
+  there, so the site needs the same care as the app's releases.
+
+### Signing in with a passkey
+
+See `keyless_core::passkey_login` and the `passkeys` migration. The WebAuthn
+PRF extension, asked with a fixed salt, gives a secret only the passkey can
+produce once the user unlocks it; a proof and a key come from it. The server
+keeps the proof's SHA-256 and a bundle sealed with the key that holds the
+email, auth secret, user key and Secret Key. `passkey_sign_in` (open to
+anyone, 10 failures an hour per passkey) gives the bundle for the right
+proof; the browser signs in with the auth secret and opens the account with
+the user key. Passkeys are made on the web vault's domain, so the same ones
+work wherever that domain's passkeys do; a new auth secret (master password
+or Secret Key changed, account recovered) drops them all, by a trigger on
+`auth.users`. A passkey is then as strong as the master password and Secret
+Key together: whoever can unlock it gets in.
+
 ## Updates
 
 - The app looks at the public list of releases on GitHub twice a day (this

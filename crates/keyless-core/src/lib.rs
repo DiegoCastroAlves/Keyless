@@ -21,6 +21,7 @@ pub mod import;
 pub mod item;
 pub mod keys;
 pub mod passkey;
+pub mod passkey_login;
 pub mod password_rules;
 pub mod recovery;
 pub mod setup_code;

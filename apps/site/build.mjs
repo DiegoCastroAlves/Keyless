@@ -1,7 +1,8 @@
 // Builds the public site (keyless.diegoalves.dev) into dist/: the home
 // page, the page that opens share links (/share/), the browser extension's
-// tutorial (/tutorial/), the privacy policy (/privacy/) and where the links
-// confirming an email change lead (/email-changed/). Static files only, served by
+// tutorial (/tutorial/), the privacy policy (/privacy/), where the links
+// confirming an email change lead (/email-changed/) and the web vault
+// (/vault/, with the WebAssembly client in vendor/). Static files only, served by
 // Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
 import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -16,7 +17,7 @@ async function labels() {
   for (const lang of ["pt-BR", "en", "es"]) {
     const result = await build({ entryPoints: [`../desktop/src/i18n/${lang}.ts`], bundle: true, format: "esm", write: false, platform: "neutral" });
     const module = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
-    out[lang] = { fieldLabels: module.default.fieldLabels, categories: module.default.categories };
+    out[lang] = { fieldLabels: module.default.fieldLabels, categories: module.default.categories, categoriesPlural: module.default.categoriesPlural };
   }
   return out;
 }
@@ -34,6 +35,7 @@ mkdirSync("dist/share", { recursive: true });
 cpSync("static", "dist", { recursive: true });
 cpSync("../extension/static/icons/icon-32.png", "dist/icon-32.png");
 cpSync("../extension/static/icons/icon-128.png", "dist/icon-128.png");
+cpSync("vendor/keyless-wasm/keyless_wasm_bg.wasm", "dist/vault/keyless_wasm_bg.wasm");
 
 // Fonts (SIL Open Font License), served from this site.
 mkdirSync("dist/fonts", { recursive: true });
@@ -49,7 +51,7 @@ const fonts = {
 for (const [name, from] of Object.entries(fonts)) cpSync(`node_modules/${from}`, `dist/fonts/${name}`);
 
 await build({
-  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts" },
+  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts", "vault/app": "src/vault/app.ts" },
   bundle: true,
   minify: true,
   format: "esm",
@@ -65,10 +67,10 @@ await build({
 // it needs: the share page to the Keyless server, the home page to GitHub
 // (for the newest release). The rules for pages do not overlap, since
 // Cloudflare would join two policies for one page.
-const csp = (connect) =>
+const csp = (connect, script = "'self'") =>
   [
     "default-src 'none'",
-    "script-src 'self'",
+    `script-src ${script}`,
     "style-src 'self'",
     "img-src 'self'",
     "font-src 'self'",
@@ -98,6 +100,10 @@ writeFileSync(
   Content-Security-Policy: ${csp("'none'")}
 /email-changed/*
   Content-Security-Policy: ${csp("'none'")}
+/vault/*
+  Content-Security-Policy: ${csp(SUPABASE_URL, "'self' 'wasm-unsafe-eval'")}
+  Cache-Control: no-store
+  X-Robots-Tag: noindex
   Cache-Control: no-store
   X-Robots-Tag: noindex
 /share/*
