@@ -127,3 +127,51 @@ jobs:
 
       - name: Build the Arch Linux package
         run: .github/scripts/build-arch-package.sh "$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      # The Rust client for each architecture, with the runner's NDK.
+      - name: Native library
+        run: |
+          cargo install cargo-ndk --locked
+          cargo ndk -t arm64-v8a -t x86_64 -o apps/android/app/src/main/jniLibs build -p keyless-android --release
+
+      - name: Build the APK
+        working-directory: apps/android
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleRelease 2>&1 | tee build.log
+
+      # Compile errors as one annotation (job logs need a login to read).
+      - name: Report build errors
+        if: failure()
+        working-directory: apps/android
+        run: |
+          test -f build.log || exit 0
+          message=$(grep -E "^e: |error:|What went wrong|Could not|> " build.log | head -80 | sed -e 's/%/%25/g' -e 's#file:///home/runner/work/Keyless/Keyless/##' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Android build::${message}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyless-android
+          path: apps/android/app/build/outputs/apk/release/*.apk

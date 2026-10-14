@@ -2996,6 +2996,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyless-android"
+version = "0.1.9"
+dependencies = [
+ "jni 0.21.1",
+ "keyless-client",
+]
+
+[[package]]
 name = "keyless-client"
 version = "0.1.9"
 dependencies = [

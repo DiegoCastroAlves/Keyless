@@ -1,0 +1,13 @@
+[package]
+name = "keyless-android"
+description = "The Keyless client for the Android app, through JNI"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni = "0.21"
+keyless-client = { path = "../keyless-client" }
