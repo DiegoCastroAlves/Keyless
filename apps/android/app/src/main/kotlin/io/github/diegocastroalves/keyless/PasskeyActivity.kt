@@ -45,6 +45,10 @@ class PasskeyActivity : Activity() {
         }
     }
 
+    /** The error for the calling app, with what went wrong (nothing secret). */
+    private fun failure(e: Exception): String =
+        if (e is KeylessException && e.message != null && e.message != e.key) "${errorText(e)} (${e.message})" else errorText(e)
+
     private fun b64(bytes: ByteArray): String = Base64.encodeToString(bytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
 
     /** clientDataJSON for an app (browsers make their own). */
@@ -98,7 +102,7 @@ class PasskeyActivity : Activity() {
                     )
                     .put("clientExtensionResults", JSONObject())
             } catch (e: Exception) {
-                runOnUiThread { failGet(errorText(e)) }
+                runOnUiThread { failGet(failure(e)) }
                 return@thread
             }
             runOnUiThread {
@@ -153,7 +157,7 @@ class PasskeyActivity : Activity() {
                     )
                     .put("clientExtensionResults", JSONObject().put("credProps", JSONObject().put("rk", true)))
             } catch (e: Exception) {
-                runOnUiThread { failCreate(errorText(e)) }
+                runOnUiThread { failCreate(failure(e)) }
                 return@thread
             }
             runOnUiThread {
