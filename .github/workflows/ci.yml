@@ -197,6 +197,10 @@ jobs:
           fixture["assetLinks"] = {"passkey.example.test": [{"relation": ["delegate_permission/common.get_login_creds"], "target": {"namespace": "android_app", "package_name": "io.github.diegocastroalves.keyless.formtest", "sha256_cert_fingerprints": [fingerprint]}}]}
           json.dump(fixture, open(path, "w"))
           PY
+          # Who signed the APK (the release key or a debug one), readable without a login.
+          signer=$("$apksigner" verify --print-certs out/keyless.apk | awk -F': ' '/certificate DN/ {print $2; exit}')
+          app_digest=$("$apksigner" verify --print-certs out/keyless.apk | awk '/SHA-256 digest/ {print $NF; exit}')
+          echo "::notice title=Android signing::Signed by ${signer} (SHA-256 ${app_digest})"
 
       # Compile errors as one annotation (job logs need a login to read).
       - name: Report build errors
