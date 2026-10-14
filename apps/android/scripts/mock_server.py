@@ -7,6 +7,7 @@ the app uploads and writes each write as a JSON line to `writes.jsonl`.
 Usage: mock_server.py <fixture.json> [port]
 """
 
+import hashlib
 import json
 import sys
 import threading
@@ -34,6 +35,29 @@ def record(kind, row):
         out.write(json.dumps({"kind": kind, "id": row["id"], "vault_id": row["vault_id"], "revision": row["revision"]}) + "\n")
 
 
+# Sentinel's public lists, shaped like the real ones: bank.example was
+# breached after the fixture's items were saved.
+def sentinel_list(kind):
+    domains = ["bank.example"] + [f"site{i}.example" for i in range(300)]
+    if kind == "breaches":
+        return [{"Title": d, "Name": d, "Domain": d, "BreachDate": "2026-10-01", "PwnCount": 7,
+                 "DataClasses": ["Email addresses", "Passwords"], "IsVerified": True} for d in domains]
+    if kind == "twoFactor":
+        return [[d, {"domain": d}] for d in domains]
+    return {d: {"passwordless": "allowed"} for d in domains}
+
+
+# Have I Been Pwned's range API: GitHub's password from the fixture was in
+# breaches; other lines are padding.
+BREACHED = {hashlib.sha1(b"github-pass-123").hexdigest().upper(): 42}
+
+
+def range_answer(prefix):
+    lines = [f"{h[5:]}:{count}" for h, count in BREACHED.items() if h.startswith(prefix)]
+    lines += [f"{i:035X}:0" for i in range(20)]
+    return "\r\n".join(lines)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         sys.stderr.write("mock: " + (fmt % args) + "\n")
@@ -42,6 +66,14 @@ class Handler(BaseHTTPRequestHandler):
         data = b"" if body is None else json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_text(self, text):
+        data = text.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -104,6 +136,11 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 rows = [{k: d[k] for k in ("id", "enc_info", "ip", "country", "created_at", "last_seen_at")} for d in devices.values() if not d["revoked_at"]]
             return self.answer(200, rows)
+        # Test builds read Sentinel's lists and password checks here.
+        if url.path.startswith("/sentinel/lists/"):
+            return self.answer(200, sentinel_list(url.path.rsplit("/", 1)[1]))
+        if url.path.startswith("/sentinel/range/"):
+            return self.send_text(range_answer(url.path.rsplit("/", 1)[1].upper()))
         # Test builds read sites' Digital Asset Links here.
         if url.path.startswith("/assetlinks/"):
             site = url.path[len("/assetlinks/"):].removesuffix(".json")

@@ -1,6 +1,7 @@
 // Writes app/src/main/assets/labels.json from the desktop app: field, field
-// kind and category names from its translations, and each category's
-// template (the fields a new item starts with). Run with node from the
+// kind and category names, Sentinel's and the strength levels' texts from its
+// translations, and each category's template (the fields a new item starts
+// with). Run with node from the
 // repository root after they change; uses the site's esbuild.
 import { build } from "../../site/node_modules/esbuild/lib/main.js";
 import { writeFileSync } from "node:fs";
@@ -16,7 +17,7 @@ async function load(entry, plugins = []) {
 const out = {};
 for (const lang of ["pt-BR", "en", "es"]) {
   const t = (await load(here(`../../desktop/src/i18n/${lang}.ts`))).default;
-  out[lang] = { fieldLabels: t.fieldLabels, fieldKinds: t.fieldKinds, categories: t.categories, categoriesPlural: t.categoriesPlural };
+  out[lang] = { fieldLabels: t.fieldLabels, fieldKinds: t.fieldKinds, categories: t.categories, categoriesPlural: t.categoriesPlural, sentinel: t.sentinel, strength: t.strength };
 }
 
 // categories.ts also imports icons and the app's i18n, which the templates

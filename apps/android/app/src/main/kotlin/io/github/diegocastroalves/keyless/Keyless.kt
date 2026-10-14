@@ -338,6 +338,7 @@ object Keyless {
         Native.run("forget")
         clearCache()
         snapshotFile().delete()
+        SentinelData.forget(app)
         SecureStore.clear(app)
     }
 

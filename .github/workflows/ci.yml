@@ -182,7 +182,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk out/keyless.apk
           cp formtest/build/outputs/apk/release/formtest-release.apk test/formtest.apk
           # The same app pointed at the fake server, for the end-to-end run.
-          gradle --no-daemon :app:assembleRelease -PkeylessServer=http://10.0.2.2:8787 -PkeylessAssetLinks=http://10.0.2.2:8787/assetlinks/ 2>&1 | tee -a build.log
+          gradle --no-daemon :app:assembleRelease -PkeylessServer=http://10.0.2.2:8787 -PkeylessAssetLinks=http://10.0.2.2:8787/assetlinks/ -PkeylessSentinel=http://10.0.2.2:8787/sentinel/ 2>&1 | tee -a build.log
           cp app/build/outputs/apk/release/app-release.apk test/keyless-mock.apk
           cargo run -q -p keyless-client --example fixture > test/fixture.json
           # A new device asking to sign in, for approving it from the phone.

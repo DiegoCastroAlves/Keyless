@@ -37,6 +37,27 @@ object Labels {
     fun categoryPlural(context: Context, category: String): String =
         names(context).optJSONObject("categoriesPlural")?.optString(category, "")?.ifEmpty { category(context, category) } ?: category
 
+    /**
+     * A desktop text by its path ("sentinel.weak"), with `{{name}}` filled
+     * from `vars` and, given a `count`, its plural form (`_one`, `_other`).
+     */
+    fun t(context: Context, path: String, vars: Map<String, Any> = emptyMap()): String {
+        var node: Any? = names(context)
+        val count = (vars["count"] as? Number)?.toLong()
+        val parts = path.split(".")
+        for ((i, part) in parts.withIndex()) {
+            val obj = node as? JSONObject ?: return path
+            node = if (i == parts.lastIndex && count != null && !obj.has(part)) {
+                obj.opt(if (count == 1L) "${part}_one" else "${part}_other") ?: obj.opt("${part}_other")
+            } else {
+                obj.opt(part)
+            }
+        }
+        var text = node as? String ?: return path
+        for ((name, value) in vars) text = text.replace("{{$name}}", value.toString())
+        return text
+    }
+
     /** The categories a new item can have, as the desktop lists them. */
     fun templates(context: Context): List<JSONObject> {
         val list = all(context).optJSONArray("templates") ?: JSONArray()

@@ -9,6 +9,9 @@ val server = (project.findProperty("keylessServer") as String?) ?: "https://ednf
 // Where sites' Digital Asset Links come from: the sites themselves, unless a
 // test build reads them from the fake server.
 val assetLinks = (project.findProperty("keylessAssetLinks") as String?) ?: ""
+// Where Sentinel downloads its lists and checks passwords: the public
+// services, unless a test build reads them from the fake server.
+val sentinel = (project.findProperty("keylessSentinel") as String?) ?: ""
 
 android {
     namespace = "io.github.diegocastroalves.keyless"
@@ -22,6 +25,7 @@ android {
         versionName = "0.1.9"
         buildConfigField("String", "SERVER", "\"$server\"")
         buildConfigField("String", "ASSET_LINKS", "\"$assetLinks\"")
+        buildConfigField("String", "SENTINEL", "\"$sentinel\"")
         // Plain http only for a test build that names an http server.
         manifestPlaceholders["cleartext"] = if (server.startsWith("http://")) "true" else "false"
     }

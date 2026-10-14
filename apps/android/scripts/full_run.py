@@ -150,7 +150,8 @@ def scan_picture(name):
     tap_text(name)
 
 
-MOCK = "http://127.0.0.1:8787"
+# The fake server as this computer reaches it (the emulator uses 10.0.2.2).
+MOCK = os.environ.get("KEYLESS_MOCK", "http://127.0.0.1:8787")
 
 
 def mock(path, body=None):
@@ -361,6 +362,19 @@ def main():
 
     if requester:
         approve_new_device(fixture, requester)
+
+    # Sentinel: the lists and the password check come from the fake server.
+    tap_text("⋮")
+    tap_last("Sentinel")
+    check("opens Sentinel", "Password health", 30)
+    tap_text("Check online")
+    check("finds the breached password", "Breached passwords", 60)
+    check("and the breached website", "Breached websites", 10)
+    tap_text("Breached passwords")
+    check("names the item with the breached password", "GitHub", 15)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("the list shows Sentinel's summary", "serious alert", 30)
 
     # Autofill in another app.
     adb("shell", "settings", "put", "secure", "autofill_service", f"{PACKAGE}/.KeylessAutofillService")

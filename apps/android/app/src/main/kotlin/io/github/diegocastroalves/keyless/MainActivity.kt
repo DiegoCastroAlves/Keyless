@@ -113,7 +113,7 @@ class MainActivity : Activity() {
 
     override fun onUserInteraction() {
         super.onUserInteraction()
-        if (screen == "list" || screen == "item" || screen == "settings" || screen == "editor" || screen == "devices") Keyless.touch()
+        if (screen == "list" || screen == "item" || screen == "settings" || screen == "editor" || screen == "devices" || screen.startsWith("sentinel")) Keyless.touch()
     }
 
     @Deprecated("Deprecated in Java")
@@ -121,6 +121,8 @@ class MainActivity : Activity() {
         when (screen) {
             "item", "settings" -> showList()
             "devices" -> showSettings()
+            "sentinel" -> showList()
+            "sentinel-list" -> showSentinel(null)
             "editor" -> editorBack?.invoke() ?: showList()
             "device" -> {
                 deviceRequest?.let { request -> thread { Keyless.cancelDeviceSetup(request) } }
@@ -368,13 +370,15 @@ class MainActivity : Activity() {
         more = plainButton("⋮") {
             val menu = PopupMenu(this, more)
             menu.menu.add(0, 1, 0, R.string.sync)
-            menu.menu.add(0, 2, 1, R.string.generator)
-            menu.menu.add(0, 3, 2, R.string.settings)
+            menu.menu.add(0, 4, 1, Labels.t(this, "sentinel.title"))
+            menu.menu.add(0, 2, 2, R.string.generator)
+            menu.menu.add(0, 3, 3, R.string.settings)
             menu.setOnMenuItemClickListener { choice ->
                 when (choice.itemId) {
                     1 -> sync(status)
                     2 -> showGenerator(onUse = null, copy = { copy(getString(R.string.generated_password), it) })
                     3 -> showSettings()
+                    4 -> showSentinel(null)
                 }
                 true
             }
@@ -397,6 +401,12 @@ class MainActivity : Activity() {
         }
         page.add(requests)
         checkDeviceRequests(requests)
+        val sentinel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), 0, dp(16), dp(4))
+        }
+        page.add(sentinel)
+        sentinelCard(sentinel)
         val list = ListView(this)
         val adapter = ItemsAdapter()
         list.adapter = adapter
@@ -449,6 +459,8 @@ class MainActivity : Activity() {
                 status.text = failure?.let { errorText(it) } ?: ""
                 if (screen == "list") (then ?: listRefresh)?.invoke()
             }
+            // Sentinel's daily downloads, after the items are fresh.
+            if (failure == null) SentinelData.refresh(this, force = false)
         }
     }
 
