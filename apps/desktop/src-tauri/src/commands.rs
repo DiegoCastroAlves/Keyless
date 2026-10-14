@@ -805,11 +805,19 @@ pub async fn attachment_delete(app: AppHandle, state: State<'_, AppState>, item_
     crate::attachments::delete(&app, &item_id, &attachment_id).await
 }
 
-/// A share link for the item, valid for `hours`.
+/// A share link for the item, valid for `hours`, for anyone with it or only
+/// for `recipients` (emails).
 #[tauri::command]
-pub async fn share_create(app: AppHandle, state: State<'_, AppState>, item_id: String, hours: u32, view_once: bool) -> AppResult<crate::shares::CreatedShare> {
+pub async fn share_create(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    item_id: String,
+    hours: u32,
+    view_once: bool,
+    recipients: Option<Vec<String>>,
+) -> AppResult<crate::shares::CreatedShare> {
     state.touch();
-    crate::shares::create(&app, &item_id, hours, view_once).await
+    crate::shares::create(&app, &item_id, hours, view_once, &recipients.unwrap_or_default()).await
 }
 
 /// Links that can still be opened, or with `all` every recent one (of one

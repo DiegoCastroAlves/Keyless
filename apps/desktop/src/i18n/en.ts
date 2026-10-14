@@ -162,6 +162,8 @@ const en = {
     device_setup_code_wrong: "That is not the code the new device shows. Check it and try again.",
     device_setup_code_denied: "Wrong code too many times: the request was refused.",
     email_unchanged: "That is already your account's email.",
+    share_too_many_recipients: "A link can be for {{max}} emails at most.",
+    share_recipients_unavailable: "Links for specific emails are not available on the server yet.",
   },
   welcome: {
     title: "Welcome to Keyless",
@@ -439,6 +441,13 @@ const en = {
     wasUntil: "was valid until {{date}}",
     openItem: "Open item",
     itemGone: "That item is no longer in your vault.",
+    who: "Who can open it",
+    anyone: "Anyone with the link",
+    onlyEmails: "Only people with these emails",
+    emailsPlaceholder: "name@example.com, other@example.com",
+    emailsHint: "Whoever opens the link must enter one of these emails and the code Keyless sends to it.",
+    onlyFor: "Only for {{emails}}",
+    restrictedCreated: "Only {{emails}} can open it, after confirming their email with a code.",
   },
   itemHistory: {
     title: "Item history",

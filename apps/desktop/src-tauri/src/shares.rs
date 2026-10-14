@@ -1,14 +1,19 @@
 //! Share links (see `keyless_core::share` and the `shares` migration): a
 //! snapshot of an item that someone without Keyless opens in their browser.
 //! The key exists only in the link; the server keeps ciphertext, and for the
-//! owner a label (the item and its title) encrypted with their own key, to
-//! list and revoke their links.
+//! owner a label (the item, its title and who may open it) encrypted with
+//! their own key, to list and revoke their links.
+//!
+//! A link can be only for some email addresses (the `share_recipients`
+//! migration): the server keeps their SHA-256 and gives the ciphertext only
+//! to a visitor who proved one of them with a code sent by email.
 
 use keyless_core::{
     crypto::context,
     share::{ShareKey, SharedItem},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use serde_json::json;
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
@@ -30,7 +35,13 @@ const DURATIONS_HOURS: [u32; 5] = [1, 24, 7 * 24, 14 * 24, 30 * 24];
 struct Label {
     item_id: String,
     title: String,
+    /// The emails that may open it (empty: anyone with the link).
+    #[serde(default)]
+    recipients: Vec<String>,
 }
+
+/// Most emails a link can be for.
+const MAX_RECIPIENTS: usize = 20;
 
 fn label_context(share_id: &str, user_id: &str) -> Vec<u8> {
     context("keyless/share-label", &[share_id, user_id])
@@ -57,13 +68,26 @@ pub struct ShareView {
     pub views: i64,
     /// "active", "expired", "revoked" or "used" (a one-view link opened).
     pub status: &'static str,
+    /// Only these emails may open it (empty: anyone with the link).
+    pub recipients: Vec<String>,
 }
 
 /// Creates a link for item `item_id` that lasts `hours` (one of the offered
-/// durations), for one view or for any number.
-pub async fn create(app: &AppHandle, item_id: &str, hours: u32, view_once: bool) -> AppResult<CreatedShare> {
+/// durations), for one view or for any number, and when `recipients` are
+/// given only for those emails.
+pub async fn create(app: &AppHandle, item_id: &str, hours: u32, view_once: bool, recipients: &[String]) -> AppResult<CreatedShare> {
     if !DURATIONS_HOURS.contains(&hours) {
         return Err(AppError::Invalid(Msg::new("share_duration")));
+    }
+    let mut emails: Vec<String> = Vec::new();
+    for email in recipients.iter().filter(|e| !e.trim().is_empty()) {
+        let email = crate::auth::normalize_email(email)?;
+        if !emails.contains(&email) {
+            emails.push(email);
+        }
+    }
+    if emails.len() > MAX_RECIPIENTS {
+        return Err(AppError::Invalid(Msg::new("share_too_many_recipients").with("max", MAX_RECIPIENTS)));
     }
     let state = app.state::<AppState>();
     let key = ShareKey::generate()?;
@@ -77,20 +101,28 @@ pub async fn create(app: &AppHandle, item_id: &str, hours: u32, view_once: bool)
         }
         let (_, details) = items::load_details(&state, session, item_id)?;
         let payload = key.seal(&SharedItem::of(&cached.overview, &details, now))?;
-        let label = serde_json::to_vec(&Label { item_id: item_id.to_string(), title: cached.overview.title.clone() })?;
+        let label = serde_json::to_vec(&Label { item_id: item_id.to_string(), title: cached.overview.title.clone(), recipients: emails.clone() })?;
         let label = session.account.user_key().seal(&label, &label_context(&key.id, &session.user_id))?;
         (payload, label)
     };
     let expires_at = now + hours as i64 * 3600;
     let (_, token) = sync::ensure_token(&state).await?;
-    let row = json!({
+    let mut row = json!({
         "id": key.id,
         "enc_payload": payload,
         "enc_label": label,
         "expires_at": iso8601(expires_at),
         "max_views": if view_once { Some(1) } else { None },
     });
-    state.api.insert_share(&token, &row).await?;
+    if !emails.is_empty() {
+        // bytea values, as PostgREST reads them.
+        row["recipients"] = json!(emails.iter().map(|e| format!("\\x{}", hex::encode(Sha256::digest(e.as_bytes())))).collect::<Vec<_>>());
+    }
+    state.api.insert_share(&token, &row).await.map_err(|err| match err {
+        // The server does not know the column yet (migration not applied).
+        AppError::Server(message) if message.contains("PGRST204") => AppError::Invalid(Msg::new("share_recipients_unavailable")),
+        other => other,
+    })?;
     Ok(CreatedShare { id: key.id.clone(), link: key.link(config::SHARE_PAGE_URL), expires_at })
 }
 
@@ -135,6 +167,7 @@ pub async fn list(app: &AppHandle, item_id: Option<&str>, all: bool) -> AppResul
                 max_views: s.max_views,
                 views: s.views,
                 status,
+                recipients: label.recipients,
             })
         })
         .collect())

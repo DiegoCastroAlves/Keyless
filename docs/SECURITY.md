@@ -533,6 +533,22 @@ styles, connections only to the Keyless server, no framing and no referrer.
 Whoever controls that site could serve a page that leaks keys, so the site
 needs the same care as the app's releases.
 
+A link can be only for some emails (`share_recipients` migration). The
+server keeps the SHA-256 of each (lowercase), and the owner's encrypted
+label keeps the emails themselves. `open_share` then only says the link is
+restricted; the page asks for the visitor's email, Supabase Auth sends a
+one-time code, and with the session that code gives `open_restricted_share`
+hands out the ciphertext if the session's confirmed email is on the list.
+The page ends that session right away. Such sessions belong to throwaway
+Auth users (marked in their metadata, purged after 30 days unless they
+became Keyless accounts): the access token hook allows email-code sessions
+only for users without a Keyless account, and they have no `password` in
+`amr`, so they read nothing else. A Keyless account's own email cannot be
+verified this way (its account signs in only with the master password).
+This is a second lock, not encryption: the server, which sees the
+ciphertext anyway, decides who gets it; the key still travels only in the
+link.
+
 ## Updates
 
 - The app looks at the public list of releases on GitHub twice a day (this

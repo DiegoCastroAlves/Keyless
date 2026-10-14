@@ -8,6 +8,10 @@
 // (keyless-core crypto.rs and share.rs): an XChaCha20-Poly1305 envelope
 // "k1.<base64url(nonce || ciphertext)>", padded, bound to the share id.
 // Everything shown is set as text, never as HTML.
+//
+// A link can be only for some emails: then the server gives the copy only
+// to a session that proved one of them, with a code Supabase Auth sends by
+// email. That session can do nothing else, and the page ends it at once.
 
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import labels from "virtual:labels";
@@ -39,6 +43,8 @@ interface Opened {
   viewsLeft: number | null;
 }
 
+type OpenAnswer = Opened | { restricted: true } | { error: string } | null;
+
 // ----- Texts ---------------------------------------------------------------
 
 type Lang = "pt-BR" | "en" | "es";
@@ -64,6 +70,19 @@ const TEXT = {
     notes: "Notas",
     sharedOn: "Compartilhado em {date}.",
     footer: "Keyless: gerenciador de senhas com criptografia de ponta a ponta.",
+    restricted: "Este item foi compartilhado só com alguns e-mails. Digite o seu para receber um código.",
+    email: "Seu e-mail",
+    sendCode: "Enviar código",
+    sending: "Enviando…",
+    codeSent: "Enviamos um código para {email}. Ele chega em alguns minutos; confira também o spam.",
+    code: "Código",
+    verify: "Confirmar e ver o item",
+    otherEmail: "Usar outro e-mail",
+    badCode: "Código errado ou expirado. Confira e tente de novo.",
+    tooMany: "Pedidos demais. Espere alguns minutos e tente de novo.",
+    notAllowed: "Este e-mail não pode abrir este item. Use o e-mail para o qual ele foi compartilhado.",
+    keylessAccount: "Este e-mail tem uma conta do Keyless, e contas do Keyless só entram com a senha mestra. Peça a quem compartilhou para usar outro e-mail seu.",
+    sendFailed: "Não foi possível enviar o código. Tente de novo mais tarde.",
   },
   en: {
     title: "Shared item",
@@ -86,6 +105,19 @@ const TEXT = {
     notes: "Notes",
     sharedOn: "Shared on {date}.",
     footer: "Keyless: a password manager with end-to-end encryption.",
+    restricted: "This item was shared with specific emails only. Enter yours to get a code.",
+    email: "Your email",
+    sendCode: "Send code",
+    sending: "Sending…",
+    codeSent: "We sent a code to {email}. It arrives within a few minutes; check your spam folder too.",
+    code: "Code",
+    verify: "Confirm and view item",
+    otherEmail: "Use another email",
+    badCode: "Wrong or expired code. Check it and try again.",
+    tooMany: "Too many requests. Wait a few minutes and try again.",
+    notAllowed: "This email cannot open this item. Use the email it was shared with.",
+    keylessAccount: "This email has a Keyless account, and Keyless accounts sign in only with their master password. Ask the sender to use another email of yours.",
+    sendFailed: "The code could not be sent. Try again later.",
   },
   es: {
     title: "Elemento compartido",
@@ -108,6 +140,19 @@ const TEXT = {
     notes: "Notas",
     sharedOn: "Compartido el {date}.",
     footer: "Keyless: gestor de contraseñas con cifrado de extremo a extremo.",
+    restricted: "Este elemento se compartió solo con algunos correos. Escribe el tuyo para recibir un código.",
+    email: "Tu correo",
+    sendCode: "Enviar código",
+    sending: "Enviando…",
+    codeSent: "Enviamos un código a {email}. Llega en unos minutos; revisa también la carpeta de spam.",
+    code: "Código",
+    verify: "Confirmar y ver el elemento",
+    otherEmail: "Usar otro correo",
+    badCode: "Código incorrecto o caducado. Revísalo e inténtalo de nuevo.",
+    tooMany: "Demasiadas solicitudes. Espera unos minutos e inténtalo de nuevo.",
+    notAllowed: "Este correo no puede abrir este elemento. Usa el correo con el que se compartió.",
+    keylessAccount: "Este correo tiene una cuenta de Keyless, y las cuentas de Keyless solo entran con su contraseña maestra. Pide a quien lo compartió que use otro correo tuyo.",
+    sendFailed: "No se pudo enviar el código. Inténtalo de nuevo más tarde.",
   },
 } satisfies Record<Lang, Record<string, string>>;
 
@@ -194,33 +239,137 @@ if (!match) {
   show.addEventListener("click", async () => {
     show.disabled = true;
     show.textContent = t("loading");
-    let opened: Opened | null;
+    let opened: OpenAnswer;
     try {
-      const response = await fetch(`${__SUPABASE_URL__}/rest/v1/rpc/open_share`, {
-        method: "POST",
-        headers: { apikey: __SUPABASE_KEY__, "Content-Type": "application/json" },
-        body: JSON.stringify({ p_id: id }),
-        cache: "no-store",
-        referrerPolicy: "no-referrer",
-      });
-      if (!response.ok) throw new Error(String(response.status));
-      opened = (await response.json()) as Opened | null;
+      opened = await rpc<OpenAnswer>("open_share", { p_id: id });
     } catch {
       show.disabled = false;
       show.textContent = t("show");
       app.append(el("p", { className: "error-text", textContent: t("offline") }));
       return;
     }
-    if (!opened) return message(t("gone"), "error");
-    let item: SharedItem;
+    if (opened && "restricted" in opened) return askEmail(id, keyText);
+    finish(opened, id, keyText);
+  });
+}
+
+async function rpc<T>(name: string, args: object, token?: string): Promise<T> {
+  const response = await fetch(`${__SUPABASE_URL__}/rest/v1/rpc/${name}`, {
+    method: "POST",
+    headers: { apikey: __SUPABASE_KEY__, "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(args),
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+  });
+  if (!response.ok) throw new Error(String(response.status));
+  return (await response.json()) as T;
+}
+
+/** Supabase Auth: the answer's JSON, or the error's message and status. */
+async function auth(path: string, body: object, token?: string): Promise<{ ok: boolean; status: number; data: Record<string, unknown> }> {
+  const response = await fetch(`${__SUPABASE_URL__}/auth/v1/${path}`, {
+    method: "POST",
+    headers: { apikey: __SUPABASE_KEY__, "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body),
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+  });
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  return { ok: response.ok, status: response.status, data };
+}
+
+function finish(opened: OpenAnswer, id: string, keyText: string) {
+  if (!opened || "restricted" in opened) return message(t("gone"), "error");
+  if ("error" in opened) return message(t("notAllowed"), "error");
+  let item: SharedItem;
+  try {
+    const key = fromBase64Url(keyText);
+    item = decrypt(opened.payload, id, key);
+    key.fill(0);
+  } catch {
+    return message(t("damaged"), "error");
+  }
+  render(item, opened);
+}
+
+// (Built by hand: typing an input's properties as an object literal is
+// more than TypeScript can check.)
+function textInput(type: string, autocomplete: string): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = type;
+  input.required = true;
+  input.setAttribute("autocomplete", autocomplete);
+  return input;
+}
+
+/** A restricted link: the visitor proves their email with a code. */
+function askEmail(id: string, keyText: string, error?: string) {
+  const input = textInput("email", "email");
+  input.placeholder = "name@example.com";
+  const send = el("button", { className: "primary", type: "submit", textContent: t("sendCode") });
+  const form = el("form", { className: "stack" }, el("label", { className: "label", textContent: t("email") }), input, send);
+  const card = el("section", { className: "card" }, el("h1", { textContent: t("title") }), el("p", { textContent: t("restricted") }), form);
+  if (error) card.append(el("p", { className: "error-text", textContent: error }));
+  app.replaceChildren(card);
+  input.focus();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const email = input.value.trim().toLowerCase();
+    if (!email.includes("@")) return;
+    send.disabled = true;
+    send.textContent = t("sending");
     try {
-      const key = fromBase64Url(keyText);
-      item = decrypt(opened.payload, id, key);
-      key.fill(0);
+      const answer = await auth("otp", { email, create_user: true, data: { keyless_share_recipient: true } });
+      if (!answer.ok) return askEmail(id, keyText, answer.status === 429 ? t("tooMany") : t("sendFailed"));
     } catch {
-      return message(t("damaged"), "error");
+      return askEmail(id, keyText, t("offline"));
     }
-    render(item, opened);
+    askCode(id, keyText, email);
+  });
+}
+
+function askCode(id: string, keyText: string, email: string, error?: string) {
+  const input = textInput("text", "one-time-code");
+  input.inputMode = "numeric";
+  input.maxLength = 10;
+  input.className = "code";
+  const verify = el("button", { className: "primary", type: "submit", textContent: t("verify") });
+  const other = el("button", { type: "button", className: "small", textContent: t("otherEmail") });
+  const form = el("form", { className: "stack" }, el("label", { className: "label", textContent: t("code") }), input, verify);
+  const card = el("section", { className: "card" }, el("h1", { textContent: t("title") }), el("p", { textContent: t("codeSent", { email }) }), form, other);
+  if (error) card.append(el("p", { className: "error-text", textContent: error }));
+  app.replaceChildren(card);
+  input.focus();
+  other.addEventListener("click", () => askEmail(id, keyText));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const token = input.value.replace(/\D/g, "");
+    if (token.length < 6) return;
+    verify.disabled = true;
+    verify.textContent = t("loading");
+    let session: string;
+    try {
+      const answer = await auth("verify", { type: "email", email, token });
+      const access = answer.data.access_token;
+      if (!answer.ok || typeof access !== "string") {
+        const said = String(answer.data.msg ?? answer.data.message ?? answer.data.error_description ?? "");
+        const why = /Keyless accounts/i.test(said) ? t("keylessAccount") : answer.status === 429 ? t("tooMany") : t("badCode");
+        return askCode(id, keyText, email, why);
+      }
+      session = access;
+    } catch {
+      return askCode(id, keyText, email, t("offline"));
+    }
+    let opened: OpenAnswer = null;
+    try {
+      opened = await rpc<OpenAnswer>("open_restricted_share", { p_id: id }, session);
+    } catch {
+      opened = null;
+    } finally {
+      // The session served only to open this link.
+      void auth("logout?scope=local", {}, session).catch(() => {});
+    }
+    finish(opened, id, keyText);
   });
 }
 

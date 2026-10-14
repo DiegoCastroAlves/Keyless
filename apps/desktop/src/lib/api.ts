@@ -436,6 +436,8 @@ export interface ShareView {
   maxViews: number | null;
   views: number;
   status: "active" | "expired" | "revoked" | "used";
+  /** Only these emails may open it (empty: anyone with the link). */
+  recipients: string[];
 }
 
 /** A file kept in an item. */
@@ -896,7 +898,9 @@ export const api = {
     invoke<void>("attachment_save", { itemId, attachmentId, dialog: dialogText("saveAttachment") }),
   attachmentDelete: (itemId: string, attachmentId: string) => invoke<ItemSummary>("attachment_delete", { itemId, attachmentId }),
   attachmentSpace: () => invoke<AttachmentSpace | null>("attachment_space"),
-  shareCreate: (itemId: string, hours: number, viewOnce: boolean) => invoke<CreatedShare>("share_create", { itemId, hours, viewOnce }),
+  /** `recipients`: only these emails may open it (empty: anyone with the link). */
+  shareCreate: (itemId: string, hours: number, viewOnce: boolean, recipients: string[] = []) =>
+    invoke<CreatedShare>("share_create", { itemId, hours, viewOnce, recipients }),
   /** Links that still work; with `all`, also those that ended recently. */
   shareList: (itemId?: string, all = false) => invoke<ShareView[]>("share_list", { itemId: itemId ?? null, all }),
   shareRevoke: (shareId: string) => invoke<void>("share_revoke", { shareId }),

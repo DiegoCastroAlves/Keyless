@@ -83,6 +83,11 @@ export function SharesDialog({ open, onOpenChange }: { open: boolean; onOpenChan
                   {" · "}
                   {link.maxViews === null ? t("share.views", { count: link.views }) : t("share.viewsOf", { count: link.views, max: link.maxViews })}
                 </div>
+                {link.recipients.length > 0 && (
+                  <div className="mt-0.5 truncate text-xs text-subtle" title={link.recipients.join(", ")}>
+                    {t("share.onlyFor", { emails: link.recipients.join(", ") })}
+                  </div>
+                )}
               </div>
               <div className="flex shrink-0 gap-1.5">
                 <Button size="sm" variant="ghost" onClick={() => openItem(link.itemId)}>

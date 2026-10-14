@@ -164,6 +164,8 @@ const ptBR: Translations = {
     device_setup_code_wrong: "Esse não é o código que o dispositivo novo mostra. Confira e tente de novo.",
     device_setup_code_denied: "Código errado vezes demais: o pedido foi recusado.",
     email_unchanged: "Esse já é o e-mail da sua conta.",
+    share_too_many_recipients: "Um link pode ser para no máximo {{max}} e-mails.",
+    share_recipients_unavailable: "Links para e-mails específicos ainda não estão disponíveis no servidor.",
   },
   welcome: {
     title: "Boas-vindas ao Keyless",
@@ -442,6 +444,13 @@ const ptBR: Translations = {
     wasUntil: "valia até {{date}}",
     openItem: "Abrir item",
     itemGone: "Esse item não está mais no seu cofre.",
+    who: "Quem pode abrir",
+    anyone: "Qualquer pessoa com o link",
+    onlyEmails: "Só pessoas com estes e-mails",
+    emailsPlaceholder: "nome@exemplo.com, outro@exemplo.com",
+    emailsHint: "Quem abrir o link precisa digitar um destes e-mails e o código que o Keyless envia para ele.",
+    onlyFor: "Só para {{emails}}",
+    restrictedCreated: "Só {{emails}} pode abrir, depois de confirmar o e-mail com um código.",
   },
   itemHistory: {
     title: "Histórico do item",

@@ -164,6 +164,8 @@ const es: Translations = {
     device_setup_code_wrong: "Ese no es el código que muestra el dispositivo nuevo. Revísalo e inténtalo de nuevo.",
     device_setup_code_denied: "Código incorrecto demasiadas veces: la solicitud fue rechazada.",
     email_unchanged: "Ese ya es el correo de tu cuenta.",
+    share_too_many_recipients: "Un enlace puede ser para {{max}} correos como máximo.",
+    share_recipients_unavailable: "Los enlaces para correos concretos aún no están disponibles en el servidor.",
   },
   welcome: {
     title: "Te damos la bienvenida a Keyless",
@@ -442,6 +444,13 @@ const es: Translations = {
     wasUntil: "valía hasta el {{date}}",
     openItem: "Abrir elemento",
     itemGone: "Ese elemento ya no está en tu bóveda.",
+    who: "Quién puede abrirlo",
+    anyone: "Cualquiera con el enlace",
+    onlyEmails: "Solo personas con estos correos",
+    emailsPlaceholder: "nombre@ejemplo.com, otro@ejemplo.com",
+    emailsHint: "Quien abra el enlace debe escribir uno de estos correos y el código que Keyless le envía.",
+    onlyFor: "Solo para {{emails}}",
+    restrictedCreated: "Solo {{emails}} puede abrirlo, después de confirmar su correo con un código.",
   },
   itemHistory: {
     title: "Historial del elemento",

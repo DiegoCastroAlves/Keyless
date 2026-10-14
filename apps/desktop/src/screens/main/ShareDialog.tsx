@@ -1,4 +1,4 @@
-import { Copy, Link2 } from "lucide-react";
+import { Copy, Link2, Mail, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -16,6 +16,9 @@ export function ShareDialog({ open, onOpenChange, itemId, title }: { open: boole
   const { t } = useTranslation();
   const [duration, setDuration] = useState<Duration>("168");
   const [viewOnce, setViewOnce] = useState(false);
+  const [who, setWho] = useState<"anyone" | "emails">("anyone");
+  const [emails, setEmails] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
   const [created, setCreated] = useState<CreatedShare | null>(null);
   const [links, setLinks] = useState<ShareView[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,15 +37,32 @@ export function ShareDialog({ open, onOpenChange, itemId, title }: { open: boole
     setError(null);
     setViewOnce(false);
     setDuration("168");
+    setWho("anyone");
+    setEmails([]);
+    setDraft("");
     setLinks(null);
     load();
   }, [open, load]);
+
+  // Emails typed or pasted, separated by commas, spaces or new lines.
+  const addEmails = (text: string) => {
+    const found = text
+      .split(/[\s,;]+/)
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (found.length) setEmails((current) => [...new Set([...current, ...found])].slice(0, 20));
+    setDraft("");
+  };
+
+  const restricted = who === "emails";
+  const pendingDraft = draft.trim();
+  const recipients = restricted ? [...new Set([...emails, ...(pendingDraft.includes("@") ? [pendingDraft.toLowerCase()] : [])])] : [];
 
   const create = async () => {
     setBusy(true);
     setError(null);
     try {
-      setCreated(await api.shareCreate(itemId, Number(duration), viewOnce));
+      setCreated(await api.shareCreate(itemId, Number(duration), viewOnce, recipients));
       load();
     } catch (err) {
       setError(errorMessage(err));
@@ -87,6 +107,7 @@ export function ShareDialog({ open, onOpenChange, itemId, title }: { open: boole
             </Button>
           </div>
           <p className="text-xs text-muted">{t("share.onlyNow", { date: formatDate(created.expiresAt) })}</p>
+          {restricted && <p className="text-xs leading-relaxed text-muted">{t("share.restrictedCreated", { emails: recipients.join(", ") })}</p>}
         </div>
       ) : (
         <div className="space-y-4">
@@ -99,13 +120,63 @@ export function ShareDialog({ open, onOpenChange, itemId, title }: { open: boole
               className="mt-1.5 w-full"
             />
           </div>
+          <div>
+            <Label>{t("share.who")}</Label>
+            <Combobox
+              value={who}
+              onChange={setWho}
+              options={[
+                { value: "anyone", label: t("share.anyone") },
+                { value: "emails", label: t("share.onlyEmails") },
+              ]}
+              className="mt-1.5 w-full"
+            />
+            {restricted && (
+              <div className="mt-2 space-y-2">
+                <div className="flex flex-wrap gap-1.5 rounded-lg border border-line bg-panel px-2 py-1.5 focus-within:border-accent">
+                  {emails.map((email) => (
+                    <span key={email} className="flex items-center gap-1 rounded-md bg-accent-soft px-2 py-0.5 text-xs text-accent">
+                      <Mail className="size-3" /> {email}
+                      <button type="button" aria-label={t("common.remove")} onClick={() => setEmails((list) => list.filter((e) => e !== email))}>
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                  <input
+                    value={draft}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (/[\s,;]$/.test(value)) addEmails(value);
+                      else setDraft(value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addEmails(draft);
+                      } else if (e.key === "Backspace" && !draft && emails.length) {
+                        setEmails((list) => list.slice(0, -1));
+                      }
+                    }}
+                    onPaste={(e) => {
+                      e.preventDefault();
+                      addEmails(draft + " " + e.clipboardData.getData("text"));
+                    }}
+                    onBlur={() => draft && addEmails(draft)}
+                    placeholder={emails.length ? "" : t("share.emailsPlaceholder")}
+                    className="h-7 min-w-40 flex-1 bg-transparent text-sm outline-none"
+                  />
+                </div>
+                <p className="text-xs leading-relaxed text-muted">{t("share.emailsHint")}</p>
+              </div>
+            )}
+          </div>
           <label className="flex items-center gap-2.5 text-sm">
             <Switch checked={viewOnce} onChange={setViewOnce} label={t("share.viewOnce")} />
             {t("share.viewOnce")}
           </label>
           {error && <ErrorText>{error}</ErrorText>}
           <div className="flex justify-end">
-            <Button variant="primary" onClick={create} loading={busy}>
+            <Button variant="primary" onClick={create} loading={busy} disabled={restricted && recipients.length === 0}>
               <Link2 className="size-3.5" /> {t("share.create")}
             </Button>
           </div>
@@ -122,6 +193,11 @@ export function ShareDialog({ open, onOpenChange, itemId, title }: { open: boole
                   {t("share.until", { date: formatDate(link.expiresAt) })}
                   {" · "}
                   {link.maxViews === null ? t("share.views", { count: link.views }) : t("share.viewsOf", { count: link.views, max: link.maxViews })}
+                  {link.recipients.length > 0 && (
+                    <span className="mt-0.5 block truncate text-subtle" title={link.recipients.join(", ")}>
+                      {t("share.onlyFor", { emails: link.recipients.join(", ") })}
+                    </span>
+                  )}
                 </span>
                 <Button size="sm" variant="ghost" onClick={() => revoke(link.id)}>
                   {t("share.revoke")}
