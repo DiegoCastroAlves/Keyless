@@ -14,6 +14,7 @@
 mod devices;
 pub mod matching;
 pub mod qr;
+mod sentinel;
 mod store;
 mod writes;
 
@@ -284,6 +285,14 @@ impl Client {
             "passkeyOpen" => self.passkey_open(json),
             "setupCode" => self.setup_code(json),
             "setupOpen" => self.setup_open(json),
+            "sentinelLists" => Ok(sentinel::lists()),
+            "sentinelParseList" => sentinel::parse_list(json),
+            "sentinelReport" => self.sentinel_report(json),
+            "sentinelBreachQueries" => self.sentinel_breach_queries(json),
+            "sentinelBreachResults" => self.sentinel_breach_results(json),
+            "sentinelIgnore" => self.sentinel_ignore(json),
+            "sentinelUseHttps" => self.sentinel_use_https(json),
+            "strength" => self.strength(json),
             _ => Err(Failure { key: "invalid_request", message: format!("unknown method {method}") }),
         }
     }

@@ -1,5 +1,7 @@
 use keyless_core::{
     account::create_account,
+    crypto::SymmetricKey,
+    health::ChecksKey,
     item::{Field, FieldKind, FieldPurpose, ItemUrl},
     keys::derive_account_keys,
     vault::Tombstone,
@@ -508,4 +510,215 @@ fn approves_a_new_device_and_lists_devices() {
     assert!(list[0].get("enc_info").is_none());
     // Sealed for another device id: not shown as that device.
     assert_eq!(list[1]["name"], "");
+}
+
+/// A public list as the host downloads it: `sites`, and enough others to
+/// read as the real one.
+fn list_body(kind: &str, sites: &[&str]) -> String {
+    let domains: Vec<String> = sites.iter().map(|s| s.to_string()).chain((0..300).map(|i| format!("site{i}.example"))).collect();
+    let list: Value = match kind {
+        "breaches" => domains
+            .iter()
+            .map(|d| json!({ "Title": d, "Domain": d, "BreachDate": "2020-01-01", "PwnCount": 7, "DataClasses": ["Email addresses", "Passwords"], "IsVerified": true }))
+            .collect(),
+        "twoFactor" => domains.iter().map(|d| json!([d, { "domain": d }])).collect(),
+        _ => domains.iter().map(|d| (d.clone(), json!({ "passwordless": "allowed" }))).collect::<serde_json::Map<_, _>>().into(),
+    };
+    list.to_string()
+}
+
+#[test]
+fn sentinel_reports_like_the_desktop() {
+    let server = server();
+    let mut client = signed_in(&server);
+    // Weak and reused; also on plain http; strong, without one-time codes.
+    let mut alone = login("Alone", "https://github.com/login", "x$7Lq!92mZ@pR4#vN8&kT1", 1);
+    alone.1.fields.retain(|f| f.kind != FieldKind::Totp);
+    let items = json!([
+        row(&server, "a", 5, 1, &login("Mail", "https://mail.example", "password", 1)),
+        row(&server, "b", 6, 1, &login("Bank", "http://bank.example", "password", 1)),
+        row(&server, "c", 7, 1, &alone),
+    ]);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": items }).to_string()));
+
+    // Nothing downloaded or checked online yet.
+    let report = ok(client.call("sentinelReport", &json!({ "lists": null, "now": 1_000 }).to_string()));
+    assert_eq!(report["checked"], 3);
+    assert_eq!(report["pending"], json!(["breached", "compromised", "two_factor", "passkey"]));
+    assert_eq!(report["unchecked"], 3);
+    assert_eq!(report["weak"], json!(["a", "b"]));
+    assert_eq!(report["reused"].as_array().unwrap().len(), 1);
+    assert_eq!(report["unsecured"], json!(["b"]));
+    assert_eq!(report["httpsReady"], json!(["b"]));
+    assert_eq!(report["strengths"][VAULT][0], 2);
+    let summary = &report["summary"];
+    assert!(summary["vaultId"].is_null());
+    assert_eq!((summary["checked"].as_u64(), summary["score"].as_u64()), (Some(3), Some(33)));
+    assert_eq!(summary["issues"]["reused"][0]["others"], 1);
+
+    // The lists, as downloaded and read; one too small is a broken download.
+    let listed = ok(client.call("sentinelLists", ""));
+    assert_eq!(listed.as_array().unwrap().iter().map(|l| l["kind"].as_str().unwrap()).collect::<Vec<_>>(), ["breaches", "twoFactor", "passkeys"]);
+    assert_eq!(listed[0]["url"], "https://haveibeenpwned.com/api/v3/breaches");
+    assert_eq!(error(client.call("sentinelParseList", &json!({ "kind": "passkeys", "body": "{\"github.com\": {}}" }).to_string())), "sentinel_list_invalid");
+    assert_eq!(error(client.call("sentinelParseList", &json!({ "kind": "breaches", "body": "<html>maintenance</html>" }).to_string())), "sentinel_list_invalid");
+    let parse = |client: &mut Client, kind: &str, sites: &[&str]| ok(client.call("sentinelParseList", &json!({ "kind": kind, "body": list_body(kind, sites) }).to_string()))["sites"].clone();
+    let breaches = parse(&mut client, "breaches", &["bank.example"]);
+    assert_eq!(breaches["bank.example"], json!({ "date": "2020-01-01", "breach": { "title": "bank.example", "dataClasses": ["Email addresses", "Passwords"], "accounts": 7 } }));
+    let lists = json!({
+        "breaches": { "sites": breaches, "fetchedAt": 900 },
+        "twoFactor": { "sites": parse(&mut client, "twoFactor", &["github.com"]), "fetchedAt": 800 },
+        "passkeys": { "sites": parse(&mut client, "passkeys", &["accounts.mail.example"]), "fetchedAt": 950 },
+    });
+    let report = ok(client.call("sentinelReport", &json!({ "lists": lists, "now": 1_000 }).to_string()));
+    assert_eq!(report["pending"], json!(["breached"]));
+    assert_eq!(report["listsUpdatedAt"], 800);
+    assert_eq!(report["compromised"][0]["id"], "b");
+    assert_eq!(report["compromised"][0]["date"], "2020-01-01");
+    assert_eq!(report["twoFactor"], json!([{ "id": "c", "site": "github.com" }]));
+    assert_eq!(report["passkeys"], json!([{ "id": "a", "site": "mail.example" }]));
+    assert_eq!(report["summary"]["issues"]["compromised"][0]["breach"]["accounts"], 7);
+
+    // A list turned off: its alert is off rather than pending; one turned
+    // on but never downloaded leaves the lists' age unknown.
+    let some = json!({ "breaches": lists["breaches"], "twoFactor": null });
+    let report = ok(client.call("sentinelReport", &json!({ "lists": some, "off": ["passkeys"], "now": 1_000 }).to_string()));
+    assert_eq!(report["off"], json!(["passkey"]));
+    assert_eq!(report["pending"], json!(["breached", "two_factor"]));
+    assert!(report["passkeys"].as_array().unwrap().is_empty());
+    assert!(report["listsUpdatedAt"].is_null());
+
+    // One vault, while the account has it; every vault otherwise.
+    let report = ok(client.call("sentinelReport", &json!({ "lists": lists, "vaultId": VAULT, "now": 1_000 }).to_string()));
+    assert_eq!(report["summary"]["vaultId"], VAULT);
+    assert_eq!(report["summary"]["checked"], 3);
+    let report = ok(client.call("sentinelReport", &json!({ "lists": lists, "vaultId": "elsewhere", "now": 1_000 }).to_string()));
+    assert!(report["summary"]["vaultId"].is_null());
+
+    ok(client.call("lock", ""));
+    assert_eq!(error(client.call("sentinelReport", &json!({ "now": 1_000 }).to_string())), "locked");
+}
+
+#[test]
+fn sentinel_checks_breached_passwords_like_the_desktop() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let items = json!([
+        row(&server, "a", 5, 1, &login("Mail", "https://mail.example", "password", 1)),
+        row(&server, "b", 6, 1, &login("Bank", "https://bank.example", "Zq8!vT3#mW9$kL2@-only-here", 1)),
+    ]);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": items }).to_string()));
+
+    // Only the first 5 characters of each password's SHA-1 hash are asked
+    // about: SHA-1("password") is 5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8.
+    let queries = ok(client.call("sentinelBreachQueries", &json!({ "now": 1_000 }).to_string()));
+    assert_eq!((queries["all"].as_bool(), queries["upToDate"].as_bool()), (Some(true), Some(false)));
+    let prefixes: Vec<String> = queries["prefixes"].as_array().unwrap().iter().map(|p| p.as_str().unwrap().to_string()).collect();
+    assert_eq!(prefixes.len(), 2);
+    assert!(prefixes.contains(&"5BAA6".to_string()) && prefixes.iter().all(|p| p.len() == 5));
+
+    // The range API's padded answers.
+    let responses: serde_json::Map<String, Value> = prefixes
+        .iter()
+        .map(|p| {
+            let body = if p == "5BAA6" { "1E4C9B93F3F0682250B6CF8331B7EE68FD8:9545824\r\nFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0\r\n" } else { "00000000000000000000000000000000000:3\r\n" };
+            (p.to_lowercase(), json!(body))
+        })
+        .collect();
+    let results = ok(client.call("sentinelBreachResults", &json!({ "all": true, "responses": responses, "now": 1_000 }).to_string()));
+    assert_eq!((results["checked"].as_u64(), results["breached"].as_u64(), results["checkedAt"].as_i64()), (Some(2), Some(1), Some(1_000)));
+    let checks = results["checks"].as_str().unwrap().to_string();
+
+    // Kept encrypted the desktop's way: its key comes from the user key.
+    assert!(checks.starts_with("k1."));
+    let user_key = URL_SAFE_NO_PAD.decode(ok(client.call("exportUserKey", "")).as_str().unwrap()).unwrap();
+    let key = ChecksKey::new(&SymmetricKey::from_slice(&user_key).unwrap()).unwrap();
+    let kept = key.open_checks(Some(&checks));
+    assert_eq!((kept.checked_at, kept.seen.len(), kept.seen[&key.id("password")]), (Some(1_000), 2, 9_545_824));
+
+    let report = ok(client.call("sentinelReport", &json!({ "checks": checks, "now": 1_100 }).to_string()));
+    assert_eq!(report["breached"], json!([["a", 9_545_824]]));
+    assert_eq!(report["unchecked"], 0);
+    assert_eq!(report["passwordsCheckedAt"], 1_000);
+    assert_eq!(report["pending"], json!(["compromised", "two_factor", "passkey"]));
+
+    // The next automatic check, before a day passed: nothing to ask.
+    let queries = ok(client.call("sentinelBreachQueries", &json!({ "checks": checks, "maxAge": 86_400, "now": 2_000 }).to_string()));
+    assert_eq!((queries["all"].as_bool(), queries["upToDate"].as_bool()), (Some(false), Some(true)));
+    assert_eq!(queries["prefixes"], json!([]));
+    // A day later: every password again.
+    let queries = ok(client.call("sentinelBreachQueries", &json!({ "checks": checks, "maxAge": 86_400, "now": 1_000 + 86_400 }).to_string()));
+    assert_eq!(queries["all"], true);
+
+    // A new password: only it is asked about, and an answer missing leaves
+    // it unchecked.
+    let added = login("New", "https://new.example", "brand-new-W4!-pass", 1);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "c", 7, 1, &added)] }).to_string()));
+    let queries = ok(client.call("sentinelBreachQueries", &json!({ "checks": checks, "maxAge": 86_400, "now": 2_000 }).to_string()));
+    assert_eq!((queries["all"].as_bool(), queries["prefixes"].as_array().unwrap().len()), (Some(false), 1));
+    let results = ok(client.call("sentinelBreachResults", &json!({ "checks": checks, "all": false, "responses": {}, "now": 2_000 }).to_string()));
+    let report = ok(client.call("sentinelReport", &json!({ "checks": results["checks"], "now": 2_000 }).to_string()));
+    assert_eq!((report["unchecked"].as_u64(), report["passwordsCheckedAt"].as_i64()), (Some(1), Some(1_000)));
+
+    // Results that do not open (another account's): nothing checked.
+    let report = ok(client.call("sentinelReport", &json!({ "checks": "k1.AAAA", "now": 2_000 }).to_string()));
+    assert_eq!(report["unchecked"], 3);
+    assert_eq!(report["pending"][0], "breached");
+}
+
+#[test]
+fn sentinel_edits_like_the_desktop() {
+    let server = server();
+    // Before signing in: the master password's strength, and nothing about
+    // items.
+    let mut client = Client::new();
+    let weak = ok(client.call("strength", &json!({ "password": "password" }).to_string()));
+    assert_eq!((weak["level"].as_u64(), weak["score"].as_u64()), (Some(0), Some(0)));
+    assert!(weak["reused"].is_null());
+    assert_eq!(ok(client.call("strength", &json!({ "password": "8]bz-Pv&wu~AO5uEF?f{Uec>" }).to_string()))["level"], 6);
+    // The account's own words make it weaker.
+    let plain = ok(client.call("strength", &json!({ "password": "zorblaxquintel2024" }).to_string()));
+    let own = ok(client.call("strength", &json!({ "password": "zorblaxquintel2024", "inputs": ["zorblaxquintel"] }).to_string()));
+    assert!(own["guessesLog10"].as_f64().unwrap() < plain["guessesLog10"].as_f64().unwrap());
+
+    let mut client = signed_in(&server);
+    let mut trashed = login("Old", "http://old.example", "Hn4#pX8!rT2$wQ6@", 1);
+    trashed.0.trashed_at = Some(5);
+    let items = json!([
+        row(&server, "a", 5, 1, &login("Mail", "http://mail.example", "password", 1)),
+        row(&server, "b", 6, 1, &login("Bank", "https://bank.example", "password", 1)),
+        row(&server, "c", 7, 1, &trashed),
+    ]);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": items }).to_string()));
+    // The editor's check: the other items with the same password (not those
+    // in Recently Deleted).
+    assert_eq!(ok(client.call("strength", &json!({ "password": "password" }).to_string()))["reused"], 2);
+    assert_eq!(ok(client.call("strength", &json!({ "password": "password", "itemId": "a" }).to_string()))["reused"], 1);
+    assert_eq!(ok(client.call("strength", &json!({ "password": "Hn4#pX8!rT2$wQ6@" }).to_string()))["reused"], 0);
+
+    // Ignoring alerts: a new version of the item, and they leave their lists.
+    assert_eq!(error(client.call("sentinelIgnore", &json!({ "id": "a", "alerts": ["nonsense"], "ignored": true, "now": 10 }).to_string())), "invalid_request");
+    let sealed = ok(client.call("sentinelIgnore", &json!({ "id": "a", "alerts": ["weak", "reused"], "ignored": true, "now": 10 }).to_string()));
+    assert_eq!(sealed["baseRevision"], 1);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 2, 8)] }).to_string()));
+    let report = ok(client.call("sentinelReport", &json!({ "now": 20 }).to_string()));
+    assert_eq!(report["weak"], json!(["b"]));
+    assert_eq!(report["ignored"], json!([["a", "weak"], ["a", "reused"]]));
+    // Still grouped: the other item still shares the password.
+    assert_eq!(report["summary"]["issues"]["reused"], json!([{ "id": "b", "others": 1 }]));
+
+    // "Use HTTPS", saved like any edit; the ignored alerts stay.
+    let sealed = ok(client.call("sentinelUseHttps", &json!({ "id": "a", "now": 30 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 3, 9)] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": "a" }).to_string()));
+    assert_eq!(item["overview"]["urls"][0]["href"], "https://mail.example");
+    assert_eq!(item["overview"]["sentinel_ignored"], json!(["weak", "reused"]));
+    assert_eq!(error(client.call("sentinelUseHttps", &json!({ "id": "a", "now": 40 }).to_string())), "https_unavailable");
+    // Saving an item in Recently Deleted would restore it.
+    assert_eq!(error(client.call("sentinelUseHttps", &json!({ "id": "c", "now": 40 }).to_string())), "https_trashed");
+
+    // Watched again.
+    let sealed = ok(client.call("sentinelIgnore", &json!({ "id": "a", "alerts": ["weak"], "ignored": false, "now": 50 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 4, 10)] }).to_string()));
+    assert_eq!(ok(client.call("sentinelReport", &json!({ "now": 60 }).to_string()))["ignored"], json!([["a", "reused"]]));
 }
