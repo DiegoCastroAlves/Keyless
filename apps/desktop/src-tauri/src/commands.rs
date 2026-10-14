@@ -1165,3 +1165,22 @@ pub async fn change_email(app: AppHandle, state: State<'_, AppState>, master_pas
 pub async fn email_change_status(app: AppHandle) -> AppResult<Option<String>> {
     auth::sync_email(&app).await
 }
+
+#[tauri::command]
+pub async fn list_passkeys(app: AppHandle) -> AppResult<Vec<crate::devices::PasskeyView>> {
+    crate::devices::passkeys(&app).await
+}
+
+#[tauri::command]
+pub async fn remove_passkey(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    state.touch();
+    crate::devices::remove_passkey(&app, &id).await
+}
+
+/// Opens the web vault (where passkeys are added) in the system browser.
+#[tauri::command]
+pub fn open_web_vault(app: AppHandle) -> AppResult<()> {
+    app.opener()
+        .open_url(crate::config::WEB_VAULT_URL, None::<&str>)
+        .map_err(|e| AppError::Invalid(Msg::new("open_url_failed").with("detail", e)))
+}

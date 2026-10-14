@@ -20,6 +20,12 @@ pub const SHARE_PAGE_URL: &str = match option_env!("KEYLESS_SHARE_URL") {
     None => "https://keyless.diegoalves.dev/share/",
 };
 
+/// The web vault, where passkeys for signing in are added.
+pub const WEB_VAULT_URL: &str = match option_env!("KEYLESS_WEB_VAULT_URL") {
+    Some(url) => url,
+    None => "https://keyless.diegoalves.dev/vault/",
+};
+
 /// Where the links that confirm a change of the account's email lead.
 pub const EMAIL_CHANGED_URL: &str = match option_env!("KEYLESS_EMAIL_CHANGED_URL") {
     Some(url) => url,

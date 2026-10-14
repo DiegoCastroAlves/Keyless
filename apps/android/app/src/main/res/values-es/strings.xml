@@ -71,4 +71,7 @@
     <string name="err_session_expired">Tu sesión terminó. Inicia sesión de nuevo.</string>
     <string name="err_biometric_key_invalid">El desbloqueo con biometría se desactivó (la biometría del teléfono cambió). Usa la contraseña maestra.</string>
     <string name="err_unknown">Algo salió mal: %1$s</string>
+    <string name="saved">Guardado en Keyless</string>
+    <string name="err_save_conflict">El inicio de sesión cambió en otro dispositivo mientras tanto. Inténtalo de nuevo.</string>
+    <string name="err_vault_read_only">No puedes añadir elementos a esta bóveda.</string>
 </resources>

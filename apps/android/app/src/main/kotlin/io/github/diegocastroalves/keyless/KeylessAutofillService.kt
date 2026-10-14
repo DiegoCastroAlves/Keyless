@@ -10,9 +10,12 @@ import android.service.autofill.FillCallback
 import android.service.autofill.FillRequest
 import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
+import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
 import android.view.autofill.AutofillValue
 import android.widget.RemoteViews
+import android.widget.Toast
+import kotlin.concurrent.thread
 
 /**
  * Fills logins in apps and browsers. While Keyless is locked it offers to
@@ -39,8 +42,48 @@ class KeylessAutofillService : AutofillService() {
         callback.onSuccess(response)
     }
 
+    /** What was typed: saved now when unlocked, or after unlocking. */
     override fun onSaveRequest(request: SaveRequest, callback: SaveCallback) {
-        callback.onSuccess()
+        val structure = request.fillContexts.lastOrNull()?.structure
+        if (structure == null) {
+            callback.onSuccess()
+            return
+        }
+        val parsed = AutofillParser.parse(structure)
+        // A username may have been typed on an earlier screen.
+        val values = HashMap<android.view.autofill.AutofillId, String>()
+        request.fillContexts.forEach { values.putAll(AutofillParser.values(it.structure)) }
+        val password = parsed.passwords.firstNotNullOfOrNull { values[it]?.takeIf { v -> v.isNotEmpty() } }
+        if (password == null || parsed.packageName == packageName) {
+            callback.onSuccess()
+            return
+        }
+        val earlier = request.fillContexts.dropLast(1).flatMap { AutofillParser.parse(it.structure).usernames }
+        val username = (parsed.usernames + earlier).firstNotNullOfOrNull { values[it]?.takeIf { v -> v.isNotBlank() } } ?: ""
+        val title = parsed.webDomain ?: appName(parsed.packageName)
+        val pending = Keyless.PendingSave(parsed.webDomain, if (parsed.webDomain == null) parsed.packageName else null, title, username.trim(), password)
+        if (Keyless.isUnlocked) {
+            thread {
+                val result = try {
+                    Keyless.saveLogin(pending.domain, pending.packageName, pending.title, pending.username, pending.password)
+                    getString(R.string.saved)
+                } catch (e: Exception) {
+                    errorText(e)
+                }
+                android.os.Handler(mainLooper).post { Toast.makeText(this, result, Toast.LENGTH_SHORT).show() }
+            }
+            callback.onSuccess()
+        } else {
+            Keyless.pendingSave = pending
+            val intent = Intent(this, AutofillAuthActivity::class.java).putExtra(AutofillAuthActivity.EXTRA_SAVE, true)
+            callback.onSuccess(PendingIntent.getActivity(this, 1002, intent, PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE).intentSender)
+        }
+    }
+
+    private fun appName(packageName: String): String = try {
+        packageManager.getApplicationLabel(packageManager.getApplicationInfo(packageName, 0)).toString()
+    } catch (e: Exception) {
+        packageName
     }
 }
 
@@ -51,7 +94,16 @@ object AutofillResponses {
             setTextViewText(R.id.autofill_subtitle, subtitle ?: "")
         }
 
-    /** The logins for the fields' app or website (null when there are none). */
+    /** Asks Android to offer saving what is typed in these fields. */
+    private fun saveInfo(parsed: ParsedFields): SaveInfo? {
+        if (parsed.passwords.isEmpty()) return null
+        val type = SaveInfo.SAVE_DATA_TYPE_PASSWORD or (if (parsed.usernames.isEmpty()) 0 else SaveInfo.SAVE_DATA_TYPE_USERNAME)
+        val builder = SaveInfo.Builder(type, parsed.passwords.toTypedArray())
+        if (parsed.usernames.isNotEmpty()) builder.setOptionalIds(parsed.usernames.toTypedArray())
+        return builder.build()
+    }
+
+    /** The logins for the fields' app or website, and the offer to save (null when neither applies). */
     @Suppress("DEPRECATION")
     fun datasets(context: Context, parsed: ParsedFields): FillResponse? {
         val matches = Keyless.matches(parsed.webDomain, if (parsed.webDomain == null) parsed.packageName else null).take(8)
@@ -78,15 +130,18 @@ object AutofillResponses {
             builder.addDataset(dataset.build())
             count++
         }
-        return if (count > 0) builder.build() else null
+        val save = saveInfo(parsed)
+        if (save != null) builder.setSaveInfo(save)
+        return if (count > 0 || save != null) builder.build() else null
     }
 
     /** Locked: a suggestion that opens the unlock screen, which answers with the logins. */
     fun locked(context: Context, parsed: ParsedFields): FillResponse {
         val intent = Intent(context, AutofillAuthActivity::class.java)
         val sender = PendingIntent.getActivity(context, 1001, intent, PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE).intentSender
-        return FillResponse.Builder()
+        val builder = FillResponse.Builder()
             .setAuthentication(parsed.all.toTypedArray(), sender, presentation(context, context.getString(R.string.autofill_unlock), null))
-            .build()
+        saveInfo(parsed)?.let { builder.setSaveInfo(it) }
+        return builder.build()
     }
 }

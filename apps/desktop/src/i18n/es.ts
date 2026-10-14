@@ -166,6 +166,7 @@ const es: Translations = {
     email_unchanged: "Ese ya es el correo de tu cuenta.",
     share_too_many_recipients: "Un enlace puede ser para {{max}} correos como máximo.",
     share_recipients_unavailable: "Los enlaces para correos concretos aún no están disponibles en el servidor.",
+    passkeys_unavailable: "Las llaves de acceso aún no están disponibles en el servidor.",
   },
   welcome: {
     title: "Te damos la bienvenida a Keyless",
@@ -1461,6 +1462,13 @@ const es: Translations = {
     setUpQrHelp: "Escanéalo con el dispositivo nuevo, o abre allí el enlace. Contiene tu correo y tu Clave Secreta (nunca la contraseña maestra): muéstralo solo a ti.",
     copySetupLink: "Copiar enlace",
     showSetupCode: "Mostrar código de configuración",
+    passkeysTitle: "Llaves de acceso para iniciar sesión",
+    passkeysBody: "Inicia sesión en la bóveda web con una llave de acceso (passkey) en lugar de la contraseña maestra y la Clave Secreta. Se añaden allí (esta app no tiene acceso a ellas) y se quitan cuando cambian la contraseña maestra o la Clave Secreta.",
+    passkeysNone: "Todavía no hay llaves de acceso.",
+    passkeysAdd: "Añadir en la bóveda web",
+    passkeyUnnamed: "Llave de acceso",
+    passkeyAdded: "añadida el {{date}}",
+    passkeyUsed: "usada el {{date}}",
   },
   secretKeyChange: {
     button: "Cambiar Clave Secreta",

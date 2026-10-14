@@ -43,6 +43,19 @@ object AutofillParser {
         return parsed
     }
 
+    /** What the fields hold (for saving what was typed). */
+    fun values(structure: AssistStructure): Map<AutofillId, String> {
+        val out = HashMap<AutofillId, String>()
+        fun walk(node: AssistStructure.ViewNode) {
+            val id = node.autofillId
+            val value = node.autofillValue
+            if (id != null && value != null && value.isText) out[id] = value.textValue.toString()
+            for (i in 0 until node.childCount) walk(node.getChildAt(i))
+        }
+        for (i in 0 until structure.windowNodeCount) walk(structure.getWindowNodeAt(i).rootViewNode)
+        return out
+    }
+
     private fun visit(node: AssistStructure.ViewNode, parsed: ParsedFields, order: MutableList<Pair<AutofillId, Kind>>) {
         val domain = node.webDomain
         if (parsed.webDomain == null && !domain.isNullOrBlank()) parsed.webDomain = domain

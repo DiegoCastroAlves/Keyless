@@ -8,17 +8,44 @@ import android.os.Bundle
 import android.view.WindowManager
 import android.view.autofill.AutofillManager
 import android.widget.ScrollView
+import android.widget.Toast
+import kotlin.concurrent.thread
 
-/** Unlocks Keyless for autofill, then answers with the logins for the fields. */
+/**
+ * Unlocks Keyless for autofill, then answers with the logins for the
+ * fields, or saves the login that was typed.
+ */
 class AutofillAuthActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        val done = { if (intent.getBooleanExtra(EXTRA_SAVE, false)) save() else answer() }
         if (Keyless.isUnlocked) {
-            answer()
+            done()
             return
         }
-        setContentView(ScrollView(this).apply { addView(unlockForm(onUnlocked = { answer() }, onSignOut = null)) })
+        setContentView(ScrollView(this).apply { addView(unlockForm(onUnlocked = done, onSignOut = null)) })
+    }
+
+    private fun save() {
+        val pending = Keyless.pendingSave
+        Keyless.pendingSave = null
+        if (pending == null) {
+            finish()
+            return
+        }
+        thread {
+            val result = try {
+                Keyless.saveLogin(pending.domain, pending.packageName, pending.title, pending.username, pending.password)
+                getString(R.string.saved)
+            } catch (e: Exception) {
+                errorText(e)
+            }
+            runOnUiThread {
+                Toast.makeText(this, result, Toast.LENGTH_SHORT).show()
+                finish()
+            }
+        }
     }
 
     private fun answer() {
@@ -41,5 +68,9 @@ class AutofillAuthActivity : Activity() {
             setResult(RESULT_CANCELED)
         }
         finish()
+    }
+
+    companion object {
+        const val EXTRA_SAVE = "save"
     }
 }

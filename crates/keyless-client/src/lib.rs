@@ -20,7 +20,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use keyless_core::{
     account::{AccountBundle, UnlockedAccount, open_with_user_key, unlock_account},
     device_setup::{SetupPayload, SetupRequest},
-    item::{Category, ItemDetails, ItemOverview, same_write, stamp_version},
+    item::{Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, PasswordHistoryEntry, new_field_id, same_write, stamp_version},
     keys::{KdfParams, SecretKey, derive_account_keys},
     passkey_login::{self, PasskeyBundle, PasskeyKeys},
     setup_code,
@@ -252,6 +252,8 @@ impl Client {
             "items" => self.items(),
             "item" => self.item(json),
             "sealItem" => self.seal_item(json),
+            "findLogin" => self.find_login(json),
+            "sealLogin" => self.seal_login(json),
             "totp" => totp(json),
             "match" => self.matches(json),
             "parseSetupLink" => parse_setup_link(json),
@@ -671,6 +673,103 @@ impl Client {
         Ok(json!({ "id": id, "vaultId": a.vault_id, "encOverview": enc_overview, "encDetails": enc_details, "baseRevision": base_revision }))
     }
 
+    /// The login for this app or website with this username, if there is
+    /// one (saving from autofill then updates it rather than adding another).
+    fn find_login(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            #[serde(default)]
+            domain: Option<String>,
+            #[serde(default)]
+            package_name: Option<String>,
+            #[serde(default)]
+            username: String,
+        }
+        let a: A = args(json)?;
+        let candidates: Vec<Value> = match self.matches(&json!({ "domain": a.domain, "packageName": a.package_name }).to_string())? {
+            Value::Array(list) => list,
+            _ => Vec::new(),
+        };
+        for candidate in candidates {
+            let Some(id) = candidate["id"].as_str() else { continue };
+            let Ok((vault_id, _, details)) = self.open_item(id) else { continue };
+            let writable = self.unlocked()?.vaults.get(&vault_id).is_some_and(|v| can_write(&v.role));
+            if writable && details.username().unwrap_or_default().eq_ignore_ascii_case(a.username.trim()) {
+                return Ok(json!(id));
+            }
+        }
+        Ok(Value::Null)
+    }
+
+    /// A login saved from autofill: a new one in `vaultId` (or the first
+    /// vault the account owns), or, with `id`, a new password for that one
+    /// (the old one goes to its history). Encrypted like `sealItem`.
+    fn seal_login(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            #[serde(default)]
+            id: Option<String>,
+            #[serde(default)]
+            vault_id: Option<String>,
+            #[serde(default)]
+            title: String,
+            #[serde(default)]
+            url: String,
+            #[serde(default)]
+            username: Zeroizing<String>,
+            password: Zeroizing<String>,
+            now: i64,
+        }
+        let a: A = args(json)?;
+        let (vault_id, overview, details) = match &a.id {
+            Some(id) => {
+                let (vault_id, overview, mut details) = self.open_item(id)?;
+                let old = details.password().map(str::to_string);
+                if old.as_deref() == Some(a.password.as_str()) {
+                    return Ok(Value::Null);
+                }
+                match details.fields.iter_mut().find(|f| f.purpose == Some(FieldPurpose::Password)) {
+                    Some(field) => field.value = a.password.to_string(),
+                    None => details.fields.push(field("password", FieldKind::Concealed, &a.password, Some(FieldPurpose::Password))),
+                }
+                if let Some(old) = old.filter(|o| !o.is_empty()) {
+                    details.password_history.insert(0, PasswordHistoryEntry { value: old, changed_at: a.now });
+                }
+                (vault_id, overview, details)
+            }
+            None => {
+                let unlocked = self.unlocked()?;
+                let vault_id = match &a.vault_id {
+                    Some(id) => id.clone(),
+                    None => unlocked
+                        .vaults
+                        .iter()
+                        .find(|(_, v)| v.role == "owner")
+                        .or_else(|| unlocked.vaults.iter().find(|(_, v)| can_write(&v.role)))
+                        .map(|(id, _)| id.clone())
+                        .ok_or(Failure::new("vault_read_only"))?,
+                };
+                let mut details = ItemDetails::default();
+                if !a.username.trim().is_empty() {
+                    details.fields.push(field("username", FieldKind::Text, a.username.trim(), Some(FieldPurpose::Username)));
+                }
+                details.fields.push(field("password", FieldKind::Concealed, &a.password, Some(FieldPurpose::Password)));
+                let title = if a.title.trim().is_empty() { matching::host_of(&a.url).unwrap_or_else(|| a.url.clone()) } else { a.title.trim().to_string() };
+                let overview = ItemOverview {
+                    title,
+                    category: Category::Login,
+                    urls: if a.url.trim().is_empty() { Vec::new() } else { vec![ItemUrl { href: a.url.trim().to_string(), ..Default::default() }] },
+                    ..Default::default()
+                };
+                (vault_id, overview, details)
+            }
+        };
+        let sealed = json!({ "vaultId": vault_id, "id": a.id, "overview": overview, "details": details, "now": a.now });
+        self.seal_item(&sealed.to_string())
+    }
+
     /// Logins for an app or a website, best first (autofill).
     fn matches(&self, json: &str) -> Outcome<Value> {
         #[derive(Deserialize)]
@@ -745,6 +844,10 @@ impl Client {
         SecretKey::parse(&secret_key).map_err(|_| Failure::new("device_setup_failed"))?;
         Ok(json!({ "email": email, "secretKey": secret_key.as_str() }))
     }
+}
+
+fn field(label: &str, kind: FieldKind, value: &str, purpose: Option<FieldPurpose>) -> Field {
+    Field { id: new_field_id(), label: label.into(), kind, value: value.into(), purpose, extra: Default::default() }
 }
 
 fn open_vault(account: &UnlockedAccount, id: &str, row: &VaultRow) -> Option<OpenVault> {

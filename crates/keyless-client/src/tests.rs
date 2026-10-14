@@ -242,3 +242,30 @@ fn signs_in_with_a_passkey() {
     ok(client.call("unlockWithUserKey", &json!({ "userKey": user_key }).to_string()));
     assert_eq!(error(client.call("passkeyRegister", &json!({ "prfOutput": prf, "credentialId": "cred-2" }).to_string())), "passkey_needs_password");
 }
+
+#[test]
+fn saves_logins_from_autofill() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let sealed = ok(client.call("sealLogin", &json!({ "url": "https://shop.example", "username": "me", "password": "first", "now": 100 }).to_string()));
+    let id = sealed["id"].as_str().unwrap().to_string();
+    assert_eq!(sealed["vaultId"], VAULT);
+    let stored = json!({ "id": id, "vault_id": VAULT, "enc_overview": sealed["encOverview"], "enc_details": sealed["encDetails"], "revision": 1, "seq": 30, "deleted_at": null, "enc_tombstone": null });
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": id }).to_string()));
+    assert_eq!(item["overview"]["title"], "shop.example");
+    assert_eq!(item["overview"]["subtitle"], "me");
+
+    // The same site and username: found, and a new password replaces the old one.
+    let found = ok(client.call("findLogin", &json!({ "domain": "www.shop.example", "username": "ME" }).to_string()));
+    assert_eq!(found, json!(id));
+    assert!(ok(client.call("findLogin", &json!({ "domain": "shop.example", "username": "other" }).to_string())).is_null());
+    assert!(ok(client.call("sealLogin", &json!({ "id": id, "password": "first", "now": 200 }).to_string())).is_null());
+    let sealed = ok(client.call("sealLogin", &json!({ "id": id, "password": "second", "now": 200 }).to_string()));
+    assert_eq!(sealed["baseRevision"], 1);
+    let stored = json!({ "id": id, "vault_id": VAULT, "enc_overview": sealed["encOverview"], "enc_details": sealed["encDetails"], "revision": 2, "seq": 31, "deleted_at": null, "enc_tombstone": null });
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": id }).to_string()));
+    assert_eq!(item["details"]["fields"][1]["value"], "second");
+    assert_eq!(item["details"]["password_history"][0]["value"], "first");
+}

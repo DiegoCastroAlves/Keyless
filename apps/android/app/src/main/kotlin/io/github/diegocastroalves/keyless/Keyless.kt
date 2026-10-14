@@ -174,6 +174,43 @@ object Keyless {
         }
     }
 
+    /**
+     * Saves a login typed in another app or a website (autofill): a new one,
+     * or a new password for the one with that username there.
+     */
+    fun saveLogin(domain: String?, packageName: String?, title: String, username: String, password: String) {
+        val url = if (domain != null) "https://$domain" else "android://$packageName"
+        for (attempt in 0 until 2) {
+            val args = JSONObject().put("username", username)
+            if (domain != null) args.put("domain", domain) else args.put("packageName", packageName)
+            val existing = Native.run("findLogin", args) as? String
+            val seal = JSONObject().put("url", url).put("title", title).put("username", username).put("password", password).put("now", System.currentTimeMillis() / 1000)
+            if (existing != null) seal.put("id", existing)
+            // Null: the same password is already there.
+            val sealed = Native.run("sealLogin", seal) as? JSONObject ?: return
+            val access = token()
+            val rows = if (sealed.isNull("baseRevision")) {
+                Server.insertItem(access, sealed.getString("id"), sealed.getString("vaultId"), sealed.getString("encOverview"), sealed.getString("encDetails"))
+            } else {
+                Server.updateItem(access, sealed.getString("id"), sealed.getLong("baseRevision"), sealed.getString("encOverview"), sealed.getString("encDetails"))
+            }
+            if (rows.length() > 0) {
+                Native.run("applyItems", JSONObject().put("vaultId", sealed.getString("vaultId")).put("items", rows))
+                save()
+                refreshCache()
+                return
+            }
+            // Changed elsewhere meanwhile: read it and write again on top.
+            sync()
+        }
+        throw KeylessException("save_conflict")
+    }
+
+    /** A login waiting for Keyless to unlock before it is saved (autofill). */
+    class PendingSave(val domain: String?, val packageName: String?, val title: String, val username: String, val password: String)
+
+    @Volatile var pendingSave: PendingSave? = null
+
     /** Removes the account and its data from this phone. */
     fun signOut() {
         session?.let { Server.signOut(it.accessToken) }

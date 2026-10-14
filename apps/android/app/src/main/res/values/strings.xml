@@ -72,4 +72,7 @@
     <string name="err_session_expired">Your session ended. Sign in again.</string>
     <string name="err_biometric_key_invalid">Biometric unlock was turned off (the phone\'s biometrics changed). Use the master password.</string>
     <string name="err_unknown">Something went wrong: %1$s</string>
+    <string name="saved">Saved in Keyless</string>
+    <string name="err_save_conflict">The login changed on another device meanwhile. Try again.</string>
+    <string name="err_vault_read_only">You cannot add items to this vault.</string>
 </resources>

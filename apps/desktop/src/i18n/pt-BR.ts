@@ -166,6 +166,7 @@ const ptBR: Translations = {
     email_unchanged: "Esse já é o e-mail da sua conta.",
     share_too_many_recipients: "Um link pode ser para no máximo {{max}} e-mails.",
     share_recipients_unavailable: "Links para e-mails específicos ainda não estão disponíveis no servidor.",
+    passkeys_unavailable: "Chaves de acesso ainda não estão disponíveis no servidor.",
   },
   welcome: {
     title: "Boas-vindas ao Keyless",
@@ -1461,6 +1462,13 @@ const ptBR: Translations = {
     setUpQrHelp: "Leia com o dispositivo novo, ou abra o link nele. Ele contém seu e-mail e sua Chave Secreta (nunca a senha mestra): mostre só para você mesmo.",
     copySetupLink: "Copiar link",
     showSetupCode: "Mostrar código de configuração",
+    passkeysTitle: "Chaves de acesso para entrar",
+    passkeysBody: "Entre no cofre web com uma chave de acesso (passkey) em vez da senha mestra e da Chave Secreta. Elas são adicionadas lá (este app não tem acesso a elas) e são removidas quando a senha mestra ou a Chave Secreta mudam.",
+    passkeysNone: "Nenhuma chave de acesso ainda.",
+    passkeysAdd: "Adicionar no cofre web",
+    passkeyUnnamed: "Chave de acesso",
+    passkeyAdded: "adicionada em {{date}}",
+    passkeyUsed: "usada em {{date}}",
   },
   secretKeyChange: {
     button: "Trocar Chave Secreta",

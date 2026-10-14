@@ -164,6 +164,7 @@ const en = {
     email_unchanged: "That is already your account's email.",
     share_too_many_recipients: "A link can be for {{max}} emails at most.",
     share_recipients_unavailable: "Links for specific emails are not available on the server yet.",
+    passkeys_unavailable: "Passkeys are not available on the server yet.",
   },
   welcome: {
     title: "Welcome to Keyless",
@@ -1457,6 +1458,13 @@ const en = {
     setUpQrHelp: "Scan it with the new device, or open the link there. It holds your email and Secret Key (never your master password): show it only to yourself.",
     copySetupLink: "Copy link",
     showSetupCode: "Show setup code",
+    passkeysTitle: "Passkeys for signing in",
+    passkeysBody: "Sign in with a passkey instead of your master password and Secret Key, in the web vault. Passkeys are added there (this app has no access to them) and are removed when the master password or Secret Key changes.",
+    passkeysNone: "No passkeys yet.",
+    passkeysAdd: "Add in the web vault",
+    passkeyUnnamed: "Passkey",
+    passkeyAdded: "added {{date}}",
+    passkeyUsed: "last used {{date}}",
   },
   secretKeyChange: {
     button: "Change Secret Key",

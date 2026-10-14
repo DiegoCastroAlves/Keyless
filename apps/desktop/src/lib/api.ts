@@ -120,6 +120,14 @@ export interface SetupRequestView {
   status: "pending" | "answering" | "code" | "elsewhere";
 }
 
+/** A passkey for signing in to the account (added in the web vault). */
+export interface AccountPasskey {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 /** A setup code: the QR code (SVG) and the keyless://setup link it holds. */
 export interface SetupQr {
   svg: string;
@@ -771,6 +779,9 @@ export const api = {
   changeSecretKey: (masterPassword: string) => invoke<string>("change_secret_key", { masterPassword }),
   /** Returns the new email, which waits for its confirmation links. */
   changeEmail: (masterPassword: string, newEmail: string) => invoke<string>("change_email", { masterPassword, newEmail }),
+  listPasskeys: () => invoke<AccountPasskey[]>("list_passkeys"),
+  removePasskey: (id: string) => invoke<void>("remove_passkey", { id }),
+  openWebVault: () => invoke<void>("open_web_vault"),
   /** The email a change waits to confirm, if any. */
   emailChangeStatus: () => invoke<string | null>("email_change_status"),
   showQuickAccess: () => invoke<void>("show_quick_access"),

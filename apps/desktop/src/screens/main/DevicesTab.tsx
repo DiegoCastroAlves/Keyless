@@ -1,11 +1,11 @@
-import { Copy, Globe, Laptop, LogOut, Monitor, QrCode, Smartphone } from "lucide-react";
+import { Copy, ExternalLink, Fingerprint, Globe, Laptop, LogOut, Monitor, QrCode, Smartphone } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput } from "../../components/common";
 import { countryName, platformName, reviewDeviceSetups } from "../../components/DeviceApprovalDialog";
 import { Button, Dialog, ErrorText, Label, cx } from "../../components/ui";
-import { api, errorMessage, events, type DeviceView, type SetupQr, type SetupRequestView } from "../../lib/api";
+import { api, errorMessage, events, type AccountPasskey, type DeviceView, type SetupQr, type SetupRequestView } from "../../lib/api";
 import { formatDate, relativeTime } from "../../lib/format";
 import { toast } from "../../lib/toast";
 
@@ -135,6 +135,8 @@ export function DevicesTab() {
         </Button>
       </div>
 
+      <Passkeys />
+
       <Dialog
         open={!!revoking}
         onOpenChange={(open) => !open && setRevoking(null)}
@@ -234,6 +236,67 @@ function SetUpAnotherDevice() {
           <QrCode className="size-4" /> {t("devices.showSetupCode")}
         </Button>
       )}
+    </div>
+  );
+}
+
+/** Passkeys that sign in to the account (added in the web vault). */
+function Passkeys() {
+  const { t } = useTranslation();
+  const [passkeys, setPasskeys] = useState<AccountPasskey[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api
+      .listPasskeys()
+      .then((list) => {
+        setPasskeys(list);
+        setError(null);
+      })
+      .catch((err) => setError(errorMessage(err)));
+  }, []);
+
+  useEffect(load, [load]);
+
+  const remove = async (id: string) => {
+    try {
+      await api.removePasskey(id);
+      load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
+  return (
+    <div className="border-t border-line pt-6">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <Fingerprint className="size-4 text-accent" /> {t("devices.passkeysTitle")}
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-muted">{t("devices.passkeysBody")}</p>
+      <ErrorText>{error}</ErrorText>
+      {passkeys && passkeys.length > 0 && (
+        <div className="mt-3 divide-y divide-line rounded-xl border border-line">
+          {passkeys.map((passkey) => (
+            <div key={passkey.id} className="flex items-center gap-3 p-3">
+              <Fingerprint className="size-4 text-muted" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{passkey.name || t("devices.passkeyUnnamed")}</div>
+                <div className="text-xs text-subtle">
+                  {t("devices.passkeyAdded", { date: formatDate(seconds(passkey.createdAt)) })}
+                  {passkey.lastUsedAt ? ` · ${t("devices.passkeyUsed", { date: formatDate(seconds(passkey.lastUsedAt)) })}` : ""}
+                </div>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => remove(passkey.id)}>
+                {t("common.remove")}
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {passkeys && passkeys.length === 0 && <p className="mt-2 text-xs text-subtle">{t("devices.passkeysNone")}</p>}
+      <Button size="sm" className="mt-3" onClick={() => void api.openWebVault()}>
+        <ExternalLink className="size-4" /> {t("devices.passkeysAdd")}
+      </Button>
     </div>
   );
 }

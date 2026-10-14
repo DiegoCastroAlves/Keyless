@@ -19,7 +19,7 @@ object Server {
 
     private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
 
-    private fun request(path: String, method: String = "GET", body: String? = null, token: String? = null): String {
+    private fun request(path: String, method: String = "GET", body: String? = null, token: String? = null, headers: Map<String, String> = emptyMap()): String {
         val connection = try {
             (URL("$BASE/$path").openConnection() as HttpURLConnection).apply {
                 requestMethod = method
@@ -28,6 +28,7 @@ object Server {
                 useCaches = false
                 setRequestProperty("apikey", KEY)
                 if (token != null) setRequestProperty("Authorization", "Bearer $token")
+                for ((name, value) in headers) setRequestProperty(name, value)
                 if (body != null) {
                     doOutput = true
                     setRequestProperty("Content-Type", "application/json")
@@ -95,6 +96,30 @@ object Server {
 
     fun itemsSince(token: String, vaultId: String, cursor: Long, limit: Int): JSONArray =
         JSONArray(request("rest/v1/items?select=*&vault_id=eq.${enc(vaultId)}&seq=gt.$cursor&order=seq.asc&limit=$limit", token = token))
+
+    /** Adds an item; the server's row back (empty when the id is taken). */
+    fun insertItem(token: String, id: String, vaultId: String, encOverview: String, encDetails: String): JSONArray =
+        JSONArray(
+            request(
+                "rest/v1/items",
+                "POST",
+                JSONObject().put("id", id).put("vault_id", vaultId).put("enc_overview", encOverview).put("enc_details", encDetails).toString(),
+                token,
+                mapOf("Prefer" to "return=representation"),
+            ),
+        )
+
+    /** Replaces an item's content where the server still has `baseRevision`; empty on a conflict. */
+    fun updateItem(token: String, id: String, baseRevision: Long, encOverview: String, encDetails: String): JSONArray =
+        JSONArray(
+            request(
+                "rest/v1/items?id=eq.${enc(id)}&revision=eq.$baseRevision",
+                "PATCH",
+                JSONObject().put("enc_overview", encOverview).put("enc_details", encDetails).toString(),
+                token,
+                mapOf("Prefer" to "return=representation"),
+            ),
+        )
 
     /** A database function; `token` is null for those open to anyone. */
     fun rpc(name: String, args: JSONObject, token: String? = null): String = request("rest/v1/rpc/$name", "POST", args.toString(), token)

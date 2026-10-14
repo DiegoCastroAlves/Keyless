@@ -123,6 +123,8 @@ fun Context.errorText(error: Throwable): String {
         "device_setup_unavailable" -> R.string.err_device_setup_unavailable
         "session_expired" -> R.string.err_session_expired
         "biometric_key_invalid" -> R.string.err_biometric_key_invalid
+        "save_conflict" -> R.string.err_save_conflict
+        "vault_read_only" -> R.string.err_vault_read_only
         else -> null
     }
     return if (res != null) getString(res) else getString(R.string.err_unknown, error.message ?: error.toString())

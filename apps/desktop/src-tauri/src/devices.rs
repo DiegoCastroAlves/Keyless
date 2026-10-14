@@ -344,6 +344,46 @@ pub async fn revoke(app: &AppHandle, id: &str) -> AppResult<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PasskeyView {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+/// The account's passkeys for signing in (added in the web vault, see
+/// `keyless_core::passkey_login`), their names decrypted.
+pub async fn passkeys(app: &AppHandle) -> AppResult<Vec<PasskeyView>> {
+    let state = app.state::<AppState>();
+    let (user_id, token) = sync::ensure_token(&state).await?;
+    let rows = state.api.passkeys(&token).await.map_err(|err| {
+        if is_missing_function(&err) { AppError::Invalid(crate::error::Msg::new("passkeys_unavailable")) } else { err }
+    })?;
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or(AppError::Locked)?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            let name = session
+                .account
+                .user_key()
+                .open(&row.enc_name, &context("passkey-name", &[&user_id, &row.credential_id]))
+                .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                .unwrap_or_default();
+            PasskeyView { id: row.id, name, created_at: row.created_at, last_used_at: row.last_used_at }
+        })
+        .collect())
+}
+
+pub async fn remove_passkey(app: &AppHandle, id: &str) -> AppResult<()> {
+    let state = app.state::<AppState>();
+    let (_, token) = sync::ensure_token(&state).await?;
+    let _: serde_json::Value = state.api.rpc(Some(&token), "remove_passkey", json!({ "p_id": id })).await?;
+    Ok(())
+}
+
 /// Ends every other session of the account (devices of older versions
 /// included); they need the master password to sign in again.
 pub async fn sign_out_others(app: &AppHandle) -> AppResult<()> {

@@ -665,6 +665,16 @@ impl Api {
         self.send(req).await
     }
 
+    /// The account's passkeys for signing in (see the passkeys migration).
+    pub async fn passkeys(&self, token: &str) -> AppResult<Vec<RemotePasskey>> {
+        let req = self.request(
+            Method::GET,
+            self.url("rest/v1/passkeys", &[("select", "id,credential_id,enc_name,created_at,last_used_at"), ("order", "created_at.asc")]),
+            Some(token),
+        );
+        self.send(req).await
+    }
+
     /// Ends every other session of the account (they must sign in again).
     pub async fn sign_out_others(&self, access_token: &str) -> AppResult<()> {
         let req = self.request(Method::POST, self.url("auth/v1/logout", &[("scope", "others")]), Some(access_token));
@@ -756,6 +766,15 @@ pub struct RemoteUser {
     pub email: Option<String>,
     #[serde(default)]
     pub new_email: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemotePasskey {
+    pub id: String,
+    pub credential_id: String,
+    pub enc_name: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
