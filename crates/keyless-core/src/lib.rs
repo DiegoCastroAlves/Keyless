@@ -18,6 +18,7 @@ pub mod encoding;
 pub mod error;
 pub mod export;
 pub mod generator;
+pub mod health;
 pub mod import;
 pub mod item;
 pub mod keys;
@@ -27,6 +28,7 @@ pub mod password_rules;
 pub mod recovery;
 pub mod setup_code;
 pub mod share;
+pub mod site;
 pub mod totp;
 pub mod vault;
 

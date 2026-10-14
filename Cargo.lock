@@ -3034,9 +3034,11 @@ dependencies = [
  "csv",
  "flate2",
  "getrandom 0.4.3",
+ "hex",
  "hkdf",
  "hmac 0.13.0",
  "p256",
+ "psl",
  "quick-xml 0.42.0",
  "region",
  "serde",
@@ -3046,10 +3048,12 @@ dependencies = [
  "subtle",
  "thiserror 2.0.21",
  "unicode-normalization",
+ "url",
  "uuid",
  "x25519-dalek",
  "zeroize",
  "zip 8.6.0",
+ "zxcvbn",
 ]
 
 [[package]]
