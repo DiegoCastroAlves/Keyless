@@ -1,0 +1,12 @@
+[package]
+name = "keyless-ios"
+description = "The Keyless client for the iOS app, through a C interface"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+keyless-client = { path = "../keyless-client" }

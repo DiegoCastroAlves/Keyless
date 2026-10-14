@@ -641,6 +641,18 @@ class MainActivity : Activity() {
             }, top = 8)
         }
 
+        if (Build.VERSION.SDK_INT >= 34) {
+            page.add(label(getString(R.string.passkeys), 16f, bold = true), top = 24)
+            page.add(label(getString(R.string.passkeys_hint), 13f, muted = true), top = 4)
+            page.add(primaryButton(getString(R.string.passkeys_enable)) {
+                try {
+                    startActivity(Intent("android.settings.CREDENTIAL_PROVIDER").setData(Uri.parse("package:$packageName")))
+                } catch (e: Exception) {
+                    // No such settings screen on this phone.
+                }
+            }, top = 8)
+        }
+
         page.add(label(getString(R.string.account), 16f, bold = true), top = 24)
         page.add(label(Keyless.email, 14f, muted = true), top = 4)
         page.add(plainButton(getString(R.string.sign_out)) {

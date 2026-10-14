@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/keyless-core", "crates/keyless-client", "crates/keyless-wasm", "crates/keyless-android", "apps/desktop/src-tauri"]
+members = ["crates/keyless-core", "crates/keyless-client", "crates/keyless-wasm", "crates/keyless-android", "crates/keyless-ios", "apps/desktop/src-tauri"]
 
 [workspace.package]
 version = "0.1.9"

@@ -206,6 +206,34 @@ object Keyless {
         throw KeylessException("save_conflict")
     }
 
+    /** The passkeys kept for `rpId` (only `allow` when the site names some). */
+    fun passkeysFor(rpId: String, allow: List<String>): List<JSONObject> {
+        val list = Native.arr("passkeysFor", JSONObject().put("rpId", rpId).put("allowCredentials", JSONArray(allow)))
+        return (0 until list.length()).map { list.getJSONObject(it) }
+    }
+
+    /** A new passkey, kept in the site's login (uploaded before the site gets it). */
+    fun createPasskey(args: JSONObject): JSONObject {
+        for (attempt in 0 until 2) {
+            val made = Native.obj("passkeyNew", args.put("now", System.currentTimeMillis() / 1000))
+            val item = made.getJSONObject("item")
+            val access = token()
+            val rows = if (item.isNull("baseRevision")) {
+                Server.insertItem(access, item.getString("id"), item.getString("vaultId"), item.getString("encOverview"), item.getString("encDetails"))
+            } else {
+                Server.updateItem(access, item.getString("id"), item.getLong("baseRevision"), item.getString("encOverview"), item.getString("encDetails"))
+            }
+            if (rows.length() > 0) {
+                Native.run("applyItems", JSONObject().put("vaultId", item.getString("vaultId")).put("items", rows))
+                save()
+                refreshCache()
+                return made
+            }
+            sync()
+        }
+        throw KeylessException("save_conflict")
+    }
+
     /** A login waiting for Keyless to unlock before it is saved (autofill). */
     class PendingSave(val domain: String?, val packageName: String?, val title: String, val username: String, val password: String)
 

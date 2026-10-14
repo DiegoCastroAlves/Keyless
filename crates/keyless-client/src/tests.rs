@@ -269,3 +269,45 @@ fn saves_logins_from_autofill() {
     assert_eq!(item["details"]["fields"][1]["value"], "second");
     assert_eq!(item["details"]["password_history"][0]["value"], "first");
 }
+
+#[test]
+fn makes_and_uses_passkeys_for_android() {
+    use keyless_core::passkey::client_data_json;
+    use sha2::{Digest, Sha256};
+
+    let server = server();
+    let mut client = signed_in(&server);
+    let made = ok(client.call(
+        "passkeyNew",
+        &json!({ "rpId": "Example.com", "rpName": "Example", "userHandle": URL_SAFE_NO_PAD.encode(b"user-1"), "userName": "me", "userVerified": true, "now": 10 }).to_string(),
+    ));
+    let item = &made["item"];
+    assert!(item["baseRevision"].is_null());
+    let stored = json!({ "id": item["id"], "vault_id": VAULT, "enc_overview": item["encOverview"], "enc_details": item["encDetails"], "revision": 1, "seq": 40, "deleted_at": null, "enc_tombstone": null });
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored] }).to_string()));
+
+    let found = ok(client.call("passkeysFor", &json!({ "rpId": "example.com" }).to_string()));
+    assert_eq!(found.as_array().unwrap().len(), 1);
+    assert_eq!(found[0]["credentialId"], made["credentialId"]);
+    assert_eq!(ok(client.call("passkeysFor", &json!({ "rpId": "example.com", "allowCredentials": ["other"] }).to_string())).as_array().unwrap().len(), 0);
+    // A second one for the same account is refused when the site excludes the first.
+    assert_eq!(
+        error(client.call("passkeyNew", &json!({ "rpId": "example.com", "userHandle": "dXNlcg", "userName": "me", "excludeCredentials": [made["credentialId"]], "now": 11 }).to_string())),
+        "passkey_excluded"
+    );
+
+    // Signing in, with the hash a browser made.
+    let client_data = client_data_json("webauthn.get", b"challenge", "https://example.com", None);
+    let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(client_data.as_bytes()));
+    let signed = ok(client.call("passkeyGet", &json!({ "itemId": item["id"], "credentialId": made["credentialId"], "clientDataHash": hash, "userVerified": true }).to_string()));
+    let same = ok(client.call("passkeyGet", &json!({ "itemId": item["id"], "credentialId": made["credentialId"], "clientDataJson": client_data, "userVerified": true }).to_string()));
+    assert_eq!(signed["authenticatorData"], same["authenticatorData"]);
+    assert_eq!(URL_SAFE_NO_PAD.decode(signed["userHandle"].as_str().unwrap()).unwrap(), b"user-1");
+    // The signature checks out with the public key the site got.
+    use p256::{ecdsa::{DerSignature, VerifyingKey, signature::Verifier}, pkcs8::DecodePublicKey};
+    let key = VerifyingKey::from_public_key_der(&URL_SAFE_NO_PAD.decode(made["publicKey"].as_str().unwrap()).unwrap()).unwrap();
+    let mut message = URL_SAFE_NO_PAD.decode(signed["authenticatorData"].as_str().unwrap()).unwrap();
+    message.extend_from_slice(&Sha256::digest(client_data.as_bytes()));
+    let signature = DerSignature::try_from(URL_SAFE_NO_PAD.decode(signed["signature"].as_str().unwrap()).unwrap().as_slice()).unwrap();
+    key.verify(&message, &signature).unwrap();
+}

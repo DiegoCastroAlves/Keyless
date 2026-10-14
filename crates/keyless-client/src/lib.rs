@@ -253,6 +253,9 @@ impl Client {
             "item" => self.item(json),
             "sealItem" => self.seal_item(json),
             "findLogin" => self.find_login(json),
+            "passkeysFor" => self.passkeys_for(json),
+            "passkeyGet" => self.passkey_get(json),
+            "passkeyNew" => self.passkey_new(json),
             "sealLogin" => self.seal_login(json),
             "totp" => totp(json),
             "match" => self.matches(json),
@@ -768,6 +771,157 @@ impl Client {
         };
         let sealed = json!({ "vaultId": vault_id, "id": a.id, "overview": overview, "details": details, "now": a.now });
         self.seal_item(&sealed.to_string())
+    }
+
+    /// The passkeys kept for `rpId` (only those in `allowCredentials` when
+    /// the site names some), for Android's Credential Manager.
+    fn passkeys_for(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            rp_id: String,
+            #[serde(default)]
+            allow_credentials: Vec<String>,
+        }
+        let a: A = args(json)?;
+        let unlocked = self.unlocked()?;
+        let mut found = Vec::new();
+        for (id, row) in &self.store.items {
+            if row.deleted || !unlocked.vaults.contains_key(&row.vault_id) {
+                continue;
+            }
+            let Ok((_, overview, details)) = self.open_item(id) else { continue };
+            if overview.trashed_at.is_some() {
+                continue;
+            }
+            for passkey in &details.passkeys {
+                if !passkey.rp_id.eq_ignore_ascii_case(&a.rp_id) {
+                    continue;
+                }
+                if !a.allow_credentials.is_empty() && !a.allow_credentials.iter().any(|c| c.trim_end_matches('=') == passkey.credential_id) {
+                    continue;
+                }
+                found.push(json!({
+                    "itemId": id,
+                    "credentialId": passkey.credential_id,
+                    "userName": passkey.user_name,
+                    "userDisplayName": passkey.user_display_name,
+                    "title": overview.title,
+                }));
+            }
+        }
+        Ok(Value::Array(found))
+    }
+
+    /// Signs in with a kept passkey: the assertion for `clientDataJson`, or
+    /// for the `clientDataHash` a browser made (base64url).
+    fn passkey_get(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            item_id: String,
+            credential_id: String,
+            #[serde(default)]
+            client_data_json: Option<String>,
+            #[serde(default)]
+            client_data_hash: Option<String>,
+            #[serde(default)]
+            user_verified: bool,
+        }
+        let a: A = args(json)?;
+        let (_, _, details) = self.open_item(&a.item_id)?;
+        let passkey = details.passkeys.iter().find(|p| p.credential_id == a.credential_id).ok_or(Failure::new("not_found"))?;
+        let assertion = match (&a.client_data_hash, &a.client_data_json) {
+            (Some(hash), _) => {
+                let hash = URL_SAFE_NO_PAD.decode(hash.trim_end_matches('=')).map_err(|_| Failure::new("invalid_request"))?;
+                keyless_core::passkey::assert_hash(passkey, &hash, a.user_verified)?
+            }
+            (None, Some(client_data)) => keyless_core::passkey::assert(passkey, client_data, a.user_verified)?,
+            (None, None) => return Err(Failure::new("invalid_request")),
+        };
+        Ok(json!({
+            "credentialId": URL_SAFE_NO_PAD.encode(&assertion.credential_id),
+            "authenticatorData": URL_SAFE_NO_PAD.encode(&assertion.authenticator_data),
+            "signature": URL_SAFE_NO_PAD.encode(&assertion.signature),
+            "userHandle": URL_SAFE_NO_PAD.encode(&assertion.user_handle),
+        }))
+    }
+
+    /// A new passkey for `rpId` (its origin already checked by the host),
+    /// kept in the site's login with that username, or a new login: the
+    /// answer for the site, and the item to upload (like `sealItem`).
+    fn passkey_new(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            rp_id: String,
+            #[serde(default)]
+            rp_name: String,
+            user_handle: String,
+            #[serde(default)]
+            user_name: String,
+            #[serde(default)]
+            user_display_name: String,
+            #[serde(default)]
+            exclude_credentials: Vec<String>,
+            #[serde(default)]
+            user_verified: bool,
+            now: i64,
+        }
+        let a: A = args(json)?;
+        let rp_id = a.rp_id.trim().to_lowercase();
+        if rp_id.is_empty() {
+            return Err(Failure::new("invalid_request"));
+        }
+        if !a.exclude_credentials.is_empty() {
+            let existing = self.passkeys_for(&json!({ "rpId": rp_id, "allowCredentials": a.exclude_credentials }).to_string())?;
+            if existing.as_array().is_some_and(|l| !l.is_empty()) {
+                return Err(Failure::new("passkey_excluded"));
+            }
+        }
+        let user_handle = URL_SAFE_NO_PAD.decode(a.user_handle.trim_end_matches('=')).map_err(|_| Failure::new("invalid_request"))?;
+        let created = keyless_core::passkey::create(&rp_id, &a.rp_name, &user_handle, &a.user_name, &a.user_display_name, a.user_verified, a.now)?;
+        let existing = self.find_login(&json!({ "domain": rp_id, "username": a.user_name }).to_string())?;
+        let (vault_id, id, mut overview, mut details) = match existing.as_str() {
+            Some(id) => {
+                let (vault_id, overview, details) = self.open_item(id)?;
+                (vault_id, Some(id.to_string()), overview, details)
+            }
+            None => {
+                let unlocked = self.unlocked()?;
+                let vault_id = unlocked
+                    .vaults
+                    .iter()
+                    .find(|(_, v)| v.role == "owner")
+                    .or_else(|| unlocked.vaults.iter().find(|(_, v)| can_write(&v.role)))
+                    .map(|(id, _)| id.clone())
+                    .ok_or(Failure::new("vault_read_only"))?;
+                let mut details = ItemDetails::default();
+                if !a.user_name.trim().is_empty() {
+                    details.fields.push(field("username", FieldKind::Text, a.user_name.trim(), Some(FieldPurpose::Username)));
+                }
+                let title = if a.rp_name.trim().is_empty() { rp_id.clone() } else { a.rp_name.trim().to_string() };
+                let overview = ItemOverview {
+                    title,
+                    category: Category::Login,
+                    urls: vec![ItemUrl { href: format!("https://{rp_id}"), ..Default::default() }],
+                    ..Default::default()
+                };
+                (vault_id, None, overview, details)
+            }
+        };
+        details.passkeys.push(created.passkey.clone());
+        if overview.subtitle.is_empty() {
+            overview.subtitle = a.user_name.clone();
+        }
+        let sealed = self.seal_item(&json!({ "vaultId": vault_id, "id": id, "overview": overview, "details": details, "now": a.now }).to_string())?;
+        Ok(json!({
+            "credentialId": URL_SAFE_NO_PAD.encode(&created.credential_id),
+            "attestationObject": URL_SAFE_NO_PAD.encode(&created.attestation_object),
+            "authenticatorData": URL_SAFE_NO_PAD.encode(&created.authenticator_data),
+            "publicKey": URL_SAFE_NO_PAD.encode(&created.public_key),
+            "item": sealed,
+        }))
     }
 
     /// Logins for an app or a website, best first (autofill).

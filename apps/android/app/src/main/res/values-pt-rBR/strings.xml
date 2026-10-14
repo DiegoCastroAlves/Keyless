@@ -74,4 +74,9 @@
     <string name="saved">Salvo no Keyless</string>
     <string name="err_save_conflict">O login mudou em outro dispositivo enquanto isso. Tente de novo.</string>
     <string name="err_vault_read_only">Você não pode adicionar itens a este cofre.</string>
+    <string name="passkeys">Chaves de acesso</string>
+    <string name="passkeys_hint">Entre em apps e sites com chaves de acesso (passkeys) guardadas no Keyless (Android 14 ou mais novo). O Android pede para ativar o Keyless como provedor de chaves de acesso.</string>
+    <string name="passkeys_enable">Usar o Keyless para chaves de acesso</string>
+    <string name="err_passkey_origin">Este app ou site não pode usar chaves de acesso desse site.</string>
+    <string name="err_passkey_excluded">Você já tem uma chave de acesso dessa conta no Keyless.</string>
 </resources>

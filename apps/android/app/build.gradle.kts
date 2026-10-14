@@ -53,3 +53,8 @@ android {
         checkReleaseBuilds = false
     }
 }
+
+dependencies {
+    // Passkeys through Android's Credential Manager (KeylessCredentialService).
+    implementation("androidx.credentials:credentials:1.3.0")
+}

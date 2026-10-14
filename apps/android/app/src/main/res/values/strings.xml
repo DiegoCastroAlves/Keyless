@@ -75,4 +75,9 @@
     <string name="saved">Saved in Keyless</string>
     <string name="err_save_conflict">The login changed on another device meanwhile. Try again.</string>
     <string name="err_vault_read_only">You cannot add items to this vault.</string>
+    <string name="passkeys">Passkeys</string>
+    <string name="passkeys_hint">Sign in to apps and websites with passkeys kept in Keyless (Android 14 and later). Android asks you to turn Keyless on as a passkey provider.</string>
+    <string name="passkeys_enable">Use Keyless for passkeys</string>
+    <string name="err_passkey_origin">This app or website cannot use passkeys for that site.</string>
+    <string name="err_passkey_excluded">You already have a passkey for this account in Keyless.</string>
 </resources>

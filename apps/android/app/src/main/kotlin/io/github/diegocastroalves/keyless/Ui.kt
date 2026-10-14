@@ -125,6 +125,8 @@ fun Context.errorText(error: Throwable): String {
         "biometric_key_invalid" -> R.string.err_biometric_key_invalid
         "save_conflict" -> R.string.err_save_conflict
         "vault_read_only" -> R.string.err_vault_read_only
+        "passkey_origin" -> R.string.err_passkey_origin
+        "passkey_excluded" -> R.string.err_passkey_excluded
         else -> null
     }
     return if (res != null) getString(res) else getString(R.string.err_unknown, error.message ?: error.toString())

@@ -215,11 +215,20 @@ pub fn create(rp_id: &str, rp_name: &str, user_handle: &[u8], user_name: &str, u
 /// Signs in with `passkey`: signs the site's challenge (through the hash of
 /// `clientDataJSON`).
 pub fn assert(passkey: &Passkey, client_data_json: &str, user_verified: bool) -> Result<Assertion> {
+    assert_hash(passkey, &Sha256::digest(client_data_json.as_bytes()), user_verified)
+}
+
+/// Like [`assert`], with the hash of a `clientDataJSON` the browser made
+/// (Android's Credential Manager hands providers only the hash).
+pub fn assert_hash(passkey: &Passkey, client_data_hash: &[u8], user_verified: bool) -> Result<Assertion> {
+    if client_data_hash.len() != 32 {
+        return Err(Error::InvalidKey);
+    }
     let der = Zeroizing::new(unb64(&passkey.key)?);
     let key = SigningKey::from_pkcs8_der(&der).map_err(|_| Error::InvalidKey)?;
     let authenticator_data = authenticator_data(&passkey.rp_id, user_verified, None);
     let mut signed = authenticator_data.clone();
-    signed.extend_from_slice(&Sha256::digest(client_data_json.as_bytes()));
+    signed.extend_from_slice(client_data_hash);
     let signature: Signature = key.sign(&signed);
     Ok(Assertion {
         credential_id: unb64(&passkey.credential_id)?,

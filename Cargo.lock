@@ -3009,9 +3009,11 @@ version = "0.1.9"
 dependencies = [
  "base64 0.23.1",
  "keyless-core",
+ "p256",
  "psl",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "uuid",
  "zeroize",
 ]
@@ -3103,6 +3105,13 @@ dependencies = [
  "zbus",
  "zeroize",
  "zxcvbn",
+]
+
+[[package]]
+name = "keyless-ios"
+version = "0.1.9"
+dependencies = [
+ "keyless-client",
 ]
 
 [[package]]

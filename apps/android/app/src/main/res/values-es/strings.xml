@@ -74,4 +74,9 @@
     <string name="saved">Guardado en Keyless</string>
     <string name="err_save_conflict">El inicio de sesión cambió en otro dispositivo mientras tanto. Inténtalo de nuevo.</string>
     <string name="err_vault_read_only">No puedes añadir elementos a esta bóveda.</string>
+    <string name="passkeys">Llaves de acceso</string>
+    <string name="passkeys_hint">Inicia sesión en apps y sitios con llaves de acceso (passkeys) guardadas en Keyless (Android 14 o posterior). Android te pide activar Keyless como proveedor de llaves de acceso.</string>
+    <string name="passkeys_enable">Usar Keyless para llaves de acceso</string>
+    <string name="err_passkey_origin">Esta app o sitio no puede usar llaves de acceso de ese sitio.</string>
+    <string name="err_passkey_excluded">Ya tienes una llave de acceso de esta cuenta en Keyless.</string>
 </resources>
