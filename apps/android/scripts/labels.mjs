@@ -1,7 +1,7 @@
-// Writes app/src/main/assets/labels.json from the desktop app: field, field
-// kind and category names, Sentinel's and the strength levels' texts from its
-// translations, and each category's template (the fields a new item starts
-// with). Run with node from the
+// Writes app/src/main/assets/labels.json from the desktop app: the texts of
+// SECTIONS from its translations (field, field kind and category names,
+// Sentinel, errors, sharing, history, import and export...), and each
+// category's template (the fields a new item starts with). Run with node from the
 // repository root after they change; uses the site's esbuild.
 import { build } from "../../site/node_modules/esbuild/lib/main.js";
 import { writeFileSync } from "node:fs";
@@ -14,10 +14,16 @@ async function load(entry, plugins = []) {
   return import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
 }
 
+// The desktop's texts the app shows as they are, in its three languages.
+const SECTIONS = [
+  "fieldLabels", "fieldKinds", "categories", "categoriesPlural", "sentinel", "strength",
+  "common", "errors", "list", "filters", "share", "itemHistory", "item", "sshKey", "largeType", "importer", "recovery",
+];
+
 const out = {};
 for (const lang of ["pt-BR", "en", "es"]) {
   const t = (await load(here(`../../desktop/src/i18n/${lang}.ts`))).default;
-  out[lang] = { fieldLabels: t.fieldLabels, fieldKinds: t.fieldKinds, categories: t.categories, categoriesPlural: t.categoriesPlural, sentinel: t.sentinel, strength: t.strength };
+  out[lang] = Object.fromEntries(SECTIONS.map((name) => [name, t[name]]));
 }
 
 // categories.ts also imports icons and the app's i18n, which the templates

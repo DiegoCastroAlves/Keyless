@@ -78,6 +78,32 @@ def tap_text(text, package=None):
     return False
 
 
+_size = []
+
+
+def swipe_up():
+    """Scrolls the screen down by about half of it (whatever the emulator's size)."""
+    if not _size:
+        found = re.findall(r"(\d+)x(\d+)", adb("shell", "wm", "size", check=False))
+        _size.extend(map(int, found[-1]) if found else (1080, 1920))
+    w, h = _size
+    adb("shell", "input", "swipe", str(w // 2), str(h * 3 // 4), str(w // 2), str(h // 4), "400")
+    time.sleep(1)
+
+
+def scroll_to(text, tries=8):
+    """Scrolls until a node with this text is on the screen (small screens hide the end of the settings)."""
+    for _ in range(tries):
+        if any(t == text for t, _, _, _ in screen()):
+            return True
+        swipe_up()
+    return False
+
+
+def tap_scrolled(text):
+    return scroll_to(text) and tap_text(text)
+
+
 def outcome(name, ok, detail=""):
     results.append((name, ok, detail))
     print(f"{'PASS' if ok else 'FAIL'} {name}", flush=True)
@@ -111,7 +137,8 @@ def replace_text(package, index, value):
     adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
     for _ in range(30):
         adb("shell", "input", "keyevent", "KEYCODE_DEL")
-    adb("shell", "input", "text", value)
+    if value:
+        adb("shell", "input", "text", value)
     time.sleep(0.4)
 
 
@@ -128,12 +155,204 @@ def tap_described(description):
 
 
 def push_pictures(fixture):
-    """The fixture's QR code pictures, in the phone's Downloads."""
-    for key, name in (("qrTotp", "qr-totp.bmp"), ("qrSetup", "qr-setup.bmp")):
+    """The fixture's QR code pictures, a file to attach and one to import, in the phone's Downloads."""
+    files = {name: base64.b64decode(fixture[key]) for key, name in (("qrTotp", "qr-totp.bmp"), ("qrSetup", "qr-setup.bmp"))}
+    files["notes.txt"] = ATTACHED
+    files["import.csv"] = b"name,url,username,password,note\nImported One,https://one.example,u1,imported-pass-1,From a CSV\n"
+    adb("shell", "rm", "-f", "/sdcard/Download/notes*.txt", "/sdcard/Download/keyless-export*")
+    for name, data in files.items():
         local = os.path.join(tempfile.mkdtemp(), name)
         with open(local, "wb") as out:
-            out.write(base64.b64decode(fixture[key]))
+            out.write(data)
         adb("push", local, f"/sdcard/Download/{name}")
+
+
+ATTACHED = b"A file kept in Keyless, encrypted.\n" * 50
+
+
+def pick_download(name):
+    """In the system's file picker: Downloads, then `name`."""
+    time.sleep(3)
+    tap_described("Show roots")
+    time.sleep(2)
+    tap_last("Downloads")
+    time.sleep(3)
+    # Earlier runs' files may push it down the list.
+    scroll_to(name)
+    tap_text(name)
+
+
+def tap_nth(text, n):
+    """Taps the n-th node (from 0) with this text."""
+    hits = [(x, y) for t, _, (x, y), _ in screen() if t == text]
+    if len(hits) > n:
+        adb("shell", "input", "tap", str(hits[n][0]), str(hits[n][1]))
+    return len(hits) > n
+
+
+def tap_below(anchor, text):
+    """Taps the first `text` below `anchor` (a button of one of several panels), scrolling to the anchor first."""
+    for _ in range(4):
+        nodes = screen()
+        top = next((y for t, _, (_, y), _ in nodes if t == anchor), None)
+        hit = next(((x, y) for t, _, (x, y), _ in nodes if t == text and top is not None and y > top), None)
+        if hit:
+            adb("shell", "input", "tap", str(hit[0]), str(hit[1]))
+            return True
+        swipe_up()
+    return False
+
+
+def downloads(prefix):
+    return [line.strip() for line in adb("shell", "ls", "/sdcard/Download", check=False).splitlines() if line.strip().startswith(prefix)]
+
+
+def item_extras(writes_path):
+    """On the item just edited: its history (restoring a version) and a share link."""
+    tap_text("⋮")
+    tap_last("Item history")
+    check("shows the item's earlier versions", "Restore this version", 30)
+    updates = writes(writes_path, "update")
+    tap_text("Restore this version")
+    time.sleep(1)
+    tap_last("Restore")
+    outcome("restores a version", wait_write(writes_path, "update", updates))
+    check("back on the item", "Edited item", 20)
+    shared = writes(writes_path, "share")
+    tap_text("⋮")
+    tap_last("Share…")
+    check("offers to share the item", "Create link", 15)
+    tap_last("Create link")
+    check("shows the new link once", "keyless.diegoalves.dev/share/", 30)
+    outcome("keeps the link on the server", wait_write(writes_path, "share", shared))
+    tap_last("Close")
+    time.sleep(1)
+
+
+def files_and_search(writes_path):
+    """Attaching a file to GitHub, saving it back and removing it; searching inside items."""
+    tap_text("GitHub")
+    check("opens GitHub", "octo", 20)
+    uploads = writes(writes_path, "object")
+    tap_text("⋮")
+    tap_last("Attach file")
+    pick_download("notes.txt")
+    outcome("uploads the file encrypted", wait_write(writes_path, "object", uploads, 60))
+    check("lists the attached file", "notes.txt", 30)
+    before = downloads("notes")
+    tap_text("Save as…")
+    time.sleep(3)
+    tap_last("Save")
+    end = time.time() + 30
+    saved = []
+    while time.time() < end and not saved:
+        saved = [name for name in downloads("notes") if name not in before]
+        time.sleep(1)
+    # The name may have spaces ("notes (1).txt"): quoted for the phone's shell.
+    contents = adb("shell", "cat", f"'/sdcard/Download/{saved[0]}'", check=False).encode() if saved else b""
+    outcome("saves the file decrypted", contents == ATTACHED, f"{saved} {len(contents)} bytes")
+    deleted = writes(writes_path, "objects_deleted")
+    tap_text("✕")
+    time.sleep(1)
+    tap_last("Delete")
+    outcome("removes the file from the server", wait_write(writes_path, "objects_deleted", deleted))
+    # The item is shown again once the removal is saved.
+    end = time.time() + 15
+    while time.time() < end and "notes.txt" in texts():
+        time.sleep(1)
+    time.sleep(1)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back to the list for search", "All items", 15)
+    # The fixture's logins say "Made up for tests." in their notes only.
+    type_into(PACKAGE, 0, "made%sup")
+    check("finds items by their notes", "GitHub", 15)
+    hide_keyboard()
+    replace_text(PACKAGE, 0, "")
+    hide_keyboard()
+
+
+def import_export(fixture, writes_path):
+    """Settings: importing a CSV file, and exporting one."""
+    tap_text("⋮")
+    tap_last("Settings")
+    check("the settings open again", "Lock when the screen turns off", 15)
+    tap_scrolled("Import")
+    check("lists what can be imported", "CSV file", 15)
+    inserts = writes(writes_path, "insert")
+    tap_below("CSV file", "Choose file…")
+    pick_download("import.csv")
+    check("reads the CSV file", "Found 1 item", 30)
+    tap_last("Import 1 items")
+    check("imports it", "Imported 1 item", 60)
+    outcome("uploads the imported item", wait_write(writes_path, "insert", inserts))
+    tap_last("Done")
+    check("the list has the imported item", "Imported One", 20)
+    tap_text("⋮")
+    tap_last("Settings")
+    tap_scrolled("Export")
+    check("offers the exports", "Encrypted backup", 15)
+    tap_scrolled("I understand that this file is not protected and I will delete it after use.")
+    tap_scrolled("Export unencrypted…")
+    check("asks for the master password to export", "Your master password", 15)
+    type_into(PACKAGE, len(fields(PACKAGE)) - 1, fixture["masterPassword"].replace(" ", "%s"))
+    tap_last("Continue")
+    time.sleep(4)
+    tap_last("Save")
+    check("exports every item", "Exported", 60)
+    exported = downloads("keyless-export")
+    contents = adb("shell", "cat", f"'/sdcard/Download/{exported[0]}'", check=False) if exported else ""
+    outcome("writes the CSV with the items", "GitHub" in contents and "Imported One" in contents, f"{exported} {contents[:200]}")
+    tap_last("Done")
+    # The master password's keyboard may still be up: Back would only close it.
+    hide_keyboard()
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back in the settings after exporting", "Lock when the screen turns off", 15)
+
+
+def recovery_key(fixture, writes_path):
+    """Settings: making a recovery key. Returns it."""
+    tap_scrolled("Recovery key")
+    check("says there is no recovery key", "You don't have a recovery key yet", 30)
+    tap_text("Create a recovery key")
+    check("asks for the master password for the key", "Continue", 15)
+    type_into(PACKAGE, len(fields(PACKAGE)) - 1, fixture["masterPassword"].replace(" ", "%s"))
+    tap_last("Continue")
+    check("shows the new recovery key", "KLRK-", 60)
+    hide_keyboard()
+    key = next((t for t, _, _, _ in screen() if t.startswith("KLRK-")), "")
+    tap_text("I saved the recovery key somewhere safe")
+    tap_last("Done")
+    check("says when the key was made", "Created on", 30)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back to the list after the key", "All items", 15)
+    return key
+
+
+def recover_account(fixture, key):
+    """Signed out: the recovery key opens the account with a new master password and Secret Key."""
+    tap_text("⋮")
+    tap_last("Settings")
+    tap_scrolled("Sign out")
+    time.sleep(1)
+    tap_last("Sign out")
+    check("signed out for the recovery", "Sign in to Keyless", 30)
+    tap_text("Forgot your master password or lost your Secret Key?")
+    check("opens the recovery", "Recover your account", 15)
+    type_into(PACKAGE, 0, fixture["email"])
+    type_into(PACKAGE, 1, key)
+    hide_keyboard()
+    tap_text("Continue")
+    check("asks for a new master password", "Choose a new master password", 60)
+    new_password = "violet%sanchor%sdrizzle%s47%smosaic"
+    type_into(PACKAGE, 0, new_password)
+    type_into(PACKAGE, 1, new_password)
+    hide_keyboard()
+    tap_text("Continue")
+    check("shows the new credentials", "Save your new credentials", 60)
+    tap_text("I saved the new Emergency Kit and the new recovery key")
+    tap_text("Recover account")
+    check("recovers the account and signs in", "GitHub", 90)
 
 
 def scan_picture(name):
@@ -328,6 +547,7 @@ def main():
     tap_text("☆")
     check("marks it a favorite", "★", 20)
     outcome("uploads the favorite", wait_write(writes_path, "update", updates))
+    item_extras(writes_path)
 
     tap_text("⋮")
     tap_last("Move to Recently Deleted")
@@ -349,7 +569,7 @@ def main():
     tap_text("⋮")
     tap_last("Settings")
     check("the settings open", "Lock when the screen turns off", 15)
-    tap_text("Signed-in devices")
+    tap_scrolled("Signed-in devices")
     check("lists this phone among the devices", "This device", 30)
     check("and the other device", "203.0.113.9", 10)
     tap_text("Sign out")
@@ -375,6 +595,10 @@ def main():
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     check("the list shows Sentinel's summary", "serious alert", 30)
+
+    files_and_search(writes_path)
+    import_export(fixture, writes_path)
+    recovery = recovery_key(fixture, writes_path)
 
     # Autofill in another app.
     adb("shell", "settings", "put", "secure", "autofill_service", f"{PACKAGE}/.KeylessAutofillService")
@@ -405,7 +629,7 @@ def main():
     hide_keyboard()
     tap_text("Log in", FORM)
     # "Save" for a new form, "Update" when it had been filled.
-    if check("Android offers to save in Keyless", "in Keyless?", 30):
+    if check("Android offers to save in Keyless", "Keyless?", 30):
         tap_text("Save") or tap_text("Update")
         end = time.time() + 40
         saved = False
@@ -434,6 +658,16 @@ def main():
         used = drive_sheet(["Signed in with passkey", "Sign-in failed", "No signature"], ["Continue", "tester", "Sign in", "Use passkey", "Keyless"])
         results.append(("signs in with the passkey", "Signed in with passkey" in used, used))
         print(f"{'PASS' if 'Signed in with passkey' in used else 'FAIL'} signs in with the passkey: {used}", flush=True)
+
+    # Last: it changes the account's master password and Secret Key.
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+    if recovery:
+        if not check("the app is unlocked again", "All items", 20):
+            type_into(PACKAGE, 0, fixture["masterPassword"].replace(" ", "%s"))
+            hide_keyboard()
+            tap_text("Unlock")
+            check("unlocks before recovering", "All items", 60)
+        recover_account(fixture, recovery)
 
     failed = [r for r in results if not r[1]]
     summary = "%0A".join(f"{'✓' if ok else '✗'} {name}" for name, ok, _ in results)

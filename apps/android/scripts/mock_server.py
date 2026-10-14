@@ -21,6 +21,13 @@ items = {row["id"]: dict(row) for row in fixture["items"]}
 # functions), as the real server keeps them.
 devices = {}
 requests = {}
+# What each write replaced (item_versions), share links, attachment chunks
+# (Storage) and the account's recovery key, as the real server keeps them.
+versions = {}
+shares = {}
+objects = {}
+recovery = {}
+QUOTA = 1024 * 1024 * 1024
 seq = [max(row["seq"] for row in items.values())]
 lock = threading.Lock()
 TOKEN = "mock-access-token"
@@ -33,6 +40,21 @@ def session():
 def record(kind, row):
     with open("writes.jsonl", "a") as out:
         out.write(json.dumps({"kind": kind, "id": row["id"], "vault_id": row["vault_id"], "revision": row["revision"]}) + "\n")
+
+
+def record_other(kind, what):
+    with open("writes.jsonl", "a") as out:
+        out.write(json.dumps({"kind": kind, "id": what}) + "\n")
+
+
+def insert(body):
+    """Adds an item (under the lock); None when the id is taken."""
+    if body["id"] in items:
+        return None
+    seq[0] += 1
+    row = {"id": body["id"], "vault_id": body["vault_id"], "enc_overview": body["enc_overview"], "enc_details": body["enc_details"], "revision": 1, "seq": seq[0], "deleted_at": None, "enc_tombstone": None}
+    items[row["id"]] = row
+    return row
 
 
 # Sentinel's public lists, shaped like the real ones: bank.example was
@@ -81,6 +103,58 @@ class Handler(BaseHTTPRequestHandler):
     def body(self):
         length = int(self.headers.get("Content-Length") or 0)
         return json.loads(self.rfile.read(length) or b"{}") if length else {}
+
+    def raw(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(length) if length else b""
+
+    def send_bytes(self, data):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def storage_error(self, status, message):
+        # Storage answers its errors as HTTP 400 with the real status inside.
+        return self.answer(400, {"statusCode": str(status), "error": message, "message": message})
+
+    def account_rpc(self, name, body):
+        """Attachment space, vaults and the recovery key (under the lock); None when unknown."""
+        if name == "attachment_space":
+            return 200, {"used": sum(len(b) for b in objects.values()), "quota": QUOTA}
+        if name == "create_vault":
+            fixture["memberships"].append({"vault_id": body["p_id"], "role": "owner", "enc_vault_key": body["p_enc_vault_key"],
+                                          "vaults": {"owner_id": fixture["userId"], "enc_meta": body["p_enc_meta"], "seq": 0, "deleted_at": None, "enc_tombstone": None}})
+            record_other("vault", body["p_id"])
+            return 200, {"owner_id": fixture["userId"], "seq": 0}
+        if name == "recovery_key_created":
+            return 200, recovery.get("created_at")
+        if name == "set_recovery_key":
+            recovery.update(proof=body["p_proof"], enc=body["p_enc_user_key"], created_at="2026-10-14T12:00:00Z")
+            record_other("recovery_key", "set")
+            return 204, None
+        if name == "remove_recovery_key":
+            recovery.clear()
+            record_other("recovery_key", "removed")
+            return 204, None
+        return None
+
+    def recovery_rpc(self, name, body):
+        """Recovering an account (open to anyone); None when unknown."""
+        if name not in ("begin_recovery", "complete_recovery"):
+            return None
+        if body.get("p_email") != fixture["email"] or not recovery or body.get("p_proof") != recovery["proof"]:
+            return 200, {"error": "recovery_failed"}
+        profile = fixture["profile"]
+        if name == "begin_recovery":
+            return 200, {"user_id": fixture["userId"], "enc_recovery_user_key": recovery["enc"], "format": profile["format"],
+                         "public_key": profile["public_key"], "enc_private_key": profile["enc_private_key"]}
+        profile.update(kdf=body["p_kdf"], enc_user_key=body["p_enc_user_key"])
+        fixture["authSecret"] = body["p_auth_secret"]
+        recovery.update(proof=body["p_new_proof"], enc=body["p_new_enc_recovery_user_key"])
+        record_other("recovery", "completed")
+        return 200, {}
 
     def authorized(self):
         return self.headers.get("Authorization") == f"Bearer {TOKEN}"
@@ -145,6 +219,15 @@ class Handler(BaseHTTPRequestHandler):
         if url.path.startswith("/assetlinks/"):
             site = url.path[len("/assetlinks/"):].removesuffix(".json")
             return self.answer(200, fixture.get("assetLinks", {}).get(site, []))
+        if url.path.startswith("/storage/v1/object/authenticated/attachments/"):
+            if not self.authorized():
+                return self.storage_error(403, "Unauthorized")
+            with lock:
+                data = objects.get(url.path[len("/storage/v1/object/authenticated/attachments/"):])
+            return self.send_bytes(data) if data is not None else self.storage_error(404, "not_found")
+        if url.path.startswith("/test/shares"):
+            with lock:
+                return self.answer(200, list(shares.values()))
         if not url.path.startswith("/rest/v1/"):
             return self.answer(404, {"message": "not found"})
         if not self.authorized():
@@ -153,6 +236,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.answer(200, [fixture["profile"]])
         if url.path == "/rest/v1/vault_members":
             return self.answer(200, fixture["memberships"])
+        if url.path == "/rest/v1/item_versions":
+            item_id = query.get("item_id", ["eq."])[0][3:]
+            with lock:
+                rows = sorted(versions.get(item_id, []), key=lambda r: -r["revision"])
+            return self.answer(200, rows)
+        if url.path == "/rest/v1/shares":
+            with lock:
+                rows = [{k: s[k] for k in ("id", "enc_label", "expires_at", "max_views", "views", "created_at", "revoked_at")} for s in shares.values()]
+            return self.answer(200, sorted(rows, key=lambda s: s["created_at"], reverse=True))
         if url.path == "/rest/v1/items" and "id" in query:
             item_id = query["id"][0][3:]
             with lock:
@@ -170,6 +262,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        if url.path.startswith("/storage/v1/object/attachments/"):
+            data = self.raw()
+            if not self.authorized():
+                return self.storage_error(403, "Unauthorized")
+            name = url.path[len("/storage/v1/object/attachments/"):]
+            with lock:
+                if name in objects:
+                    return self.storage_error(409, "Duplicate")
+                objects[name] = data
+            record_other("object", name)
+            return self.answer(200, {"Key": "attachments/" + name})
         body = self.body()
         if url.path == "/auth/v1/token":
             grant = query.get("grant_type", [""])[0]
@@ -212,10 +315,16 @@ class Handler(BaseHTTPRequestHandler):
                     device = devices.get(body.get("p_id"))
                 status = "unknown" if not device or device["secret"] != body.get("p_secret") else ("revoked" if device["revoked_at"] else "active")
                 return self.answer(200, status)
+            with lock:
+                answer = self.recovery_rpc(name, body)
+            if answer is not None:
+                return self.answer(*answer)
             if not self.authorized():
                 return self.answer(401, {"message": "JWT expired"})
             with lock:
                 answer = self.device_rpc(name, body)
+                if answer is None:
+                    answer = self.account_rpc(name, body)
             if answer is None:
                 return self.answer(404, {"code": "PGRST202", "message": "Could not find the function"})
             status, value = answer
@@ -223,20 +332,34 @@ class Handler(BaseHTTPRequestHandler):
         if url.path == "/rest/v1/items":
             if not self.authorized():
                 return self.answer(401, {"message": "JWT expired"})
+            # One item, or several at once (an import).
             with lock:
-                if body["id"] in items:
+                rows = [insert(b) for b in (body if isinstance(body, list) else [body])]
+                if any(row is None for row in rows):
                     return self.answer(409, {"code": "23505", "message": "duplicate key"})
-                seq[0] += 1
-                row = {"id": body["id"], "vault_id": body["vault_id"], "enc_overview": body["enc_overview"], "enc_details": body["enc_details"], "revision": 1, "seq": seq[0], "deleted_at": None, "enc_tombstone": None}
-                items[row["id"]] = row
-            record("insert", row)
-            return self.answer(201, [row])
+            for row in rows:
+                record("insert", row)
+            return self.answer(201, rows)
+        if url.path == "/rest/v1/shares":
+            if not self.authorized():
+                return self.answer(401, {"message": "JWT expired"})
+            with lock:
+                shares[body["id"]] = dict(body, views=0, created_at="2026-10-14T12:00:00Z", revoked_at=None, max_views=body.get("max_views"))
+            record_other("share", body["id"])
+            return self.answer(201)
         return self.answer(404, {"message": "not found"})
 
     def do_PATCH(self):
         url = urlparse(self.path)
         query = parse_qs(url.query)
         body = self.body()
+        if url.path == "/rest/v1/shares" and self.authorized():
+            with lock:
+                share = shares.get(query.get("id", ["eq."])[0][3:])
+                if share:
+                    share["revoked_at"] = body.get("revoked_at")
+            record_other("share_revoked", share["id"] if share else "")
+            return self.answer(204)
         if url.path != "/rest/v1/items" or not self.authorized():
             return self.answer(404, {"message": "not found"})
         item_id = query.get("id", ["eq."])[0][3:]
@@ -245,6 +368,8 @@ class Handler(BaseHTTPRequestHandler):
             row = items.get(item_id)
             if row is None or row["revision"] != revision:
                 return self.answer(200, [])
+            if row.get("enc_overview") and row.get("enc_details"):
+                versions.setdefault(item_id, []).append({"revision": row["revision"], "enc_overview": row["enc_overview"], "enc_details": row["enc_details"]})
             seq[0] += 1
             for key in ("enc_overview", "enc_details", "enc_tombstone"):
                 if key in body:
@@ -254,6 +379,16 @@ class Handler(BaseHTTPRequestHandler):
             row.update(revision=revision + 1, seq=seq[0])
         record("delete" if row["deleted_at"] else "update", row)
         return self.answer(200, [row])
+
+    def do_DELETE(self):
+        url = urlparse(self.path)
+        body = self.body()
+        if url.path != "/storage/v1/object/attachments" or not self.authorized():
+            return self.answer(404, {"message": "not found"})
+        with lock:
+            gone = [objects.pop(name) for name in body.get("prefixes", []) if name in objects]
+        record_other("objects_deleted", str(len(gone)))
+        return self.answer(200, [])
 
 
 if __name__ == "__main__":
