@@ -3002,6 +3002,7 @@ dependencies = [
  "jni 0.21.1",
  "keyless-client",
  "serde_json",
+ "zeroize",
 ]
 
 [[package]]

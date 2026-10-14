@@ -7,9 +7,10 @@ use std::sync::{Mutex, OnceLock};
 use jni::{
     JNIEnv,
     objects::{JByteArray, JClass, JString},
-    sys::{jint, jstring},
+    sys::{jbyteArray, jint, jstring},
 };
 use keyless_client::Client;
+use zeroize::Zeroizing;
 
 fn client() -> &'static Mutex<Client> {
     static CLIENT: OnceLock<Mutex<Client>> = OnceLock::new();
@@ -58,6 +59,50 @@ pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_decodeQr<'
     };
     let answer = serde_json::to_string(&found).unwrap_or_else(|_| "[]".into());
     env.new_string(answer).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+/// `Native.attachmentSeal(String, int, byte[]): byte[]`: chunk `index` of
+/// a new file (`attachmentNew`), encrypted; null if there is no such file.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_attachmentSeal<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    attachment_id: JString<'local>,
+    index: jint,
+    plain: JByteArray<'local>,
+) -> jbyteArray {
+    let (Ok(id), Ok(plain)) = (env.get_string(&attachment_id).map(String::from), env.convert_byte_array(&plain)) else {
+        return std::ptr::null_mut();
+    };
+    let plain = Zeroizing::new(plain);
+    let sealed = client().lock().unwrap_or_else(|e| e.into_inner()).attachment_seal(&id, index as u32, &plain);
+    match sealed {
+        Ok(sealed) => env.byte_array_from_slice(&sealed).map(|a| a.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// `Native.attachmentOpen(String, String, int, byte[]): byte[]`: chunk
+/// `index` of an item's attachment, decrypted; null if it does not check out.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_attachmentOpen<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    item_id: JString<'local>,
+    attachment_id: JString<'local>,
+    index: jint,
+    raw: JByteArray<'local>,
+) -> jbyteArray {
+    let (Ok(item), Ok(id), Ok(raw)) =
+        (env.get_string(&item_id).map(String::from), env.get_string(&attachment_id).map(String::from), env.convert_byte_array(&raw))
+    else {
+        return std::ptr::null_mut();
+    };
+    let plain = client().lock().unwrap_or_else(|e| e.into_inner()).attachment_open(&item, &id, index as u32, &raw);
+    match plain {
+        Ok(plain) => env.byte_array_from_slice(&plain).map(|a| a.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 #[cfg(test)]

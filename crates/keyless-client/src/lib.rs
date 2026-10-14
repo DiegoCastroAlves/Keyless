@@ -11,6 +11,7 @@
 //! arguments in, JSON out (`{"ok": …}` or `{"error": {"key", "message"}}`),
 //! so each host needs a single binding.
 
+mod attachments;
 mod devices;
 mod history;
 pub mod matching;
@@ -122,6 +123,7 @@ pub struct Client {
     pending: Option<Pending>,
     setup: Option<SetupRequest>,
     approvals: devices::Approvals,
+    files: attachments::PendingFiles,
 }
 
 /// Item roles that may write.
@@ -267,6 +269,12 @@ impl Client {
             "saveDraft" => self.save_draft(json),
             "duplicate" => self.duplicate(json),
             "setFlags" => self.set_flags(json),
+            "attachments" => self.attachments(json),
+            "attachmentNew" => self.attachment_new(json),
+            "attachmentsAdd" => self.attachments_add(json),
+            "documentNew" => self.document_new(json),
+            "attachmentRemove" => self.attachment_remove(json),
+            "attachmentForget" => self.attachment_forget(json),
             "searchDetails" => self.search_details(json),
             "itemsWithPasskeys" => self.items_with_passkeys(),
             "wifiQr" => self.wifi_qr(json),
@@ -318,6 +326,7 @@ impl Client {
         self.pending = None;
         self.setup = None;
         self.approvals = Default::default();
+        self.files = Default::default();
     }
 
     fn status(&self) -> Value {
@@ -657,7 +666,8 @@ impl Client {
         Ok((row.vault_id.clone(), overview, details))
     }
 
-    /// One item, decrypted.
+    /// One item, decrypted. Passkeys' and attachments' keys stay here: the
+    /// host signs and moves files through this client.
     fn item(&self, json: &str) -> Outcome<Value> {
         #[derive(Deserialize)]
         struct A {
@@ -665,6 +675,14 @@ impl Client {
         }
         let a: A = args(json)?;
         let (vault_id, overview, details) = self.open_item(&a.id)?;
+        let mut details = serde_json::to_value(&details)?;
+        for list in ["passkeys", "attachments"] {
+            for entry in details.get_mut(list).and_then(Value::as_array_mut).into_iter().flatten() {
+                if let Some(entry) = entry.as_object_mut() {
+                    entry.remove("key");
+                }
+            }
+        }
         let row = &self.store.items[&a.id];
         Ok(json!({ "id": a.id, "vaultId": vault_id, "overview": overview, "details": details, "revision": row.revision }))
     }

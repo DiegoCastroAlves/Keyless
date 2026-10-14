@@ -811,3 +811,68 @@ fn searches_inside_items_but_not_secrets() {
     assert!(qr.as_array().unwrap().len() >= 21);
     assert_eq!(ok(client.call("itemsWithPasskeys", "")), json!([]));
 }
+
+#[test]
+fn keeps_files_in_items_without_showing_their_keys() {
+    use keyless_core::attachment::CHUNK_SIZE;
+    let server = server();
+    let mut client = signed_in(&server);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "i1", 5, 1, &login("Bank", "https://bank.example", "pw", 1))] }).to_string()));
+
+    let size = CHUNK_SIZE + 10;
+    let new = ok(client.call("attachmentNew", &json!({ "name": "../scan.pdf", "size": size, "vaultId": VAULT, "now": 100 }).to_string()));
+    assert!(new.get("key").is_none());
+    assert_eq!(new["name"], "scan.pdf");
+    assert_eq!(new["chunks"], 2);
+    assert_eq!(new["chunkLens"], json!([CHUNK_SIZE, 10]));
+    let id = new["id"].as_str().unwrap().to_string();
+    assert_eq!(new["objects"][1], format!("{VAULT}/{id}/1"));
+    assert_eq!(new["stored"], size as u64 + 2 * 40);
+
+    let plain = [vec![7u8; CHUNK_SIZE], vec![9u8; 10]];
+    let raw: Vec<Vec<u8>> = (0..2).map(|i| client.attachment_seal(&id, i, &plain[i as usize]).unwrap()).collect();
+    assert_eq!(client.attachment_seal(&id, 1, &[1, 2]).unwrap_err().key, "file_changed");
+    assert_eq!(client.attachment_seal("nope", 0, &[]).unwrap_err().key, "not_found");
+
+    let sealed = ok(client.call("attachmentsAdd", &json!({ "itemId": "i1", "ids": [id], "now": 200 }).to_string()));
+    assert_eq!(sealed["baseRevision"], 1);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 2, 6)] }).to_string()));
+    // Added once: the pending file is gone.
+    assert_eq!(error(client.call("attachmentsAdd", &json!({ "itemId": "i1", "ids": [id], "now": 200 }).to_string())), "not_found");
+
+    let listed = ok(client.call("attachments", &json!({ "itemId": "i1" }).to_string()));
+    assert_eq!(listed[0]["name"], "scan.pdf");
+    assert!(listed[0].get("key").is_none());
+    let item = ok(client.call("item", &json!({ "id": "i1" }).to_string()));
+    assert_eq!(item["details"]["attachments"][0]["size"], size);
+    assert!(item["details"]["attachments"][0].get("key").is_none());
+
+    assert_eq!(*client.attachment_open("i1", &id, 1, &raw[1]).unwrap(), plain[1]);
+    // A chunk in the wrong place, or changed, does not open.
+    assert_eq!(client.attachment_open("i1", &id, 0, &raw[1]).unwrap_err().key, "attachment_damaged");
+    let mut changed = raw[0].clone();
+    changed[30] ^= 1;
+    assert_eq!(client.attachment_open("i1", &id, 0, &changed).unwrap_err().key, "attachment_damaged");
+
+    let removed = ok(client.call("attachmentRemove", &json!({ "itemId": "i1", "attachmentId": id, "now": 300 }).to_string()));
+    assert_eq!(removed["objects"], json!([format!("{VAULT}/{id}/0"), format!("{VAULT}/{id}/1")]));
+    let details = server.vault_key.open_details(VAULT, "i1", removed["encDetails"].as_str().unwrap()).unwrap();
+    assert!(details.attachments.is_empty());
+
+    // "Save in Keyless": a Document item holding the file.
+    let new = ok(client.call("attachmentNew", &json!({ "name": "id card.jpg", "size": 3, "vaultId": VAULT, "now": 400 }).to_string()));
+    let id = new["id"].as_str().unwrap().to_string();
+    let made = ok(client.call("documentNew", &json!({ "id": id, "label": "document", "now": 400 }).to_string()));
+    assert!(made["baseRevision"].is_null());
+    let item_id = made["id"].as_str().unwrap();
+    let overview = server.vault_key.open_overview(VAULT, item_id, made["encOverview"].as_str().unwrap()).unwrap();
+    assert_eq!((overview.title.as_str(), overview.category), ("id card.jpg", Category::Document));
+    let details = server.vault_key.open_details(VAULT, item_id, made["encDetails"].as_str().unwrap()).unwrap();
+    assert_eq!((details.fields[0].kind, details.fields[0].value.as_str()), (FieldKind::File, id.as_str()));
+    assert_eq!(details.attachments[0].id, id);
+
+    let new = ok(client.call("attachmentNew", &json!({ "name": "x", "size": 1, "vaultId": VAULT, "now": 500 }).to_string()));
+    ok(client.call("attachmentForget", &json!({ "id": new["id"] }).to_string()));
+    assert_eq!(error(client.call("documentNew", &json!({ "id": new["id"], "label": "document", "now": 500 }).to_string())), "not_found");
+    assert_eq!(error(client.call("attachmentNew", &json!({ "name": "x", "size": 1, "vaultId": "nope", "now": 500 }).to_string())), "not_found");
+}
