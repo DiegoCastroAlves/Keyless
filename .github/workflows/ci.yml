@@ -170,7 +170,8 @@ jobs:
           cargo run -q -p keyless-client --example fixture > test/fixture.json
           # The test site names the form app (by its certificate) for passkeys.
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
-          digest=$("$apksigner" verify --print-certs test/formtest.apk | awk -F': ' '/SHA-256 digest/ {print $2; exit}')
+          digest=$("$apksigner" verify --print-certs test/formtest.apk | awk '/SHA-256 digest/ {print $NF; exit}')
+          echo "form app certificate: $digest"
           python3 - "$digest" test/fixture.json <<'PY'
           import json, sys
           digest, path = sys.argv[1], sys.argv[2]
