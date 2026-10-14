@@ -245,7 +245,8 @@ jobs:
           path: target/release/bundle/dmg/*.dmg
 
   ios:
-    runs-on: macos-14
+    # Xcode 16: the project format current XcodeGen writes.
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
