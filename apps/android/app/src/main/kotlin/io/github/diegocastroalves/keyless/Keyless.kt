@@ -1,7 +1,9 @@
 package io.github.diegocastroalves.keyless
 
 import android.content.Context
+import android.os.Build
 import android.os.SystemClock
+import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -57,6 +59,16 @@ object Keyless {
         get() = prefs().getInt("auto_lock_minutes", 5)
         set(value) = prefs().edit().putInt("auto_lock_minutes", value).apply()
 
+    /** Lock when the phone's screen turns off. */
+    var lockOnScreenOff: Boolean
+        get() = prefs().getBoolean("lock_on_screen_off", true)
+        set(value) = prefs().edit().putBoolean("lock_on_screen_off", value).apply()
+
+    /** How many days biometric unlock works before the master password is asked again. */
+    var masterPasswordDays: Int
+        get() = prefs().getInt("master_password_days", 14)
+        set(value) = prefs().edit().putInt("master_password_days", value).apply()
+
     fun status(): JSONObject = Native.obj("status")
 
     val hasAccount: Boolean get() = status().optBoolean("account")
@@ -109,6 +121,11 @@ object Keyless {
         SecureStore.disableBiometric(app)
         touch()
         save()
+        try {
+            registerDevice(signed.accessToken)
+        } catch (e: KeylessException) {
+            // Tried again when the phone is next seen.
+        }
         sync()
     }
 
@@ -132,9 +149,16 @@ object Keyless {
         val current = session
         if (current != null && current.expiresAt - 60 > System.currentTimeMillis() / 1000) return current.accessToken
         val refresh = current?.refreshToken ?: SecureStore.get(app, "refresh_token") ?: throw KeylessException("session_expired")
-        val renewed = Server.refresh(refresh)
+        val renewed = try {
+            Server.refresh(refresh)
+        } catch (e: KeylessException) {
+            // Signed out from another device: everything goes from here too.
+            if (e.key == "session_expired" && checkRevoked()) throw KeylessException("device_revoked")
+            throw e
+        }
         session = renewed
         SecureStore.put(app, "refresh_token", renewed.refreshToken)
+        deviceSeen(renewed.accessToken)
         return renewed.accessToken
     }
 
@@ -298,12 +322,171 @@ object Keyless {
 
     /** Removes the account and its data from this phone. */
     fun signOut() {
-        session?.let { Server.signOut(it.accessToken) }
+        session?.let { current ->
+            // This phone leaves the account's list of devices.
+            deviceId()?.let { id -> devicesCall { Server.rpc("remove_device", JSONObject().put("p_id", id), current.accessToken) } }
+            Server.signOut(current.accessToken)
+        }
+        forgetHere()
+    }
+
+    /** Removes the account's data from this phone, without the server. */
+    private fun forgetHere() {
         session = null
+        seenAt = 0L
+        prefs().edit().remove("device_id").remove("device_user").apply()
         Native.run("forget")
         clearCache()
         snapshotFile().delete()
         SecureStore.clear(app)
+    }
+
+    // ----- this phone in the account's devices ---------------------------------
+
+    private var seenAt = 0L
+    private var statusCheckedAt = 0L
+
+    /** The server has no devices functions: not asked again until the app restarts. */
+    @Volatile private var devicesUnsupported = false
+
+    private fun <T> devicesCall(block: () -> T): T? {
+        if (devicesUnsupported) return null
+        return try {
+            block()
+        } catch (e: KeylessException) {
+            if (e.key == "missing_function") {
+                devicesUnsupported = true
+                null
+            } else {
+                throw e
+            }
+        }
+    }
+
+    fun deviceId(): String? = prefs().getString("device_id", null)
+
+    /** This phone's id and secret for the account, made the first time. */
+    private fun deviceIdentity(): Pair<String, String> {
+        val userId = status().optString("userId")
+        val id = deviceId()
+        val secret = SecureStore.get(app, "device_secret")
+        if (id != null && secret != null && prefs().getString("device_user", null) == userId) return id to secret
+        val newId = java.util.UUID.randomUUID().toString()
+        val newSecret = android.util.Base64.encodeToString(ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }, android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP)
+        SecureStore.put(app, "device_secret", newSecret)
+        prefs().edit().putString("device_id", newId).putString("device_user", userId).apply()
+        return newId to newSecret
+    }
+
+    private fun deviceName(): String =
+        Settings.Global.getString(app.contentResolver, Settings.Global.DEVICE_NAME)?.takeIf { it.isNotBlank() } ?: "${Build.MANUFACTURER} ${Build.MODEL}"
+
+    /** Puts this phone in the account's list (after signing in, or when the server does not know it). */
+    private fun registerDevice(access: String) {
+        if (devicesUnsupported || !status().optBoolean("unlocked")) return
+        val (id, secret) = deviceIdentity()
+        val version = try {
+            app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+        val info = Native.run(
+            "deviceInfo",
+            JSONObject().put("deviceId", id).put("name", deviceName()).put("platform", "android").put("os", "Android ${Build.VERSION.RELEASE}").put("appVersion", version),
+        ) as String
+        devicesCall { Server.rpc("register_device", JSONObject().put("p_id", id).put("p_secret", secret).put("p_enc_info", info), access) }
+    }
+
+    /** Every few minutes: tells the server this phone is in use. */
+    private fun deviceSeen(access: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (devicesUnsupported || (seenAt != 0L && now - seenAt < 5 * 60_000L)) return
+        seenAt = now
+        try {
+            val id = deviceId() ?: return registerDevice(access)
+            val answer = devicesCall { Server.rpc("device_seen", JSONObject().put("p_id", id), access) } ?: return
+            if (answer.trim().trim('"') != "active") registerDevice(access)
+        } catch (e: KeylessException) {
+            // Next time.
+        }
+    }
+
+    /**
+     * The server refused this phone's session: when it was signed out from
+     * another device, removes the account's data here too.
+     */
+    private fun checkRevoked(): Boolean {
+        val now = SystemClock.elapsedRealtime()
+        if (devicesUnsupported || (statusCheckedAt != 0L && now - statusCheckedAt < 60_000L)) return false
+        statusCheckedAt = now
+        val id = deviceId() ?: return false
+        val secret = SecureStore.get(app, "device_secret") ?: return false
+        val answer = try {
+            devicesCall { Server.rpc("device_status", JSONObject().put("p_id", id).put("p_secret", secret)) }
+        } catch (e: KeylessException) {
+            null
+        } ?: return false
+        if (answer.trim().trim('"') != "revoked") return false
+        Native.run("lock")
+        forgetHere()
+        return true
+    }
+
+    /** The account's devices, this phone first (with "current"). */
+    fun devices(): List<JSONObject> {
+        val access = token()
+        fun fetch() = JSONArray(devicesCall { Server.devices(access) } ?: throw KeylessException("devices_unavailable"))
+        var rows = fetch()
+        val current = deviceId()
+        if (current == null || (0 until rows.length()).none { rows.getJSONObject(it).optString("id") == current }) {
+            registerDevice(access)
+            rows = fetch()
+        }
+        val list = Native.arr("deviceList", rows)
+        val id = deviceId()
+        return (0 until list.length()).map { list.getJSONObject(it).put("current", list.getJSONObject(it).optString("id") == id) }.sortedBy { if (it.optBoolean("current")) 0 else 1 }
+    }
+
+    /** Signs another device out: its session ends at once. */
+    fun revokeDevice(id: String) {
+        devicesCall { Server.rpc("revoke_device", JSONObject().put("p_id", id), token()) }
+    }
+
+    // ----- approving another device's sign-in ------------------------------------
+
+    /** New devices waiting for this account (`pending_device_setups`). */
+    fun pendingDeviceSetups(): List<JSONObject> {
+        val text = devicesCall { Server.rpc("pending_device_setups", JSONObject(), token()) } ?: return emptyList()
+        val list = JSONArray(text)
+        return (0 until list.length()).map { list.getJSONObject(it) }
+    }
+
+    /** Takes a request on this phone; false when another device took it. */
+    fun answerDeviceSetup(request: JSONObject): Boolean {
+        val id = request.getString("id")
+        val answer = Native.obj("approvalStart", JSONObject().put("id", id).put("publicKey", request.getString("public_key")).put("commitment", request.getString("commitment")))
+        val taken = Server.rpc("answer_device_setup", JSONObject().put("p_id", id).put("p_public_key", answer.getString("publicKey")).put("p_nonce", answer.getString("nonce")), token()).trim() == "true"
+        if (!taken) Native.run("approvalForget", JSONObject().put("id", id))
+        return taken
+    }
+
+    /** Sends the email and Secret Key to the new device, when `code` is the one it shows. */
+    fun approveDeviceSetup(id: String, nonce: String, code: String) {
+        val secretKey = SecureStore.get(app, "secret_key") ?: throw KeylessException("secret_key_invalid")
+        val envelope = try {
+            Native.run("approvalSeal", JSONObject().put("id", id).put("nonce", nonce).put("code", code.filter { it.isDigit() }).put("secretKey", secretKey)) as String
+        } catch (e: KeylessException) {
+            // Too many wrong codes: whoever asked is not in front of this phone.
+            if (e.key == "device_setup_code_denied") denyDeviceSetup(id)
+            throw e
+        }
+        val approved = Server.rpc("approve_device_setup", JSONObject().put("p_id", id).put("p_enc_payload", envelope), token()).trim() == "true"
+        if (!approved) throw KeylessException("device_setup_expired")
+    }
+
+    fun denyDeviceSetup(id: String) {
+        Native.run("approvalForget", JSONObject().put("id", id))
+        Server.rpc("deny_device_setup", JSONObject().put("p_id", id), token())
     }
 
     // ----- signing in with another device -------------------------------------

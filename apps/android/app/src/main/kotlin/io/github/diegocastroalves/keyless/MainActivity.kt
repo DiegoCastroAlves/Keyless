@@ -113,13 +113,14 @@ class MainActivity : Activity() {
 
     override fun onUserInteraction() {
         super.onUserInteraction()
-        if (screen == "list" || screen == "item" || screen == "settings" || screen == "editor") Keyless.touch()
+        if (screen == "list" || screen == "item" || screen == "settings" || screen == "editor" || screen == "devices") Keyless.touch()
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (screen) {
             "item", "settings" -> showList()
+            "devices" -> showSettings()
             "editor" -> editorBack?.invoke() ?: showList()
             "device" -> {
                 deviceRequest?.let { request -> thread { Keyless.cancelDeviceSetup(request) } }
@@ -248,7 +249,7 @@ class MainActivity : Activity() {
                     if (failure == null) {
                         received = null
                         notice = null
-                        getSharedPreferences("keyless", MODE_PRIVATE).edit().putInt("password_boot", android.provider.Settings.Global.getInt(contentResolver, android.provider.Settings.Global.BOOT_COUNT, 0)).apply()
+                        notePasswordTyped()
                         showList()
                     } else {
                         submit.isEnabled = true
@@ -390,6 +391,12 @@ class MainActivity : Activity() {
         val filters = row().apply { setPadding(dp(12), dp(4), dp(12), dp(4)) }
         page.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(filters) })
         page.add(LinearLayout(this).apply { setPadding(dp(16), 0, dp(16), 0); addView(status) })
+        val requests = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), 0, dp(16), dp(4))
+        }
+        page.add(requests)
+        checkDeviceRequests(requests)
         val list = ListView(this)
         val adapter = ItemsAdapter()
         list.adapter = adapter
@@ -711,7 +718,7 @@ class MainActivity : Activity() {
 
     // ----- settings -----------------------------------------------------------------------
 
-    private fun showSettings() {
+    internal fun showSettings() {
         if (!Keyless.isUnlocked) return route()
         val page = column(20)
         page.add(plainButton("← " + getString(R.string.back)) { showList() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -757,6 +764,26 @@ class MainActivity : Activity() {
             })
         }
         page.add(minutes, top = 4)
+        page.add(Switch(this).apply {
+            text = getString(R.string.lock_on_screen_off)
+            isChecked = Keyless.lockOnScreenOff
+            setOnCheckedChangeListener { _, checked -> Keyless.lockOnScreenOff = checked }
+        }, top = 8)
+
+        if (biometricAvailable()) {
+            page.add(label(getString(R.string.master_password_every), 16f, bold = true), top = 24)
+            val days = RadioGroup(this)
+            for (d in listOf(1, 7, 14, 30)) {
+                days.addView(RadioButton(this).apply {
+                    text = if (d == 1) getString(R.string.every_day) else getString(R.string.every_days, d)
+                    id = View.generateViewId()
+                    isChecked = Keyless.masterPasswordDays == d
+                    setOnClickListener { Keyless.masterPasswordDays = d }
+                })
+            }
+            page.add(days, top = 4)
+            page.add(label(getString(R.string.master_password_every_hint), 13f, muted = true), top = 2)
+        }
 
         page.add(label(getString(R.string.autofill), 16f, bold = true), top = 24)
         val autofill = getSystemService(AutofillManager::class.java)
@@ -787,6 +814,7 @@ class MainActivity : Activity() {
 
         page.add(label(getString(R.string.account), 16f, bold = true), top = 24)
         page.add(label(Keyless.email, 14f, muted = true), top = 4)
+        page.add(plainButton(getString(R.string.devices)) { showDevices() }, width = ViewGroup.LayoutParams.WRAP_CONTENT, top = 4)
         page.add(plainButton(getString(R.string.sign_out)) {
             android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.sign_out)

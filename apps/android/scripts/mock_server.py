@@ -16,6 +16,10 @@ from urllib.parse import parse_qs, urlparse
 fixture = json.load(open(sys.argv[1]))
 PORT = int(sys.argv[2]) if len(sys.argv) > 2 else 8787
 items = {row["id"]: dict(row) for row in fixture["items"]}
+# The account's devices, and new devices asking to sign in (the device_setup
+# functions), as the real server keeps them.
+devices = {}
+requests = {}
 seq = [max(row["seq"] for row in items.values())]
 lock = threading.Lock()
 TOKEN = "mock-access-token"
@@ -49,9 +53,57 @@ class Handler(BaseHTTPRequestHandler):
     def authorized(self):
         return self.headers.get("Authorization") == f"Bearer {TOKEN}"
 
+    def device_rpc(self, name, body):
+        """The devices and device_setup functions (under the lock); None when unknown."""
+        if name == "register_device":
+            devices[body["p_id"]] = {"id": body["p_id"], "secret": body["p_secret"], "enc_info": body["p_enc_info"], "ip": "10.0.2.16", "country": "BR",
+                                     "created_at": "2026-10-14T10:00:00Z", "last_seen_at": "2026-10-14T10:00:00Z", "revoked_at": None}
+            return 204, None
+        if name == "device_seen":
+            device = devices.get(body["p_id"])
+            return 200, "active" if device and not device["revoked_at"] else "unknown"
+        if name == "remove_device":
+            devices.pop(body["p_id"], None)
+            return 204, None
+        if name == "revoke_device":
+            if body["p_id"] in devices:
+                devices[body["p_id"]]["revoked_at"] = "2026-10-14T11:00:00Z"
+            return 204, None
+        if name == "pending_device_setups":
+            return 200, [{k: r[k] for k in ("id", "public_key", "commitment", "platform", "ip", "country", "created_at", "expires_at", "status", "nonce", "mine")}
+                         for r in requests.values() if r["status"] in ("pending", "answered", "revealed")]
+        if name == "answer_device_setup":
+            request = requests.get(body["p_id"])
+            if not request or request["status"] != "pending":
+                return 200, False
+            request.update(status="answered", approver_key=body["p_public_key"], approver_nonce=body["p_nonce"], mine=True)
+            return 200, True
+        if name == "approve_device_setup":
+            request = requests.get(body["p_id"])
+            if not request or request["status"] != "revealed":
+                return 200, False
+            request.update(status="approved", enc_payload=body["p_enc_payload"])
+            return 200, True
+        if name == "deny_device_setup":
+            if body["p_id"] in requests:
+                requests[body["p_id"]]["status"] = "denied"
+            return 204, None
+        return None
+
     def do_GET(self):
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        # The test's view of a sign-in request (what the new device would poll).
+        if url.path.startswith("/test/device/"):
+            with lock:
+                return self.answer(200, devices.get(url.path.rsplit("/", 1)[1]))
+        if url.path.startswith("/test/device_request/"):
+            with lock:
+                return self.answer(200, requests.get(url.path.rsplit("/", 1)[1]))
+        if url.path == "/rest/v1/devices" and self.authorized():
+            with lock:
+                rows = [{k: d[k] for k in ("id", "enc_info", "ip", "country", "created_at", "last_seen_at")} for d in devices.values() if not d["revoked_at"]]
+            return self.answer(200, rows)
         # Test builds read sites' Digital Asset Links here.
         if url.path.startswith("/assetlinks/"):
             site = url.path[len("/assetlinks/"):].removesuffix(".json")
@@ -93,8 +145,36 @@ class Handler(BaseHTTPRequestHandler):
             return self.answer(400, {"error_code": "validation_failed"})
         if url.path == "/auth/v1/logout":
             return self.answer(204)
+        if url.path == "/test/device":
+            with lock:
+                devices[body["id"]] = {"id": body["id"], "secret": "x", "enc_info": body.get("enc_info", "not-for-this-account"), "ip": "203.0.113.9", "country": "PT",
+                                       "created_at": "2026-10-01T10:00:00Z", "last_seen_at": "2026-10-13T10:00:00Z", "revoked_at": None}
+            return self.answer(201, {})
+        if url.path == "/test/device_request":
+            with lock:
+                requests[body["id"]] = dict(body, status="pending", approver_key=None, approver_nonce=None, nonce=None, enc_payload=None, created_at="2026-10-14T10:00:00Z", expires_at="2026-10-14T10:10:00Z", mine=False)
+            return self.answer(201, {})
+        if url.path.startswith("/test/device_request/") and url.path.endswith("/reveal"):
+            with lock:
+                request = requests[url.path.split("/")[3]]
+                request.update(nonce=body["nonce"], status="revealed")
+            return self.answer(200, {})
         if url.path.startswith("/rest/v1/rpc/"):
-            return self.answer(404, {"code": "PGRST202", "message": "Could not find the function"})
+            name = url.path[len("/rest/v1/rpc/"):]
+            # Open to anyone, as on the real server.
+            if name == "device_status":
+                with lock:
+                    device = devices.get(body.get("p_id"))
+                status = "unknown" if not device or device["secret"] != body.get("p_secret") else ("revoked" if device["revoked_at"] else "active")
+                return self.answer(200, status)
+            if not self.authorized():
+                return self.answer(401, {"message": "JWT expired"})
+            with lock:
+                answer = self.device_rpc(name, body)
+            if answer is None:
+                return self.answer(404, {"code": "PGRST202", "message": "Could not find the function"})
+            status, value = answer
+            return self.answer(status, value)
         if url.path == "/rest/v1/items":
             if not self.authorized():
                 return self.answer(401, {"message": "JWT expired"})

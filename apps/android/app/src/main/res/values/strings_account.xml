@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Locking, the account's devices and approving a new one. -->
+<resources>
+    <string name="lock_on_screen_off">Lock when the screen turns off</string>
+    <string name="master_password_every">Ask for the master password</string>
+    <string name="every_day">Every day</string>
+    <string name="every_days">Every %1$d days</string>
+    <string name="master_password_every_hint">Biometric unlock works for this long after you type the master password. It is also asked after the phone restarts.</string>
+    <string name="devices">Signed-in devices</string>
+    <string name="devices_hint">Where your account is open. Sign out a device you do not recognize, or one you lost: it stops at once and removes your data the next time it starts.</string>
+    <string name="this_device">This device</string>
+    <string name="last_seen">Last seen %1$s</string>
+    <string name="since">since %1$s</string>
+    <string name="sign_out_device">Sign out</string>
+    <string name="sign_out_device_title">Sign out %1$s?</string>
+    <string name="sign_out_device_body">It loses access to your account at once, and removes the account\'s data it keeps the next time it runs.</string>
+    <string name="device_signed_out">%1$s was signed out</string>
+    <string name="unnamed_device">Device</string>
+    <string name="platform_web">Browser</string>
+    <string name="new_device_waiting">A new device is asking to sign in to your account.</string>
+    <string name="review">Review</string>
+    <string name="approve_title">A new device wants to sign in</string>
+    <string name="approve_body">Someone is trying to sign in to your Keyless account on a new device. If it is you, continue and type the code that device shows. Otherwise, deny.</string>
+    <string name="approve_warning">Never approve a device you are not holding, even if someone asks you to.</string>
+    <string name="deny">Deny</string>
+    <string name="its_me">It\'s me, continue</string>
+    <string name="approve_waiting">Waiting for the new device to show its code…</string>
+    <string name="approve_type_code">Type the 6-digit code shown on the new device.</string>
+    <string name="approve">Approve</string>
+    <string name="approved">Approved. The new device still needs your master password.</string>
+    <string name="denied">Sign-in request refused</string>
+    <string name="err_device_revoked">This device was signed out from another of your devices, and the account\'s data on it was removed.</string>
+    <string name="err_devices_unavailable">The list of devices is not available on the server yet.</string>
+    <string name="err_device_setup_code_wrong">That is not the code the new device shows. Check it and try again.</string>
+    <string name="err_device_setup_code_denied">Too many wrong codes: the request was refused.</string>
+    <string name="err_device_setup_expired">The request expired.</string>
+    <string name="err_device_setup_failed">The request could not be checked.</string>
+</resources>

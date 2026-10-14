@@ -127,8 +127,20 @@ fun Context.errorText(error: Throwable): String {
         "vault_read_only" -> R.string.err_vault_read_only
         "passkey_origin" -> R.string.err_passkey_origin
         "passkey_excluded" -> R.string.err_passkey_excluded
+        "device_revoked" -> R.string.err_device_revoked
+        "devices_unavailable" -> R.string.err_devices_unavailable
+        "device_setup_code_wrong" -> R.string.err_device_setup_code_wrong
+        "device_setup_code_denied" -> R.string.err_device_setup_code_denied
+        "device_setup_expired" -> R.string.err_device_setup_expired
+        "device_setup_failed" -> R.string.err_device_setup_failed
+        "title_too_long" -> R.string.err_title_too_long
+        "too_many_fields" -> R.string.err_too_many_fields
+        "notes_too_long" -> R.string.err_notes_too_long
+        "item_too_large" -> R.string.err_item_too_large
+        "not_found" -> R.string.err_not_found
         else -> null
     }
+    if (key == "field_too_long") return getString(R.string.err_field_too_long, error.message ?: "")
     return if (res != null) getString(res) else getString(R.string.err_unknown, error.message ?: error.toString())
 }
 
@@ -147,12 +159,20 @@ fun Context.biometricAvailable(): Boolean {
     return result == BiometricManager.BIOMETRIC_SUCCESS
 }
 
-/** Biometric unlock is on and the master password was typed since the phone started. */
-fun Context.biometricUsable(): Boolean =
-    SecureStore.biometricEnabled(this) && getSharedPreferences("keyless", Context.MODE_PRIVATE).getInt("password_boot", -1) == bootCount()
+/**
+ * Biometric unlock is on, and the master password was typed since the phone
+ * started and within the days the settings allow.
+ */
+fun Context.biometricUsable(): Boolean {
+    val prefs = getSharedPreferences("keyless", Context.MODE_PRIVATE)
+    val typedAt = prefs.getLong("password_at", 0L)
+    val fresh = System.currentTimeMillis() - typedAt < Keyless.masterPasswordDays * 86_400_000L
+    return SecureStore.biometricEnabled(this) && prefs.getInt("password_boot", -1) == bootCount() && fresh
+}
 
-private fun Context.notePasswordTyped() {
-    getSharedPreferences("keyless", Context.MODE_PRIVATE).edit().putInt("password_boot", bootCount()).apply()
+/** The master password was just typed (signing in or unlocking). */
+fun Context.notePasswordTyped() {
+    getSharedPreferences("keyless", Context.MODE_PRIVATE).edit().putInt("password_boot", bootCount()).putLong("password_at", System.currentTimeMillis()).apply()
 }
 
 /** Asks for biometrics with `cipher`, then calls `done` with the authenticated cipher (on the main thread). */

@@ -8,7 +8,8 @@ python3 apps/android/scripts/mock_server.py apk-test/fixture.json 8787 > mock.lo
 server=$!
 sleep 2
 adb uninstall io.github.diegocastroalves.keyless > /dev/null 2>&1
-python3 apps/android/scripts/full_run.py apk-test/keyless-mock.apk apk-test/formtest.apk apk-test/fixture.json writes.jsonl
+chmod +x apk-test/requester 2>/dev/null
+python3 apps/android/scripts/full_run.py apk-test/keyless-mock.apk apk-test/formtest.apk apk-test/fixture.json writes.jsonl apk-test/requester
 full=$?
 kill $server
 exit $(( smoke || full ))

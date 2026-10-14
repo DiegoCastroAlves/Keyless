@@ -185,6 +185,9 @@ jobs:
           gradle --no-daemon :app:assembleRelease -PkeylessServer=http://10.0.2.2:8787 -PkeylessAssetLinks=http://10.0.2.2:8787/assetlinks/ 2>&1 | tee -a build.log
           cp app/build/outputs/apk/release/app-release.apk test/keyless-mock.apk
           cargo run -q -p keyless-client --example fixture > test/fixture.json
+          # A new device asking to sign in, for approving it from the phone.
+          cargo build -q --release -p keyless-client --example requester
+          cp ../../target/release/examples/requester test/requester
           # The test site names the form app (by its certificate) for passkeys.
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           digest=$("$apksigner" verify --print-certs test/formtest.apk | awk '/SHA-256 digest/ {print $NF; exit}')

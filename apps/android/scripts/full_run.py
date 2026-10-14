@@ -5,7 +5,10 @@ items synced, an item with its hidden password, lock and unlock, and
 autofill in another app (formtest): filling a login and saving a new one.
 Results are printed as GitHub annotations.
 
-Usage: full_run.py <keyless-mock.apk> <formtest.apk> <fixture.json> <writes.jsonl>
+Usage: full_run.py <keyless-mock.apk> <formtest.apk> <fixture.json> <writes.jsonl> [requester]
+
+`requester` is crates/keyless-client's example of a new device asking to
+sign in; with it, approving a new device from the phone is tested too.
 """
 
 import base64
@@ -16,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 import xml.etree.ElementTree as ET
 
 PACKAGE = "io.github.diegocastroalves.keyless"
@@ -146,6 +150,69 @@ def scan_picture(name):
     tap_text(name)
 
 
+MOCK = "http://127.0.0.1:8787"
+
+
+def mock(path, body=None):
+    """The fake server's test routes, from this computer."""
+    data = None if body is None else json.dumps(body).encode()
+    request = urllib.request.Request(MOCK + path, data=data, headers={"Content-Type": "application/json"}, method="POST" if data else "GET")
+    with urllib.request.urlopen(request, timeout=10) as answer:
+        text = answer.read().decode()
+    return json.loads(text) if text else None
+
+
+def wait_mock(path, test, seconds=60):
+    end = time.time() + seconds
+    while time.time() < end:
+        state = mock(path)
+        if state and test(state):
+            return state
+        time.sleep(1)
+    return None
+
+
+def reopen_list():
+    """Goes to the settings and back: the list looks for new devices asking to sign in."""
+    tap_text("⋮")
+    tap_last("Settings")
+    time.sleep(1)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+
+
+def approve_new_device(fixture, requester_path):
+    asker = subprocess.Popen([requester_path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+
+    def ask(command):
+        asker.stdin.write(json.dumps(command) + "\n")
+        asker.stdin.flush()
+        return json.loads(asker.stdout.readline())["ok"]
+
+    started = ask({"op": "start"})
+    mock("/test/device_request", {"id": "r1", "public_key": started["publicKey"], "commitment": started["commitment"], "platform": "linux", "ip": "198.51.100.7", "country": "BR"})
+    reopen_list()
+    check("shows that a new device asks to sign in", "A new device is asking to sign in", 30)
+    tap_text("Review")
+    check("asks whether it is me", "A new device wants to sign in", 15)
+    tap_last("It's me, continue")
+    answered = wait_mock("/test/device_request/r1", lambda r: r["status"] == "answered")
+    outcome("answers the request", answered is not None)
+    if not answered:
+        asker.kill()
+        return
+    shown = ask({"op": "code", "approverKey": answered["approver_key"], "approverNonce": answered["approver_nonce"]})
+    mock("/test/device_request/r1/reveal", {"nonce": shown["nonce"]})
+    check("asks for the new device's code", "Type the 6-digit code", 30)
+    type_into(PACKAGE, 0, shown["code"])
+    tap_last("Approve")
+    approved = wait_mock("/test/device_request/r1", lambda r: r["status"] == "approved", 30)
+    outcome("approves the request", approved is not None)
+    if approved:
+        opened = ask({"op": "open", "requestId": "r1", "approverKey": answered["approver_key"], "approverNonce": answered["approver_nonce"], "payload": approved["enc_payload"]})
+        outcome("the new device gets the email and Secret Key", opened["email"] == fixture["email"] and opened["secretKey"] == fixture["secretKey"])
+    asker.kill()
+
+
 def fields(package):
     return [(x, y) for _, cls, (x, y), pkg in screen() if cls == "android.widget.EditText" and pkg == package]
 
@@ -184,6 +251,7 @@ def drive_sheet(done, buttons, seconds=90):
 
 def main():
     keyless_apk, form_apk, fixture_path, writes_path = sys.argv[1:5]
+    requester = sys.argv[5] if len(sys.argv) > 5 else None
     fixture = json.load(open(fixture_path))
     adb("install", "-r", keyless_apk)
     adb("install", "-r", form_apk)
@@ -274,6 +342,25 @@ def main():
     outcome("deletes it for good", wait_write(writes_path, "delete", deletes))
     check("back to the list", "All items", 20)
     tap_text("All items")
+
+    # This phone in the account's devices, and signing another one out.
+    mock("/test/device", {"id": "d2"})
+    tap_text("⋮")
+    tap_last("Settings")
+    check("the settings open", "Lock when the screen turns off", 15)
+    tap_text("Signed-in devices")
+    check("lists this phone among the devices", "This device", 30)
+    check("and the other device", "203.0.113.9", 10)
+    tap_text("Sign out")
+    tap_last("Sign out")
+    signed_out = wait_mock("/test/device/d2", lambda d: d["revoked_at"] is not None, 20)
+    outcome("signs the other device out", signed_out is not None)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back to the list again", "All items", 15)
+
+    if requester:
+        approve_new_device(fixture, requester)
 
     # Autofill in another app.
     adb("shell", "settings", "put", "secure", "autofill_service", f"{PACKAGE}/.KeylessAutofillService")

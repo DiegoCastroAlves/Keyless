@@ -131,6 +131,10 @@ object Server {
         return if (rows.length() > 0) rows.getJSONObject(0) else null
     }
 
+    /** The account's signed-in devices (what each says about itself is encrypted). */
+    fun devices(token: String): String =
+        request("rest/v1/devices?select=id,enc_info,ip,country,created_at,last_seen_at&revoked_at=is.null&order=last_seen_at.desc", token = token)
+
     /** A database function; `token` is null for those open to anyone. */
     fun rpc(name: String, args: JSONObject, token: String? = null): String = request("rest/v1/rpc/$name", "POST", args.toString(), token)
 }

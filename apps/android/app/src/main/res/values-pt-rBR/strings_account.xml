@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Locking, the account's devices and approving a new one. -->
+<resources>
+    <string name="lock_on_screen_off">Bloquear quando a tela desligar</string>
+    <string name="master_password_every">Pedir a senha mestra</string>
+    <string name="every_day">Todo dia</string>
+    <string name="every_days">A cada %1$d dias</string>
+    <string name="master_password_every_hint">A biometria funciona por esse tempo depois que você digita a senha mestra. Ela também é pedida depois que o celular reinicia.</string>
+    <string name="devices">Dispositivos conectados</string>
+    <string name="devices_hint">Onde sua conta está aberta. Desconecte um dispositivo que você não reconhece ou que perdeu: ele perde o acesso na hora e apaga seus dados quando abrir de novo.</string>
+    <string name="this_device">Este dispositivo</string>
+    <string name="last_seen">Visto %1$s</string>
+    <string name="since">desde %1$s</string>
+    <string name="sign_out_device">Desconectar</string>
+    <string name="sign_out_device_title">Desconectar %1$s?</string>
+    <string name="sign_out_device_body">Ele perde o acesso à sua conta na hora e apaga os dados da conta que guarda quando abrir de novo.</string>
+    <string name="device_signed_out">%1$s foi desconectado</string>
+    <string name="unnamed_device">Dispositivo</string>
+    <string name="platform_web">Navegador</string>
+    <string name="new_device_waiting">Um dispositivo novo está pedindo para entrar na sua conta.</string>
+    <string name="review">Ver pedido</string>
+    <string name="approve_title">Um dispositivo novo quer entrar</string>
+    <string name="approve_body">Alguém está tentando entrar na sua conta do Keyless num dispositivo novo. Se for você, continue e digite o código que esse dispositivo mostra. Se não for, recuse.</string>
+    <string name="approve_warning">Nunca aprove um dispositivo que não está na sua mão, mesmo que alguém peça.</string>
+    <string name="deny">Recusar</string>
+    <string name="its_me">Sou eu, continuar</string>
+    <string name="approve_waiting">Esperando o dispositivo novo mostrar o código…</string>
+    <string name="approve_type_code">Digite o código de 6 dígitos que aparece no dispositivo novo.</string>
+    <string name="approve">Aprovar</string>
+    <string name="approved">Aprovado. O dispositivo novo ainda precisa da sua senha mestra.</string>
+    <string name="denied">Pedido de entrada recusado</string>
+    <string name="err_device_revoked">Este dispositivo foi desconectado a partir de outro dispositivo seu, e os dados da conta que estavam nele foram apagados.</string>
+    <string name="err_devices_unavailable">A lista de dispositivos ainda não está disponível no servidor.</string>
+    <string name="err_device_setup_code_wrong">Esse não é o código que o dispositivo novo mostra. Confira e tente de novo.</string>
+    <string name="err_device_setup_code_denied">Códigos errados demais: o pedido foi recusado.</string>
+    <string name="err_device_setup_expired">O pedido expirou.</string>
+    <string name="err_device_setup_failed">Não foi possível conferir o pedido.</string>
+</resources>

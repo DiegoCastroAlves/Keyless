@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Locking, the account's devices and approving a new one. -->
+<resources>
+    <string name="lock_on_screen_off">Bloquear cuando se apague la pantalla</string>
+    <string name="master_password_every">Pedir la contraseña maestra</string>
+    <string name="every_day">Cada día</string>
+    <string name="every_days">Cada %1$d días</string>
+    <string name="master_password_every_hint">La biometría funciona durante este tiempo después de escribir la contraseña maestra. También se pide después de reiniciar el teléfono.</string>
+    <string name="devices">Dispositivos con sesión iniciada</string>
+    <string name="devices_hint">Dónde está abierta tu cuenta. Cierra la sesión de un dispositivo que no reconozcas o que hayas perdido: pierde el acceso al instante y borra tus datos la próxima vez que se abra.</string>
+    <string name="this_device">Este dispositivo</string>
+    <string name="last_seen">Visto %1$s</string>
+    <string name="since">desde %1$s</string>
+    <string name="sign_out_device">Cerrar sesión</string>
+    <string name="sign_out_device_title">¿Cerrar la sesión de %1$s?</string>
+    <string name="sign_out_device_body">Pierde el acceso a tu cuenta al instante y borra los datos de la cuenta que guarda la próxima vez que se abra.</string>
+    <string name="device_signed_out">Se cerró la sesión de %1$s</string>
+    <string name="unnamed_device">Dispositivo</string>
+    <string name="platform_web">Navegador</string>
+    <string name="new_device_waiting">Un dispositivo nuevo pide iniciar sesión en tu cuenta.</string>
+    <string name="review">Revisar</string>
+    <string name="approve_title">Un dispositivo nuevo quiere iniciar sesión</string>
+    <string name="approve_body">Alguien intenta iniciar sesión en tu cuenta de Keyless en un dispositivo nuevo. Si eres tú, continúa y escribe el código que muestra ese dispositivo. Si no, recházalo.</string>
+    <string name="approve_warning">Nunca apruebes un dispositivo que no tengas en la mano, aunque alguien te lo pida.</string>
+    <string name="deny">Rechazar</string>
+    <string name="its_me">Soy yo, continuar</string>
+    <string name="approve_waiting">Esperando a que el dispositivo nuevo muestre su código…</string>
+    <string name="approve_type_code">Escribe el código de 6 dígitos que aparece en el dispositivo nuevo.</string>
+    <string name="approve">Aprobar</string>
+    <string name="approved">Aprobado. El dispositivo nuevo todavía necesita tu contraseña maestra.</string>
+    <string name="denied">Solicitud de inicio de sesión rechazada</string>
+    <string name="err_device_revoked">Se cerró la sesión de este dispositivo desde otro de tus dispositivos, y se borraron los datos de la cuenta que tenía.</string>
+    <string name="err_devices_unavailable">La lista de dispositivos todavía no está disponible en el servidor.</string>
+    <string name="err_device_setup_code_wrong">Ese no es el código que muestra el dispositivo nuevo. Revísalo e inténtalo de nuevo.</string>
+    <string name="err_device_setup_code_denied">Demasiados códigos incorrectos: se rechazó la solicitud.</string>
+    <string name="err_device_setup_expired">La solicitud caducó.</string>
+    <string name="err_device_setup_failed">No se pudo comprobar la solicitud.</string>
+</resources>
