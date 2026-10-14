@@ -12,6 +12,7 @@
 //! so each host needs a single binding.
 
 mod attachments;
+mod autofill;
 mod devices;
 mod history;
 pub mod matching;
@@ -326,6 +327,8 @@ impl Client {
             "sealLogin" => self.seal_login(json),
             "totp" => totp(json),
             "match" => self.matches(json),
+            "autofillFields" => self.autofill_fields(json),
+            "autofillItems" => self.autofill_items(json),
             "parseSetupLink" => parse_setup_link(json),
             "setupStart" => self.setup_start(),
             "passkeySalt" => Ok(json!(URL_SAFE_NO_PAD.encode(passkey_login::prf_salt()))),
