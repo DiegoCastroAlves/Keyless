@@ -1,0 +1,183 @@
+import Foundation
+
+/// The app's texts in the device's language (pt-BR, en, es), and field and
+/// category names from the desktop app's translations (labels.json).
+enum Texts {
+    static let lang: String = {
+        let preferred = Locale.preferredLanguages.first?.lowercased() ?? "en"
+        if preferred.hasPrefix("pt") { return "pt-BR" }
+        if preferred.hasPrefix("es") { return "es" }
+        return "en"
+    }()
+
+    private static let table: [String: [String: String]] = [
+        "en": [
+            "signInTitle": "Sign in to Keyless",
+            "signInIntro": "Your items are decrypted on this device. The master password and Secret Key never leave it.",
+            "email": "Email",
+            "secretKey": "Secret Key",
+            "secretKeyHint": "From your Emergency Kit. You can also paste a setup link here.",
+            "masterPassword": "Master password",
+            "signIn": "Sign in",
+            "keyReceived": "Secret Key received",
+            "typeKey": "Type it instead",
+            "lockedTitle": "Keyless is locked",
+            "unlock": "Unlock",
+            "unlockBiometric": "Unlock with Face ID",
+            "biometricReason": "Unlock Keyless",
+            "signOut": "Sign out",
+            "signOutBody": "Keyless removes your account and its data from this device. You will need your Secret Key and master password to sign in again.",
+            "cancel": "Cancel",
+            "search": "Search",
+            "settings": "Settings",
+            "lock": "Lock",
+            "sync": "Sync",
+            "allItems": "All items",
+            "favorites": "Favorites",
+            "noItems": "No items",
+            "show": "Show",
+            "hide": "Hide",
+            "copy": "Copy",
+            "copied": "Copied. It is cleared from the clipboard in 90 seconds.",
+            "websites": "Websites",
+            "notes": "Notes",
+            "tags": "Tags",
+            "readOnly": "Change items in the Keyless app on your computer.",
+            "biometric": "Unlock with Face ID",
+            "biometricHint": "After the master password, unlock with Face ID or Touch ID.",
+            "autoLock": "Lock after",
+            "minutes": "%d minutes",
+            "account": "Account",
+            "done": "Done",
+            "error.invalid_credentials": "Wrong email, Secret Key or master password.",
+            "error.wrong_password": "Wrong master password.",
+            "error.secret_key_invalid": "That Secret Key is not valid. Check it in your Emergency Kit.",
+            "error.setup_code_invalid": "That setup link is not valid.",
+            "error.email_not_confirmed": "Confirm your email first, then sign in.",
+            "error.too_many_attempts": "Too many attempts. Wait a few minutes and try again.",
+            "error.account_not_set_up": "This account was never opened in the Keyless app on a computer. Sign in there first.",
+            "error.offline": "Could not reach the server. Check your connection.",
+            "error.session_expired": "Your session ended. Sign in again.",
+            "error.unknown": "Something went wrong: %@",
+        ],
+        "pt-BR": [
+            "signInTitle": "Entrar no Keyless",
+            "signInIntro": "Seus itens são descriptografados neste aparelho. A senha mestra e a Chave Secreta nunca saem dele.",
+            "email": "E-mail",
+            "secretKey": "Chave Secreta",
+            "secretKeyHint": "Está no seu Kit de Emergência. Você também pode colar aqui um link de configuração.",
+            "masterPassword": "Senha mestra",
+            "signIn": "Entrar",
+            "keyReceived": "Chave Secreta recebida",
+            "typeKey": "Digitar a chave",
+            "lockedTitle": "O Keyless está bloqueado",
+            "unlock": "Desbloquear",
+            "unlockBiometric": "Desbloquear com Face ID",
+            "biometricReason": "Desbloquear o Keyless",
+            "signOut": "Sair",
+            "signOutBody": "O Keyless remove sua conta e os dados dela deste aparelho. Para entrar de novo você vai precisar da Chave Secreta e da senha mestra.",
+            "cancel": "Cancelar",
+            "search": "Buscar",
+            "settings": "Configurações",
+            "lock": "Bloquear",
+            "sync": "Sincronizar",
+            "allItems": "Todos os itens",
+            "favorites": "Favoritos",
+            "noItems": "Nenhum item",
+            "show": "Mostrar",
+            "hide": "Ocultar",
+            "copy": "Copiar",
+            "copied": "Copiado. Sai da área de transferência em 90 segundos.",
+            "websites": "Sites",
+            "notes": "Notas",
+            "tags": "Tags",
+            "readOnly": "Para alterar itens, use o Keyless no computador.",
+            "biometric": "Desbloquear com Face ID",
+            "biometricHint": "Depois da senha mestra, desbloqueie com Face ID ou Touch ID.",
+            "autoLock": "Bloquear depois de",
+            "minutes": "%d minutos",
+            "account": "Conta",
+            "done": "OK",
+            "error.invalid_credentials": "E-mail, Chave Secreta ou senha mestra errados.",
+            "error.wrong_password": "Senha mestra errada.",
+            "error.secret_key_invalid": "Essa Chave Secreta não é válida. Confira no seu Kit de Emergência.",
+            "error.setup_code_invalid": "Esse link de configuração não é válido.",
+            "error.email_not_confirmed": "Confirme seu e-mail primeiro e entre de novo.",
+            "error.too_many_attempts": "Tentativas demais. Espere alguns minutos e tente de novo.",
+            "error.account_not_set_up": "Esta conta nunca foi aberta no Keyless do computador. Entre por lá primeiro.",
+            "error.offline": "Não foi possível falar com o servidor. Verifique sua conexão.",
+            "error.session_expired": "Sua sessão terminou. Entre de novo.",
+            "error.unknown": "Algo deu errado: %@",
+        ],
+        "es": [
+            "signInTitle": "Iniciar sesión en Keyless",
+            "signInIntro": "Tus elementos se descifran en este dispositivo. La contraseña maestra y la Clave Secreta nunca salen de él.",
+            "email": "Correo",
+            "secretKey": "Clave Secreta",
+            "secretKeyHint": "Está en tu Kit de Emergencia. También puedes pegar aquí un enlace de configuración.",
+            "masterPassword": "Contraseña maestra",
+            "signIn": "Iniciar sesión",
+            "keyReceived": "Clave Secreta recibida",
+            "typeKey": "Escribirla",
+            "lockedTitle": "Keyless está bloqueado",
+            "unlock": "Desbloquear",
+            "unlockBiometric": "Desbloquear con Face ID",
+            "biometricReason": "Desbloquear Keyless",
+            "signOut": "Cerrar sesión",
+            "signOutBody": "Keyless quita tu cuenta y sus datos de este dispositivo. Para volver a entrar necesitarás tu Clave Secreta y tu contraseña maestra.",
+            "cancel": "Cancelar",
+            "search": "Buscar",
+            "settings": "Ajustes",
+            "lock": "Bloquear",
+            "sync": "Sincronizar",
+            "allItems": "Todos los elementos",
+            "favorites": "Favoritos",
+            "noItems": "Ningún elemento",
+            "show": "Mostrar",
+            "hide": "Ocultar",
+            "copy": "Copiar",
+            "copied": "Copiado. Se borra del portapapeles en 90 segundos.",
+            "websites": "Sitios",
+            "notes": "Notas",
+            "tags": "Etiquetas",
+            "readOnly": "Para cambiar elementos, usa Keyless en tu ordenador.",
+            "biometric": "Desbloquear con Face ID",
+            "biometricHint": "Tras la contraseña maestra, desbloquea con Face ID o Touch ID.",
+            "autoLock": "Bloquear tras",
+            "minutes": "%d minutos",
+            "account": "Cuenta",
+            "done": "Listo",
+            "error.invalid_credentials": "Correo, Clave Secreta o contraseña maestra incorrectos.",
+            "error.wrong_password": "Contraseña maestra incorrecta.",
+            "error.secret_key_invalid": "Esa Clave Secreta no es válida. Revísala en tu Kit de Emergencia.",
+            "error.setup_code_invalid": "Ese enlace de configuración no es válido.",
+            "error.email_not_confirmed": "Confirma primero tu correo e inicia sesión de nuevo.",
+            "error.too_many_attempts": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
+            "error.account_not_set_up": "Esta cuenta nunca se abrió en Keyless en un ordenador. Inicia sesión allí primero.",
+            "error.offline": "No se pudo contactar con el servidor. Revisa tu conexión.",
+            "error.session_expired": "Tu sesión terminó. Inicia sesión de nuevo.",
+            "error.unknown": "Algo salió mal: %@",
+        ],
+    ]
+
+    static func t(_ key: String) -> String {
+        table[lang]?[key] ?? table["en"]?[key] ?? key
+    }
+
+    static func error(_ key: String, _ message: String) -> String {
+        if let text = table[lang]?["error.\(key)"] { return text }
+        return String(format: t("error.unknown"), message.isEmpty ? key : message)
+    }
+
+    private static let labels: [String: Any] = {
+        guard let url = Bundle.main.url(forResource: "labels", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let all = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [:] }
+        return all[lang] as? [String: Any] ?? [:]
+    }()
+
+    static func field(_ label: String) -> String { (labels["fieldLabels"] as? [String: String])?[label] ?? label }
+    static func category(_ category: String) -> String { (labels["categories"] as? [String: String])?[category] ?? category }
+    static func categoryPlural(_ category: String) -> String { (labels["categoriesPlural"] as? [String: String])?[category] ?? Texts.category(category) }
+}

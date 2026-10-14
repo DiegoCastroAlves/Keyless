@@ -243,3 +243,65 @@ jobs:
         with:
           name: keyless-macos
           path: target/release/bundle/dmg/*.dmg
+
+  ios:
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim,aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+
+      - name: Native library
+        run: |
+          cargo build -p keyless-ios --release --target aarch64-apple-ios-sim
+          cargo build -p keyless-ios --release --target aarch64-apple-ios
+          mkdir -p apps/ios/lib/iphonesimulator apps/ios/lib/iphoneos
+          cp target/aarch64-apple-ios-sim/release/libkeyless_ios.a apps/ios/lib/iphonesimulator/
+          cp target/aarch64-apple-ios/release/libkeyless_ios.a apps/ios/lib/iphoneos/
+
+      # For the simulator, unsigned (installing on a phone needs an Apple developer account).
+      - name: Build the app
+        working-directory: apps/ios
+        run: |
+          set -o pipefail
+          brew install xcodegen
+          xcodegen generate
+          xcodebuild -project Keyless.xcodeproj -scheme Keyless -sdk iphonesimulator -configuration Release \
+            -derivedDataPath build ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log
+
+      - name: Run on the simulator
+        working-directory: apps/ios
+        timeout-minutes: 15
+        run: |
+          set -o pipefail
+          device=$(xcrun simctl list -j devices available | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for r in d.values() for x in r if x['name'].startswith('iPhone')))")
+          xcrun simctl boot "$device"
+          xcrun simctl bootstatus "$device" -b
+          xcrun simctl install "$device" build/Build/Products/Release-iphonesimulator/Keyless.app
+          xcrun simctl launch --console-pty "$device" io.github.diegocastroalves.keyless --smoke 2>&1 | tee smoke.log
+          grep -q "SMOKE DONE 0" smoke.log
+          message=$(grep "SMOKE" smoke.log | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::notice title=iOS on the simulator::${message}"
+
+      - name: Report errors
+        if: failure()
+        working-directory: apps/ios
+        run: |
+          message=$( (grep -E "error:|SMOKE" build.log smoke.log 2>/dev/null || true) | head -80 | sed -e 's/%/%25/g' -e 's#/Users/runner/work/Keyless/Keyless/##g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=iOS build::${message}"
+
+      - name: Package the simulator app
+        working-directory: apps/ios/build/Build/Products/Release-iphonesimulator
+        run: zip -qr "$GITHUB_WORKSPACE/Keyless-ios-simulator.zip" Keyless.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyless-ios-simulator
+          path: Keyless-ios-simulator.zip
