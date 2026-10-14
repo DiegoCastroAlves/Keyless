@@ -23,6 +23,35 @@ use crate::{
 
 const FORMAT: u32 = 1;
 
+/// How long a link may last, as the apps offer it (hours).
+pub const DURATIONS_HOURS: [u32; 5] = [1, 24, 7 * 24, 14 * 24, 30 * 24];
+
+/// Most emails a link can be for.
+pub const MAX_RECIPIENTS: usize = 20;
+
+/// What the owner keeps about a link, encrypted with their own key (the
+/// share's `enc_label`), to list and revoke their links.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareLabel {
+    pub item_id: String,
+    pub title: String,
+    /// The emails that may open it (empty: anyone with the link).
+    #[serde(default)]
+    pub recipients: Vec<String>,
+}
+
+pub fn label_context(share_id: &str, user_id: &str) -> Vec<u8> {
+    context("keyless/share-label", &[share_id, user_id])
+}
+
+/// An email a link is for, as the server keeps it: its SHA-256 (of the
+/// lowercase address) as a PostgREST bytea literal.
+pub fn recipient_hash(email: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("\\x{}", hex::encode(Sha256::digest(email.trim().to_lowercase().as_bytes())))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedField {

@@ -12,9 +12,11 @@
 //! so each host needs a single binding.
 
 mod devices;
+mod history;
 pub mod matching;
 pub mod qr;
 mod sentinel;
+mod shares;
 mod store;
 mod writes;
 
@@ -264,6 +266,11 @@ impl Client {
             "saveDraft" => self.save_draft(json),
             "duplicate" => self.duplicate(json),
             "setFlags" => self.set_flags(json),
+            "shareCreate" => self.share_create(json),
+            "shareList" => self.share_list(json),
+            "shareRevokedAt" => self.share_revoked_at(json),
+            "itemVersions" => self.item_versions(json),
+            "restoreVersion" => self.restore_version(json),
             "deviceInfo" => self.device_info(json),
             "deviceList" => self.device_list(json),
             "approvalStart" => self.approval_start(json),

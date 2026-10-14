@@ -722,3 +722,68 @@ fn sentinel_edits_like_the_desktop() {
     ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 4, 10)] }).to_string()));
     assert_eq!(ok(client.call("sentinelReport", &json!({ "now": 60 }).to_string()))["ignored"], json!([["a", "reused"]]));
 }
+
+#[test]
+fn shows_and_restores_earlier_versions() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let first = login("Bank", "https://bank.example", "one", 1);
+    let second = login("Bank", "https://bank.example", "two", 2);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "i1", 5, 2, &second)] }).to_string()));
+    // What the server kept when the second write replaced the first; and a
+    // forged row, and one claiming to be newer, which are left out.
+    let kept = |item: &(ItemOverview, ItemDetails), revision: i64| {
+        json!({ "revision": revision, "enc_overview": server.vault_key.seal_overview(VAULT, "i1", &item.0).unwrap(), "enc_details": server.vault_key.seal_details(VAULT, "i1", &item.1).unwrap() })
+    };
+    let rows = json!([kept(&first, 1), { "revision": 0, "enc_overview": "x", "enc_details": "y" }, kept(&login("Bank", "https://bank.example", "later", 9), 3)]);
+    let versions = ok(client.call("itemVersions", &json!({ "id": "i1", "rows": rows }).to_string()));
+    assert_eq!(versions.as_array().unwrap().len(), 1);
+    assert_eq!(versions[0]["revision"], 1);
+    assert_eq!(versions[0]["changed"], json!(["password"]));
+
+    let sealed = ok(client.call("restoreVersion", &json!({ "id": "i1", "rows": rows, "revision": 1, "now": 500 }).to_string()));
+    assert_eq!(sealed["baseRevision"], 2);
+    let restored = server.vault_key.open_details(VAULT, "i1", sealed["encDetails"].as_str().unwrap()).unwrap();
+    assert_eq!(restored.password(), Some("one"));
+    assert_eq!(restored.password_history[0].value, "two");
+    let overview = server.vault_key.open_overview(VAULT, "i1", sealed["encOverview"].as_str().unwrap()).unwrap();
+    assert_eq!(overview.version, 3);
+    assert_eq!(error(client.call("restoreVersion", &json!({ "id": "i1", "rows": rows, "revision": 7, "now": 500 }).to_string())), "not_found");
+}
+
+#[test]
+fn makes_and_lists_share_links() {
+    let server = server();
+    let mut client = signed_in(&server);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "i1", 5, 1, &login("Bank", "https://bank.example", "pw", 1))] }).to_string()));
+    let made = ok(client.call(
+        "shareCreate",
+        &json!({ "itemId": "i1", "hours": 24, "viewOnce": true, "recipients": [" Ana@Example.com", "ana@example.com"], "base": "https://k.test/share/", "now": 1_791_400_506 }).to_string(),
+    ));
+    let link = made["link"].as_str().unwrap();
+    assert!(link.starts_with("https://k.test/share/#"));
+    let row = &made["row"];
+    assert_eq!(row["max_views"], 1);
+    assert_eq!(row["expires_at"], "2026-10-08T19:15:06Z");
+    assert_eq!(row["recipients"].as_array().unwrap().len(), 1);
+    // The page opens the snapshot with the link's key.
+    let key = keyless_core::share::ShareKey::from_fragment(link.split_once('#').unwrap().1).unwrap();
+    assert_eq!(key.open(row["enc_payload"].as_str().unwrap()).unwrap().title, "Bank");
+    assert_eq!(error(client.call("shareCreate", &json!({ "itemId": "i1", "hours": 5, "base": "x", "now": 1 }).to_string())), "share_duration");
+
+    let listed = |client: &mut Client, all: bool, now: i64| {
+        let rows = json!([
+            { "id": row["id"], "enc_label": row["enc_label"], "created_at": "2026-10-07T19:15:06Z", "expires_at": row["expires_at"], "views": 0, "max_views": 1 },
+            { "id": "someone-else", "enc_label": "x", "created_at": "2026-10-07T19:15:06Z", "expires_at": row["expires_at"] },
+        ]);
+        ok(client.call("shareList", &json!({ "rows": rows, "all": all, "now": now }).to_string()))
+    };
+    let active = listed(&mut client, false, 1_791_400_506);
+    assert_eq!(active.as_array().unwrap().len(), 1);
+    assert_eq!(active[0]["title"], "Bank");
+    assert_eq!(active[0]["status"], "active");
+    assert_eq!(active[0]["recipients"], json!(["ana@example.com"]));
+    // A day later it ended: only listed with `all`.
+    assert!(listed(&mut client, false, 1_791_500_000).as_array().unwrap().is_empty());
+    assert_eq!(listed(&mut client, true, 1_791_500_000)[0]["status"], "expired");
+}

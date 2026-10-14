@@ -379,7 +379,7 @@ pub async fn deleted_vaults(state: &AppState) -> AppResult<Vec<DeletedVault>> {
             .as_deref()
             .is_some_and(|t| opened.key.open_vault_tombstone(&vault.id, t).is_ok());
         if genuine {
-            let deleted_at = crate::shares::parse_iso8601(deleted_at).unwrap_or_default();
+            let deleted_at = keyless_core::time::parse_iso8601(deleted_at).unwrap_or_default();
             deleted.push(DeletedVault { id: vault.id, name: opened.meta.name.clone(), deleted_at });
         }
     }
