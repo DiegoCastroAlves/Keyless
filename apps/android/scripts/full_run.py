@@ -72,6 +72,43 @@ def tap_text(text, package=None):
     return False
 
 
+def outcome(name, ok, detail=""):
+    results.append((name, ok, detail))
+    print(f"{'PASS' if ok else 'FAIL'} {name}", flush=True)
+
+
+def tap_last(text):
+    """Taps the last node with this text (a dialog's button over a screen's), ignoring case."""
+    hits = [(x, y) for t, _, (x, y), _ in screen() if t.lower() == text.lower()]
+    if hits:
+        adb("shell", "input", "tap", str(hits[-1][0]), str(hits[-1][1]))
+    return bool(hits)
+
+
+def writes(path, kind):
+    return open(path).read().count(f'"{kind}"') if os.path.exists(path) else 0
+
+
+def wait_write(path, kind, before, seconds=30):
+    end = time.time() + seconds
+    while time.time() < end:
+        if writes(path, kind) > before:
+            return True
+        time.sleep(1)
+    return False
+
+
+def replace_text(package, index, value):
+    x, y = fields(package)[index]
+    adb("shell", "input", "tap", str(x), str(y))
+    time.sleep(0.4)
+    adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
+    for _ in range(30):
+        adb("shell", "input", "keyevent", "KEYCODE_DEL")
+    adb("shell", "input", "text", value)
+    time.sleep(0.4)
+
+
 def fields(package):
     return [(x, y) for _, cls, (x, y), pkg in screen() if cls == "android.widget.EditText" and pkg == package]
 
@@ -142,6 +179,52 @@ def main():
     hide_keyboard()
     tap_text("Unlock")
     check("unlocks with the master password", "GitHub", 60)
+
+    # Adding and changing items.
+    tap_text("+")
+    check("offers the categories for a new item", "What do you want to save?", 15)
+    tap_text("Login")
+    check("opens the editor with the login's fields", "Add field", 15)
+    type_into(PACKAGE, 0, "Editor%stest")
+    check("starts with the username used most", "client", 5)
+    hide_keyboard()
+    tap_text("Generate")
+    check("the generator makes a password", "Password generator", 15)
+    tap_last("Use this password")
+    time.sleep(1)
+    inserts = writes(writes_path, "insert")
+    tap_text("Save")
+    check("saves the new item", "Editor test", 30)
+    outcome("uploads the new item", wait_write(writes_path, "insert", inserts))
+    check("the item has the generated password hidden", "••••••••••••", 5)
+
+    updates = writes(writes_path, "update")
+    tap_text("Edit")
+    check("opens the item to edit", "Add field", 15)
+    replace_text(PACKAGE, 0, "Edited%sitem")
+    hide_keyboard()
+    tap_text("Save")
+    check("saves the change", "Edited item", 30)
+    outcome("uploads the change", wait_write(writes_path, "update", updates))
+    updates = writes(writes_path, "update")
+    tap_text("☆")
+    check("marks it a favorite", "★", 20)
+    outcome("uploads the favorite", wait_write(writes_path, "update", updates))
+
+    tap_text("⋮")
+    tap_last("Move to Recently Deleted")
+    check("moves it to Recently Deleted", "Recently Deleted", 20)
+    tap_text("Recently Deleted")
+    check("lists it in Recently Deleted", "Edited item", 15)
+    tap_text("Edited item")
+    check("offers to restore it", "Restore", 15)
+    deletes = writes(writes_path, "delete")
+    tap_text("Delete permanently")
+    time.sleep(1)
+    tap_last("Delete permanently")
+    outcome("deletes it for good", wait_write(writes_path, "delete", deletes))
+    check("back to the list", "All items", 20)
+    tap_text("All items")
 
     # Autofill in another app.
     adb("shell", "settings", "put", "secure", "autofill_service", f"{PACKAGE}/.KeylessAutofillService")

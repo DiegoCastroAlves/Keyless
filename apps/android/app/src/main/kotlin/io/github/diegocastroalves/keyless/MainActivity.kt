@@ -25,6 +25,7 @@ import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.PopupMenu
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
@@ -43,7 +44,11 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var root: FrameLayout
-    private var screen = "none"
+    internal var screen = "none"
+        private set
+
+    /** What Back does in the editor (asks before dropping changes). */
+    internal var editorBack: (() -> Unit)? = null
 
     /** The email and Secret Key from a setup link or another device. */
     private var received: Pair<String, String>? = null
@@ -87,13 +92,14 @@ class MainActivity : Activity() {
 
     override fun onUserInteraction() {
         super.onUserInteraction()
-        if (screen == "list" || screen == "item" || screen == "settings") Keyless.touch()
+        if (screen == "list" || screen == "item" || screen == "settings" || screen == "editor") Keyless.touch()
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when (screen) {
             "item", "settings" -> showList()
+            "editor" -> editorBack?.invoke() ?: showList()
             "device" -> {
                 deviceRequest?.let { request -> thread { Keyless.cancelDeviceSetup(request) } }
                 deviceRequest = null
@@ -117,7 +123,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun route() {
+    internal fun route() {
         when {
             !Keyless.hasAccount -> showSignIn()
             !Keyless.isUnlocked -> showUnlock()
@@ -125,9 +131,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun show(name: String, view: View, scroll: Boolean = true) {
+    internal fun show(name: String, view: View, scroll: Boolean = true) {
         ticking?.let { handler.removeCallbacks(it) }
         ticking = null
+        if (name != "editor") editorBack = null
         screen = name
         root.removeAllViews()
         root.addView(
@@ -135,6 +142,13 @@ class MainActivity : Activity() {
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
         )
         root.requestApplyInsets()
+    }
+
+    internal fun scrollPosition(): Int = (root.getChildAt(0) as? ScrollView)?.scrollY ?: 0
+
+    internal fun restoreScroll(y: Int) {
+        val scroll = root.getChildAt(0) as? ScrollView ?: return
+        scroll.post { scroll.scrollTo(0, y) }
     }
 
     // ----- signing in ----------------------------------------------------------
@@ -301,18 +315,39 @@ class MainActivity : Activity() {
 
     // ----- the items -----------------------------------------------------------------
 
-    private fun showList() {
+    internal fun showList() {
         if (!Keyless.isUnlocked) return route()
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val header = row().apply { setPadding(dp(16), dp(8), dp(8), dp(4)) }
         header.add(label("Keyless", 20f, bold = true), width = 0, weight = 1f)
         val status = label("", 12f, muted = true)
-        header.add(plainButton(getString(R.string.sync)) { sync(status) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        header.add(plainButton(getString(R.string.settings)) { showSettings() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        if (Keyless.writableVaults().isNotEmpty()) {
+            header.add(plainButton("+") { newItem(favorite = filter == "favorites") }.apply {
+                textSize = 22f
+                contentDescription = getString(R.string.new_item)
+            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
         header.add(plainButton(getString(R.string.lock)) {
             Keyless.lock()
             route()
         }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        lateinit var more: Button
+        more = plainButton("⋮") {
+            val menu = PopupMenu(this, more)
+            menu.menu.add(0, 1, 0, R.string.sync)
+            menu.menu.add(0, 2, 1, R.string.generator)
+            menu.menu.add(0, 3, 2, R.string.settings)
+            menu.setOnMenuItemClickListener { choice ->
+                when (choice.itemId) {
+                    1 -> sync(status)
+                    2 -> showGenerator(onUse = null, copy = { copy(getString(R.string.generated_password), it) })
+                    3 -> showSettings()
+                }
+                true
+            }
+            menu.show()
+        }.apply { contentDescription = getString(R.string.more) }
+        header.add(more, width = ViewGroup.LayoutParams.WRAP_CONTENT)
         page.add(header)
         val search = EditText(this).apply {
             hint = getString(R.string.search)
@@ -334,6 +369,8 @@ class MainActivity : Activity() {
             filters.removeAllViews()
             val choices = mutableListOf("all" to getString(R.string.all_items), "favorites" to getString(R.string.favorites))
             Keyless.items.map { it.category }.distinct().sortedBy { Labels.categoryPlural(this, it) }.forEach { choices.add("category:$it" to Labels.categoryPlural(this, it)) }
+            if (Keyless.archived.isNotEmpty() || filter == "archive") choices.add("archive" to getString(R.string.archived_items))
+            if (Keyless.trashed.isNotEmpty() || filter == "trash") choices.add("trash" to getString(R.string.trash))
             for ((id, name) in choices) {
                 val chip = plainButton(name) {
                     filter = id
@@ -381,7 +418,12 @@ class MainActivity : Activity() {
 
         fun update() {
             val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
-            shown = Keyless.items.filter { item ->
+            val source = when (filter) {
+                "archive" -> Keyless.archived
+                "trash" -> Keyless.trashed
+                else -> Keyless.items
+            }
+            shown = source.filter { item ->
                 when {
                     filter == "favorites" && !item.favorite -> false
                     filter.startsWith("category:") && item.category != filter.removePrefix("category:") -> false
@@ -419,7 +461,7 @@ class MainActivity : Activity() {
 
     // ----- an item ---------------------------------------------------------------------
 
-    private fun showItem(id: String) {
+    internal fun showItem(id: String) {
         if (!Keyless.isUnlocked) return route()
         val item = try {
             Keyless.item(id)
@@ -429,8 +471,66 @@ class MainActivity : Activity() {
         }
         val overview = item.getJSONObject("overview")
         val details = item.getJSONObject("details")
+        val trashed = overview.has("trashed_at") && !overview.isNull("trashed_at")
+        val archived = overview.optBoolean("archived")
+        val writable = Keyless.canWrite(item.optString("vaultId"))
+        val title = overview.optString("title")
         val page = column(20)
-        page.add(plainButton("← " + getString(R.string.back)) { showList() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        val bar = row()
+        bar.add(plainButton("← " + getString(R.string.back)) { showList() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        bar.add(View(this), width = 0, weight = 1f)
+        if (writable && !trashed) {
+            val favorite = overview.optBoolean("favorite")
+            bar.add(plainButton(if (favorite) "★" else "☆") {
+                act({ Keyless.setFavorite(id, !favorite) }) { showItem(id) }
+            }.apply {
+                textSize = 20f
+                contentDescription = getString(if (favorite) R.string.unfavorite else R.string.favorite)
+            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            bar.add(plainButton(getString(R.string.edit)) { editItem(id) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            lateinit var more: Button
+            more = plainButton("⋮") {
+                val menu = PopupMenu(this, more)
+                menu.menu.add(0, 1, 0, R.string.duplicate)
+                menu.menu.add(0, 2, 1, if (archived) R.string.unarchive else R.string.archive)
+                menu.menu.add(0, 3, 2, R.string.move_to_trash)
+                menu.setOnMenuItemClickListener { choice ->
+                    when (choice.itemId) {
+                        1 -> {
+                            var copyId = ""
+                            act({ copyId = Keyless.duplicate(id, getString(R.string.copy_title, title)) }) { showItem(copyId) }
+                        }
+                        2 -> act({ Keyless.setArchived(id, !archived) }) { showItem(id) }
+                        3 -> act({ Keyless.setTrashed(id, true) }) { showList() }
+                    }
+                    true
+                }
+                menu.show()
+            }.apply { contentDescription = getString(R.string.more) }
+            bar.add(more, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        page.add(bar)
+        if (trashed) {
+            val since = DateFormat.getDateInstance().format(Date(overview.optLong("trashed_at") * 1000))
+            page.add(label(getString(R.string.trashed_note, since), 13f, muted = true), top = 8)
+            if (writable) {
+                val actions = row()
+                actions.add(primaryButton(getString(R.string.restore)) {
+                    act({ Keyless.setTrashed(id, false) }) { showItem(id) }
+                }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+                actions.add(plainButton(getString(R.string.delete_forever)) {
+                    android.app.AlertDialog.Builder(this)
+                        .setTitle(R.string.delete_forever)
+                        .setMessage(getString(R.string.delete_forever_body, title))
+                        .setPositiveButton(R.string.delete_forever) { _, _ -> act({ Keyless.deleteForGood(id) }) { showList() } }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+                page.add(actions, top = 4)
+            }
+        } else if (archived) {
+            page.add(label(getString(R.string.archived_note), 13f, muted = true), top = 8)
+        }
         page.add(label(Labels.category(this, overview.optString("category")), 13f, muted = true), top = 8)
         page.add(label(overview.optString("title"), 24f, bold = true), top = 2)
         val updaters = mutableListOf<() -> Unit>()
@@ -490,7 +590,7 @@ class MainActivity : Activity() {
         }
         val updated = overview.optLong("updated_at")
         if (updated > 0) page.add(label(getString(R.string.modified, DateFormat.getDateTimeInstance().format(Date(updated * 1000))), 12f, muted = true), top = 20)
-        page.add(label(getString(R.string.read_only), 12f, muted = true), top = 4)
+        if (!writable) page.add(label(getString(R.string.vault_read_only_note), 12f, muted = true), top = 4)
         show("item", page)
         if (updaters.isNotEmpty()) {
             val tick = object : Runnable {
@@ -559,7 +659,7 @@ class MainActivity : Activity() {
     /** Field labels the apps save in English ("username", "password"...), translated. */
     private fun fieldName(label: String): String = Labels.field(this, label)
 
-    private fun copy(name: String, value: String) {
+    internal fun copy(name: String, value: String) {
         if (value.isEmpty()) return
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
         val clip = ClipData.newPlainText(CLIP_LABEL, value)

@@ -1,30 +1,66 @@
 package io.github.diegocastroalves.keyless
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
-/** Field and category names in the phone's language (from the desktop app's translations, assets/labels.json). */
+/**
+ * Field, field kind and category names in the phone's language, and the
+ * templates new items start from (from the desktop app, assets/labels.json).
+ */
 object Labels {
+    private var all: JSONObject? = null
     private var names: JSONObject? = null
+
+    private fun all(context: Context): JSONObject =
+        all ?: JSONObject(context.assets.open("labels.json").bufferedReader().use { it.readText() }).also { all = it }
 
     private fun names(context: Context): JSONObject {
         names?.let { return it }
-        val all = JSONObject(context.assets.open("labels.json").bufferedReader().use { it.readText() })
         val locale = Locale.getDefault()
         val lang = when {
             locale.language == "pt" -> "pt-BR"
             locale.language == "es" -> "es"
             else -> "en"
         }
-        return all.getJSONObject(lang).also { names = it }
+        return all(context).getJSONObject(lang).also { names = it }
     }
 
     fun field(context: Context, label: String): String = names(context).optJSONObject("fieldLabels")?.optString(label, label)?.ifEmpty { label } ?: label
+
+    fun fieldKind(context: Context, kind: String): String = names(context).optJSONObject("fieldKinds")?.optString(kind, kind)?.ifEmpty { kind } ?: kind
 
     fun category(context: Context, category: String): String =
         names(context).optJSONObject("categories")?.optString(category, category)?.ifEmpty { category } ?: category
 
     fun categoryPlural(context: Context, category: String): String =
         names(context).optJSONObject("categoriesPlural")?.optString(category, "")?.ifEmpty { category(context, category) } ?: category
+
+    /** The categories a new item can have, as the desktop lists them. */
+    fun templates(context: Context): List<JSONObject> {
+        val list = all(context).optJSONArray("templates") ?: JSONArray()
+        return (0 until list.length()).map { list.getJSONObject(it) }.filter { !it.optBoolean("hidden") }
+    }
+
+    fun template(context: Context, category: String): JSONObject? =
+        all(context).optJSONArray("templates")?.let { list -> (0 until list.length()).map { list.getJSONObject(it) }.firstOrNull { it.optString("id") == category } }
+
+    /** A new item's fields for `category`, labelled in the phone's language (as the desktop does). */
+    fun templateFields(context: Context, category: String): JSONArray {
+        val fields = JSONArray()
+        val template = template(context, category) ?: return fields
+        val list = template.optJSONArray("fields") ?: return fields
+        for (i in 0 until list.length()) {
+            val f = list.getJSONObject(i)
+            fields.put(
+                JSONObject().put("id", "").put("label", field(context, f.getString("label"))).put("kind", f.getString("kind")).put("value", "")
+                    .apply { if (!f.isNull("purpose")) put("purpose", f.getString("purpose")) },
+            )
+        }
+        return fields
+    }
+
+    /** Field kinds in the editor's "Add field" menu, as the desktop's. */
+    val FIELD_KINDS = listOf("text", "concealed", "email", "url", "phone", "totp", "date", "month_year", "card_number", "pin", "multiline")
 }

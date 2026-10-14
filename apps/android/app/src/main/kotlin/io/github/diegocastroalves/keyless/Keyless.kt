@@ -12,6 +12,9 @@ class Summary(val id: String, val vaultId: String, val overview: JSONObject) {
     val subtitle: String get() = overview.optString("subtitle")
     val category: String get() = overview.optString("category")
     val favorite: Boolean get() = overview.optBoolean("favorite")
+    val archived: Boolean get() = overview.optBoolean("archived")
+    val trashed: Boolean get() = overview.has("trashed_at") && !overview.isNull("trashed_at")
+    val trashedAt: Long get() = overview.optLong("trashed_at")
 }
 
 /**
@@ -25,7 +28,12 @@ object Keyless {
     private const val PAGE = 500
     private var session: Server.Session? = null
     private var lastActivity = 0L
+    /** The items in lists (not archived, not in Recently Deleted). */
     @Volatile var items: List<Summary> = emptyList()
+        private set
+    @Volatile var archived: List<Summary> = emptyList()
+        private set
+    @Volatile var trashed: List<Summary> = emptyList()
         private set
     @Volatile var vaults: JSONArray = JSONArray()
         private set
@@ -72,7 +80,13 @@ object Keyless {
 
     fun lock() {
         Native.run("lock")
+        clearCache()
+    }
+
+    private fun clearCache() {
         items = emptyList()
+        archived = emptyList()
+        trashed = emptyList()
         vaults = JSONArray()
     }
 
@@ -146,17 +160,91 @@ object Keyless {
     private fun refreshCache() {
         vaults = Native.arr("vaults")
         val list = Native.arr("items")
-        val out = ArrayList<Summary>(list.length())
+        val all = ArrayList<Summary>(list.length())
         for (i in 0 until list.length()) {
             val row = list.getJSONObject(i)
-            val overview = row.getJSONObject("overview")
-            if (overview.has("trashed_at") && !overview.isNull("trashed_at")) continue
-            if (overview.optBoolean("archived")) continue
-            out.add(Summary(row.getString("id"), row.getString("vaultId"), overview))
+            all.add(Summary(row.getString("id"), row.getString("vaultId"), row.getJSONObject("overview")))
         }
-        out.sortBy { it.title.lowercase() }
-        items = out
+        all.sortBy { it.title.lowercase() }
+        trashed = all.filter { it.trashed }.sortedByDescending { it.trashedAt }
+        archived = all.filter { !it.trashed && it.archived }
+        items = all.filter { !it.trashed && !it.archived }
     }
+
+    /** The vaults items can be written to, the account's own first. */
+    fun writableVaults(): List<JSONObject> =
+        (0 until vaults.length()).map { vaults.getJSONObject(it) }.filter { it.optBoolean("canWrite") }.sortedBy { if (it.optString("role") == "owner") 0 else 1 }
+
+    fun canWrite(vaultId: String): Boolean = writableVaults().any { it.optString("id") == vaultId }
+
+    private fun now(): Long = System.currentTimeMillis() / 1000
+
+    /**
+     * Uploads a write (`sealItem`, `saveDraft`, `setFlags`, `sealTombstone`...)
+     * and keeps what the server answers. When the item changed meanwhile, the
+     * desktop's rules settle it (`planConflict`): the most recent edit wins,
+     * the other is kept as a conflicted copy. Returns the item's id.
+     */
+    fun upload(sealed: JSONObject): String {
+        val id = sealed.getString("id")
+        val vaultId = sealed.getString("vaultId")
+        val access = token()
+        val deletion = sealed.has("encTombstone")
+        var rows = when {
+            deletion -> Server.patchItem(access, id, sealed.getLong("baseRevision"), JSONObject().put("enc_tombstone", sealed.getString("encTombstone")))
+            sealed.isNull("baseRevision") -> Server.insertItem(access, id, vaultId, sealed.getString("encOverview"), sealed.getString("encDetails"))
+            else -> Server.updateItem(access, id, sealed.getLong("baseRevision"), sealed.getString("encOverview"), sealed.getString("encDetails"))
+        }
+        var attempts = 0
+        while (rows.length() == 0 && attempts < 3) {
+            attempts++
+            val remote = Server.item(access, id) ?: break
+            val plan = Native.obj("planConflict", JSONObject(sealed.toString()).put("remote", remote))
+            plan.optJSONObject("copy")?.let { copy ->
+                val copied = Server.insertItem(access, copy.getString("id"), copy.getString("vaultId"), copy.getString("encOverview"), copy.getString("encDetails"))
+                Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", copied))
+            }
+            rows = if (plan.getString("plan") == "overwrite") {
+                Server.patchItem(access, id, remote.getLong("revision"), plan.getJSONObject("body"))
+            } else {
+                JSONArray().put(remote)
+            }
+        }
+        if (rows.length() == 0) throw KeylessException("save_conflict")
+        Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", rows))
+        save()
+        refreshCache()
+        return id
+    }
+
+    /** The item as the editor shows it. */
+    fun draftOf(id: String): JSONObject = Native.obj("draftOf", JSONObject().put("id", id))
+
+    /** Saves what the editor made; returns the item's id. */
+    fun saveDraft(draft: JSONObject): String = upload(Native.obj("saveDraft", JSONObject().put("draft", draft).put("now", now())))
+
+    fun setFavorite(id: String, favorite: Boolean) {
+        upload(Native.obj("setFlags", JSONObject().put("id", id).put("favorite", favorite).put("now", now())))
+    }
+
+    fun setArchived(id: String, archived: Boolean) {
+        upload(Native.obj("setFlags", JSONObject().put("id", id).put("archived", archived).put("now", now())))
+    }
+
+    /** Moves an item to Recently Deleted, or back. */
+    fun setTrashed(id: String, trashed: Boolean) {
+        upload(Native.obj("setFlags", JSONObject().put("id", id).put("trashed", trashed).put("now", now())))
+    }
+
+    fun duplicate(id: String, title: String): String = upload(Native.obj("duplicate", JSONObject().put("id", id).put("title", title).put("now", now())))
+
+    /** Deletes an item for good (from Recently Deleted). */
+    fun deleteForGood(id: String) {
+        upload(Native.obj("sealTombstone", JSONObject().put("id", id).put("now", now())))
+    }
+
+    /** A password for the generator's options. */
+    fun generate(options: JSONObject): String = Native.obj("generate", options).getString("password")
 
     fun item(id: String): JSONObject = Native.obj("item", JSONObject().put("id", id))
 
@@ -180,30 +268,14 @@ object Keyless {
      */
     fun saveLogin(domain: String?, packageName: String?, title: String, username: String, password: String) {
         val url = if (domain != null) "https://$domain" else "android://$packageName"
-        for (attempt in 0 until 2) {
-            val args = JSONObject().put("username", username)
-            if (domain != null) args.put("domain", domain) else args.put("packageName", packageName)
-            val existing = Native.run("findLogin", args) as? String
-            val seal = JSONObject().put("url", url).put("title", title).put("username", username).put("password", password).put("now", System.currentTimeMillis() / 1000)
-            if (existing != null) seal.put("id", existing)
-            // Null: the same password is already there.
-            val sealed = Native.run("sealLogin", seal) as? JSONObject ?: return
-            val access = token()
-            val rows = if (sealed.isNull("baseRevision")) {
-                Server.insertItem(access, sealed.getString("id"), sealed.getString("vaultId"), sealed.getString("encOverview"), sealed.getString("encDetails"))
-            } else {
-                Server.updateItem(access, sealed.getString("id"), sealed.getLong("baseRevision"), sealed.getString("encOverview"), sealed.getString("encDetails"))
-            }
-            if (rows.length() > 0) {
-                Native.run("applyItems", JSONObject().put("vaultId", sealed.getString("vaultId")).put("items", rows))
-                save()
-                refreshCache()
-                return
-            }
-            // Changed elsewhere meanwhile: read it and write again on top.
-            sync()
-        }
-        throw KeylessException("save_conflict")
+        val args = JSONObject().put("username", username)
+        if (domain != null) args.put("domain", domain) else args.put("packageName", packageName)
+        val existing = Native.run("findLogin", args) as? String
+        val seal = JSONObject().put("url", url).put("title", title).put("username", username).put("password", password).put("now", now())
+        if (existing != null) seal.put("id", existing)
+        // Null: the same password is already there.
+        val sealed = Native.run("sealLogin", seal) as? JSONObject ?: return
+        upload(sealed)
     }
 
     /** The passkeys kept for `rpId` (only `allow` when the site names some). */
@@ -214,24 +286,9 @@ object Keyless {
 
     /** A new passkey, kept in the site's login (uploaded before the site gets it). */
     fun createPasskey(args: JSONObject): JSONObject {
-        for (attempt in 0 until 2) {
-            val made = Native.obj("passkeyNew", args.put("now", System.currentTimeMillis() / 1000))
-            val item = made.getJSONObject("item")
-            val access = token()
-            val rows = if (item.isNull("baseRevision")) {
-                Server.insertItem(access, item.getString("id"), item.getString("vaultId"), item.getString("encOverview"), item.getString("encDetails"))
-            } else {
-                Server.updateItem(access, item.getString("id"), item.getLong("baseRevision"), item.getString("encOverview"), item.getString("encDetails"))
-            }
-            if (rows.length() > 0) {
-                Native.run("applyItems", JSONObject().put("vaultId", item.getString("vaultId")).put("items", rows))
-                save()
-                refreshCache()
-                return made
-            }
-            sync()
-        }
-        throw KeylessException("save_conflict")
+        val made = Native.obj("passkeyNew", args.put("now", now()))
+        upload(made.getJSONObject("item"))
+        return made
     }
 
     /** A login waiting for Keyless to unlock before it is saved (autofill). */
@@ -244,8 +301,7 @@ object Keyless {
         session?.let { Server.signOut(it.accessToken) }
         session = null
         Native.run("forget")
-        items = emptyList()
-        vaults = JSONArray()
+        clearCache()
         snapshotFile().delete()
         SecureStore.clear(app)
     }

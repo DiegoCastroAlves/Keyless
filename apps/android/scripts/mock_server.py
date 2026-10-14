@@ -64,6 +64,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.answer(200, [fixture["profile"]])
         if url.path == "/rest/v1/vault_members":
             return self.answer(200, fixture["memberships"])
+        if url.path == "/rest/v1/items" and "id" in query:
+            item_id = query["id"][0][3:]
+            with lock:
+                row = items.get(item_id)
+            return self.answer(200, [row] if row else [])
         if url.path == "/rest/v1/items":
             vault = query.get("vault_id", ["eq."])[0][3:]
             cursor = int(query.get("seq", ["gt.0"])[0][3:])
@@ -116,8 +121,13 @@ class Handler(BaseHTTPRequestHandler):
             if row is None or row["revision"] != revision:
                 return self.answer(200, [])
             seq[0] += 1
-            row.update(enc_overview=body["enc_overview"], enc_details=body["enc_details"], revision=revision + 1, seq=seq[0])
-        record("update", row)
+            for key in ("enc_overview", "enc_details", "enc_tombstone"):
+                if key in body:
+                    row[key] = body[key]
+            # The server decides when an item was deleted, as the real one.
+            row["deleted_at"] = None if row.get("enc_tombstone") is None else (row.get("deleted_at") or "2026-01-01T00:00:00Z")
+            row.update(revision=revision + 1, seq=seq[0])
+        record("delete" if row["deleted_at"] else "update", row)
         return self.answer(200, [row])
 
 

@@ -121,6 +121,16 @@ object Server {
             ),
         )
 
+    /** Writes `body` (content or a tombstone) where the server still has `baseRevision`; empty on a conflict. */
+    fun patchItem(token: String, id: String, baseRevision: Long, body: JSONObject): JSONArray =
+        JSONArray(request("rest/v1/items?id=eq.${enc(id)}&revision=eq.$baseRevision", "PATCH", body.toString(), token, mapOf("Prefer" to "return=representation")))
+
+    /** One item as the server has it now, or null when it has none. */
+    fun item(token: String, id: String): JSONObject? {
+        val rows = JSONArray(request("rest/v1/items?select=*&id=eq.${enc(id)}", token = token))
+        return if (rows.length() > 0) rows.getJSONObject(0) else null
+    }
+
     /** A database function; `token` is null for those open to anyone. */
     fun rpc(name: String, args: JSONObject, token: String? = null): String = request("rest/v1/rpc/$name", "POST", args.toString(), token)
 }
