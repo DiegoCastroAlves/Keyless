@@ -16,6 +16,7 @@ mod devices;
 mod history;
 pub mod matching;
 pub mod qr;
+mod recovery;
 mod search;
 mod sentinel;
 mod shares;
@@ -124,6 +125,7 @@ pub struct Client {
     setup: Option<SetupRequest>,
     approvals: devices::Approvals,
     files: attachments::PendingFiles,
+    recovery: Option<recovery::Recovery>,
 }
 
 /// Item roles that may write.
@@ -269,6 +271,12 @@ impl Client {
             "saveDraft" => self.save_draft(json),
             "duplicate" => self.duplicate(json),
             "setFlags" => self.set_flags(json),
+            "checkPassword" => self.check_password(json),
+            "recoveryCreate" => self.recovery_create(json),
+            "recoveryBegin" => self.recovery_begin(json),
+            "recoveryOpen" => self.recovery_open(json),
+            "recoveryPrepare" => self.recovery_prepare(json),
+            "recoveryForget" => self.recovery_forget(),
             "attachments" => self.attachments(json),
             "attachmentNew" => self.attachment_new(json),
             "attachmentsAdd" => self.attachments_add(json),
@@ -327,6 +335,7 @@ impl Client {
         self.setup = None;
         self.approvals = Default::default();
         self.files = Default::default();
+        self.recovery = None;
     }
 
     fn status(&self) -> Value {

@@ -876,3 +876,56 @@ fn keeps_files_in_items_without_showing_their_keys() {
     assert_eq!(error(client.call("documentNew", &json!({ "id": new["id"], "label": "document", "now": 500 }).to_string())), "not_found");
     assert_eq!(error(client.call("attachmentNew", &json!({ "name": "x", "size": 1, "vaultId": "nope", "now": 500 }).to_string())), "not_found");
 }
+
+#[test]
+fn makes_and_uses_recovery_keys_like_the_desktop() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let wrong = json!({ "masterPassword": "not it", "secretKey": server.secret_key });
+    assert_eq!(error(client.call("recoveryCreate", &wrong.to_string())), "wrong_password");
+    assert_eq!(error(client.call("checkPassword", &wrong.to_string())), "wrong_password");
+    let right = json!({ "masterPassword": PASSWORD, "secretKey": server.secret_key });
+    assert_eq!(ok(client.call("checkPassword", &right.to_string())), true);
+    let made = ok(client.call("recoveryCreate", &right.to_string()));
+    let recovery_key = made["recoveryKey"].as_str().unwrap();
+    assert!(recovery_key.starts_with("KLRK-"));
+    // Another account is signed in on this phone.
+    assert_eq!(error(client.call("recoveryBegin", &json!({ "email": "other@example.com", "recoveryKey": recovery_key }).to_string())), "device_other_account");
+
+    // On a phone without the account, with the key typed loosely.
+    let mut phone = Client::new();
+    assert_eq!(error(phone.call("recoveryBegin", &json!({ "email": "me@example.com", "recoveryKey": "KLRK-0000" }).to_string())), "recovery_key_invalid");
+    let begun = ok(phone.call("recoveryBegin", &json!({ "email": " Me@Example.com", "recoveryKey": recovery_key.to_lowercase().replace('-', " ") }).to_string()));
+    assert_eq!(begun["proof"], made["proof"]);
+    let profile = &server.profile;
+    let start = |enc: &Value| json!({ "user_id": USER, "enc_recovery_user_key": enc, "format": profile["format"], "public_key": profile["public_key"], "enc_private_key": profile["enc_private_key"] });
+    assert_eq!(error(phone.call("recoveryOpen", &start(&json!("x")).to_string())), "recovery_failed");
+    ok(phone.call("recoveryOpen", &start(&made["encUserKey"]).to_string()));
+    assert_eq!(error(phone.call("recoveryPrepare", &json!({ "masterPassword": "short" }).to_string())), "password_too_short");
+    assert_eq!(error(phone.call("recoveryPrepare", &json!({ "masterPassword": "password1234" }).to_string())), "password_weak");
+    let new_password = "violet anchor drizzle 47 mosaic";
+    let prepared = ok(phone.call("recoveryPrepare", &json!({ "masterPassword": new_password }).to_string()));
+    let send = &prepared["send"];
+    assert_eq!(send["p_email"], "me@example.com");
+    assert_eq!(send["p_proof"], made["proof"]);
+    assert_eq!(send["p_auth_secret"], prepared["authSecret"]);
+
+    // The server took it; signing in opens the account with the new keys.
+    let mut new_profile = profile.clone();
+    new_profile["kdf"] = send["p_kdf"].clone();
+    new_profile["enc_user_key"] = send["p_enc_user_key"].clone();
+    let status = ok(phone.call("signedIn", &json!({ "userId": USER, "profile": new_profile }).to_string()));
+    assert_eq!(status["unlocked"], true);
+    ok(phone.call("applyMemberships", &server.membership.to_string()));
+    assert_eq!(ok(phone.call("vaults", ""))[0]["name"], "Personal");
+    // The new master password and Secret Key derive the secret just sent.
+    let secret_key = prepared["show"]["secretKey"].as_str().unwrap();
+    let derived = ok(Client::new().call("derive", &json!({ "email": "me@example.com", "masterPassword": new_password, "secretKey": secret_key }).to_string()));
+    assert_eq!(derived["authSecret"], send["p_auth_secret"]);
+    // And the next recovery key opens the account too.
+    let mut later = Client::new();
+    ok(later.call("recoveryBegin", &json!({ "email": "me@example.com", "recoveryKey": prepared["show"]["recoveryKey"] }).to_string()));
+    ok(later.call("recoveryOpen", &start(&send["p_new_enc_recovery_user_key"]).to_string()));
+    ok(later.call("recoveryForget", ""));
+    assert_eq!(error(later.call("recoveryPrepare", &json!({ "masterPassword": new_password }).to_string())), "recovery_expired");
+}
