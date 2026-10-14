@@ -13,6 +13,7 @@
 
 pub mod matching;
 mod store;
+mod writes;
 
 use std::collections::BTreeMap;
 
@@ -252,6 +253,9 @@ impl Client {
             "items" => self.items(),
             "item" => self.item(json),
             "sealItem" => self.seal_item(json),
+            "sealTombstone" => self.seal_tombstone(json),
+            "planConflict" => self.plan_conflict(json),
+            "generate" => self.generate(json),
             "findLogin" => self.find_login(json),
             "passkeysFor" => self.passkeys_for(json),
             "passkeyGet" => self.passkey_get(json),

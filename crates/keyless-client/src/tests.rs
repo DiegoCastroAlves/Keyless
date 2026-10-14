@@ -311,3 +311,107 @@ fn makes_and_uses_passkeys_for_android() {
     let signature = DerSignature::try_from(URL_SAFE_NO_PAD.decode(signed["signature"].as_str().unwrap()).unwrap().as_slice()).unwrap();
     key.verify(&message, &signature).unwrap();
 }
+
+#[test]
+fn generates_passwords() {
+    let mut client = Client::new();
+    let random = ok(client.call("generate", &json!({ "kind": "random", "length": 20 }).to_string()));
+    assert_eq!(random["password"].as_str().unwrap().chars().count(), 20);
+    let pin = ok(client.call("generate", &json!({ "kind": "pin", "length": 6 }).to_string()));
+    assert!(pin["password"].as_str().unwrap().chars().all(|c| c.is_ascii_digit()));
+    let words = ok(client.call("generate", &json!({ "kind": "memorable", "words": 4, "separator": "-" }).to_string()));
+    assert_eq!(words["password"].as_str().unwrap().split('-').count(), 4);
+    assert_eq!(error(client.call("generate", &json!({ "kind": "random", "length": 2 }).to_string())), "invalid_request");
+}
+
+/// The server's row after a write of `sealed` (content or tombstone).
+fn stored(sealed: &Value, revision: i64, seq: i64) -> Value {
+    let deleted = sealed.get("encTombstone").is_some_and(|t| !t.is_null());
+    json!({
+        "id": sealed["id"],
+        "vault_id": VAULT,
+        "enc_overview": if deleted { Value::Null } else { sealed["encOverview"].clone() },
+        "enc_details": if deleted { Value::Null } else { sealed["encDetails"].clone() },
+        "revision": revision,
+        "seq": seq,
+        "deleted_at": if deleted { json!("2026-10-14T00:00:00Z") } else { Value::Null },
+        "enc_tombstone": sealed.get("encTombstone").cloned().unwrap_or(Value::Null),
+    })
+}
+
+#[test]
+fn deletes_for_good() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let item = login("Old", "https://old.example", "pw", 3);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "i1", 5, 4, &item)] }).to_string()));
+    let sealed = ok(client.call("sealTombstone", &json!({ "id": "i1", "now": 1_700_000_000 }).to_string()));
+    assert_eq!(sealed["baseRevision"], 4);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 5, 6)] }).to_string()));
+    assert_eq!(error(client.call("item", &json!({ "id": "i1" }).to_string())), "not_found");
+    assert_eq!(ok(client.call("items", "")).as_array().unwrap().len(), 0);
+}
+
+#[test]
+fn settles_conflicts_like_the_desktop() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let base = login("Bank", "https://bank.example", "one", 2);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "i1", 5, 2, &base)] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": "i1" }).to_string()));
+    let mut details = item["details"].clone();
+    details["fields"][1]["value"] = json!("ours");
+    let ours = ok(client.call("sealItem", &json!({ "vaultId": VAULT, "id": "i1", "overview": item["overview"], "details": details, "now": 1_000 }).to_string()));
+    let plan = |client: &mut Client, sealed: &Value, remote: &Value| {
+        let mut args = sealed.clone();
+        args["remote"] = remote.clone();
+        ok(client.call("planConflict", &args.to_string()))
+    };
+
+    // Edited elsewhere earlier: ours wins, theirs is kept as a copy.
+    let mut theirs = login("Bank", "https://bank.example", "theirs", 3);
+    theirs.0.updated_at = 500;
+    let remote = row(&server, "i1", 6, 3, &theirs);
+    let answer = plan(&mut client, &ours, &remote);
+    assert_eq!(answer["plan"], "overwrite");
+    let body = &answer["body"];
+    assert!(body["enc_tombstone"].is_null());
+    let written = server.vault_key.open_overview(VAULT, "i1", body["enc_overview"].as_str().unwrap()).unwrap();
+    assert_eq!(written.version, 4);
+    let copy = &answer["copy"];
+    let kept = server.vault_key.open_overview(VAULT, copy["id"].as_str().unwrap(), copy["encOverview"].as_str().unwrap()).unwrap();
+    assert_eq!(kept.title, "Bank (conflicted copy)");
+    let kept_details = server.vault_key.open_details(VAULT, copy["id"].as_str().unwrap(), copy["encDetails"].as_str().unwrap()).unwrap();
+    assert_eq!(kept_details.password(), Some("theirs"));
+
+    // Edited elsewhere later: theirs stays, ours becomes the copy.
+    theirs.0.updated_at = 5_000;
+    let remote = row(&server, "i1", 6, 3, &theirs);
+    let answer = plan(&mut client, &ours, &remote);
+    assert_eq!(answer["plan"], "take_remote");
+    let copy = &answer["copy"];
+    let kept_details = server.vault_key.open_details(VAULT, copy["id"].as_str().unwrap(), copy["encDetails"].as_str().unwrap()).unwrap();
+    assert_eq!(kept_details.password(), Some("ours"));
+
+    // Deleted elsewhere: the edit survives.
+    let tombstone = server.vault_key.seal_tombstone(VAULT, "i1", &Tombstone { version: 3, deleted_at: 900 }).unwrap();
+    let remote = json!({ "id": "i1", "vault_id": VAULT, "enc_overview": null, "enc_details": null, "revision": 3, "seq": 6, "deleted_at": "2026-10-14T00:00:00Z", "enc_tombstone": tombstone });
+    let answer = plan(&mut client, &ours, &remote);
+    assert_eq!(answer["plan"], "overwrite");
+    assert!(answer["copy"].is_null());
+    let written = server.vault_key.open_details(VAULT, "i1", answer["body"]["enc_details"].as_str().unwrap()).unwrap();
+    assert_eq!(written.password(), Some("ours"));
+
+    // Deleted here, edited elsewhere: the edit survives.
+    let deletion = ok(client.call("sealTombstone", &json!({ "id": "i1", "now": 1_000 }).to_string()));
+    let remote = row(&server, "i1", 6, 3, &theirs);
+    let answer = plan(&mut client, &deletion, &remote);
+    assert_eq!(answer["plan"], "take_remote");
+    assert!(answer["copy"].is_null());
+
+    // A forged copy on the server: ours goes over it as sent.
+    let forged = json!({ "id": "i1", "vault_id": VAULT, "enc_overview": "garbage", "enc_details": "garbage", "revision": 3, "seq": 6, "deleted_at": null, "enc_tombstone": null });
+    let answer = plan(&mut client, &ours, &forged);
+    assert_eq!(answer["plan"], "overwrite");
+    assert_eq!(answer["body"]["enc_overview"], ours["encOverview"]);
+}
