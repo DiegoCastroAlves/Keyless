@@ -33,5 +33,6 @@ pub mod time;
 pub mod site;
 pub mod totp;
 pub mod vault;
+pub mod wifi;
 
 pub use error::{Error, Result};

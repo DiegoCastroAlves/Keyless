@@ -15,6 +15,7 @@ mod devices;
 mod history;
 pub mod matching;
 pub mod qr;
+mod search;
 mod sentinel;
 mod shares;
 mod store;
@@ -266,6 +267,10 @@ impl Client {
             "saveDraft" => self.save_draft(json),
             "duplicate" => self.duplicate(json),
             "setFlags" => self.set_flags(json),
+            "searchDetails" => self.search_details(json),
+            "itemsWithPasskeys" => self.items_with_passkeys(),
+            "wifiQr" => self.wifi_qr(json),
+            "qrModules" => search::qr_modules(json),
             "shareCreate" => self.share_create(json),
             "shareList" => self.share_list(json),
             "shareRevokedAt" => self.share_revoked_at(json),

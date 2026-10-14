@@ -787,3 +787,27 @@ fn makes_and_lists_share_links() {
     assert!(listed(&mut client, false, 1_791_500_000).as_array().unwrap().is_empty());
     assert_eq!(listed(&mut client, true, 1_791_500_000)[0]["status"], "expired");
 }
+
+#[test]
+fn searches_inside_items_but_not_secrets() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let draft = json!({
+        "vaultId": VAULT, "title": "Router", "category": "wireless_router", "notes": "Family plan",
+        "fields": [
+            { "id": "", "label": "network name", "kind": "text", "value": "Casa" },
+            { "id": "", "label": "wireless password", "kind": "concealed", "value": "hunter22", "purpose": "password" }
+        ]
+    });
+    let sealed = ok(client.call("saveDraft", &json!({ "draft": draft, "now": 10 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 1, 40)] }).to_string()));
+    let id = sealed["id"].clone();
+    let search = |client: &mut Client, query: &str| ok(client.call("searchDetails", &json!({ "query": query }).to_string()));
+    assert_eq!(search(&mut client, "FAMILY"), json!([id]));
+    assert_eq!(search(&mut client, "casa"), json!([id]));
+    assert_eq!(search(&mut client, "hunter"), json!([]));
+    assert_eq!(search(&mut client, "c"), json!([]));
+    let qr = ok(client.call("wifiQr", &json!({ "id": id }).to_string()));
+    assert!(qr.as_array().unwrap().len() >= 21);
+    assert_eq!(ok(client.call("itemsWithPasskeys", "")), json!([]));
+}

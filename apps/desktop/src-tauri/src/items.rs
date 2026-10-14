@@ -942,47 +942,7 @@ pub async fn wifi_qr(state: &AppState, item_id: &str) -> AppResult<String> {
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;
     let (_, details) = load_details(state, session, item_id)?;
-    let by_label = |names: &[&str]| {
-        details
-            .all_fields()
-            .find(|f| names.iter().any(|n| f.label.eq_ignore_ascii_case(n)))
-            .map(|f| f.value.clone())
-            .unwrap_or_default()
-    };
-    let name = by_label(&["network name", "ssid", "nome da rede", "nombre de la red"]);
-    if name.is_empty() {
-        return Err(AppError::Invalid(Msg::new("wifi_no_name")));
-    }
-    let password = Zeroizing::new(details.password().map(String::from).unwrap_or_else(|| by_label(&["wireless password"])));
-    let security = by_label(&["security", "segurança", "seguridad"]);
-    qr_svg(&wifi_payload(&name, &password, &security))
-}
-
-/// What a Wi-Fi QR code holds; `;`, `,`, `:`, `\` and `"` are escaped.
-fn wifi_payload(name: &str, password: &str, security: &str) -> Zeroizing<String> {
-    let kind = if password.is_empty() {
-        "nopass"
-    } else if security.to_uppercase().contains("WEP") {
-        "WEP"
-    } else {
-        "WPA"
-    };
-    let mut payload = Zeroizing::new(String::from("WIFI:S:"));
-    let push_escaped = |out: &mut String, text: &str| {
-        for c in text.chars() {
-            if matches!(c, '\\' | ';' | ',' | ':' | '"') {
-                out.push('\\');
-            }
-            out.push(c);
-        }
-    };
-    push_escaped(&mut payload, name);
-    payload.push_str(";T:");
-    payload.push_str(kind);
-    payload.push_str(";P:");
-    push_escaped(&mut payload, password);
-    payload.push_str(";;");
-    payload
+    qr_svg(&keyless_core::wifi::payload(&details).map_err(|_| AppError::Invalid(Msg::new("wifi_no_name")))?)
 }
 
 pub(crate) fn qr_svg(text: &str) -> AppResult<String> {
@@ -1011,7 +971,7 @@ pub async fn search_details(state: &AppState, query: &str) -> AppResult<Vec<Stri
     let mut found = Vec::new();
     for id in ids {
         let Ok((_, details)) = load_details(state, session, &id) else { continue };
-        if details_match(&details, &query) {
+        if details.matches(&query) {
             found.push(id);
         }
     }
@@ -1028,20 +988,6 @@ pub async fn items_with_passkeys(state: &AppState) -> AppResult<Vec<String>> {
         .into_iter()
         .filter(|id| load_details(state, session, id).is_ok_and(|(_, details)| !details.passkeys.is_empty()))
         .collect())
-}
-
-fn details_match(details: &ItemDetails, query: &str) -> bool {
-    let has = |text: &str| text.to_lowercase().contains(query);
-    if has(&details.notes) {
-        return true;
-    }
-    if details.sections.iter().any(|s| has(&s.title)) || details.attachments.iter().any(|a| has(&a.name)) {
-        return true;
-    }
-    details.all_fields().any(|f| {
-        let secret = f.kind.is_secret() || f.purpose == Some(FieldPurpose::Password);
-        has(&f.label) || (!secret && f.kind != FieldKind::File && f.kind != FieldKind::Reference && has(&f.value))
-    })
 }
 
 /// Changes overview flags (favorite, archive, trash) as a new version of the
@@ -1297,13 +1243,6 @@ mod tests {
         assert_eq!(normalize_url("example.com"), "https://example.com");
         assert_eq!(normalize_url("http://x.y"), "http://x.y");
         assert_eq!(normalize_url("  "), "");
-    }
-
-    #[test]
-    fn wifi_codes_escape_their_text() {
-        assert_eq!(wifi_payload("Casa;1", r"a:b\c", "WPA2").as_str(), r"WIFI:S:Casa\;1;T:WPA;P:a\:b\\c;;");
-        assert_eq!(wifi_payload("Guest", "", "").as_str(), "WIFI:S:Guest;T:nopass;P:;;");
-        assert_eq!(wifi_payload("Old", "k", "wep").as_str(), "WIFI:S:Old;T:WEP;P:k;;");
     }
 
     #[test]

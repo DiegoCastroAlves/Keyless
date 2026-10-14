@@ -374,6 +374,23 @@ pub struct ItemDetails {
 }
 
 impl ItemDetails {
+    /// Whether the details hold `query` (lowercase): notes, labels, section
+    /// titles, file names and the values that are not secret (passwords,
+    /// card numbers, codes and answers are never searched).
+    pub fn matches(&self, query: &str) -> bool {
+        let has = |text: &str| text.to_lowercase().contains(query);
+        if has(&self.notes) {
+            return true;
+        }
+        if self.sections.iter().any(|s| has(&s.title)) || self.attachments.iter().any(|a| has(&a.name)) {
+            return true;
+        }
+        self.all_fields().any(|f| {
+            let secret = f.kind.is_secret() || f.purpose == Some(FieldPurpose::Password);
+            has(&f.label) || (!secret && f.kind != FieldKind::File && f.kind != FieldKind::Reference && has(&f.value))
+        })
+    }
+
     pub fn all_fields(&self) -> impl Iterator<Item = &Field> {
         self.fields
             .iter()
