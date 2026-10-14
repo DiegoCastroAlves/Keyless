@@ -6,7 +6,7 @@ use std::sync::{Mutex, OnceLock};
 
 use jni::{
     JNIEnv,
-    objects::{JByteArray, JClass, JString},
+    objects::{JByteArray, JClass, JObject, JString, JValue},
     sys::{jbyteArray, jint, jstring},
 };
 use keyless_client::Client;
@@ -101,6 +101,100 @@ pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_attachment
     let plain = client().lock().unwrap_or_else(|e| e.into_inner()).attachment_open(&item, &id, index as u32, &raw);
     match plain {
         Ok(plain) => env.byte_array_from_slice(&plain).map(|a| a.into_raw()).unwrap_or(std::ptr::null_mut()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn answer(env: &mut JNIEnv, text: String) -> jstring {
+    env.new_string(text).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+}
+
+fn failed(key: &str, message: &str) -> String {
+    serde_json::json!({ "error": { "key": key, "message": message } }).to_string()
+}
+
+/// `Native.importParse(String, byte[], byte[]): String`: reads an import
+/// file (and a KeePass key file, or null); answers like `call`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_importParse<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    args: JString<'local>,
+    file: JByteArray<'local>,
+    key_file: JByteArray<'local>,
+) -> jstring {
+    let key_file = if key_file.is_null() { Ok(None) } else { env.convert_byte_array(&key_file).map(|k| Some(Zeroizing::new(k))) };
+    let text = match (env.get_string(&args).map(String::from), env.convert_byte_array(&file), key_file) {
+        (Ok(args), Ok(file), Ok(key_file)) => client().lock().unwrap_or_else(|e| e.into_inner()).import_parse(&args, Zeroizing::new(file), key_file),
+        _ => failed("file_too_large", "unreadable arguments"),
+    };
+    answer(&mut env, text)
+}
+
+/// `Native.importFile(String, ChunkSink): String`: reads, encrypts and
+/// hands the import's file `attachmentId` to `sink.put(index, sealed)`, a
+/// chunk at a time (without holding the client); answers like `call`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_importFile<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    attachment_id: JString<'local>,
+    sink: JObject<'local>,
+) -> jstring {
+    let Ok(id) = env.get_string(&attachment_id).map(String::from) else {
+        return answer(&mut env, failed("invalid_request", "unreadable arguments"));
+    };
+    let source = client().lock().unwrap_or_else(|e| e.into_inner()).import_file_source(&id);
+    let text = match source {
+        Ok(source) => {
+            let read = source.read(|index, sealed| {
+                let Ok(bytes) = env.byte_array_from_slice(&sealed) else { return false };
+                let put = env.call_method(&sink, "put", "(I[B)Z", &[JValue::Int(index as jint), JValue::Object(&bytes)]);
+                let _ = env.delete_local_ref(bytes);
+                match put.and_then(|v| v.z()) {
+                    Ok(done) => done,
+                    Err(_) => {
+                        let _ = env.exception_clear();
+                        false
+                    }
+                }
+            });
+            match read {
+                Ok(()) => r#"{"ok":null}"#.to_string(),
+                Err(failure) => failed(failure.key, &failure.message),
+            }
+        }
+        Err(failure) => failed(failure.key, &failure.message),
+    };
+    answer(&mut env, text)
+}
+
+/// `Native.exportChunk(String, int, byte[]): String`: a downloaded chunk of
+/// an attached file being exported; answers like `call`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_exportChunk<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    attachment_id: JString<'local>,
+    index: jint,
+    raw: JByteArray<'local>,
+) -> jstring {
+    let text = match (env.get_string(&attachment_id).map(String::from), env.convert_byte_array(&raw)) {
+        (Ok(id), Ok(raw)) => match client().lock().unwrap_or_else(|e| e.into_inner()).export_chunk(&id, index as u32, &raw) {
+            Ok(()) => r#"{"ok":null}"#.to_string(),
+            Err(failure) => failed(failure.key, &failure.message),
+        },
+        _ => failed("invalid_request", "unreadable arguments"),
+    };
+    answer(&mut env, text)
+}
+
+/// `Native.exportFinish(): byte[]`: the export's file; null if it failed.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_diegocastroalves_keyless_Native_exportFinish<'local>(env: JNIEnv<'local>, _class: JClass<'local>) -> jbyteArray {
+    let finished = client().lock().unwrap_or_else(|e| e.into_inner()).export_finish();
+    match finished {
+        Ok(bytes) => env.byte_array_from_slice(&bytes).map(|a| a.into_raw()).unwrap_or(std::ptr::null_mut()),
         Err(_) => std::ptr::null_mut(),
     }
 }

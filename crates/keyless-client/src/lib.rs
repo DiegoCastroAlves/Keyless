@@ -21,6 +21,7 @@ mod search;
 mod sentinel;
 mod shares;
 mod store;
+pub mod transfer;
 mod writes;
 
 use std::collections::BTreeMap;
@@ -62,6 +63,10 @@ impl From<keyless_core::Error> for Failure {
             keyless_core::Error::InvalidSecretKey => "secret_key_invalid",
             keyless_core::Error::Decryption => "decryption_failed",
             keyless_core::Error::InvalidTotp(_) => "totp_invalid",
+            keyless_core::Error::Import(_) => "import_failed",
+            keyless_core::Error::PasswordRequired => "import_password_required",
+            keyless_core::Error::UnsafeKdfParams => "unsafe_kdf",
+            keyless_core::Error::EmptyPassword => "empty_password",
             _ => "internal",
         };
         Self { key, message: err.to_string() }
@@ -126,6 +131,8 @@ pub struct Client {
     approvals: devices::Approvals,
     files: attachments::PendingFiles,
     recovery: Option<recovery::Recovery>,
+    import: Option<transfer::PendingImport>,
+    export: Option<transfer::PendingExport>,
 }
 
 /// Item roles that may write.
@@ -212,6 +219,14 @@ struct ItemSummary {
     overview: ItemOverview,
 }
 
+/// `call`'s answer: `{"ok": …}` or `{"error": {"key", "message"}}`.
+fn answer(result: Outcome<Value>) -> String {
+    match result {
+        Ok(value) => json!({ "ok": value }).to_string(),
+        Err(failure) => json!({ "error": { "key": failure.key, "message": failure.message } }).to_string(),
+    }
+}
+
 fn args<T: for<'de> Deserialize<'de>>(json: &str) -> Outcome<T> {
     serde_json::from_str(if json.trim().is_empty() { "{}" } else { json }).map_err(Failure::from)
 }
@@ -223,11 +238,7 @@ impl Client {
 
     /// Runs `method` with `args` (JSON) and answers in JSON.
     pub fn call(&mut self, method: &str, args: &str) -> String {
-        let result = self.dispatch(method, args);
-        match result {
-            Ok(value) => json!({ "ok": value }).to_string(),
-            Err(failure) => json!({ "error": { "key": failure.key, "message": failure.message } }).to_string(),
-        }
+        answer(self.dispatch(method, args))
     }
 
     fn dispatch(&mut self, method: &str, json: &str) -> Outcome<Value> {
@@ -281,6 +292,13 @@ impl Client {
             "sshGenerate" => self.ssh_generate(json),
             #[cfg(feature = "ssh")]
             "sshImport" => self.ssh_import(json),
+            "importFiles" => self.import_files(json),
+            "importCommit" => self.import_commit(json),
+            "importCancel" => self.import_cancel(),
+            "vaultNew" => self.vault_new(json),
+            "exportStart" => self.export_start(json),
+            "exportFileFailed" => self.export_file_failed(json),
+            "exportCancel" => self.export_cancel(),
             "attachments" => self.attachments(json),
             "attachmentNew" => self.attachment_new(json),
             "attachmentsAdd" => self.attachments_add(json),
@@ -340,6 +358,8 @@ impl Client {
         self.approvals = Default::default();
         self.files = Default::default();
         self.recovery = None;
+        self.import = None;
+        self.export = None;
     }
 
     fn status(&self) -> Value {

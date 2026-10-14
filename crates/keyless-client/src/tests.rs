@@ -941,3 +941,80 @@ fn makes_and_reads_ssh_keys() {
     assert_eq!(read["fingerprint"], made["fingerprint"]);
     assert_eq!(error(client.call("sshImport", &json!({ "privateKey": "nope" }).to_string())), "ssh_key_invalid");
 }
+
+#[test]
+fn exports_and_imports_like_the_desktop() {
+    let server = server();
+    let mut client = signed_in(&server);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [row(&server, "i1", 5, 1, &login("Bank", "https://bank.example", "pw", 1))] }).to_string()));
+    // A file in the item, as the server keeps it.
+    let new = ok(client.call("attachmentNew", &json!({ "name": "scan.pdf", "size": 5, "vaultId": VAULT, "now": 100 }).to_string()));
+    let file_id = new["id"].as_str().unwrap().to_string();
+    let raw = client.attachment_seal(&file_id, 0, b"hello").unwrap();
+    let sealed = ok(client.call("attachmentsAdd", &json!({ "itemId": "i1", "ids": [file_id], "now": 100 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 2, 6)] }).to_string()));
+
+    let password = |extra: Value| {
+        let mut args = json!({ "masterPassword": PASSWORD, "secretKey": server.secret_key, "now": 200 });
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.to_string()
+    };
+    assert_eq!(error(client.call("exportStart", &json!({ "format": "csv", "masterPassword": "no", "secretKey": server.secret_key, "now": 1 }).to_string())), "wrong_password");
+    let started = ok(client.call("exportStart", &password(json!({ "format": "csv" }))));
+    assert_eq!((started["items"].as_u64(), started["files"].as_array().unwrap().len()), (Some(1), 0));
+    let csv = client.export_finish().unwrap();
+    assert!(String::from_utf8_lossy(&csv).contains("Bank"));
+
+    // A zip with the file; imported again into the vault.
+    let started = ok(client.call("exportStart", &password(json!({ "format": "zip" }))));
+    assert_eq!(started["files"][0]["objects"], json!([format!("{VAULT}/{file_id}/0")]));
+    assert_eq!(client.export_chunk(&file_id, 0, &raw[1..]).unwrap_err().key, "attachment_damaged");
+    client.export_chunk(&file_id, 0, &raw).unwrap();
+    let zip = client.export_finish().unwrap();
+    let summary = ok(client.import_parse(&json!({ "format": "keyless_export", "name": "x" }).to_string(), zip, None));
+    assert_eq!((summary["total_items"].as_u64(), summary["files"].as_u64()), (Some(1), Some(1)));
+    assert_eq!(error(client.call("importFiles", &json!({ "targets": [], "now": 300 }).to_string())), "invalid_request");
+    let files = ok(client.call("importFiles", &json!({ "targets": [VAULT], "now": 300 }).to_string()));
+    let new_id = files[0]["id"].as_str().unwrap().to_string();
+    let mut chunks = Vec::new();
+    client.import_file_source(&new_id).unwrap().read(|index, sealed| {
+        chunks.push((index, sealed));
+        true
+    }).unwrap();
+    assert_eq!(chunks.len(), 1);
+    let committed = ok(client.call("importCommit", &json!({ "targets": [VAULT], "uploaded": [new_id], "now": 300 }).to_string()));
+    assert_eq!((committed["files"].as_u64(), committed["filesFailed"].as_u64()), (Some(1), Some(0)));
+    let item = &committed["items"][0];
+    assert!(item["baseRevision"].is_null());
+    let item_id = item["id"].as_str().unwrap().to_string();
+    assert_ne!(item_id, "i1");
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(item, 1, 7)] }).to_string()));
+    assert_eq!(*client.attachment_open(&item_id, &new_id, 0, &chunks[0].1).unwrap(), b"hello".to_vec());
+    let imported = ok(client.call("item", &json!({ "id": item_id }).to_string()));
+    assert_eq!(imported["overview"]["title"], "Bank");
+    assert_eq!(imported["details"]["fields"][1]["value"], "pw");
+    assert_eq!(error(client.call("importCommit", &json!({ "targets": [VAULT], "now": 300 }).to_string())), "import_no_file");
+
+    // An encrypted backup, which needs a strong password.
+    assert_eq!(error(client.call("exportStart", &password(json!({ "format": "backup", "password": "password1234" })))), "backup_password_weak");
+    let backup_password = "ochre lantern fjord 93 tumble quill";
+    let started = ok(client.call("exportStart", &password(json!({ "format": "backup", "password": backup_password }))));
+    assert_eq!(started["files"].as_array().unwrap().len(), 2);
+    ok(client.call("exportFileFailed", &json!({ "id": file_id }).to_string()));
+    client.export_chunk(&new_id, 0, &chunks[0].1).unwrap();
+    let backup = client.export_finish().unwrap();
+    assert_eq!(error(client.import_parse(&json!({ "format": "keyless_backup", "password": "wrong", "name": "x" }).to_string(), backup.clone(), None)), "backup_wrong_password");
+    let summary = ok(client.import_parse(&json!({ "format": "keyless_backup", "password": backup_password, "name": "x" }).to_string(), backup, None));
+    // Two items now; the file that failed is not in the backup.
+    assert_eq!((summary["total_items"].as_u64(), summary["files"].as_u64()), (Some(2), Some(1)));
+    ok(client.call("importCancel", ""));
+
+    // The CSV goes back in too, into a vault made for it.
+    let summary = ok(client.import_parse(&json!({ "format": "csv", "name": "Imported" }).to_string(), csv, None));
+    assert_eq!(summary["total_items"], 1);
+    assert_eq!(error(client.import_parse(&json!({ "format": "json", "name": "x" }).to_string(), Zeroizing::new(b"{}".to_vec()), None)), "import_unknown_json");
+    let vault = ok(client.call("vaultNew", &json!({ "name": " Imported " }).to_string()));
+    assert_eq!(vault["p_id"].as_str().unwrap().len(), 36);
+    assert!(vault["p_enc_meta"].is_string() && vault["p_enc_vault_key"].is_string());
+    assert_eq!(error(client.call("vaultNew", &json!({ "name": " " }).to_string())), "vault_name_required");
+}

@@ -55,7 +55,7 @@ struct Start {
 
 impl Client {
     /// Checks the master password of the account signed in here.
-    fn verify_password(&self, json: &str) -> Outcome<UnlockedAccount> {
+    pub(crate) fn verify_password(&self, json: &str) -> Outcome<UnlockedAccount> {
         let a: Password = args(json)?;
         self.unlocked()?;
         let bundle = self.store.bundle.clone().ok_or(Failure::new("no_account"))?;
