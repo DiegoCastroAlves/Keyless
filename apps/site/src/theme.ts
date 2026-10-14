@@ -2,14 +2,13 @@
 // dark. The choice is kept in this browser (localStorage "theme") and set
 // as data-theme on <html>, which the stylesheets read (theme.css). /theme.js
 // (theme-head.ts) applies it in each page's <head>, before the first paint;
-// each page's script wires its buttons (.theme, next to the language ones)
-// and names them in the page's language.
+// the menu in each page's header (prefs.ts) changes it.
 
 export type Theme = "system" | "light" | "dark";
 export type ThemeKey = "theme" | "themeSystem" | "themeLight" | "themeDark";
 
-const THEMES: Theme[] = ["system", "light", "dark"];
-const KEYS: Record<Theme, ThemeKey> = { system: "themeSystem", light: "themeLight", dark: "themeDark" };
+export const THEMES: Theme[] = ["system", "light", "dark"];
+export const THEME_KEYS: Record<Theme, ThemeKey> = { system: "themeSystem", light: "themeLight", dark: "themeDark" };
 
 // The pages' background (--paper in theme.css), for the browser's own bars.
 const PAPER = { light: "#f3f0e8", dark: "#0f1113" } as const;
@@ -36,13 +35,14 @@ export function applyTheme(theme: Theme) {
   }
 }
 
-// ----- The buttons -------------------------------------------------------------
+// ----- The choice ----------------------------------------------------------------
 
 let chosen: Theme | null = null;
-const current = () => (chosen ??= storedTheme());
-const groups: (() => void)[] = [];
+const listeners: (() => void)[] = [];
 
-function choose(theme: Theme) {
+export const currentTheme = () => (chosen ??= storedTheme());
+
+export function chooseTheme(theme: Theme) {
   chosen = theme;
   try {
     if (theme === "system") localStorage.removeItem("theme");
@@ -51,27 +51,12 @@ function choose(theme: Theme) {
     // Private window: the choice lasts for this page only.
   }
   applyTheme(theme);
-  for (const press of groups) press();
+  for (const listener of listeners) listener();
 }
 
-/** Wires a group of theme buttons (button[data-theme-choice] in `group`)
- * and names them with the page's texts. The function returned names them
- * again, after a change of language. */
-export function themeSwitch(group: HTMLElement, label: (key: ThemeKey) => string): () => void {
-  const buttons = [...group.querySelectorAll<HTMLButtonElement>("button[data-theme-choice]")];
-  const press = () => {
-    for (const button of buttons) button.setAttribute("aria-pressed", String(button.dataset.themeChoice === current()));
-  };
-  const name = () => {
-    group.setAttribute("aria-label", label("theme"));
-    for (const button of buttons) {
-      const text = label(KEYS[button.dataset.themeChoice as Theme]);
-      button.setAttribute("aria-label", text);
-      button.title = text;
-    }
-  };
-  for (const button of buttons) button.addEventListener("click", () => choose(button.dataset.themeChoice as Theme));
-  if (!groups.length) {
+/** Calls `listener` whenever the theme changes, here or on another page. */
+export function onThemeChange(listener: () => void) {
+  if (!listeners.length) {
     // A choice made in another tab, or on another page while this one
     // waited in the back-forward cache.
     const reread = () => {
@@ -83,7 +68,7 @@ export function themeSwitch(group: HTMLElement, label: (key: ThemeKey) => string
       }
       chosen = storedTheme();
       applyTheme(chosen);
-      for (const update of groups) update();
+      for (const update of listeners) update();
     };
     window.addEventListener("storage", (event) => {
       if (event.key === "theme" || event.key === null) reread();
@@ -92,13 +77,12 @@ export function themeSwitch(group: HTMLElement, label: (key: ThemeKey) => string
       if (event.persisted) reread();
     });
   }
-  groups.push(press);
-  press();
-  name();
-  return name;
+  listeners.push(listener);
 }
 
-// The icons, as the static pages have them inline (theme.css draws them).
+// ----- The icons ---------------------------------------------------------------------
+
+// As the static pages have them inline (theme.css draws them).
 const ICONS: Record<Theme, [string, Record<string, string>][]> = {
   system: [
     ["rect", { x: "1.75", y: "2.5", width: "12.5", height: "8.5", rx: "1" }],
@@ -111,26 +95,14 @@ const ICONS: Record<Theme, [string, Record<string, string>][]> = {
   dark: [["path", { d: "M13.5 9.6A5.75 5.75 0 1 1 6.4 2.5a4.6 4.6 0 0 0 7.1 7.1z" }]],
 };
 
-/** The group of theme buttons, for pages built by script (the static ones
- * have it in their HTML). */
-export function themeGroup(): HTMLElement {
-  const group = document.createElement("div");
-  group.className = "theme";
-  group.setAttribute("role", "group");
-  for (const theme of THEMES) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.themeChoice = theme;
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 16 16");
-    svg.setAttribute("aria-hidden", "true");
-    for (const [tag, attrs] of ICONS[theme]) {
-      const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
-      for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value);
-      svg.append(shape);
-    }
-    button.append(svg);
-    group.append(button);
+export function themeIcon(theme: Theme): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  for (const [tag, attrs] of ICONS[theme]) {
+    const shape = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, value] of Object.entries(attrs)) shape.setAttribute(key, value);
+    svg.append(shape);
   }
-  return group;
+  return svg;
 }

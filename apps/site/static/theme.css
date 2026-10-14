@@ -117,69 +117,125 @@
   --warning: #f2c14e;
 }
 
-/* ----- language and theme buttons ------------------------------------- */
+/* ----- language and theme ----------------------------------------------- */
 
+/* One small button in the header (the language's code and the theme's
+   icon) and the menu it opens (src/prefs.ts). */
 .prefs {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  position: relative;
+  flex: none;
 }
-.lang,
-.theme {
-  display: flex;
+.prefs-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 9px;
   border: 1px solid var(--rule);
-}
-.lang button,
-.theme button {
-  font: 500 0.75rem/1 var(--mono);
-  letter-spacing: 0.06em;
-  color: var(--ink-2);
-  background: none;
-  border: 0;
   border-radius: 0;
-  padding: 9px 11px;
-  min-height: 36px;
+  background: none;
+  color: var(--ink-2);
+  font: 500 0.7rem/1 var(--mono);
+  letter-spacing: 0.08em;
   cursor: pointer;
 }
-.theme button {
-  display: grid;
-  place-items: center;
-  padding: 9px 10px;
-}
-.lang button:hover,
-.theme button:hover {
+.prefs-button:hover,
+.prefs-button[aria-expanded="true"] {
+  border-color: var(--ink-2);
   color: var(--ink);
 }
-.lang button + button,
-.theme button + button {
-  border-left: 1px solid var(--rule);
-}
-.lang button[aria-pressed="true"],
-.theme button[aria-pressed="true"] {
-  background: var(--ink);
-  color: var(--paper);
-}
-.lang button:focus-visible,
-.theme button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.theme svg {
+.prefs svg {
   display: block;
-  width: 16px;
-  height: 16px;
+  flex: none;
+  width: 14px;
+  height: 14px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-@media (max-width: 420px) {
-  .lang button {
-    padding: 9px 8px;
-  }
-  .theme button {
-    padding: 9px 8px;
-  }
+/* The button shows the icon of the theme in use, already on the first paint
+   (data-theme is set in <head>). */
+.prefs-button svg {
+  display: none;
+}
+:root:not([data-theme]) .prefs-button [data-theme-icon="system"],
+:root[data-theme="light"] .prefs-button [data-theme-icon="light"],
+:root[data-theme="dark"] .prefs-button [data-theme-icon="dark"] {
+  display: block;
+}
+
+.prefs-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  min-width: 184px;
+  max-width: calc(100vw - 16px);
+  padding: 4px 0;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--rule);
+}
+.prefs-menu[hidden] {
+  display: none;
+}
+.prefs-group + .prefs-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--rule);
+}
+.prefs-label {
+  display: block;
+  padding: 8px 14px 4px;
+  font: 500 0.66rem/1.2 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.prefs-menu [role="menuitemradio"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink-2);
+  font: 400 0.9rem/1.2 var(--sans);
+  text-align: left;
+  cursor: pointer;
+}
+.prefs-menu [role="menuitemradio"]:hover,
+.prefs-menu [role="menuitemradio"]:focus {
+  background: var(--paper-2);
+  color: var(--ink);
+}
+.prefs-menu [role="menuitemradio"][aria-checked="true"] {
+  color: var(--ink);
+  font-weight: 500;
+}
+.prefs-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+}
+[aria-checked="true"] > .prefs-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+.prefs-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.prefs-menu [role="menuitemradio"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }

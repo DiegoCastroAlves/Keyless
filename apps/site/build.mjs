@@ -44,6 +44,9 @@ if (WEB_VAULT) {
   cpSync("vendor/keyless-wasm/keyless_wasm_bg.wasm", "dist/vault/keyless_wasm_bg.wasm");
 } else {
   rmSync("dist/vault", { recursive: true, force: true });
+  // Cloudflare keeps the files of earlier deployments for a while: send
+  // anything under /vault/ to the home page instead.
+  writeFileSync("dist/_redirects", "/vault / 302\n/vault/* / 302\n");
   // Links to it are marked data-web-vault.
   const home = readFileSync("dist/index.html", "utf8");
   writeFileSync("dist/index.html", home.replace(/\s*<a [^>]*data-web-vault[^>]*>[^<]*<\/a>/g, ""));

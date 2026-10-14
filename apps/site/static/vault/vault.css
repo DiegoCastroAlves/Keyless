@@ -88,7 +88,7 @@ main.center { flex: 1; display: grid; place-items: center; padding: 8px 16px 56p
 .top { grid-area: top; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .top .brand { width: 188px; }
 .top input { max-width: 420px; flex: 1; }
-.top .theme { margin-left: auto; }
+.top input + button { margin-left: auto; }
 .side { grid-area: side; overflow-y: auto; padding: 12px 10px; border-right: 1px solid var(--line); background: var(--panel-2); }
 .side h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--subtle); margin: 18px 8px 6px; font-weight: 600; }
 .nav { width: 100%; display: flex; justify-content: space-between; border: 0; background: none; padding: 7px 10px; border-radius: 8px; text-align: left; color: var(--muted); }
@@ -133,7 +133,7 @@ main.center { flex: 1; display: grid; place-items: center; padding: 8px 16px 56p
   .top { flex-wrap: wrap; padding: 8px 12px; gap: 8px; }
   .top .brand { margin-right: auto; }
   .top input { order: 3; flex-basis: 100%; max-width: none; }
-  .top .theme { margin-left: 0; }
+  .top input + button { margin-left: 0; }
   .side { display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
   .side h2 { display: none; }
   .nav { width: auto; white-space: nowrap; gap: 8px; }

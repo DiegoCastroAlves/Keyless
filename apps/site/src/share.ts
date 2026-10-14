@@ -15,7 +15,7 @@
 
 import { xchacha20poly1305 } from "@noble/ciphers/chacha.js";
 import labels from "virtual:labels";
-import { themeSwitch } from "./theme";
+import { prefsMenu } from "./prefs";
 
 declare const __SUPABASE_URL__: string;
 declare const __SUPABASE_KEY__: string;
@@ -72,9 +72,9 @@ const TEXT = {
     sharedOn: "Compartilhado em {date}.",
     footer: "Keyless: gerenciador de senhas com criptografia de ponta a ponta.",
     theme: "Tema",
-    themeSystem: "Tema do sistema",
-    themeLight: "Tema claro",
-    themeDark: "Tema escuro",
+    themeSystem: "Sistema",
+    themeLight: "Claro",
+    themeDark: "Escuro",
     restricted: "Este item foi compartilhado só com alguns e-mails. Digite o seu para receber um código.",
     email: "Seu e-mail",
     sendCode: "Enviar código",
@@ -111,9 +111,9 @@ const TEXT = {
     sharedOn: "Shared on {date}.",
     footer: "Keyless: a password manager with end-to-end encryption.",
     theme: "Theme",
-    themeSystem: "System theme",
-    themeLight: "Light theme",
-    themeDark: "Dark theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
     restricted: "This item was shared with specific emails only. Enter yours to get a code.",
     email: "Your email",
     sendCode: "Send code",
@@ -150,9 +150,9 @@ const TEXT = {
     sharedOn: "Compartido el {date}.",
     footer: "Keyless: gestor de contraseñas con cifrado de extremo a extremo.",
     theme: "Tema",
-    themeSystem: "Tema del sistema",
-    themeLight: "Tema claro",
-    themeDark: "Tema oscuro",
+    themeSystem: "Sistema",
+    themeLight: "Claro",
+    themeDark: "Oscuro",
     restricted: "Este elemento se compartió solo con algunos correos. Escribe el tuyo para recibir un código.",
     email: "Tu correo",
     sendCode: "Enviar código",
@@ -226,7 +226,7 @@ function decrypt(envelope: string, id: string, key: Uint8Array): SharedItem {
 const app = document.getElementById("app")!;
 document.documentElement.lang = lang;
 document.title = `${t("title")} · Keyless`;
-themeSwitch(document.querySelector<HTMLElement>(".theme")!, t);
+prefsMenu(document.querySelector<HTMLElement>(".prefs")!, t);
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...children: (Node | string)[]) {
   const node = Object.assign(document.createElement(tag), props);

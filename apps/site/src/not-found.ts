@@ -1,14 +1,15 @@
 // The page for addresses that do not exist (404.html). It reads the same in
 // every language; only its theme buttons are named in the visitor's.
 
-import { themeSwitch, type ThemeKey } from "./theme";
+import { prefsMenu } from "./prefs";
+import type { ThemeKey } from "./theme";
 
 type Lang = "pt-BR" | "en" | "es";
 const LANGS: Lang[] = ["pt-BR", "en", "es"];
 const TEXT: Record<Lang, Record<ThemeKey, string>> = {
-  "pt-BR": { theme: "Tema", themeSystem: "Tema do sistema", themeLight: "Tema claro", themeDark: "Tema escuro" },
-  en: { theme: "Theme", themeSystem: "System theme", themeLight: "Light theme", themeDark: "Dark theme" },
-  es: { theme: "Tema", themeSystem: "Tema del sistema", themeLight: "Tema claro", themeDark: "Tema oscuro" },
+  "pt-BR": { theme: "Tema", themeSystem: "Sistema", themeLight: "Claro", themeDark: "Escuro" },
+  en: { theme: "Theme", themeSystem: "System", themeLight: "Light", themeDark: "Dark" },
+  es: { theme: "Tema", themeSystem: "Sistema", themeLight: "Claro", themeDark: "Oscuro" },
 };
 
 function detectLang(): Lang {
@@ -28,6 +29,6 @@ function detectLang(): Lang {
 }
 
 const lang = detectLang();
-const group = document.querySelector<HTMLElement>(".theme")!;
-group.lang = lang;
-themeSwitch(group, (key) => TEXT[lang][key]);
+const prefs = document.querySelector<HTMLElement>(".prefs")!;
+prefs.lang = lang;
+prefsMenu(prefs, (key) => TEXT[lang][key]);

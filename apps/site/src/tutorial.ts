@@ -5,7 +5,7 @@
 // browser marks events from people as trusted and those from scripts (the
 // extension's, here) as not.
 
-import { themeSwitch } from "./theme";
+import { prefsMenu } from "./prefs";
 
 type Lang = "pt-BR" | "en" | "es";
 const LANGS: Lang[] = ["pt-BR", "en", "es"];
@@ -16,10 +16,11 @@ const TEXT: Record<Lang, Record<string, string>> = {
     docDescription: "Exercícios para aprender a usar a extensão do Keyless no navegador.",
     skip: "Pular para o conteúdo",
     language: "Idioma",
+    prefs: "Idioma e tema",
     theme: "Tema",
-    themeSystem: "Tema do sistema",
-    themeLight: "Tema claro",
-    themeDark: "Tema escuro",
+    themeSystem: "Sistema",
+    themeLight: "Claro",
+    themeDark: "Escuro",
     eyebrow: "Tutorial · extensão do navegador",
     title: "Pratique <em>aqui.</em>",
     lede: "Três exercícios rápidos nesta página. Nada do que você digitar sai daqui: os formulários são de mentira.",
@@ -79,10 +80,11 @@ const TEXT: Record<Lang, Record<string, string>> = {
     docDescription: "Exercises to learn the Keyless browser extension.",
     skip: "Skip to content",
     language: "Language",
+    prefs: "Language and theme",
     theme: "Theme",
-    themeSystem: "System theme",
-    themeLight: "Light theme",
-    themeDark: "Dark theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
     eyebrow: "Tutorial · browser extension",
     title: "Practice <em>here.</em>",
     lede: "Three quick exercises on this page. Nothing you type leaves it: the forms are pretend.",
@@ -142,10 +144,11 @@ const TEXT: Record<Lang, Record<string, string>> = {
     docDescription: "Ejercicios para aprender a usar la extensión de Keyless en el navegador.",
     skip: "Saltar al contenido",
     language: "Idioma",
+    prefs: "Idioma y tema",
     theme: "Tema",
-    themeSystem: "Tema del sistema",
-    themeLight: "Tema claro",
-    themeDark: "Tema oscuro",
+    themeSystem: "Sistema",
+    themeLight: "Claro",
+    themeDark: "Oscuro",
     eyebrow: "Tutorial · extensión del navegador",
     title: "Practica <em>aquí.</em>",
     lede: "Tres ejercicios rápidos en esta página. Nada de lo que escribas sale de aquí: los formularios son de mentira.",
@@ -227,7 +230,19 @@ function detectLang(): Lang {
 
 let lang: Lang = detectLang();
 const t = (key: string) => TEXT[lang][key] ?? TEXT.en[key] ?? key;
-const nameThemes = themeSwitch(document.querySelector<HTMLElement>(".theme")!, t);
+// The language and theme menu in the header.
+const namePrefs = prefsMenu(document.querySelector<HTMLElement>(".prefs")!, t, {
+  current: () => lang,
+  choose: (next) => {
+    lang = next;
+    try {
+      localStorage.setItem("lang", lang);
+    } catch {
+      // Private window: the choice lasts for this page only.
+    }
+    applyLang();
+  },
+});
 
 /** What each exercise shows when done (kept to show it again in another
  * language). */
@@ -241,24 +256,10 @@ function applyLang() {
   // Only strings from TEXT above, which hold no outside data.
   for (const el of document.querySelectorAll<HTMLElement>("[data-i18n-html]")) el.innerHTML = t(el.dataset.i18nHtml!);
   for (const el of document.querySelectorAll<HTMLElement>("[data-i18n-aria]")) el.setAttribute("aria-label", t(el.dataset.i18nAria!));
-  for (const button of document.querySelectorAll<HTMLButtonElement>(".lang button")) {
-    button.setAttribute("aria-pressed", String(button.dataset.lang === lang));
-  }
-  nameThemes();
+  namePrefs();
   for (const name of Object.keys(state)) render(name);
 }
 
-for (const button of document.querySelectorAll<HTMLButtonElement>(".lang button")) {
-  button.addEventListener("click", () => {
-    lang = button.dataset.lang as Lang;
-    try {
-      localStorage.setItem("lang", lang);
-    } catch {
-      // Private window: the choice lasts for this page only.
-    }
-    applyLang();
-  });
-}
 
 function render(name: string) {
   const done = document.querySelector<HTMLElement>(`[data-done="${name}"]`);

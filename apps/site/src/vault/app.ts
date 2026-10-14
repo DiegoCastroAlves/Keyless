@@ -7,7 +7,7 @@
 // text, never as HTML.
 
 import init, { call } from "../../vendor/keyless-wasm/keyless_wasm.js";
-import { themeGroup, themeSwitch } from "../theme";
+import { prefsControl, prefsMenu } from "../prefs";
 import { categoryLabel, categoryPlural, errorText, fieldLabel, formatDate, lang, t, type TextKey } from "./i18n";
 import { server, ServerError, type Session } from "./server";
 
@@ -95,10 +95,10 @@ const root = document.getElementById("root")!;
 document.title = t("title");
 document.documentElement.lang = lang;
 
-// The theme buttons: in the bar above the sign-in screens and in the
-// vault's own bar.
-const themeButtons = themeGroup();
-themeSwitch(themeButtons, t);
+// The theme menu: in the bar above the sign-in screens and in the vault's
+// own bar.
+const prefs = prefsControl();
+prefsMenu(prefs, t);
 
 // ----- DOM helpers -----------------------------------------------------------------
 
@@ -123,7 +123,7 @@ const brand = () => h("strong", { class: "brand" }, h("img", { src: "/icon-32.pn
 
 /** A screen of its own in the middle of the page, under the bar. */
 function centered(...children: Node[]) {
-  root.replaceChildren(h("header", { class: "bar" }, brand(), themeButtons), h("main", { class: "center" }, ...children));
+  root.replaceChildren(h("header", { class: "bar" }, brand(), prefs), h("main", { class: "center" }, ...children));
 }
 
 function input(type: string, name: string, autocomplete: string) {
@@ -437,9 +437,9 @@ function mainScreen() {
         { class: "top" },
         brand(),
         searchBox(),
-        themeButtons,
         button(t("settings"), () => settingsDialog(), "ghost"),
         button(t("lock"), () => void lock(), "ghost"),
+        prefs,
       ),
       h("nav", { class: "side", id: "side" }),
       h("section", { class: "list", id: "list" }),
