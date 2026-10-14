@@ -9,13 +9,17 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.content.ClipboardManager
 import androidx.credentials.CreateCredentialResponse
+import androidx.credentials.CreatePasswordRequest
 import androidx.credentials.CreatePublicKeyCredentialRequest
 import androidx.credentials.CredentialManager
 import androidx.credentials.CredentialManagerCallback
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
+import androidx.credentials.GetPasswordOption
 import androidx.credentials.GetPublicKeyCredentialOption
+import androidx.credentials.PasswordCredential
 import androidx.credentials.PublicKeyCredential
 import androidx.credentials.exceptions.CreateCredentialException
 import androidx.credentials.exceptions.GetCredentialException
@@ -55,7 +59,70 @@ class LoginActivity : Activity() {
         column.addView(Button(this).apply { text = "Create passkey"; setOnClickListener { createPasskey(status) } })
         column.addView(Button(this).apply { text = "Sign in with passkey"; setOnClickListener { usePasskey(status) } })
         column.addView(status)
+        // Passwords through Credential Manager, and what is on the clipboard (a code copied after filling).
+        val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        more.addView(Button(this).apply { text = "Save password"; setOnClickListener { savePassword(username.text.toString(), password.text.toString(), status) } })
+        more.addView(Button(this).apply { text = "Get password"; setOnClickListener { getPassword(username, password, status) } })
+        more.addView(Button(this).apply { text = "Paste"; setOnClickListener { paste(status) } })
+        column.addView(more)
+        // A clipboard keyboards show nothing from (their chips go first).
+        column.addView(Button(this).apply {
+            text = "Clear clipboard"
+            setOnClickListener {
+                getSystemService(ClipboardManager::class.java)?.clearPrimaryClip()
+                status.text = "Clipboard cleared"
+            }
+        })
         setContentView(column)
+    }
+
+    private fun savePassword(id: String, secret: String, status: TextView) {
+        CredentialManager.create(this).createCredentialAsync(
+            this,
+            CreatePasswordRequest(id, secret),
+            null,
+            mainExecutor,
+            object : CredentialManagerCallback<CreateCredentialResponse, CreateCredentialException> {
+                override fun onResult(result: CreateCredentialResponse) {
+                    status.text = "Password saved"
+                }
+
+                override fun onError(e: CreateCredentialException) {
+                    status.text = "Save failed: ${e.type} ${e.message}"
+                }
+            },
+        )
+    }
+
+    private fun getPassword(username: EditText, password: EditText, status: TextView) {
+        CredentialManager.create(this).getCredentialAsync(
+            this,
+            GetCredentialRequest(listOf(GetPasswordOption())),
+            null,
+            mainExecutor,
+            object : CredentialManagerCallback<GetCredentialResponse, GetCredentialException> {
+                override fun onResult(result: GetCredentialResponse) {
+                    val credential = result.credential as? PasswordCredential
+                    if (credential == null) {
+                        status.text = "No password"
+                        return
+                    }
+                    username.setText(credential.id)
+                    password.setText(credential.password)
+                    status.text = "Got password for ${credential.id}"
+                }
+
+                override fun onError(e: GetCredentialException) {
+                    status.text = "Get failed: ${e.type} ${e.message}"
+                }
+            },
+        )
+    }
+
+    private fun paste(status: TextView) {
+        val clip = getSystemService(ClipboardManager::class.java)?.primaryClip
+        val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(this).toString() else ""
+        status.text = "Clipboard: [$text]"
     }
 
     private fun challenge(): String =

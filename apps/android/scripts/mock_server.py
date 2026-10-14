@@ -187,6 +187,14 @@ class Handler(BaseHTTPRequestHandler):
                 devices[body["id"]] = {"id": body["id"], "secret": "x", "enc_info": body.get("enc_info", "not-for-this-account"), "ip": "203.0.113.9", "country": "PT",
                                        "created_at": "2026-10-01T10:00:00Z", "last_seen_at": "2026-10-13T10:00:00Z", "revoked_at": None}
             return self.answer(201, {})
+        if url.path == "/test/items":
+            # More of the fixture's items, by key ("autofillItems": a card and an identity).
+            with lock:
+                for row in fixture.get(body.get("key", ""), []):
+                    if row["id"] not in items:
+                        seq[0] += 1
+                        items[row["id"]] = dict(row, seq=seq[0])
+            return self.answer(201, {})
         if url.path == "/test/device_request":
             with lock:
                 requests[body["id"]] = dict(body, status="pending", approver_key=None, approver_nonce=None, nonce=None, enc_payload=None, created_at="2026-10-14T10:00:00Z", expires_at="2026-10-14T10:10:00Z", mine=False)
