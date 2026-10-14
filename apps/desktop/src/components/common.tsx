@@ -145,9 +145,9 @@ export const PasswordInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HT
 );
 
 /** Per strength level (0 to 6): the bar and the word. */
-const STRENGTH_COLORS = ["bg-danger", "bg-danger", "bg-warning", "bg-accent", "bg-success", "bg-success", "bg-success"];
-const STRENGTH_TEXT = ["text-danger", "text-danger", "text-warning", "text-accent", "text-success", "text-success", "text-success"];
-const LEVELS = [0, 1, 2, 3, 4, 5, 6];
+export const STRENGTH_COLORS = ["bg-danger", "bg-danger", "bg-warning", "bg-accent", "bg-success", "bg-success", "bg-success"];
+export const STRENGTH_TEXT = ["text-danger", "text-danger", "text-warning", "text-accent", "text-success", "text-success", "text-success"];
+export const LEVELS = [0, 1, 2, 3, 4, 5, 6];
 
 export function useStrength(password: string, email?: string): Strength | null {
   const [strength, setStrength] = useState<Strength | null>(null);

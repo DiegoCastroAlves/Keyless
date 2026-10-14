@@ -481,6 +481,15 @@ SSH keys kept in items; private keys never leave Keyless.
   replaces the old one only once it downloaded whole, reads as the list it
   should be and is not suspiciously short; it is written beside the old one
   and renamed over it, so a failed or broken download keeps the old copy.
+  Each list can be turned off on its own in Sentinel (all are on by
+  default): it is then not downloaded, its copy on disk is deleted, and its
+  alert shows as off. Whether a list is on is checked again before each
+  download and, under the same lock that deletes a list turned off, before
+  its copy is written, so a download under way cannot bring it back.
+- "Learn more" on a breached website shows what that list already says
+  about the breach (its name, date, size and the kinds of data that
+  leaked); nothing else is fetched for it, and the list's text is shown as
+  text, never as HTML.
 - Passwords are looked up in Have I Been Pwned with k-anonymity: only the
   first 5 characters of each password's SHA-1 hash leave the device, and
   responses are padded. This runs when the user asks or, with the setting
@@ -493,12 +502,28 @@ SSH keys kept in items; private keys never leave Keyless.
   other items already use it are checked on this device only; partial
   passwords are never sent anywhere (a series of hash prefixes for a
   password being typed could reveal it).
-- Ignored alerts are stored in the item's encrypted overview.
+- Ignored alerts are stored in the item's encrypted overview. One that no
+  longer applies (the problem was fixed) is marked so and can be removed,
+  one by one or all at once (one new version per item). An alert that
+  depends on a list turned off or not downloaded yet, or on a password never
+  checked online, is never taken for fixed.
+- "Use HTTPS" on an unsecured website changes the item's `http://`
+  addresses on plain http's own port (none, or an explicit 80, which is
+  dropped) to `https://`, and saves the item like any edit: a new version,
+  synced. It is not offered for an address on another port, and refused for
+  an item in Recently Deleted (saving it would restore it). Keyless does
+  not check that the website answers on `https`; it says to open it and
+  see.
+- The overview can look at one vault instead of all of them, and counts the
+  passwords at each strength level (the levels the item view shows); both
+  are computed on this device from the same report.
 - New serious alerts (breached passwords and websites, dates due, LastPass
   imports) can be announced with a system notification, which says how
   many there are and never which items (notifications can show on a
   locked screen). Which alerts were announced is kept like the checks:
-  encrypted, by item id. Notification texts come translated from the page.
+  encrypted, by item id; those from a list that is off or not downloaded
+  stay remembered, so turning it back on does not announce them again.
+  Notification texts come translated from the page.
 - On a website, the browser extension can warn about its logins whose
   password was found in breaches, or that the website lost after the
   password was set. It asks Keyless only about the page it is on (as it
@@ -512,8 +537,21 @@ SSH keys kept in items; private keys never leave Keyless.
   dependency or build folders, at most 256 KB each, a few hundred
   thousand entries and 90 seconds in all), the usual credential files and
   `~/.ssh`. It recognizes about 80 public token formats and variables named
-  like secrets, and SSH private keys without a passphrase. Nothing leaves
-  the computer: no secret is ever tried against its service. The page gets
+  like secrets, and SSH private keys without a passphrase, of an outdated
+  type (DSA) or too short (RSA under 2048 bits). A key's type and length
+  come from its public part, which OpenSSH key files keep in clear (or from
+  the `.pub` file beside an older key), so no passphrase is asked for. Key
+  files whose key is already in a Keyless SSH key item are pointed out, so
+  the copy on disk can go. Since that invites deleting the file, it counts
+  only private keys on both sides: the SHA-256 fingerprint of the key in
+  the file itself (the key, or the public part an OpenSSH key keeps in
+  clear) against those of the private keys kept in SSH key items. An item
+  with only a public key or a fingerprint, or a `.pub` file beside the key,
+  never makes a key "saved", and an older encrypted key, whose key cannot
+  be told without its passphrase, never is.
+  For a key without a passphrase it offers to copy `ssh-keygen -p -f
+  <path>`, which the user runs; Keyless never does. Nothing leaves the
+  computer: no secret is ever tried against its service. The page gets
   only where a secret is, what kind it is and a few of its characters.
   Saving one reads the file again and checks it still holds the same secret
   (by hash) before making the item; moving a file to the trash is only for

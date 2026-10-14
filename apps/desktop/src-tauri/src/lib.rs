@@ -411,6 +411,8 @@ pub fn run() {
             commands::share_list,
             commands::share_revoke,
             commands::set_sentinel_ignored,
+            commands::sentinel_unignore,
+            commands::sentinel_use_https,
             commands::ssh_import_key,
             commands::ssh_request,
             commands::ssh_request_ready,

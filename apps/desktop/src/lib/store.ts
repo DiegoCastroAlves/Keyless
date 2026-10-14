@@ -56,6 +56,13 @@ export interface ListFilters {
   untagged?: boolean;
   /** Only items that keep a passkey. */
   passkey?: boolean;
+  /** Only items whose password is at this strength level (0 to 6). */
+  strength?: number;
+}
+
+/** Some filter is in use (strength level 0 counts). */
+export function hasFilters(filters: ListFilters): boolean {
+  return Object.values(filters).some((v) => v !== undefined && v !== false && v !== "");
 }
 
 /** How many searches are remembered (for this session only: a search says
@@ -325,7 +332,7 @@ export interface ListExtras {
   /** Items whose details match the search. */
   detailMatches?: Set<string> | null;
   passkeyItems?: Set<string> | null;
-  /** Password strength per item (Sentinel), for sorting by it. */
+  /** Password strength per item (Sentinel), for sorting and filtering by it. */
   levels?: Record<string, number>;
 }
 
@@ -372,6 +379,7 @@ export function filterItems(
     if (f.tag && !item.tags.some((t) => t === f.tag || t.startsWith(`${f.tag}/`))) return false;
     if (f.untagged && item.tags.length > 0) return false;
     if (f.passkey && !extras.passkeyItems?.has(item.id)) return false;
+    if (f.strength !== undefined && extras.levels?.[item.id] !== f.strength) return false;
     if (!q) return true;
     return (
       item.title.toLowerCase().includes(q) ||

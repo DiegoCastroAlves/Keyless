@@ -294,6 +294,11 @@ pub fn update_settings(app: AppHandle, state: State<'_, AppState>, settings: Set
             crate::site_icons::clear(&app)?;
         }
     }
+    if (settings.sentinel_breach_list, settings.sentinel_two_factor_list, settings.sentinel_passkey_list)
+        != (current.sentinel_breach_list, current.sentinel_two_factor_list, current.sentinel_passkey_list)
+    {
+        health::lists_changed(&app);
+    }
     Ok(settings)
 }
 
@@ -553,6 +558,21 @@ pub async fn open_item_url(app: AppHandle, state: State<'_, AppState>, item_id: 
 pub async fn set_sentinel_ignored(app: AppHandle, state: State<'_, AppState>, item_id: String, alert: String, ignored: bool) -> AppResult<()> {
     state.touch();
     items::set_sentinel_ignored(&app, &item_id, &alert, ignored).await
+}
+
+/// Watches again ignored alerts, (item id, alert) pairs: the ones Sentinel
+/// says no longer apply.
+#[tauri::command]
+pub async fn sentinel_unignore(app: AppHandle, state: State<'_, AppState>, pairs: Vec<(String, String)>) -> AppResult<()> {
+    state.touch();
+    items::unignore_sentinel(&app, &pairs).await
+}
+
+/// Moves the item's websites on plain `http` to `https`.
+#[tauri::command]
+pub async fn sentinel_use_https(app: AppHandle, state: State<'_, AppState>, item_id: String) -> AppResult<()> {
+    state.touch();
+    health::use_https(&app, &item_id).await
 }
 
 #[tauri::command]

@@ -1,13 +1,15 @@
 // Sentinel for developers: secrets left in files on this computer (.env
 // files, credential files, SSH keys without a passphrase), each to save in
-// Keyless, show in its folder, move to the trash or ignore.
+// Keyless, show in its folder, move to the trash or ignore; and SSH keys of
+// an outdated type or too short, or already saved in Keyless.
 
-import { Bell, BellOff, Check, FileKey2, FolderOpen, Save, Search, Trash2 } from "lucide-react";
+import { Bell, BellOff, Check, FileKey2, FolderOpen, Save, Search, SquareArrowOutUpRight, Terminal, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button, Dialog, IconButton, Tooltip } from "../../components/ui";
 import { api, errorMessage, type DevFinding, type DevScan } from "../../lib/api";
+import { showLinkedItem } from "../../lib/itemLinks";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
@@ -30,7 +32,27 @@ export function DevSecrets() {
     }
   };
 
-  const kindLabel = (f: DevFinding) => t(`devScan.kinds.${f.kind}`, { service: f.service, defaultValue: f.service || f.kind });
+  const kindLabel = (f: DevFinding) => t(`devScan.kinds.${f.kind}`, { service: f.service, bits: f.bits, defaultValue: f.service || f.kind });
+  // Key files whose key is already in Keyless: nothing to save there.
+  const savedPaths = useMemo(() => new Set((scan?.findings ?? []).filter((f) => f.savedIn).map((f) => f.path)), [scan]);
+  const isSaved = (f: DevFinding) => saved.has(f.id) || savedPaths.has(f.path);
+  // What else to say under a finding: why an SSH key needs attention.
+  const hintOf = (f: DevFinding) =>
+    f.savedIn
+      ? t("devScan.savedIn", { title: f.savedIn.title })
+      : f.kind === "ssh_key_outdated" || f.kind === "ssh_key_short"
+        ? t("devScan.weakKeyHint")
+        : null;
+
+  const copyCommand = async (f: DevFinding) => {
+    if (!f.command) return;
+    try {
+      const result = await api.copyText(f.command);
+      toast.copied(t("devScan.command"), result.clearAfterSeconds);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
 
   const save = async (f: DevFinding) => {
     const { vaults, settings, loadData } = useApp.getState();
@@ -104,50 +126,71 @@ export function DevSecrets() {
                 {findings[0].shownPath}
               </div>
               <div className="mt-1 divide-y divide-line overflow-hidden rounded-lg border border-line">
-                {findings.map((f) => (
-                  <div key={f.id} className={f.ignored ? "flex items-center gap-3 px-3 py-2 opacity-60" : "flex items-center gap-3 px-3 py-2"}>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] font-medium">
-                        {kindLabel(f)}
-                        {f.key && <span className="ml-1.5 font-mono text-xs font-normal text-muted">{f.key}</span>}
+                {findings.map((f) => {
+                  const hint = hintOf(f);
+                  // An SSH key's other findings (outdated, short, saved) have nothing to save.
+                  const savable = !f.kind.startsWith("ssh_key_");
+                  return (
+                    <div key={f.id} className={f.ignored ? "flex items-center gap-3 px-3 py-2 opacity-60" : "flex items-center gap-3 px-3 py-2"}>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium">
+                          {kindLabel(f)}
+                          {f.key && <span className="ml-1.5 font-mono text-xs font-normal text-muted">{f.key}</span>}
+                        </div>
+                        <div className="truncate font-mono text-xs text-subtle">
+                          {f.preview}
+                          {f.line > 0 && <span className="ml-2 font-sans">{t("devScan.line", { line: f.line })}</span>}
+                        </div>
+                        {hint && <div className="text-xs leading-snug text-muted">{hint}</div>}
                       </div>
-                      <div className="truncate font-mono text-xs text-subtle">
-                        {f.preview}
-                        {f.line > 0 && <span className="ml-2 font-sans">{t("devScan.line", { line: f.line })}</span>}
-                      </div>
-                    </div>
-                    {saved.has(f.id) ? (
-                      <span className="flex items-center gap-1 text-xs text-success">
-                        <Check className="size-3.5" /> {t("devScan.savedShort")}
-                      </span>
-                    ) : (
-                      <Tooltip content={t("devScan.save")}>
-                        <IconButton label={t("devScan.save")} onClick={() => void save(f)} className="size-7">
-                          <Save className="size-3.5" />
+                      {f.savedIn && (
+                        <Tooltip content={t("devScan.openItem")}>
+                          <IconButton label={t("devScan.openItem")} onClick={() => showLinkedItem(f.savedIn!.itemId)} className="size-7">
+                            <SquareArrowOutUpRight className="size-3.5" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {f.command && (
+                        <Tooltip content={t("devScan.copyCommand")}>
+                          <IconButton label={t("devScan.copyCommand")} onClick={() => void copyCommand(f)} className="size-7">
+                            <Terminal className="size-3.5" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {savable &&
+                        (isSaved(f) ? (
+                          <span className="flex items-center gap-1 text-xs text-success">
+                            <Check className="size-3.5" /> {t("devScan.savedShort")}
+                          </span>
+                        ) : (
+                          <Tooltip content={t("devScan.save")}>
+                            <IconButton label={t("devScan.save")} onClick={() => void save(f)} className="size-7">
+                              <Save className="size-3.5" />
+                            </IconButton>
+                          </Tooltip>
+                        ))}
+                      <Tooltip content={t("devScan.reveal")}>
+                        <IconButton
+                          label={t("devScan.reveal")}
+                          onClick={() => void api.devSecretReveal(f.id).catch((err) => toast.error(errorMessage(err)))}
+                          className="size-7"
+                        >
+                          <FolderOpen className="size-3.5" />
                         </IconButton>
                       </Tooltip>
-                    )}
-                    <Tooltip content={t("devScan.reveal")}>
-                      <IconButton
-                        label={t("devScan.reveal")}
-                        onClick={() => void api.devSecretReveal(f.id).catch((err) => toast.error(errorMessage(err)))}
-                        className="size-7"
-                      >
-                        <FolderOpen className="size-3.5" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content={t("devScan.trash")}>
-                      <IconButton label={t("devScan.trash")} onClick={() => setTrashing(f)} className="size-7">
-                        <Trash2 className="size-3.5" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip content={f.ignored ? t("devScan.unignore") : t("devScan.ignore")}>
-                      <IconButton label={f.ignored ? t("devScan.unignore") : t("devScan.ignore")} onClick={() => void ignore(f, !f.ignored)} className="size-7">
-                        {f.ignored ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
-                      </IconButton>
-                    </Tooltip>
-                  </div>
-                ))}
+                      <Tooltip content={t("devScan.trash")}>
+                        <IconButton label={t("devScan.trash")} onClick={() => setTrashing(f)} className="size-7">
+                          <Trash2 className="size-3.5" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip content={f.ignored ? t("devScan.unignore") : t("devScan.ignore")}>
+                        <IconButton label={f.ignored ? t("devScan.unignore") : t("devScan.ignore")} onClick={() => void ignore(f, !f.ignored)} className="size-7">
+                          {f.ignored ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+                        </IconButton>
+                      </Tooltip>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -162,7 +205,7 @@ export function DevSecrets() {
         open={trashing !== null}
         onOpenChange={(open) => !open && setTrashing(null)}
         title={t("devScan.trashTitle")}
-        description={t(trashing && saved.has(trashing.id) ? "devScan.trashBodySaved" : "devScan.trashBody", { path: trashing?.shownPath ?? "" })}
+        description={t(trashing && isSaved(trashing) ? "devScan.trashBodySaved" : "devScan.trashBody", { path: trashing?.shownPath ?? "" })}
       >
         <div className="flex justify-end gap-2">
           <Button onClick={() => setTrashing(null)}>{t("common.cancel")}</Button>

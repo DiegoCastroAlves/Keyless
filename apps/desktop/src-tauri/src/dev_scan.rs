@@ -1,14 +1,17 @@
 //! Sentinel for developers: secrets left in files on this computer. It looks
 //! in `.env` files (outside hidden folders, dependency folders and the like),
 //! in the usual credential files (`~/.git-credentials`, `~/.npmrc`,
-//! `~/.aws/credentials`…), and for SSH private keys without a passphrase in
-//! `~/.ssh`. What it finds can be saved in Keyless, after which the file can
-//! go to the trash. It only runs when the user asks, reads at most a few
-//! hundred kilobytes per file, and never sends anything anywhere (no
-//! secret is ever tried against its service).
+//! `~/.aws/credentials`…), and at the SSH private keys in `~/.ssh`: keys
+//! without a passphrase, of an outdated type (DSA) or too short (RSA under
+//! 2048 bits), and keys already saved in a Keyless SSH key item (compared by
+//! fingerprint), whose copy on disk is not needed. What it finds can be
+//! saved in Keyless, after which the file can go to the trash. It only runs
+//! when the user asks, reads at most a few hundred kilobytes per file, and
+//! never sends anything anywhere (no secret is ever tried against its
+//! service).
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, Instant},
@@ -17,6 +20,7 @@ use std::{
 use keyless_core::item::{Category, Field, FieldKind, FieldPurpose, new_field_id};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use ssh_key::{HashAlg, PrivateKey, PublicKey, public::KeyData};
 use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
@@ -43,8 +47,8 @@ const MAX_FILE: u64 = 256 * 1024;
 const CREDENTIAL_FILES: [&str; 8] =
     [".git-credentials", ".npmrc", ".pypirc", ".netrc", ".aws/credentials", ".docker/config.json", ".config/gh/hosts.yml", ".yarnrc.yml"];
 
-/// One secret found.
-#[derive(Clone, Serialize)]
+/// One finding: a secret, or an SSH key that needs attention.
+#[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Finding {
     /// Stable for the same secret in the same place.
@@ -53,7 +57,9 @@ pub struct Finding {
     pub format: String,
     /// What it is, for the UI to word: "token", "key", "secret", "webhook",
     /// "webhook_secret", "private_key", "database_password",
-    /// "url_password", "jwt", "ssh_key" or "secret_variable".
+    /// "url_password", "jwt", "secret_variable", or for SSH keys: "ssh_key"
+    /// (no passphrase), "ssh_key_outdated" (DSA), "ssh_key_short" (RSA
+    /// under 2048 bits) or "ssh_key_saved" (already in Keyless).
     pub kind: String,
     /// The service it is for ("GitHub"), when known.
     pub service: String,
@@ -67,7 +73,27 @@ pub struct Finding {
     /// The secret, mostly hidden ("ghp_…3kd"), or an SSH key's fingerprint.
     pub preview: String,
     pub ignored: bool,
+    /// A key too short: its length in bits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bits: Option<u32>,
+    /// A key already saved in Keyless: the item it is in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saved_in: Option<SavedKey>,
+    /// A key without a passphrase: the command that adds one, to copy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
 }
+
+/// An SSH key item.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedKey {
+    pub item_id: String,
+    pub title: String,
+}
+
+/// The SSH keys saved in Keyless: fingerprint (SHA-256) -> its item.
+type SavedKeys = HashMap<String, SavedKey>;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -184,7 +210,7 @@ fn scan_text(path: &Path, text: &str, out: &mut Vec<Finding>) {
                 line: number,
                 key: name.to_string(),
                 preview: secret_patterns::masked(value),
-                ignored: false,
+                ..Default::default()
             });
         }
         if found.is_empty() && !name.is_empty() && secret_patterns::secret_variable(name, value) {
@@ -198,15 +224,171 @@ fn scan_text(path: &Path, text: &str, out: &mut Vec<Finding>) {
                 line: number,
                 key: name.to_string(),
                 preview: secret_patterns::masked(value),
-                ignored: false,
+                ..Default::default()
             });
         }
     }
 }
 
-/// Private keys in `~/.ssh` that anyone who reads the file can use. Returns
-/// how many files it read.
-fn scan_ssh(home: &Path, out: &mut Vec<Finding>) -> usize {
+/// RSA keys shorter than this are too short.
+const MIN_RSA_BITS: u32 = 2048;
+
+/// Why an SSH key should be replaced.
+#[derive(Debug, PartialEq)]
+enum WeakKey {
+    /// DSA: outdated, and refused by current OpenSSH.
+    Dsa,
+    /// RSA shorter than 2048 bits: its length.
+    ShortRsa(u32),
+}
+
+fn weak_key(key: &KeyData) -> Option<WeakKey> {
+    match key {
+        KeyData::Dsa(_) => Some(WeakKey::Dsa),
+        KeyData::Rsa(rsa) => {
+            let n = rsa.n.as_positive_bytes().unwrap_or_default();
+            let bits = n.first().map_or(0, |first| n.len() as u32 * 8 - first.leading_zeros());
+            (bits < MIN_RSA_BITS).then_some(WeakKey::ShortRsa(bits))
+        }
+        _ => None,
+    }
+}
+
+/// What a private key file tells without its passphrase.
+struct KeyFile {
+    /// The key, when the file has no passphrase.
+    open: Option<PrivateKey>,
+    /// The public key of the private key in the file itself: the key, or
+    /// what an OpenSSH key keeps in clear beside its encrypted part. Only
+    /// this says which key the file holds (whether Keyless has it).
+    own: Option<PublicKey>,
+    /// A public key to describe it with: its own, or else the `.pub` file
+    /// beside it (an older encrypted key keeps none in clear). Unverified:
+    /// good for a warning, never for "already saved".
+    public: Option<PublicKey>,
+    weak: Option<WeakKey>,
+}
+
+/// The public key a private key text holds without its passphrase: from the
+/// key when it has none, or the part an OpenSSH key keeps in clear.
+fn own_public_key(text: &str) -> Option<PublicKey> {
+    // OpenSSH keys say whether they are encrypted only once parsed.
+    let open = if text.contains("ENCRYPTED") { None } else { crate::ssh_keys::parse_private(text, None).ok() };
+    match open {
+        Some(key) => Some(key.public_key().clone()),
+        None => PrivateKey::from_openssh(crate::ssh_keys::normalize_pem(text).as_bytes()).ok().map(|key| key.public_key().clone()),
+    }
+}
+
+fn key_file(path: &Path, text: &str) -> KeyFile {
+    let open = if text.contains("ENCRYPTED") { None } else { crate::ssh_keys::parse_private(text, None).ok() };
+    let own = match &open {
+        Some(key) => Some(key.public_key().clone()),
+        None => PrivateKey::from_openssh(crate::ssh_keys::normalize_pem(text).as_bytes()).ok().map(|key| key.public_key().clone()),
+    };
+    let public = own.clone().or_else(|| {
+        let mut pub_path = path.as_os_str().to_owned();
+        pub_path.push(".pub");
+        read_small(Path::new(&pub_path)).and_then(|text| PublicKey::from_openssh(text.trim()).ok())
+    });
+    let weak = match &public {
+        Some(public) => weak_key(public.key_data()),
+        // Old PEM keys with no public key beside them.
+        None if text.contains("BEGIN DSA PRIVATE KEY") => Some(WeakKey::Dsa),
+        None if text.contains("BEGIN RSA PRIVATE KEY") && !text.contains("ENCRYPTED") => {
+            use rsa::{pkcs1::DecodeRsaPrivateKey, traits::PublicKeyParts};
+            let bits = rsa::RsaPrivateKey::from_pkcs1_pem(&crate::ssh_keys::normalize_pem(text)).ok().map(|key| key.n().bits() as u32);
+            bits.filter(|bits| *bits < MIN_RSA_BITS).map(WeakKey::ShortRsa)
+        }
+        None => None,
+    };
+    KeyFile { open, own, public, weak }
+}
+
+/// The command that adds a passphrase to a key file (`ssh-keygen` asks for
+/// it), for the user to copy and run; the path quoted for the shell when it
+/// needs to be.
+fn passphrase_command(path: &str, windows: bool) -> String {
+    format!("ssh-keygen -p -f {}", if windows { powershell_quote(path) } else { posix_quote(path) })
+}
+
+/// A path for PowerShell (the Windows terminal's shell): in single quotes,
+/// where nothing expands (`$`, backticks; `,` would split it), with `'`
+/// doubled; plain when it has only letters, digits and `\:._-`.
+fn powershell_quote(path: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "\\:._-".contains(c);
+    if !path.is_empty() && path.chars().all(plain) {
+        return path.to_string();
+    }
+    format!("'{}'", path.replace('\'', "''"))
+}
+
+/// A path for bash, zsh and fish alike: runs of ordinary characters in
+/// single quotes, and `'` and `\` outside them, escaped with a backslash
+/// (fish reads `\\` and `\'` as escapes even inside single quotes); plain
+/// when it has only letters, digits and `/._-+,@`.
+fn posix_quote(path: &str) -> String {
+    let plain = |c: char| c.is_ascii_alphanumeric() || "/._-+,@".contains(c);
+    if !path.is_empty() && path.chars().all(plain) {
+        return path.to_string();
+    }
+    let mut out = String::new();
+    let mut open = false;
+    for c in path.chars() {
+        if c == '\'' || c == '\\' {
+            if open {
+                out.push('\'');
+                open = false;
+            }
+            out.push('\\');
+        } else if !open {
+            out.push('\'');
+            open = true;
+        }
+        out.push(c);
+    }
+    if open {
+        out.push('\'');
+    }
+    if out.is_empty() { "''".into() } else { out }
+}
+
+/// The fingerprints of the private keys an SSH key item holds. Only a
+/// private key counts: an item with just a public key or a fingerprint
+/// cannot stand in for the file.
+fn item_fingerprints<'a>(fields: impl Iterator<Item = &'a Field>) -> BTreeSet<String> {
+    fields
+        .filter(|field| field.value.contains("-----BEGIN ") && field.value.contains("PRIVATE KEY-----"))
+        .filter_map(|field| own_public_key(&field.value))
+        .map(|public| public.fingerprint(HashAlg::Sha256).to_string())
+        .collect()
+}
+
+/// The SSH keys in Keyless's SSH key items (not in Recently Deleted).
+async fn saved_keys(state: &AppState) -> AppResult<SavedKeys> {
+    let guard = state.session.lock().await;
+    let session = guard.as_ref().ok_or(AppError::Locked)?;
+    let store = state.store();
+    let mut saved = SavedKeys::new();
+    for (id, cached) in &session.items {
+        let o = &cached.overview;
+        if o.category != Category::SshKey || o.trashed_at.is_some() {
+            continue;
+        }
+        let Ok(Some(local)) = store.item(id) else { continue };
+        let (Some(enc), Ok(vault)) = (local.enc_details.as_deref(), session.vault(&local.vault_id)) else { continue };
+        let Ok(details) = vault.key.open_details(&local.vault_id, id, enc) else { continue };
+        for fingerprint in item_fingerprints(details.all_fields()) {
+            saved.entry(fingerprint).or_insert_with(|| SavedKey { item_id: id.clone(), title: o.title.clone() });
+        }
+    }
+    Ok(saved)
+}
+
+/// The private keys in `~/.ssh`: without a passphrase (anyone who reads the
+/// file can use them), of an outdated type or too short, or already saved in
+/// Keyless (the copy on disk is not needed). Returns how many files it read.
+fn scan_ssh(home: &Path, saved: &SavedKeys, out: &mut Vec<Finding>) -> usize {
     let mut files = 0;
     let Ok(read) = std::fs::read_dir(home.join(".ssh")) else { return 0 };
     for entry in read.flatten() {
@@ -217,35 +399,46 @@ fn scan_ssh(home: &Path, out: &mut Vec<Finding>) -> usize {
         }
         let Some(text) = read_small(&path) else { continue };
         files += 1;
-        if !text.contains("PRIVATE KEY-----") || text.contains("ENCRYPTED") {
+        if !text.contains("PRIVATE KEY-----") {
             continue;
         }
-        // OpenSSH keys say whether they are encrypted only once parsed.
-        let Ok(key) = crate::ssh_keys::parse_private(&text, None) else { continue };
-        out.push(Finding {
-            id: finding_id(&path, 0, "ssh_key", &text),
-            format: "ssh_key".into(),
-            kind: "ssh_key".into(),
-            service: String::new(),
+        let key = key_file(&path, &text);
+        let fingerprint = |public: &Option<PublicKey>| public.as_ref().map(|public| public.fingerprint(HashAlg::Sha256).to_string());
+        // Which key the file holds, from the file itself; to show, the
+        // `.pub` file beside it will do.
+        let (own, shown) = (fingerprint(&key.own), fingerprint(&key.public));
+        let finding = |kind: &str| Finding {
+            id: finding_id(&path, 0, kind, &text),
+            format: kind.into(),
+            kind: kind.into(),
             path: path.to_string_lossy().into_owned(),
-            shown_path: String::new(),
-            line: 0,
-            key: name,
-            preview: key.fingerprint(ssh_key::HashAlg::Sha256).to_string(),
-            ignored: false,
-        });
+            key: name.clone(),
+            preview: shown.clone().unwrap_or_default(),
+            ..Default::default()
+        };
+        if key.open.is_some() {
+            out.push(Finding { command: Some(passphrase_command(&path.to_string_lossy(), cfg!(windows))), ..finding("ssh_key") });
+        }
+        match key.weak {
+            Some(WeakKey::Dsa) => out.push(finding("ssh_key_outdated")),
+            Some(WeakKey::ShortRsa(bits)) => out.push(Finding { bits: Some(bits), ..finding("ssh_key_short") }),
+            None => {}
+        }
+        if let Some(item) = own.as_ref().and_then(|f| saved.get(f)) {
+            out.push(Finding { saved_in: Some(item.clone()), ..finding("ssh_key_saved") });
+        }
     }
     files
 }
 
 /// Looks for secrets under the home folder (blocking: run it on a thread).
-fn scan_blocking(ignored: &BTreeSet<String>) -> ScanResult {
+fn scan_blocking(ignored: &BTreeSet<String>, saved: &SavedKeys) -> ScanResult {
     let mut findings = Vec::new();
     let mut files = 0;
     let mut walker = Walker { started: Instant::now(), entries: 0, partial: false };
     let home = home();
     if let Some(home) = &home {
-        files += scan_ssh(home, &mut findings);
+        files += scan_ssh(home, saved, &mut findings);
         let credential_files = CREDENTIAL_FILES.iter().map(|f| home.join(f));
         for path in walker.env_files(home).into_iter().chain(credential_files) {
             if let Some(text) = read_small(&path) {
@@ -271,7 +464,8 @@ const IGNORED_ROW: &str = "dev_ignored";
 pub async fn scan(app: &AppHandle) -> AppResult<ScanResult> {
     let state = app.state::<AppState>();
     let ignored: BTreeSet<String> = crate::health::load_private(&state, IGNORED_ROW).await?.unwrap_or_default();
-    let result = tauri::async_runtime::spawn_blocking(move || scan_blocking(&ignored)).await.map_err(|e| AppError::Store(e.to_string()))?;
+    let saved = saved_keys(&state).await?;
+    let result = tauri::async_runtime::spawn_blocking(move || scan_blocking(&ignored, &saved)).await.map_err(|e| AppError::Store(e.to_string()))?;
     *LAST.lock().unwrap_or_else(|e| e.into_inner()) = result.findings.clone();
     state.touch();
     Ok(result)
@@ -311,6 +505,10 @@ fn field(label: &str, kind: FieldKind, value: &str, purpose: Option<FieldPurpose
 /// otherwise, noting where it was found. `label` is what the UI calls it.
 pub async fn save(app: &AppHandle, id: &str, vault_id: &str, label: &str, notes: &str) -> AppResult<ItemSummary> {
     let finding = last(id)?;
+    // A key's other findings (outdated, short, saved) have nothing new to save.
+    if finding.format.starts_with("ssh_key_") {
+        return Err(AppError::Invalid(Msg::new("invalid_request")));
+    }
     let secret = secret_of(&finding)?;
     let folder = Path::new(&finding.path).parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let draft = if finding.format == "ssh_key" {
@@ -395,6 +593,123 @@ mod tests {
         assert_eq!(assignment("token = 'x y'"), Some(("token", "x y")));
         assert_eq!(assignment("  \"auth\": \"value\","), Some(("auth", "value")));
         assert_eq!(assignment("# SECRET=nope"), None);
+    }
+
+    use ssh_key::{
+        Algorithm, LineEnding, Mpint,
+        public::{DsaPublicKey, RsaPublicKey},
+        rand_core::OsRng,
+    };
+
+    fn rsa(modulus: &[u8]) -> KeyData {
+        KeyData::Rsa(RsaPublicKey { e: Mpint::from_positive_bytes(&[1, 0, 1]).unwrap(), n: Mpint::from_positive_bytes(modulus).unwrap() })
+    }
+
+    fn dsa() -> KeyData {
+        let n = |byte: u8| Mpint::from_positive_bytes(&[byte; 128]).unwrap();
+        KeyData::Dsa(DsaPublicKey { p: n(0xd1), q: n(0xd2), g: n(0x03), y: n(0x44) })
+    }
+
+    fn temp_home() -> PathBuf {
+        let home = std::env::temp_dir().join(format!("keyless-dev-scan-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(home.join(".ssh")).unwrap();
+        home
+    }
+
+    #[test]
+    fn ssh_key_strength() {
+        assert_eq!(weak_key(&dsa()), Some(WeakKey::Dsa));
+        assert_eq!(weak_key(&rsa(&[0xc5; 128])), Some(WeakKey::ShortRsa(1024)));
+        // One bit short of 2048.
+        assert_eq!(weak_key(&rsa(&[0x45; 256])), Some(WeakKey::ShortRsa(2047)));
+        assert_eq!(weak_key(&rsa(&[0xc5; 256])), None);
+        assert_eq!(weak_key(&rsa(&[0xc5; 512])), None);
+        let ed25519 = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+        assert_eq!(weak_key(ed25519.public_key().key_data()), None);
+
+        // Old PEM keys: by their header, or by the public key beside them.
+        let home = temp_home();
+        let pem = |kind: &str| format!("-----BEGIN {kind} PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nAAAA\n-----END {kind} PRIVATE KEY-----\n");
+        assert_eq!(key_file(&home.join(".ssh/id_dsa"), &pem("DSA")).weak, Some(WeakKey::Dsa));
+        let id_rsa = home.join(".ssh/id_rsa");
+        assert_eq!(key_file(&id_rsa, &pem("RSA")).weak, None);
+        std::fs::write(home.join(".ssh/id_rsa.pub"), PublicKey::new(rsa(&[0xc5; 96]), "old").to_openssh().unwrap()).unwrap();
+        let old = key_file(&id_rsa, &pem("RSA"));
+        assert_eq!(old.weak, Some(WeakKey::ShortRsa(768)));
+        assert!(old.open.is_none());
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn keys_already_saved() {
+        let home = temp_home();
+        let ssh = home.join(".ssh");
+        let field = |value: &str| Field { id: "f".into(), label: "key".into(), kind: FieldKind::Concealed, value: value.into(), purpose: None, extra: Default::default() };
+        let mut saved = SavedKeys::new();
+        let mut save = |id: &str, fields: Vec<Field>| {
+            for fingerprint in item_fingerprints(fields.iter()) {
+                saved.insert(fingerprint, SavedKey { item_id: id.into(), title: id.to_uppercase() });
+            }
+        };
+        // Without a passphrase, its private key in an item.
+        let in_item = crate::ssh_keys::generate("saved").unwrap();
+        std::fs::write(ssh.join("id_saved"), &in_item.private_key).unwrap();
+        std::fs::write(ssh.join("id_saved.pub"), &in_item.public_key).unwrap();
+        save("a", vec![field(&in_item.private_key)]);
+        // With a passphrase: its public part is in the file, in clear.
+        let protected = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).unwrap();
+        std::fs::write(ssh.join("id_protected"), protected.encrypt(&mut OsRng, "correct horse").unwrap().to_openssh(LineEnding::LF).unwrap()).unwrap();
+        save("b", vec![field(&protected.to_openssh(LineEnding::LF).unwrap())]);
+        // Only its public key and fingerprint in an item: not a copy of it.
+        let public_only = crate::ssh_keys::generate("public only").unwrap();
+        std::fs::write(ssh.join("id_public_only"), &public_only.private_key).unwrap();
+        save("c", vec![field(&public_only.public_key), field(&public_only.fingerprint)]);
+        // An older encrypted key: which key it holds is unknown without its
+        // passphrase, whatever the `.pub` beside it says.
+        let beside = crate::ssh_keys::generate("old").unwrap();
+        std::fs::write(ssh.join("id_old"), "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nAAAA\n-----END RSA PRIVATE KEY-----\n").unwrap();
+        std::fs::write(ssh.join("id_old.pub"), &beside.public_key).unwrap();
+        save("d", vec![field(&beside.private_key)]);
+        // Not in Keyless.
+        std::fs::write(ssh.join("id_other"), crate::ssh_keys::generate("other").unwrap().private_key).unwrap();
+        std::fs::write(ssh.join("known_hosts"), "github.com ssh-ed25519 AAAA").unwrap();
+
+        assert!(item_fingerprints([field(&public_only.public_key), field(&public_only.fingerprint)].iter()).is_empty());
+        let mut out = Vec::new();
+        // known_hosts and public keys are not read.
+        assert_eq!(scan_ssh(&home, &saved, &mut out), 5);
+        let mut found: Vec<(&str, &str, Option<&str>)> = out.iter().map(|f| (f.key.as_str(), f.kind.as_str(), f.saved_in.as_ref().map(|s| s.item_id.as_str()))).collect();
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                ("id_other", "ssh_key", None),
+                ("id_protected", "ssh_key_saved", Some("b")),
+                ("id_public_only", "ssh_key", None),
+                ("id_saved", "ssh_key", None),
+                ("id_saved", "ssh_key_saved", Some("a")),
+            ]
+        );
+        let unprotected = out.iter().find(|f| f.key == "id_saved" && f.kind == "ssh_key").unwrap();
+        assert_eq!(unprotected.preview, in_item.fingerprint);
+        assert!(unprotected.command.as_deref().unwrap().starts_with("ssh-keygen -p -f "));
+        // Each finding of a file has its own id, so each can be ignored.
+        assert_eq!(out.iter().map(|f| &f.id).collect::<BTreeSet<_>>().len(), out.len());
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn passphrase_commands() {
+        // bash, zsh and fish.
+        assert_eq!(passphrase_command("/home/ana/.ssh/id_rsa", false), "ssh-keygen -p -f /home/ana/.ssh/id_rsa");
+        assert_eq!(passphrase_command("/home/ana/my keys/id", false), "ssh-keygen -p -f '/home/ana/my keys/id'");
+        assert_eq!(passphrase_command("/home/ana/it's/id", false), r"ssh-keygen -p -f '/home/ana/it'\''s/id'");
+        assert_eq!(passphrase_command("/home/ana/$HOME/`x`/id", false), "ssh-keygen -p -f '/home/ana/$HOME/`x`/id'");
+        assert_eq!(passphrase_command(r"/home/ana/a\b/id", false), r"ssh-keygen -p -f '/home/ana/a'\\'b/id'");
+        // PowerShell: nothing expands in single quotes, and `,` stays inside.
+        assert_eq!(passphrase_command(r"C:\Users\ana\.ssh\id_rsa", true), r"ssh-keygen -p -f C:\Users\ana\.ssh\id_rsa");
+        assert_eq!(passphrase_command(r"C:\Users\Ana Maria\.ssh\id_rsa", true), r"ssh-keygen -p -f 'C:\Users\Ana Maria\.ssh\id_rsa'");
+        assert_eq!(passphrase_command(r"C:\Users\O'Brien\$x,y`z\%TEMP%\id", true), r"ssh-keygen -p -f 'C:\Users\O''Brien\$x,y`z\%TEMP%\id'");
     }
 
     #[test]

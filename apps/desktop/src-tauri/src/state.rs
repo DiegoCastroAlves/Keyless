@@ -75,6 +75,13 @@ pub struct Settings {
     /// they are saved (see `health`). Named anew when it became the default,
     /// so it is on for everyone once (the old `sentinel_auto` was off).
     pub sentinel_check_passwords: bool,
+    /// Download the public lists Sentinel compares websites with, each on
+    /// its own (see `health`): breached websites, websites with two-factor
+    /// codes and websites that accept passkeys. One turned off is neither
+    /// downloaded nor kept, and its alert is off.
+    pub sentinel_breach_list: bool,
+    pub sentinel_two_factor_list: bool,
+    pub sentinel_passkey_list: bool,
     /// Vault new items go into ("" picks one: the vault being viewed, or
     /// the first one the user owns).
     pub default_vault: String,
@@ -101,7 +108,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { auto_lock_minutes: 10, auto_lock_app_only: false, lock_on_close: false, master_password_days: 1, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, sentinel_notifications: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), fill_shortcut: "Ctrl+Backslash".into(), trash_attached_files: false }
+        Self { auto_lock_minutes: 10, auto_lock_app_only: false, lock_on_close: false, master_password_days: 1, clipboard_clear_seconds: 90, lock_on_sleep: true, theme: "system".into(), language: "system".into(), browser_integration: true, check_updates: true, system_unlock: false, list_sort: "title".into(), list_sort_desc: false, close_to_tray: true, start_at_login: false, start_minimized: true, quick_access_shortcut: "Ctrl+Shift+Space".into(), site_icons: true, ssh_agent: false, sentinel_check_passwords: true, sentinel_breach_list: true, sentinel_two_factor_list: true, sentinel_passkey_list: true, sentinel_notifications: true, default_vault: String::new(), prefill_username: true, start_view: "all".into(), density: "comfortable".into(), zoom: 100, show_shortcut: String::new(), lock_shortcut: String::new(), fill_shortcut: "Ctrl+Backslash".into(), trash_attached_files: false }
     }
 }
 

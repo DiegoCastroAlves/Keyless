@@ -22,7 +22,7 @@ import { ContextMenu, Popover } from "radix-ui";
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import { ItemIcon } from "../../components/common";
+import { ItemIcon, LEVELS } from "../../components/common";
 import {
   Button,
   Dialog,
@@ -41,11 +41,11 @@ import {
 import { api, errorMessage, type Category, type DeletedVault, type ItemSummary, type ListSort } from "../../lib/api";
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
 import { itemIdOfLink, showLinkedItem } from "../../lib/itemLinks";
-import { isPending, useIssues, useSentinel } from "../../lib/sentinel";
-import { filterItems, groupLabel, useApp, viewTitle, type ListOrder } from "../../lib/store";
+import { isOff, isPending, useInScope, useScopedIssues, useSentinel } from "../../lib/sentinel";
+import { filterItems, groupLabel, hasFilters, useApp, viewTitle, type ListOrder } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { MoveItemsDialog } from "./MoveDialog";
-import { AlertPicker } from "./Sentinel";
+import { AlertPicker, SentinelSummary } from "./Sentinel";
 
 /** What the search box (outside the list) can do with it. */
 export interface ItemListControl {
@@ -70,15 +70,22 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
     () => ({ sort: settings?.list_sort ?? "title", desc: settings?.list_sort_desc ?? false }),
     [settings?.list_sort, settings?.list_sort_desc],
   );
-  // Sentinel's lists: the items with the chosen alert.
-  const issues = useIssues();
+  // Sentinel's lists: the items with the chosen alert, in the vault it
+  // looks at (or every vault).
+  const issues = useScopedIssues();
+  const inScope = useInScope();
   const sentinelReport = useSentinel((s) => s.report);
   const alert = view.kind === "sentinel" ? view.alert : undefined;
   const only = useMemo(() => {
     if (!alert) return undefined;
-    if (alert === "ignored") return new Set((sentinelReport?.ignored ?? []).map(([id]) => id));
+    if (alert === "ignored") return new Set((sentinelReport?.ignored ?? []).map(([id]) => id).filter((id) => !inScope || inScope(id)));
     return new Set(issues.get(alert)!.keys());
-  }, [alert, issues, sentinelReport]);
+  }, [alert, issues, sentinelReport, inScope]);
+  // In the ignored list: the items with an ignored alert that no longer applies.
+  const staleItems = useMemo(
+    () => (alert === "ignored" ? new Set((sentinelReport?.stale ?? []).map(([id]) => id)) : null),
+    [alert, sentinelReport],
+  );
   const filters = useApp((s) => s.filters);
   const detailMatches = useApp((s) => s.detailMatches);
   const passkeyItems = useApp((s) => s.passkeyItems);
@@ -199,7 +206,9 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         </div>
       )}
       {view.kind === "trash" && <DeletedVaults />}
+      {view.kind === "all" && !search.trim() && <SentinelSummary />}
       {alert === "duplicate" && <DeleteDuplicates />}
+      {alert === "ignored" && <RemoveStaleIgnores />}
 
       <div
         ref={listRef}
@@ -231,9 +240,11 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
         {visible.length === 0 ? (
           alert ? (
             <p className="px-6 py-14 text-center text-sm text-subtle">
-              {alert !== "ignored" && isPending(sentinelReport, alert)
-                ? t("sentinel.listNotChecked")
-                : t(alert === "ignored" ? "sentinel.ignoredEmpty" : "sentinel.listEmpty")}
+              {alert !== "ignored" && isOff(sentinelReport, alert)
+                ? t("sentinel.listOff")
+                : alert !== "ignored" && isPending(sentinelReport, alert)
+                  ? t("sentinel.listNotChecked")
+                  : t(alert === "ignored" ? "sentinel.ignoredEmpty" : "sentinel.listEmpty")}
             </p>
           ) : (
             <EmptyList query={search} canCreate={canCreate} onNewItem={() => onNewItem("login")} />
@@ -253,6 +264,7 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
                   item={item}
                   selected={selection.length > 1 ? selection.includes(item.id) : item.id === selectedId}
                   onSelect={(e) => clickRow(item, e)}
+                  note={staleItems?.has(item.id) ? t("sentinel.staleShort") : undefined}
                 />
               </div>
             );
@@ -344,7 +356,7 @@ function FilterMenu() {
   const items = useApp((s) => s.items);
   const setFilters = useApp((s) => s.setFilters);
   const tags = useMemo(() => [...new Set(items.flatMap((i) => i.tags.map((tag) => tag.split("/")[0])))].sort((a, b) => a.localeCompare(b)), [items]);
-  const active = Object.values(filters).some(Boolean);
+  const active = hasFilters(filters);
   return (
     <Menu>
       <MenuTrigger asChild>
@@ -399,6 +411,19 @@ function FilterMenu() {
           </>
         )}
         <MenuSeparator />
+        <MenuLabel>{t("filters.strength")}</MenuLabel>
+        <MenuRadioGroup
+          value={filters.strength === undefined ? "" : String(filters.strength)}
+          onValueChange={(v) => setFilters({ ...filters, strength: v === "" ? undefined : Number(v) })}
+        >
+          <MenuRadioItem value="">{t("filters.any")}</MenuRadioItem>
+          {LEVELS.map((level) => (
+            <MenuRadioItem key={level} value={String(level)}>
+              {t(`strength.${level}`)}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+        <MenuSeparator />
         <MenuItem onSelect={() => setFilters({ ...filters, passkey: !filters.passkey || undefined })}>
           <span className="flex w-full items-center justify-between gap-3">
             {t("filters.passkey")}
@@ -430,6 +455,9 @@ function FilterChips() {
   if (filters.tag) chips.push({ label: `#${filters.tag}`, clear: () => setFilters({ ...filters, tag: undefined }) });
   if (filters.untagged) chips.push({ label: t("filters.untagged"), clear: () => setFilters({ ...filters, untagged: undefined }) });
   if (filters.passkey) chips.push({ label: t("filters.passkey"), clear: () => setFilters({ ...filters, passkey: undefined }) });
+  if (filters.strength !== undefined) {
+    chips.push({ label: t("filters.strengthChip", { level: t(`strength.${filters.strength}`) }), clear: () => setFilters({ ...filters, strength: undefined }) });
+  }
   if (chips.length === 0) return null;
   return (
     <div className="mx-3 mb-2 flex flex-wrap gap-1.5">
@@ -470,8 +498,8 @@ function EmptyList({ query, canCreate, onNewItem }: { query: string; canCreate: 
 
 const ItemRowButton = forwardRef<
   HTMLButtonElement,
-  { item: ItemSummary; selected: boolean; onSelect: (e: React.MouseEvent) => void; onContextMenu?: React.MouseEventHandler<HTMLButtonElement> }
->(function ItemRowButton({ item, selected, onSelect, onContextMenu, ...props }, ref) {
+  { item: ItemSummary; selected: boolean; note?: string; onSelect: (e: React.MouseEvent) => void; onContextMenu?: React.MouseEventHandler<HTMLButtonElement> }
+>(function ItemRowButton({ item, selected, note, onSelect, onContextMenu, ...props }, ref) {
   return (
     <button
       ref={ref}
@@ -493,12 +521,13 @@ const ItemRowButton = forwardRef<
         <div className={cx("truncate text-[13.5px] font-medium", selected && "text-fg")}>{item.title}</div>
         <div className="truncate text-xs text-muted">{item.subtitle || " "}</div>
       </div>
+      {note && <span className="shrink-0 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success">{note}</span>}
       {item.favorite && <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-400" />}
     </button>
   );
 });
 
-function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: boolean; onSelect: (e: React.MouseEvent) => void }) {
+function ItemRow({ item, selected, note, onSelect }: { item: ItemSummary; selected: boolean; note?: string; onSelect: (e: React.MouseEvent) => void }) {
   const { t } = useTranslation();
   const loadData = useApp((s) => s.loadData);
   const startEditing = useApp((s) => s.startEditing);
@@ -528,7 +557,7 @@ function ItemRow({ item, selected, onSelect }: { item: ItemSummary; selected: bo
     <>
       <ContextMenu.Root>
         <ContextMenu.Trigger asChild>
-          <ItemRowButton item={item} selected={selected} onSelect={onSelect} />
+          <ItemRowButton item={item} selected={selected} note={note} onSelect={onSelect} />
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content className="z-50 min-w-52 rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop">
@@ -805,7 +834,7 @@ function DeletedVaults() {
 function DeleteDuplicates() {
   const { t } = useTranslation();
   const report = useSentinel((s) => s.report);
-  const issues = useIssues();
+  const issues = useScopedIssues();
   const items = useApp((s) => s.items);
   const vaults = useApp((s) => s.vaults);
   const [confirm, setConfirm] = useState(false);
@@ -861,6 +890,44 @@ function DeleteDuplicates() {
           </Button>
         </div>
       </Dialog>
+    </div>
+  );
+}
+
+/** Sentinel's ignored alerts that no longer apply (fixed since they were
+ * ignored), in the vault it looks at: removed all at once. */
+function RemoveStaleIgnores() {
+  const { t } = useTranslation();
+  const report = useSentinel((s) => s.report);
+  const inScope = useInScope();
+  const items = useApp((s) => s.items);
+  const vaults = useApp((s) => s.vaults);
+  const [busy, setBusy] = useState(false);
+
+  const writable = new Set(vaults.filter((v) => v.canWrite).map((v) => v.id));
+  const vaultOf = new Map(items.map((i) => [i.id, i.vaultId]));
+  const stale = (report?.stale ?? []).filter(([id]) => (!inScope || inScope(id)) && writable.has(vaultOf.get(id) ?? ""));
+  if (stale.length === 0) return null;
+
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.sentinelUnignore(stale);
+      await useApp.getState().loadData();
+      toast.success(t("sentinel.staleRemoved", { count: stale.length }));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mx-3 mb-2 space-y-1 rounded-lg bg-panel-2 px-3 py-2 text-xs text-muted">
+      <p>{t("sentinel.staleHint", { count: stale.length })}</p>
+      <button onClick={() => void remove()} disabled={busy} className="font-medium text-accent hover:underline disabled:opacity-50">
+        {t("sentinel.removeStale", { count: stale.length })}
+      </button>
     </div>
   );
 }

@@ -205,6 +205,11 @@ export interface Settings {
   ssh_agent: boolean;
   /** Run Sentinel's online check by itself once a day. */
   sentinel_check_passwords: boolean;
+  /** Download the public lists Sentinel compares websites with, each on its
+   * own: breached websites, two-factor codes, passkeys. */
+  sentinel_breach_list: boolean;
+  sentinel_two_factor_list: boolean;
+  sentinel_passkey_list: boolean;
   /** Announce Sentinel's new serious alerts with system notifications. */
   sentinel_notifications: boolean;
   /** Vault for new items ("" picks one). */
@@ -282,9 +287,10 @@ export interface Vault {
 /** A secret the developer scan found in a file. */
 export interface DevFinding {
   id: string;
-  /** The format ("github_token"…), "ssh_key" or "secret_variable". */
+  /** The format ("github_token"…), "secret_variable", or an SSH key's
+   * finding ("ssh_key", "ssh_key_outdated", "ssh_key_short", "ssh_key_saved"). */
   format: string;
-  /** What it is ("token", "key", "private_key"…), for the UI to word. */
+  /** What it is ("token", "key", "private_key", "ssh_key_saved"…), for the UI to word. */
   kind: string;
   /** The service it is for ("GitHub"), when known. */
   service: string;
@@ -298,6 +304,12 @@ export interface DevFinding {
   /** Mostly hidden, or an SSH key's fingerprint. */
   preview: string;
   ignored: boolean;
+  /** A key too short: its length in bits. */
+  bits?: number;
+  /** A key already saved in Keyless: the item it is in. */
+  savedIn?: { itemId: string; title: string };
+  /** A key without a passphrase: the command that adds one, to copy. */
+  command?: string;
 }
 
 export interface DevScan {
@@ -587,6 +599,8 @@ export interface HealthReport {
   duplicates: string[][];
   /** Items with a website on plain http. */
   unsecured: string[];
+  /** Those whose website can simply move to https (no other port): "Use HTTPS". */
+  httpsReady: string[];
   expiring: { id: string; expiresAt: number; expired: boolean }[];
   /** Items whose password was seen in breaches, with how often. */
   breached: [string, number][];
@@ -609,8 +623,14 @@ export interface HealthReport {
   listsUpdatedAt: number | null;
   /** Alerts the user ignored: [item id, alert]. */
   ignored: [string, SentinelAlert][];
+  /** The ignored alerts that no longer apply (fixed since): [item id, alert]. */
+  stale: [string, SentinelAlert][];
+  /** Alerts whose list is turned off in the settings. */
+  off: SentinelAlert[];
   /** Item id -> its password's strength level (0 to 6). */
   levels: Record<string, number>;
+  /** Vault id -> how many of its passwords are at each strength level (0 to 6). */
+  strengths: Record<string, number[]>;
 }
 
 /** The editor's check of a password being typed. */
@@ -638,6 +658,17 @@ export interface SiteIssue {
   site: string;
   /** Breach date (YYYY-MM-DD), for breached websites. */
   date?: string;
+  /** For breached websites, what Have I Been Pwned's list says about it. */
+  breach?: BreachDetails;
+}
+
+export interface BreachDetails {
+  /** The breach's name ("Adobe"). */
+  title: string;
+  /** What leaked, in the list's words ("Email addresses", "Passwords"…). */
+  dataClasses: string[];
+  /** Accounts in the breach. */
+  accounts: number;
 }
 
 export interface ImportSummary {
@@ -853,6 +884,10 @@ export const api = {
   setFavorite: (itemId: string, favorite: boolean) => invoke<void>("set_favorite", { itemId, favorite }),
   setSentinelIgnored: (itemId: string, alert: SentinelAlert, ignored: boolean) =>
     invoke<void>("set_sentinel_ignored", { itemId, alert, ignored }),
+  /** Watches again several ignored alerts (the ones that no longer apply). */
+  sentinelUnignore: (pairs: [string, SentinelAlert][]) => invoke<void>("sentinel_unignore", { pairs }),
+  /** Moves the item's websites on plain http to https (a new version). */
+  sentinelUseHttps: (itemId: string) => invoke<void>("sentinel_use_https", { itemId }),
   setArchived: (itemId: string, archived: boolean) => invoke<void>("set_archived", { itemId, archived }),
   trashItem: (itemId: string) => invoke<void>("trash_item", { itemId }),
   restoreItem: (itemId: string) => invoke<void>("restore_item", { itemId }),

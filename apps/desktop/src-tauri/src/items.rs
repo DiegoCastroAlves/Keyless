@@ -1064,10 +1064,11 @@ async fn update_overview(app: &AppHandle, item_id: &str, change: impl FnOnce(&mu
     Ok(())
 }
 
+const SENTINEL_ALERTS: [&str; 10] = ["weak", "reused", "breached", "compromised", "unsecured", "expiring", "two_factor", "passkey", "duplicate", "lastpass"];
+
 /// Ignores (or watches again) a Sentinel alert for the item.
 pub async fn set_sentinel_ignored(app: &AppHandle, item_id: &str, alert: &str, ignored: bool) -> AppResult<()> {
-    const ALERTS: [&str; 10] = ["weak", "reused", "breached", "compromised", "unsecured", "expiring", "two_factor", "passkey", "duplicate", "lastpass"];
-    if !ALERTS.contains(&alert) {
+    if !SENTINEL_ALERTS.contains(&alert) {
         return Err(AppError::Invalid(Msg::new("invalid_request")));
     }
     update_overview(app, item_id, |o| {
@@ -1077,6 +1078,26 @@ pub async fn set_sentinel_ignored(app: &AppHandle, item_id: &str, alert: &str, i
         }
     })
     .await
+}
+
+/// Watches again several ignored alerts, (item id, alert) pairs: one new
+/// version per item. An item that cannot be changed (a read-only vault)
+/// does not stop the others; the first error is returned at the end.
+pub async fn unignore_sentinel(app: &AppHandle, pairs: &[(String, String)]) -> AppResult<()> {
+    let mut by_item: std::collections::BTreeMap<&str, Vec<&str>> = std::collections::BTreeMap::new();
+    for (item_id, alert) in pairs {
+        if !SENTINEL_ALERTS.contains(&alert.as_str()) {
+            return Err(AppError::Invalid(Msg::new("invalid_request")));
+        }
+        by_item.entry(item_id).or_default().push(alert);
+    }
+    let mut failed = None;
+    for (item_id, alerts) in by_item {
+        if let Err(err) = update_overview(app, item_id, |o| o.sentinel_ignored.retain(|a| !alerts.contains(&a.as_str()))).await {
+            failed.get_or_insert(err);
+        }
+    }
+    failed.map_or(Ok(()), Err)
 }
 
 pub async fn set_favorite(app: &AppHandle, item_id: &str, favorite: bool) -> AppResult<()> {

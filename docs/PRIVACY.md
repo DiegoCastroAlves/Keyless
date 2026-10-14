@@ -72,7 +72,8 @@ than the items shared with that address.
   websites, and of websites with two-factor codes or passkeys, that Sentinel
   downloads whole once a day and keeps on your device to compare there.
   Nothing about your items is sent to them; like any download, they see the
-  request's IP address.
+  request's IP address. Each list can be turned off in Sentinel: it is then
+  not downloaded, and the copy on your device is deleted.
 
 Keyless has no ads, no analytics or tracking, and never sells or shares your
 data.
