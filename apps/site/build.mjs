@@ -66,7 +66,8 @@ await build({
 // tell the next site where they came from. Each page may connect only where
 // it needs: the share page to the Keyless server, the home page to GitHub
 // (for the newest release). The rules for pages do not overlap, since
-// Cloudflare would join two policies for one page.
+// Cloudflare would join two policies for one page. The fonts may also load
+// from elsewhere: the account emails use them (supabase/templates).
 const csp = (connect, script = "'self'") =>
   [
     "default-src 'none'",
@@ -110,6 +111,8 @@ writeFileSync(
   Content-Security-Policy: ${csp(SUPABASE_URL)}
   Cache-Control: no-store
   X-Robots-Tag: noindex
+/fonts/*
+  Access-Control-Allow-Origin: *
 `,
 );
 console.log("built dist");

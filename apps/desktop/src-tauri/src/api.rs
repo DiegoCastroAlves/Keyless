@@ -225,10 +225,14 @@ impl Api {
 
     // ----- auth -----------------------------------------------------------
 
-    pub async fn sign_up(&self, email: &str, auth_secret: &str) -> AppResult<SignUpOutcome> {
-        let req = self
-            .request(Method::POST, self.url("auth/v1/signup", &[]), None)
-            .json(&json!({ "email": email, "password": auth_secret }));
+    /// `language` goes to the user's metadata, where the email templates read
+    /// it (supabase/templates).
+    pub async fn sign_up(&self, email: &str, auth_secret: &str, language: Option<&str>) -> AppResult<SignUpOutcome> {
+        let mut body = json!({ "email": email, "password": auth_secret });
+        if let Some(lang) = language.filter(|l| matches!(*l, "en" | "es" | "pt-BR")) {
+            body["data"] = json!({ "lang": lang });
+        }
+        let req = self.request(Method::POST, self.url("auth/v1/signup", &[]), None).json(&body);
         let body: Value = self.send(req).await?;
         if body.get("access_token").is_some() {
             let raw: RawSession = serde_json::from_value(body)?;

@@ -1,0 +1,1 @@
+{{- $lang := printf "%v" .Data.lang -}}{{ if eq $lang "en" }}Your Keyless access code{{ else if eq $lang "es" }}Tu código de acceso de Keyless{{ else }}Seu código de acesso do Keyless{{ end }}

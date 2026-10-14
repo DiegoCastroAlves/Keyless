@@ -30,7 +30,7 @@
     <main class="policy">
       <!-- The same policy as docs/PRIVACY.md, in each language. -->
       <article lang="en" data-policy="en">
-        <p class="eyebrow mono">Last updated: October 13, 2026</p>
+        <p class="eyebrow mono">Last updated: October 14, 2026</p>
         <h1>Privacy policy</h1>
         <p>
           Keyless is a zero-knowledge password manager. Everything you store in your vaults is encrypted on your device before it is sent
@@ -39,7 +39,7 @@
         </p>
         <h2>What the server stores</h2>
         <ul>
-          <li>Your email address, used to identify your account.</li>
+          <li>Your email address, used to identify your account, and the app's language when you created it, used only to write the account emails in it.</li>
           <li>Your encrypted vault data (ciphertext), your public key and your encrypted keys.</li>
           <li>Technical metadata needed to sync: how many vaults and items you have, approximate item sizes, and when they change.</li>
           <li>Connection logs kept by our hosting provider (IP address, time, request type) for security and operations.</li>
@@ -58,6 +58,13 @@
           They are stored with your account and used only to identify it. Keyless does not request access to any other Google data or service,
           and a Google sign-in never gives access to your vaults: unlocking them always requires your master password and Secret Key.
         </p>
+        <h2>Links shared with specific emails</h2>
+        <p>
+          When someone shares an item only with some email addresses, the server keeps a hash (SHA-256) of each address, not the address
+          itself. To open such a link, you enter your email and receive a one-time code. For that, the server keeps your email address and the
+          language of the page you used, and deletes them 30 days after your last code. This gives no access to anything other than the items
+          shared with that address.
+        </p>
         <h2>The browser extension</h2>
         <ul>
           <li>
@@ -73,6 +80,7 @@
         <h2>Third parties</h2>
         <ul>
           <li><strong>Supabase</strong> hosts the Keyless server (authentication and database).</li>
+          <li><strong>Resend</strong> delivers the account emails (confirmations and one-time codes): it receives the address and the email's text.</li>
           <li>
             <strong>Have I Been Pwned</strong> checks whether a password appears in known breaches for Sentinel: once a day and when you save a
             new password (you can turn this off in Sentinel), or when you ask. Only the first 5 characters of the password's SHA-1 hash are sent
@@ -96,7 +104,7 @@
       </article>
 
       <article lang="pt-BR" data-policy="pt-BR" hidden>
-        <p class="eyebrow mono">Atualizada em 13 de outubro de 2026</p>
+        <p class="eyebrow mono">Atualizada em 14 de outubro de 2026</p>
         <h1>Política de privacidade</h1>
         <p>
           O Keyless é um gerenciador de senhas de conhecimento zero. Tudo o que você guarda nos cofres é criptografado no seu dispositivo antes
@@ -105,7 +113,7 @@
         </p>
         <h2>O que o servidor guarda</h2>
         <ul>
-          <li>Seu e-mail, que identifica a sua conta.</li>
+          <li>Seu e-mail, que identifica a sua conta, e o idioma do app quando você a criou, usado só para escrever nele os e-mails da conta.</li>
           <li>Os dados criptografados dos cofres, sua chave pública e suas chaves criptografadas.</li>
           <li>Metadados técnicos para sincronizar: quantos cofres e itens você tem, o tamanho aproximado dos itens e quando mudam.</li>
           <li>Registros de conexão mantidos pelo provedor de hospedagem (endereço IP, horário, tipo de pedido), para segurança e operação.</li>
@@ -124,6 +132,13 @@
           guardados com a sua conta e servem só para identificá-la. O Keyless não pede acesso a nenhum outro dado ou serviço do Google, e entrar
           com o Google nunca dá acesso aos seus cofres: abri-los sempre exige a senha mestra e a Chave Secreta.
         </p>
+        <h2>Links compartilhados com e-mails específicos</h2>
+        <p>
+          Quando alguém compartilha um item só com alguns e-mails, o servidor guarda um hash (SHA-256) de cada endereço, não o endereço. Para
+          abrir um link assim, você informa seu e-mail e recebe um código de uso único. Para isso, o servidor guarda o seu e-mail e o idioma da
+          página que você usou, e os apaga 30 dias depois do seu último código. Isso não dá acesso a nada além dos itens compartilhados com esse
+          endereço.
+        </p>
         <h2>A extensão do navegador</h2>
         <ul>
           <li>
@@ -139,6 +154,7 @@
         <h2>Terceiros</h2>
         <ul>
           <li>O <strong>Supabase</strong> hospeda o servidor do Keyless (autenticação e banco de dados).</li>
+          <li><strong>Resend</strong> entrega os e-mails da conta (confirmações e códigos de uso único): recebe o endereço e o texto do e-mail.</li>
           <li>
             O <strong>Have I Been Pwned</strong> verifica se uma senha aparece em vazamentos conhecidos, para o Sentinela: uma vez por dia e quando
             você salva uma senha nova (dá para desligar no Sentinela), ou quando você pede. Só os 5 primeiros caracteres do hash SHA-1 da senha são
@@ -162,7 +178,7 @@
       </article>
 
       <article lang="es" data-policy="es" hidden>
-        <p class="eyebrow mono">Actualizada el 13 de octubre de 2026</p>
+        <p class="eyebrow mono">Actualizada el 14 de octubre de 2026</p>
         <h1>Política de privacidad</h1>
         <p>
           Keyless es un gestor de contraseñas de conocimiento cero. Todo lo que guardas en tus bóvedas se cifra en tu dispositivo antes de
@@ -171,7 +187,7 @@
         </p>
         <h2>Qué guarda el servidor</h2>
         <ul>
-          <li>Tu correo electrónico, que identifica tu cuenta.</li>
+          <li>Tu correo electrónico, que identifica tu cuenta, y el idioma de la app cuando la creaste, usado solo para escribir en él los correos de la cuenta.</li>
           <li>Los datos cifrados de tus bóvedas, tu clave pública y tus claves cifradas.</li>
           <li>Metadatos técnicos para sincronizar: cuántas bóvedas y elementos tienes, su tamaño aproximado y cuándo cambian.</li>
           <li>Registros de conexión del proveedor de alojamiento (dirección IP, hora, tipo de petición), por seguridad y operación.</li>
@@ -191,6 +207,13 @@
           solo sirven para identificarla. Keyless no pide acceso a ningún otro dato o servicio de Google, y entrar con Google nunca da acceso a tus
           bóvedas: abrirlas siempre exige la contraseña maestra y la Clave Secreta.
         </p>
+        <h2>Enlaces compartidos con correos concretos</h2>
+        <p>
+          Cuando alguien comparte un elemento solo con algunos correos, el servidor guarda un hash (SHA-256) de cada dirección, no la dirección.
+          Para abrir un enlace así, escribes tu correo y recibes un código de un solo uso. Para ello, el servidor guarda tu correo y el idioma de
+          la página que usaste, y los borra 30 días después de tu último código. Esto no da acceso a nada más que a los elementos compartidos con
+          esa dirección.
+        </p>
         <h2>La extensión del navegador</h2>
         <ul>
           <li>
@@ -206,6 +229,7 @@
         <h2>Terceros</h2>
         <ul>
           <li><strong>Supabase</strong> aloja el servidor de Keyless (autenticación y base de datos).</li>
+          <li><strong>Resend</strong> entrega los correos de la cuenta (confirmaciones y códigos de un solo uso): recibe la dirección y el texto del correo.</li>
           <li>
             <strong>Have I Been Pwned</strong> comprueba si una contraseña aparece en filtraciones conocidas, para Centinela: una vez al día y cuando
             guardas una contraseña nueva (puedes desactivarlo en Centinela), o cuando lo pides. Solo se envían los 5 primeros caracteres del hash

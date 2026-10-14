@@ -117,7 +117,8 @@ pub async fn status(state: &AppState) -> AppResult<AppStatus> {
     })
 }
 
-pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroizing<String>) -> AppResult<CreatedAccount> {
+/// `language` (the app's) picks the language of the confirmation email.
+pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroizing<String>, language: Option<&str>) -> AppResult<CreatedAccount> {
     let state = app.state::<AppState>();
     let email = normalize_email(email)?;
     validate_new_master_password(&master_password, &email)?;
@@ -129,7 +130,7 @@ pub async fn create_account(app: &AppHandle, email: &str, master_password: Zeroi
     let (keys, secret_key) = derive(master_password, SecretKey::generate()?, kdf.clone()).await?;
     let display = secret_key.to_display();
 
-    let outcome = state.api.sign_up(&email, &keys.auth_secret).await?;
+    let outcome = state.api.sign_up(&email, &keys.auth_secret, language).await?;
     // Only keep the Secret Key once the server accepted the sign-up.
     state.secrets.save_secret_key(&email, &secret_key)?;
     state.store().set_setting(PENDING_EMAIL, &email)?;

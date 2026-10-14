@@ -1,0 +1,61 @@
+{{- $lang := printf "%v" .Data.lang -}}
+<!doctype html>
+<html lang="{{ if eq $lang "en" }}en{{ else if eq $lang "es" }}es{{ else }}pt-BR{{ end }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Keyless</title>
+<style>
+@font-face { font-family: "Instrument Serif"; src: url("https://keyless.diegoalves.dev/fonts/instrument-serif-400.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "Instrument Serif"; src: url("https://keyless.diegoalves.dev/fonts/instrument-serif-400-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "IBM Plex Sans"; src: url("https://keyless.diegoalves.dev/fonts/ibm-plex-sans-400.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("https://keyless.diegoalves.dev/fonts/ibm-plex-sans-600.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+@font-face { font-family: "IBM Plex Mono"; src: url("https://keyless.diegoalves.dev/fonts/ibm-plex-mono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+@media (prefers-color-scheme: dark) {
+  .k-bg { background: #0f1113 !important; }
+  .k-ink { color: #ebe6da !important; }
+  .k-ink2 { color: #a19f97 !important; }
+  .k-accent { color: #3fd6c2 !important; }
+  .k-box { background: #171a1d !important; border-color: #ebe6da !important; }
+  .k-line { border-color: #ebe6da !important; }
+  .k-rule { border-color: #2b2f34 !important; }
+  .k-redact { background: #000000 !important; color: #ebe6da !important; }
+  .k-bar { color: #000000 !important; }
+  .k-btn { background: #ebe6da !important; border-color: #ebe6da !important; box-shadow: 4px 4px 0 #3fd6c2 !important; }
+  .k-btn a { color: #0f1113 !important; }
+}
+@media (max-width: 480px) {
+  .k-title { font-size: 36px !important; }
+  .k-code { font-size: 30px !important; letter-spacing: 0.22em !important; }
+}
+</style>
+</head>
+<body class="k-bg" style="margin:0;padding:0;background:#f3f0e8;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{{ if eq $lang "en" }}Confirm the email change on your Keyless account.{{ else if eq $lang "es" }}Confirma el cambio de correo de tu cuenta de Keyless.{{ else }}Confirme a troca do e-mail da sua conta Keyless.{{ end }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="k-bg" style="background:#f3f0e8;">
+<tr><td align="center" style="padding:32px 16px 40px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+<tr><td class="k-line" style="padding:0 0 18px;border-bottom:1px solid #15171a;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:0 10px 0 0;vertical-align:middle;"><img src="https://keyless.diegoalves.dev/icon-128.png" width="28" height="28" alt="" style="display:block;border:0;"></td>
+    <td class="k-ink" style="vertical-align:middle;font-family:'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;font-size:26px;line-height:1;color:#15171a;letter-spacing:-0.01em;">keyless</td>
+  </tr></table>
+</td></tr>
+<tr><td class="k-ink2" style="padding:32px 0 0;font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.5;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#555a61;">{{ if eq $lang "en" }}Account · email change{{ else if eq $lang "es" }}Cuenta · cambio de correo{{ else }}Conta · troca de e-mail{{ end }}</td></tr>
+<tr><td class="k-ink k-title" style="padding:12px 0 0;font-family:'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;font-size:44px;line-height:1.02;letter-spacing:-0.02em;color:#15171a;">{{ if eq $lang "en" }}Confirm the{{ else if eq $lang "es" }}Confirma el{{ else }}Confirme o{{ end }} <em class="k-accent" style="font-style:italic;color:#0b7366;">{{ if eq $lang "en" }}new email.{{ else if eq $lang "es" }}nuevo correo.{{ else }}novo e-mail.{{ end }}</em></td></tr>
+<tr><td class="k-ink2" style="padding:18px 0 0;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.6;color:#555a61;">{{ if eq $lang "en" }}Someone asked to change the email of your Keyless account. It changes only after both addresses confirm it.{{ else if eq $lang "es" }}Se pidió cambiar el correo de tu cuenta de Keyless. El cambio solo ocurre cuando ambas direcciones lo confirman.{{ else }}Pediram para trocar o e-mail da sua conta Keyless. A troca só acontece depois da confirmação nos dois endereços.{{ end }}</td></tr>
+<tr><td style="padding:26px 0 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="k-box" style="border:1px solid #15171a;background:#e8e3d6;"><tr><td class="k-rule" style="padding:14px 18px 16px;"><div class="k-ink2" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#555a61;padding:0 0 8px;">{{ if eq $lang "en" }}From{{ else if eq $lang "es" }}De{{ else }}De{{ end }}</div><div style=""><span class="k-ink" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:15px;line-height:1.4;color:#15171a;word-break:break-all;">{{ .Email }}</span></div></td></tr><tr><td class="k-rule" style="padding:14px 18px 16px;border-top:1px solid #cdc5b4;"><div class="k-ink2" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#555a61;padding:0 0 8px;">{{ if eq $lang "en" }}To{{ else if eq $lang "es" }}A{{ else }}Para{{ end }}</div><div style=""><span class="k-ink" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:15px;line-height:1.4;color:#15171a;word-break:break-all;">{{ .NewEmail }}</span></div></td></tr></table></td></tr>
+<tr><td style="padding:28px 0 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td class="k-btn" style="background:#15171a;border:2px solid #15171a;box-shadow:4px 4px 0 #0b7366;"><a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:14px 22px;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1;font-weight:600;color:#f3f0e8;text-decoration:none;">{{ if eq $lang "en" }}Confirm the change{{ else if eq $lang "es" }}Confirmar el cambio{{ else }}Confirmar a troca{{ end }} &rarr;</a></td></tr></table></td></tr>
+<tr><td class="k-ink2" style="padding:22px 0 0;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:1.6;color:#555a61;">{{ if eq $lang "en" }}If the button does not work, open this address:{{ else if eq $lang "es" }}Si el botón no funciona, abre esta dirección:{{ else }}Se o botão não funcionar, abra este endereço:{{ end }}<br><a href="{{ .ConfirmationURL }}" class="k-ink2" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:12px;line-height:1.5;color:#555a61;word-break:break-all;">{{ .ConfirmationURL }}</a></td></tr>
+<tr><td style="padding:32px 0 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="k-rule k-ink2" style="padding:18px 0 0;border-top:1px solid #cdc5b4;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:1.7;color:#555a61;">{{ if eq $lang "en" }}If this was not you, do not confirm. Open Keyless and check Settings → Devices to see where your account is signed in.{{ else if eq $lang "es" }}Si no fuiste tú, no lo confirmes. Abre Keyless y revisa en Ajustes → Dispositivos dónde está conectada tu cuenta.{{ else }}Se não foi você, não confirme. Abra o Keyless e veja em Configurações → Dispositivos onde sua conta está conectada.{{ end }}</td></tr></table></td></tr>
+<tr><td class="k-rule k-ink2" style="padding:20px 0 0;border-top:1px solid #cdc5b4;font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.7;letter-spacing:0.06em;color:#555a61;">
+  {{ if eq $lang "en" }}KEYLESS · OPEN-SOURCE PASSWORD MANAGER{{ else if eq $lang "es" }}KEYLESS · GESTOR DE CONTRASEÑAS DE CÓDIGO ABIERTO{{ else }}KEYLESS · GERENCIADOR DE SENHAS DE CÓDIGO ABERTO{{ end }}<br>
+  <a href="https://keyless.diegoalves.dev/" class="k-ink2" style="color:#555a61;text-decoration:underline;">keyless.diegoalves.dev</a>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

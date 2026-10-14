@@ -1,6 +1,6 @@
 # Keyless privacy policy
 
-Last updated: October 13, 2026
+Last updated: October 14, 2026
 
 Keyless is a zero-knowledge password manager. Everything you store in your
 vaults is encrypted on your device before it is sent anywhere, with keys that
@@ -10,7 +10,8 @@ server, can read your vaults.
 
 ## What the server stores
 
-- Your email address, used to identify your account.
+- Your email address, used to identify your account, and the app's language
+  when you created it, used only to write the account emails in it.
 - Your encrypted vault data (ciphertext), your public key and your encrypted
   keys.
 - Technical metadata needed to sync: how many vaults and items you have,
@@ -34,6 +35,15 @@ any other Google data or service, and a Google sign-in never gives access to
 your vaults: unlocking them always requires your master password and Secret
 Key.
 
+## Links shared with specific emails
+
+When someone shares an item only with some email addresses, the server keeps
+a hash (SHA-256) of each address, not the address itself. To open such a
+link, you enter your email and receive a one-time code. For that, the server
+keeps your email address and the language of the page you used, and deletes
+them 30 days after your last code. This gives no access to anything other
+than the items shared with that address.
+
 ## The browser extension
 
 - The extension talks only to the Keyless app on the same computer (the
@@ -51,6 +61,8 @@ Key.
 ## Third parties
 
 - **Supabase** hosts the Keyless server (authentication and database).
+- **Resend** delivers the account emails (confirmations and one-time codes):
+  it receives the address and the email's text.
 - **Have I Been Pwned** checks whether a password appears in known breaches
   for Sentinel: once a day and when you save a new password (you can turn
   this off in Sentinel), or when you ask. Only the first 5 characters of the

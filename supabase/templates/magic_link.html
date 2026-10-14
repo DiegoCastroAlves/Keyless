@@ -1,0 +1,60 @@
+{{- $lang := printf "%v" .Data.lang -}}
+<!doctype html>
+<html lang="{{ if eq $lang "en" }}en{{ else if eq $lang "es" }}es{{ else }}pt-BR{{ end }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Keyless</title>
+<style>
+@font-face { font-family: "Instrument Serif"; src: url("https://keyless.diegoalves.dev/fonts/instrument-serif-400.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "Instrument Serif"; src: url("https://keyless.diegoalves.dev/fonts/instrument-serif-400-italic.woff2") format("woff2"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "IBM Plex Sans"; src: url("https://keyless.diegoalves.dev/fonts/ibm-plex-sans-400.woff2") format("woff2"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "IBM Plex Sans"; src: url("https://keyless.diegoalves.dev/fonts/ibm-plex-sans-600.woff2") format("woff2"); font-weight: 600; font-style: normal; }
+@font-face { font-family: "IBM Plex Mono"; src: url("https://keyless.diegoalves.dev/fonts/ibm-plex-mono-500.woff2") format("woff2"); font-weight: 500; font-style: normal; }
+@media (prefers-color-scheme: dark) {
+  .k-bg { background: #0f1113 !important; }
+  .k-ink { color: #ebe6da !important; }
+  .k-ink2 { color: #a19f97 !important; }
+  .k-accent { color: #3fd6c2 !important; }
+  .k-box { background: #171a1d !important; border-color: #ebe6da !important; }
+  .k-line { border-color: #ebe6da !important; }
+  .k-rule { border-color: #2b2f34 !important; }
+  .k-redact { background: #000000 !important; color: #ebe6da !important; }
+  .k-bar { color: #000000 !important; }
+  .k-btn { background: #ebe6da !important; border-color: #ebe6da !important; box-shadow: 4px 4px 0 #3fd6c2 !important; }
+  .k-btn a { color: #0f1113 !important; }
+}
+@media (max-width: 480px) {
+  .k-title { font-size: 36px !important; }
+  .k-code { font-size: 30px !important; letter-spacing: 0.22em !important; }
+}
+</style>
+</head>
+<body class="k-bg" style="margin:0;padding:0;background:#f3f0e8;">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{{ if eq $lang "en" }}Your code to open the item shared with you.{{ else if eq $lang "es" }}Tu código para abrir el elemento compartido contigo.{{ else }}Seu código para abrir o item compartilhado com você.{{ end }}</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="k-bg" style="background:#f3f0e8;">
+<tr><td align="center" style="padding:32px 16px 40px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;">
+<tr><td class="k-line" style="padding:0 0 18px;border-bottom:1px solid #15171a;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+    <td style="padding:0 10px 0 0;vertical-align:middle;"><img src="https://keyless.diegoalves.dev/icon-128.png" width="28" height="28" alt="" style="display:block;border:0;"></td>
+    <td class="k-ink" style="vertical-align:middle;font-family:'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;font-size:26px;line-height:1;color:#15171a;letter-spacing:-0.01em;">keyless</td>
+  </tr></table>
+</td></tr>
+<tr><td class="k-ink2" style="padding:32px 0 0;font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.5;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#555a61;">{{ if eq $lang "en" }}Shared item · access code{{ else if eq $lang "es" }}Elemento compartido · código de acceso{{ else }}Item compartilhado · código de acesso{{ end }}</td></tr>
+<tr><td class="k-ink k-title" style="padding:12px 0 0;font-family:'Instrument Serif', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;font-size:44px;line-height:1.02;letter-spacing:-0.02em;color:#15171a;">{{ if eq $lang "en" }}Someone shared an item{{ else if eq $lang "es" }}Alguien compartió un elemento{{ else }}Alguém compartilhou um item{{ end }} <em class="k-accent" style="font-style:italic;color:#0b7366;">{{ if eq $lang "en" }}with you.{{ else if eq $lang "es" }}contigo.{{ else }}com você.{{ end }}</em></td></tr>
+<tr><td class="k-ink2" style="padding:18px 0 0;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.6;color:#555a61;">{{ if eq $lang "en" }}To open it, enter this code on the Keyless page where you asked for it.{{ else if eq $lang "es" }}Para abrirlo, escribe este código en la página de Keyless donde lo pediste.{{ else }}Para abrir, digite este código na página do Keyless em que você o pediu.{{ end }}</td></tr>
+<tr><td style="padding:26px 0 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="k-box" style="border:1px solid #15171a;background:#e8e3d6;"><tr><td class="k-rule" style="padding:14px 18px 16px;"><div class="k-ink2" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#555a61;padding:0 0 8px;">{{ if eq $lang "en" }}The item{{ else if eq $lang "es" }}El elemento{{ else }}O item{{ end }}</div><div style="line-height:1;"><span class="k-bar" aria-hidden="true" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:15px;letter-spacing:-1px;color:#15171a;">&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;</span><span class="k-ink2" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:12px;color:#555a61;">&nbsp;&nbsp;{{ if eq $lang "en" }}encrypted until you open it{{ else if eq $lang "es" }}cifrado hasta que lo abras{{ else }}criptografado até você abrir{{ end }}</span></div></td></tr><tr><td class="k-rule" style="padding:14px 18px 16px;border-top:1px solid #cdc5b4;"><div class="k-ink2" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:10px;line-height:1.4;font-weight:500;letter-spacing:0.14em;text-transform:uppercase;color:#555a61;padding:0 0 8px;">{{ if eq $lang "en" }}Your code{{ else if eq $lang "es" }}Tu código{{ else }}Seu código{{ end }}</div><div style=""><span class="k-ink k-code" style="font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:36px;line-height:1.1;font-weight:500;letter-spacing:0.3em;color:#15171a;">{{ .Token }}</span></div></td></tr></table></td></tr>
+<tr><td class="k-ink2" style="padding:14px 0 0;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:1.6;color:#555a61;">{{ if eq $lang "en" }}It expires soon and works only once.{{ else if eq $lang "es" }}Caduca pronto y solo funciona una vez.{{ else }}Ele expira em pouco tempo e só funciona uma vez.{{ end }}</td></tr>
+<tr><td style="padding:32px 0 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td class="k-rule k-ink2" style="padding:18px 0 0;border-top:1px solid #cdc5b4;font-family:'IBM Plex Sans', -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:13px;line-height:1.7;color:#555a61;">{{ if eq $lang "en" }}No one from Keyless will ask you for this code. Enter it only on the page where you asked for it. If this was not you, ignore this email.{{ else if eq $lang "es" }}Nadie de Keyless te pedirá este código. Escríbelo solo en la página donde lo pediste. Si no fuiste tú, ignora este correo.{{ else }}Ninguém do Keyless vai pedir este código a você. Digite-o só na página em que o pediu. Se não foi você, ignore este e-mail.{{ end }}</td></tr></table></td></tr>
+<tr><td class="k-rule k-ink2" style="padding:20px 0 0;border-top:1px solid #cdc5b4;font-family:'IBM Plex Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;font-size:11px;line-height:1.7;letter-spacing:0.06em;color:#555a61;">
+  {{ if eq $lang "en" }}KEYLESS · OPEN-SOURCE PASSWORD MANAGER{{ else if eq $lang "es" }}KEYLESS · GESTOR DE CONTRASEÑAS DE CÓDIGO ABIERTO{{ else }}KEYLESS · GERENCIADOR DE SENHAS DE CÓDIGO ABERTO{{ end }}<br>
+  <a href="https://keyless.diegoalves.dev/" class="k-ink2" style="color:#555a61;text-decoration:underline;">keyless.diegoalves.dev</a>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>

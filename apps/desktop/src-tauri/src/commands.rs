@@ -55,8 +55,8 @@ pub async fn get_status(state: State<'_, AppState>) -> AppResult<AppStatus> {
 }
 
 #[tauri::command]
-pub async fn create_account(app: AppHandle, email: String, master_password: String) -> AppResult<CreatedAccount> {
-    auth::create_account(&app, &email, Zeroizing::new(master_password)).await
+pub async fn create_account(app: AppHandle, email: String, master_password: String, language: Option<String>) -> AppResult<CreatedAccount> {
+    auth::create_account(&app, &email, Zeroizing::new(master_password), language.as_deref()).await
 }
 
 #[tauri::command]

@@ -715,7 +715,7 @@ function dialogText(key: "qrImage" | "backup" | "attach" | "icon" | "saveAttachm
 export const api = {
   status: () => invoke<AppStatus>("get_status"),
   createAccount: (email: string, masterPassword: string) =>
-    invoke<CreatedAccount>("create_account", { email, masterPassword }),
+    invoke<CreatedAccount>("create_account", { email, masterPassword, language: i18n.language }),
   signInWithGoogle: (page: BrowserPage) => invoke<GoogleResult>("sign_in_with_google", { page }),
   cancelGoogleSignIn: () => invoke<void>("cancel_google_sign_in"),
   createAccountWithGoogle: (masterPassword: string) =>

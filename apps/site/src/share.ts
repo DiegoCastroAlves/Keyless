@@ -319,7 +319,8 @@ function askEmail(id: string, keyText: string, error?: string) {
     send.disabled = true;
     send.textContent = t("sending");
     try {
-      const answer = await auth("otp", { email, create_user: true, data: { keyless_share_recipient: true } });
+      // The language picks the email's (supabase/templates).
+      const answer = await auth("otp", { email, create_user: true, data: { keyless_share_recipient: true, lang } });
       if (!answer.ok) return askEmail(id, keyText, answer.status === 429 ? t("tooMany") : t("sendFailed"));
     } catch {
       return askEmail(id, keyText, t("offline"));
