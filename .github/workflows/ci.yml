@@ -175,3 +175,45 @@ jobs:
         with:
           name: keyless-android
           path: apps/android/app/build/outputs/apk/release/*.apk
+
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: macos
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: apps/desktop/pnpm-lock.yaml
+
+      # An unsigned app and disk image (no Apple developer account yet).
+      - name: Build the app
+        working-directory: apps/desktop
+        run: |
+          set -o pipefail
+          pnpm install --frozen-lockfile
+          pnpm exec tauri build --bundles app,dmg 2>&1 | tee build.log
+
+      - name: Report build errors
+        if: failure()
+        working-directory: apps/desktop
+        run: |
+          test -f build.log || exit 0
+          message=$(grep -E "^(error|warning: unused)" -A7 build.log | head -120 | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=macOS build::${message}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyless-macos
+          path: target/release/bundle/dmg/*.dmg
