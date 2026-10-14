@@ -5,8 +5,7 @@
 // browser marks events from people as trusted and those from scripts (the
 // extension's, here) as not.
 
-// A module of its own (home.ts has the same names).
-export {};
+import { themeSwitch } from "./theme";
 
 type Lang = "pt-BR" | "en" | "es";
 const LANGS: Lang[] = ["pt-BR", "en", "es"];
@@ -17,6 +16,10 @@ const TEXT: Record<Lang, Record<string, string>> = {
     docDescription: "Exercícios para aprender a usar a extensão do Keyless no navegador.",
     skip: "Pular para o conteúdo",
     language: "Idioma",
+    theme: "Tema",
+    themeSystem: "Tema do sistema",
+    themeLight: "Tema claro",
+    themeDark: "Tema escuro",
     eyebrow: "Tutorial · extensão do navegador",
     title: "Pratique <em>aqui.</em>",
     lede: "Três exercícios rápidos nesta página. Nada do que você digitar sai daqui: os formulários são de mentira.",
@@ -76,6 +79,10 @@ const TEXT: Record<Lang, Record<string, string>> = {
     docDescription: "Exercises to learn the Keyless browser extension.",
     skip: "Skip to content",
     language: "Language",
+    theme: "Theme",
+    themeSystem: "System theme",
+    themeLight: "Light theme",
+    themeDark: "Dark theme",
     eyebrow: "Tutorial · browser extension",
     title: "Practice <em>here.</em>",
     lede: "Three quick exercises on this page. Nothing you type leaves it: the forms are pretend.",
@@ -135,6 +142,10 @@ const TEXT: Record<Lang, Record<string, string>> = {
     docDescription: "Ejercicios para aprender a usar la extensión de Keyless en el navegador.",
     skip: "Saltar al contenido",
     language: "Idioma",
+    theme: "Tema",
+    themeSystem: "Tema del sistema",
+    themeLight: "Tema claro",
+    themeDark: "Tema oscuro",
     eyebrow: "Tutorial · extensión del navegador",
     title: "Practica <em>aquí.</em>",
     lede: "Tres ejercicios rápidos en esta página. Nada de lo que escribas sale de aquí: los formularios son de mentira.",
@@ -216,6 +227,7 @@ function detectLang(): Lang {
 
 let lang: Lang = detectLang();
 const t = (key: string) => TEXT[lang][key] ?? TEXT.en[key] ?? key;
+const nameThemes = themeSwitch(document.querySelector<HTMLElement>(".theme")!, t);
 
 /** What each exercise shows when done (kept to show it again in another
  * language). */
@@ -232,6 +244,7 @@ function applyLang() {
   for (const button of document.querySelectorAll<HTMLButtonElement>(".lang button")) {
     button.setAttribute("aria-pressed", String(button.dataset.lang === lang));
   }
+  nameThemes();
   for (const name of Object.keys(state)) render(name);
 }
 

@@ -4,27 +4,39 @@
 // code it may carry is never used (nobody signs in from here) and is taken
 // out of the address bar.
 
-export {};
+import { themeSwitch, type ThemeKey } from "./theme";
 
 type Lang = "pt-BR" | "en" | "es";
 type Outcome = "done" | "half" | "failed";
 const LANGS: Lang[] = ["pt-BR", "en", "es"];
 
-const TEXT: Record<Lang, { eyebrow: string } & Record<Outcome, { title: string; body: string }>> = {
+const TEXT: Record<Lang, Record<"eyebrow" | ThemeKey, string> & Record<Outcome, { title: string; body: string }>> = {
   "pt-BR": {
     eyebrow: "Troca de e-mail",
+    theme: "Tema",
+    themeSystem: "Tema do sistema",
+    themeLight: "Tema claro",
+    themeDark: "Tema escuro",
     done: { title: "E-mail confirmado", body: "Pode voltar ao Keyless: em alguns minutos ele passa a mostrar o e-mail novo, que é o que você usa para entrar daqui em diante." },
     half: { title: "Falta um link", body: "Este endereço está confirmado. Abra também o link que chegou no outro endereço (o antigo ou o novo) para concluir a troca." },
     failed: { title: "Link inválido", body: "Este link expirou ou já foi usado. Peça a troca de e-mail de novo no Keyless, em Configurações → Conta." },
   },
   en: {
     eyebrow: "Email change",
+    theme: "Theme",
+    themeSystem: "System theme",
+    themeLight: "Light theme",
+    themeDark: "Dark theme",
     done: { title: "Email confirmed", body: "You can go back to Keyless: within a few minutes it shows the new email, which is the one you sign in with from now on." },
     half: { title: "One link to go", body: "This address is confirmed. Also open the link sent to the other address (the old or the new one) to finish the change." },
     failed: { title: "Invalid link", body: "This link expired or was already used. Ask for the email change again in Keyless, under Settings → Account." },
   },
   es: {
     eyebrow: "Cambio de correo",
+    theme: "Tema",
+    themeSystem: "Tema del sistema",
+    themeLight: "Tema claro",
+    themeDark: "Tema oscuro",
     done: { title: "Correo confirmado", body: "Puedes volver a Keyless: en unos minutos mostrará el correo nuevo, que es el que usas para iniciar sesión a partir de ahora." },
     half: { title: "Falta un enlace", body: "Esta dirección está confirmada. Abre también el enlace que llegó a la otra dirección (la anterior o la nueva) para terminar el cambio." },
     failed: { title: "Enlace no válido", body: "Este enlace caducó o ya se usó. Vuelve a pedir el cambio de correo en Keyless, en Ajustes → Cuenta." },
@@ -57,9 +69,14 @@ const outcome: Outcome = params.has("error") || params.has("error_code")
     : "done";
 history.replaceState(null, "", location.pathname);
 
+let shown = detectLang();
+const nameThemes = themeSwitch(document.querySelector<HTMLElement>(".theme")!, (key) => TEXT[shown][key]);
+
 function show(lang: Lang) {
   const text = TEXT[lang];
+  shown = lang;
   document.documentElement.lang = lang;
+  nameThemes();
   document.title = `${text[outcome].title} · Keyless`;
   document.getElementById("eyebrow")!.textContent = text.eyebrow;
   document.getElementById("title")!.textContent = text[outcome].title;
@@ -79,4 +96,4 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(".lang button"
   });
 }
 
-show(detectLang());
+show(shown);

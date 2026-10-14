@@ -6,11 +6,13 @@
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0f1113" media="(prefers-color-scheme: dark)" />
+    <script src="/theme.js"></script>
     <meta name="robots" content="noindex" />
     <title>Pratique com o Keyless</title>
     <meta name="description" content="Exercícios para aprender a usar a extensão do Keyless no navegador." />
     <link rel="icon" href="/icon-32.png" />
     <link rel="preload" href="/fonts/instrument-serif-400.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/home.css" />
     <link rel="stylesheet" href="/tutorial/tutorial.css" />
     <script type="module" src="/tutorial/app.js"></script>
@@ -23,10 +25,23 @@
         <img src="/icon-32.png" width="26" height="26" alt="" />
         <span>keyless</span>
       </a>
-      <div class="lang" role="group" aria-label="Idioma" data-i18n-aria="language">
-        <button type="button" data-lang="pt-BR" lang="pt-BR">PT</button>
-        <button type="button" data-lang="en" lang="en">EN</button>
-        <button type="button" data-lang="es" lang="es">ES</button>
+      <div class="prefs">
+        <div class="lang" role="group" aria-label="Idioma" data-i18n-aria="language">
+          <button type="button" data-lang="pt-BR" lang="pt-BR">PT</button>
+          <button type="button" data-lang="en" lang="en">EN</button>
+          <button type="button" data-lang="es" lang="es">ES</button>
+        </div>
+        <div class="theme" role="group" aria-label="Tema">
+          <button type="button" data-theme-choice="system" aria-label="Tema do sistema" title="Tema do sistema">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.75" y="2.5" width="12.5" height="8.5" rx="1" /><path d="M5.5 13.75h5M8 11v2.75" /></svg>
+          </button>
+          <button type="button" data-theme-choice="light" aria-label="Tema claro" title="Tema claro">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.75" /><path d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M3.23 12.77l1.06-1.06M11.71 4.29l1.06-1.06" /></svg>
+          </button>
+          <button type="button" data-theme-choice="dark" aria-label="Tema escuro" title="Tema escuro">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 9.6A5.75 5.75 0 1 1 6.4 2.5a4.6 4.6 0 0 0 7.1 7.1z" /></svg>
+          </button>
+        </div>
       </div>
     </header>
 

@@ -3,6 +3,8 @@
 // the newest release, read from GitHub. Everything is set as text; the only
 // HTML used comes from the dictionary below.
 
+import { themeSwitch } from "./theme";
+
 type Lang = "pt-BR" | "en" | "es";
 const LANGS: Lang[] = ["pt-BR", "en", "es"];
 const REPO = "DiegoCastroAlves/Keyless";
@@ -19,6 +21,10 @@ const TEXT: Record<Lang, Record<string, string>> = {
     navDownload: "Baixar",
     navVault: "Cofre web",
     language: "Idioma",
+    theme: "Tema",
+    themeSystem: "Tema do sistema",
+    themeLight: "Tema claro",
+    themeDark: "Tema escuro",
     eyebrow: "Gerenciador de senhas · Windows e Linux · Código aberto",
     title: "A chave fica <em>com você.</em>",
     lede: "Senhas, cartões, chaves de acesso e arquivos, criptografados no seu computador antes de sair dele. O servidor guarda só o que não consegue ler, e nem nós temos como abrir.",
@@ -95,6 +101,10 @@ const TEXT: Record<Lang, Record<string, string>> = {
     navDownload: "Download",
     navVault: "Web vault",
     language: "Language",
+    theme: "Theme",
+    themeSystem: "System theme",
+    themeLight: "Light theme",
+    themeDark: "Dark theme",
     eyebrow: "Password manager · Windows and Linux · Open source",
     title: "The key stays <em>with you.</em>",
     lede: "Passwords, cards, passkeys and files, encrypted on your computer before they leave it. The server keeps only what it cannot read, and not even we can open it.",
@@ -172,6 +182,10 @@ const TEXT: Record<Lang, Record<string, string>> = {
     navDownload: "Descargar",
     navVault: "Bóveda web",
     language: "Idioma",
+    theme: "Tema",
+    themeSystem: "Tema del sistema",
+    themeLight: "Tema claro",
+    themeDark: "Tema oscuro",
     eyebrow: "Gestor de contraseñas · Windows y Linux · Código abierto",
     title: "La llave se queda <em>contigo.</em>",
     lede: "Contraseñas, tarjetas, llaves de acceso y archivos, cifrados en tu ordenador antes de salir de él. El servidor guarda solo lo que no puede leer, y ni nosotros podemos abrirlo.",
@@ -273,6 +287,7 @@ function detectLang(): Lang {
 
 let lang: Lang = detectLang();
 const t = (key: string, vars: Record<string, string> = {}) => (TEXT[lang][key] ?? TEXT.en[key] ?? key).replace(/\{(\w+)\}/g, (_, n) => vars[n] ?? "");
+const nameThemes = themeSwitch(document.querySelector<HTMLElement>(".theme")!, t);
 
 function applyLang() {
   document.documentElement.lang = lang;
@@ -285,6 +300,7 @@ function applyLang() {
   for (const button of document.querySelectorAll<HTMLButtonElement>(".lang button")) {
     button.setAttribute("aria-pressed", String(button.dataset.lang === lang));
   }
+  nameThemes();
   renderRelease();
   example = 0;
 }

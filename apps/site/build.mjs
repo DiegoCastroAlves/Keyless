@@ -1,15 +1,20 @@
 // Builds the public site (keyless.diegoalves.dev) into dist/: the home
 // page, the page that opens share links (/share/), the browser extension's
 // tutorial (/tutorial/), the privacy policy (/privacy/), where the links
-// confirming an email change lead (/email-changed/) and the web vault
-// (/vault/, with the WebAssembly client in vendor/). Static files only, served by
-// Cloudflare Pages with the headers in dist/_headers.
+// confirming an email change lead (/email-changed/) and, when it is on, the
+// web vault (/vault/, with the WebAssembly client in vendor/). Static files
+// only, served by Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
-import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 
 // The same public project values as the app (see apps/desktop config.rs).
 const SUPABASE_URL = process.env.KEYLESS_SUPABASE_URL ?? "https://ednfhgbjtgkrmtnudcjr.supabase.co";
 const SUPABASE_KEY = process.env.KEYLESS_SUPABASE_KEY ?? "sb_publishable_3SSYrJqgt-zB30WaRHnuSw_YN7WaHqD";
+
+// The web vault is off: none of its files are published (/vault/ is a 404)
+// and the home page does not link to it. KEYLESS_WEB_VAULT=on turns it back
+// on (see README.md), together with the server's passkey sign-in switch.
+const WEB_VAULT = process.env.KEYLESS_WEB_VAULT === "on";
 
 // Field and category names, from the app's own translations.
 async function labels() {
@@ -35,7 +40,14 @@ mkdirSync("dist/share", { recursive: true });
 cpSync("static", "dist", { recursive: true });
 cpSync("../extension/static/icons/icon-32.png", "dist/icon-32.png");
 cpSync("../extension/static/icons/icon-128.png", "dist/icon-128.png");
-cpSync("vendor/keyless-wasm/keyless_wasm_bg.wasm", "dist/vault/keyless_wasm_bg.wasm");
+if (WEB_VAULT) {
+  cpSync("vendor/keyless-wasm/keyless_wasm_bg.wasm", "dist/vault/keyless_wasm_bg.wasm");
+} else {
+  rmSync("dist/vault", { recursive: true, force: true });
+  // Links to it are marked data-web-vault.
+  const home = readFileSync("dist/index.html", "utf8");
+  writeFileSync("dist/index.html", home.replace(/\s*<a [^>]*data-web-vault[^>]*>[^<]*<\/a>/g, ""));
+}
 
 // Fonts (SIL Open Font License), served from this site.
 mkdirSync("dist/fonts", { recursive: true });
@@ -51,7 +63,7 @@ const fonts = {
 for (const [name, from] of Object.entries(fonts)) cpSync(`node_modules/${from}`, `dist/fonts/${name}`);
 
 await build({
-  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts", "vault/app": "src/vault/app.ts" },
+  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts", 404: "src/not-found.ts", ...(WEB_VAULT ? { "vault/app": "src/vault/app.ts" } : {}) },
   bundle: true,
   minify: true,
   format: "esm",
@@ -60,6 +72,19 @@ await build({
   define: { __SUPABASE_URL__: JSON.stringify(SUPABASE_URL), __SUPABASE_KEY__: JSON.stringify(SUPABASE_KEY) },
   legalComments: "none",
   plugins: [virtualLabels],
+});
+
+// The theme chosen on this browser, set by every page in its <head> before
+// the first paint: a classic script, since a module runs only after the
+// page is parsed.
+await build({
+  entryPoints: { theme: "src/theme-head.ts" },
+  bundle: true,
+  minify: true,
+  format: "iife",
+  target: ["chrome120", "firefox120", "safari16"],
+  outdir: "dist",
+  legalComments: "none",
 });
 
 // Only this site's own files run, nothing can frame it, and links never
@@ -101,13 +126,15 @@ writeFileSync(
   Content-Security-Policy: ${csp("'none'")}
 /email-changed/*
   Content-Security-Policy: ${csp("'none'")}
-/vault/*
-  Content-Security-Policy: ${csp(SUPABASE_URL, "'self' 'wasm-unsafe-eval'")}
+${
+  WEB_VAULT
+    ? `/vault/*
+  Content-Security-Policy: ${csp(`'self' ${SUPABASE_URL}`, "'self' 'wasm-unsafe-eval'")}
   Cache-Control: no-store
   X-Robots-Tag: noindex
-  Cache-Control: no-store
-  X-Robots-Tag: noindex
-/share/*
+`
+    : ""
+}/share/*
   Content-Security-Policy: ${csp(SUPABASE_URL)}
   Cache-Control: no-store
   X-Robots-Tag: noindex

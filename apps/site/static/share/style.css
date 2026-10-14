@@ -1,26 +1,12 @@
+/* The page that opens share links, in the site's colors and fonts
+   (theme.css), light and dark. */
 :root {
-  --bg: #f6f7f9;
-  --panel: #ffffff;
-  --panel-2: #f1f3f6;
-  --line: #e2e6ec;
-  --fg: #11151c;
-  --muted: #5b6573;
-  --accent: #0d9488;
-  --accent-fg: #ffffff;
-  --danger: #dc2626;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1216;
-    --panel: #171b21;
-    --panel-2: #1d222a;
-    --line: #2a313b;
-    --fg: #e8ebef;
-    --muted: #98a2b0;
-    --accent: #2dd4bf;
-    --accent-fg: #062b28;
-    --danger: #f87171;
-  }
+  --bg: var(--paper);
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --fg: var(--ink);
+  --muted: var(--ink-2);
+  --accent-fg: var(--on-accent);
 }
 * { box-sizing: border-box; }
 body {
@@ -31,16 +17,17 @@ body {
   align-items: center;
   background: var(--bg);
   color: var(--fg);
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 15px/1.5 var(--sans);
   padding: 0 16px;
 }
-header { display: flex; align-items: center; gap: 8px; padding: 24px 0 16px; width: 100%; max-width: 640px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 0 16px; width: 100%; max-width: 640px; }
+.brand { display: flex; align-items: center; gap: 8px; font: 400 1.5rem/1 var(--serif); letter-spacing: -0.01em; }
 main { width: 100%; max-width: 640px; flex: 1; }
 footer { color: var(--muted); font-size: 12px; padding: 24px 0; text-align: center; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 24px; }
 .card.error p { color: var(--danger); margin: 0; }
-h1 { font-size: 20px; margin: 0 0 8px; overflow-wrap: anywhere; }
-h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 20px 0 8px; }
+h1 { font: 400 30px/1.1 var(--serif); letter-spacing: -0.01em; margin: 0 0 8px; overflow-wrap: anywhere; }
+h2 { font: 500 11px/1.5 var(--mono); text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); margin: 20px 0 8px; }
 p { margin: 8px 0; }
 .muted { color: var(--muted); font-size: 13px; }
 .error-text { color: var(--danger); font-size: 13px; }
@@ -51,7 +38,7 @@ p { margin: 8px 0; }
 .label { font-size: 12px; color: var(--muted); }
 .row { display: flex; align-items: center; gap: 12px; }
 .value { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: text; }
-.value.secret { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.value.secret { font-family: var(--mono); }
 .value.notes { white-space: pre-wrap; }
 .value a { color: var(--accent); }
 .actions { display: flex; gap: 6px; flex-shrink: 0; }
@@ -78,4 +65,4 @@ input {
   width: 100%;
 }
 input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-input.code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 22px; letter-spacing: 0.3em; text-align: center; }
+input.code { font-family: var(--mono); font-size: 22px; letter-spacing: 0.3em; text-align: center; }

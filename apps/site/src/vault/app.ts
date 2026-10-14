@@ -7,7 +7,8 @@
 // text, never as HTML.
 
 import init, { call } from "../../vendor/keyless-wasm/keyless_wasm.js";
-import { categoryLabel, categoryPlural, errorText, fieldLabel, formatDate, t, type TextKey } from "./i18n";
+import { themeGroup, themeSwitch } from "../theme";
+import { categoryLabel, categoryPlural, errorText, fieldLabel, formatDate, lang, t, type TextKey } from "./i18n";
 import { server, ServerError, type Session } from "./server";
 
 // ----- the client (WebAssembly) ---------------------------------------------
@@ -92,6 +93,12 @@ let notice: string | null = null;
 
 const root = document.getElementById("root")!;
 document.title = t("title");
+document.documentElement.lang = lang;
+
+// The theme buttons: in the bar above the sign-in screens and in the
+// vault's own bar.
+const themeButtons = themeGroup();
+themeSwitch(themeButtons, t);
 
 // ----- DOM helpers -----------------------------------------------------------------
 
@@ -110,6 +117,13 @@ function button(label: string, onClick: (event: MouseEvent) => void, className =
   const node = h("button", { type: "button", class: className, text: label });
   node.addEventListener("click", onClick);
   return node;
+}
+
+const brand = () => h("strong", { class: "brand" }, h("img", { src: "/icon-32.png", width: "24", height: "24", alt: "" }), "keyless");
+
+/** A screen of its own in the middle of the page, under the bar. */
+function centered(...children: Node[]) {
+  root.replaceChildren(h("header", { class: "bar" }, brand(), themeButtons), h("main", { class: "center" }, ...children));
 }
 
 function input(type: string, name: string, autocomplete: string) {
@@ -207,7 +221,7 @@ function signInScreen(error?: string) {
       errorLine.textContent = describe(err);
     }
   });
-  root.replaceChildren(h("main", { class: "center" }, form));
+  centered(form);
   (received || email.value ? password : email).focus();
 }
 
@@ -230,7 +244,7 @@ async function opened(signed: Session, email: string) {
   } catch {
     // Private window: nothing remembered.
   }
-  root.replaceChildren(h("main", { class: "center" }, h("p", { class: "muted", text: t("syncing") })));
+  centered(h("p", { class: "muted", text: t("syncing") }));
   await sync();
   mainScreen();
   syncTimer = window.setInterval(() => void sync().then(renderMain), 60_000);
@@ -360,13 +374,7 @@ function deviceScreen(email: string) {
     void server.rpc("cancel_device_setup", { p_id: id, p_secret: secret }).catch(() => undefined);
     signInScreen();
   };
-  root.replaceChildren(
-    h(
-      "main",
-      { class: "center" },
-      h("section", { class: "card signin" }, h("h1", { text: t("deviceTitle") }), h("p", { class: "muted", text: t("deviceBody", { email }) }), status, button(t("cancel"), cancel)),
-    ),
-  );
+  centered(h("section", { class: "card signin" }, h("h1", { text: t("deviceTitle") }), h("p", { class: "muted", text: t("deviceBody", { email }) }), status, button(t("cancel"), cancel)));
   const fail = (text: string) => {
     stopped = true;
     status.replaceChildren(h("p", { class: "error", text }), button(t("retry"), () => deviceScreen(email)));
@@ -427,8 +435,9 @@ function mainScreen() {
       h(
         "header",
         { class: "top" },
-        h("strong", { class: "brand", text: "Keyless" }),
+        brand(),
         searchBox(),
+        themeButtons,
         button(t("settings"), () => settingsDialog(), "ghost"),
         button(t("lock"), () => void lock(), "ghost"),
       ),

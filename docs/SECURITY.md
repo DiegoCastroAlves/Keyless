@@ -551,6 +551,9 @@ link.
 
 ## Web vault
 
+The web vault is off since October 14, 2026: the site publishes none of its
+files and the server's passkey sign-in is switched off (`private.switches`).
+`apps/site/README.md` says how to turn it back on. When on,
 `keyless.diegoalves.dev/vault/` shows the account's items in a browser,
 read-only. The keys are derived, the server's answers checked (the same
 rules as the desktop sync: content from one write, versions never going
@@ -583,6 +586,8 @@ work wherever that domain's passkeys do; a new auth secret (master password
 or Secret Key changed, account recovered) drops them all, by a trigger on
 `auth.users`. A passkey is then as strong as the master password and Secret
 Key together: whoever can unlock it gets in.
+While the switch is off, `passkey_sign_in` answers `passkey_sign_in_off` and
+`add_passkey` refuses.
 
 ## Android and iOS apps
 

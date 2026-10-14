@@ -1,36 +1,14 @@
-/* The web vault: the app's look (teal accent, quiet panels), light and dark. */
+/* The web vault: the app's layout (quiet panels) in the site's colors and
+   fonts (theme.css), light and dark. */
 :root {
-  --bg: #eef1f4;
-  --panel: #ffffff;
-  --panel-2: #f6f7f9;
-  --panel-3: #eceff3;
-  --line: #e3e7ec;
-  --fg: #121820;
-  --muted: #5d6877;
-  --subtle: #8c96a3;
-  --accent: #0d9488;
-  --accent-soft: #e6f6f4;
-  --accent-fg: #ffffff;
-  --danger: #dc2626;
-  --warning: #b45309;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1013;
-    --panel: #15191e;
-    --panel-2: #1b2026;
-    --panel-3: #232931;
-    --line: #262d35;
-    --fg: #e8ebef;
-    --muted: #9aa4b1;
-    --subtle: #6d7784;
-    --accent: #2dd4bf;
-    --accent-soft: #11302d;
-    --accent-fg: #062b28;
-    --danger: #f87171;
-    --warning: #fbbf24;
-  }
+  --bg: var(--paper);
+  --panel: var(--surface);
+  --panel-2: var(--surface-2);
+  --panel-3: var(--surface-3);
+  --fg: var(--ink);
+  --muted: var(--ink-2);
+  --subtle: var(--ink-3);
+  --accent-fg: var(--on-accent);
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -38,9 +16,9 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  font: 14px/1.5 var(--sans);
 }
-#root { height: 100%; }
+#root { height: 100%; display: flex; flex-direction: column; }
 button, input { font: inherit; color: inherit; }
 button {
   border: 1px solid var(--line);
@@ -74,7 +52,9 @@ a { color: var(--accent); }
 .pre { white-space: pre-wrap; }
 
 /* Signing in */
-main.center { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; }
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; }
+.brand { display: flex; align-items: center; gap: 8px; font: 400 22px/1 var(--serif); letter-spacing: -0.01em; }
+main.center { flex: 1; display: grid; place-items: center; padding: 8px 16px 56px; }
 .card {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -83,7 +63,7 @@ main.center { min-height: 100%; display: grid; place-items: center; padding: 24p
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.06);
 }
 .signin { width: min(420px, 100%); display: grid; gap: 14px; }
-.signin h1 { margin: 0; font-size: 22px; }
+.signin h1 { margin: 0; font: 400 32px/1.05 var(--serif); letter-spacing: -0.01em; }
 .signin p { margin: 0; }
 .signin > button { width: 100%; }
 .field { display: grid; gap: 6px; }
@@ -94,20 +74,21 @@ main.center { min-height: 100%; display: grid; place-items: center; padding: 24p
 .divider { display: flex; align-items: center; gap: 10px; color: var(--subtle); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
 .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .device-status { min-height: 90px; display: grid; place-items: center; text-align: center; gap: 8px; background: var(--panel-2); border-radius: 12px; padding: 16px; }
-.device-status .code { font-family: var(--mono); font-size: 34px; font-weight: 600; letter-spacing: 0.2em; margin: 0; }
+.device-status .code { font-family: var(--mono); font-size: 34px; font-weight: 500; letter-spacing: 0.2em; margin: 0; }
 
 /* The vault */
 .app {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: 220px minmax(240px, 340px) 1fr;
   grid-template-rows: 56px 1fr;
   grid-template-areas: "top top top" "side list detail";
 }
 .top { grid-area: top; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
-.top .brand { width: 188px; font-size: 15px; }
+.top .brand { width: 188px; }
 .top input { max-width: 420px; flex: 1; }
-.top input + button { margin-left: auto; }
+.top .theme { margin-left: auto; }
 .side { grid-area: side; overflow-y: auto; padding: 12px 10px; border-right: 1px solid var(--line); background: var(--panel-2); }
 .side h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--subtle); margin: 18px 8px 6px; font-weight: 600; }
 .nav { width: 100%; display: flex; justify-content: space-between; border: 0; background: none; padding: 7px 10px; border-radius: 8px; text-align: left; color: var(--muted); }
@@ -126,7 +107,7 @@ main.center { min-height: 100%; display: grid; place-items: center; padding: 24p
 .empty { padding: 24px; text-align: center; }
 .detail { grid-area: detail; overflow-y: auto; padding: 28px clamp(16px, 4vw, 48px); }
 .item { max-width: 680px; }
-.item h1 { margin: 2px 0 18px; font-size: 24px; overflow-wrap: anywhere; }
+.item h1 { margin: 2px 0 18px; font: 400 34px/1.1 var(--serif); letter-spacing: -0.01em; overflow-wrap: anywhere; }
 .item h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--subtle); margin: 22px 0 8px; }
 .kind { color: var(--muted); font-size: 13px; }
 .group { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -141,18 +122,18 @@ main.center { min-height: 100%; display: grid; place-items: center; padding: 24p
 
 /* Settings */
 .dialog { width: min(560px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--fg); padding: 24px; }
-.dialog::backdrop { background: rgb(0 0 0 / 0.4); }
-.dialog h1 { margin: 0 0 6px; font-size: 20px; }
+.dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+.dialog h1 { margin: 0 0 6px; font: 400 30px/1.1 var(--serif); }
 .dialog > * + * { margin-top: 12px; }
 .add { display: flex; gap: 8px; }
 .add button { flex: none; }
 
 @media (max-width: 860px) {
-  .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; grid-template-areas: "top" "side" "list" "detail"; height: auto; min-height: 100%; }
+  .app { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; grid-template-areas: "top" "side" "list" "detail"; flex: none; min-height: 100%; }
   .top { flex-wrap: wrap; padding: 8px 12px; gap: 8px; }
   .top .brand { margin-right: auto; }
   .top input { order: 3; flex-basis: 100%; max-width: none; }
-  .top input + button { margin-left: 0; }
+  .top .theme { margin-left: 0; }
   .side { display: flex; gap: 4px; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px; }
   .side h2 { display: none; }
   .nav { width: auto; white-space: nowrap; gap: 8px; }
