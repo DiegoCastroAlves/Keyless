@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scanning QR codes. -->
+<resources>
+    <string name="scan_qr">Escanear código QR</string>
+    <string name="scan_hint_totp">Apunta la cámara al código QR que muestra el sitio para configurar la verificación en dos pasos.</string>
+    <string name="scan_hint_setup">Apunta la cámara al código QR de tu Kit de Emergencia, o a la pantalla de un dispositivo donde tengas la sesión iniciada.</string>
+    <string name="scan_looking">Buscando el código…</string>
+    <string name="choose_file">Elegir una imagen o un PDF</string>
+    <string name="camera_denied">Keyless no puede usar la cámara. Puedes elegir una imagen o un PDF.</string>
+    <string name="qr_not_found_totp">No se encontró ningún código QR de verificación en dos pasos.</string>
+    <string name="qr_not_found_setup">No se encontró ningún código de configuración de Keyless.</string>
+    <string name="scan_emergency_kit">Escanear el Kit de Emergencia</string>
+</resources>

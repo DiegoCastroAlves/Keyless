@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Scanning QR codes. -->
+<resources>
+    <string name="scan_qr">Scan QR code</string>
+    <string name="scan_hint_totp">Point the camera at the QR code the website shows to set up two-step verification.</string>
+    <string name="scan_hint_setup">Point the camera at the QR code on your Emergency Kit, or on the screen of a device where you are signed in.</string>
+    <string name="scan_looking">Looking for the code…</string>
+    <string name="choose_file">Choose an image or PDF</string>
+    <string name="camera_denied">Keyless cannot use the camera. You can choose an image or PDF instead.</string>
+    <string name="qr_not_found_totp">No two-step verification QR code was found.</string>
+    <string name="qr_not_found_setup">No Keyless setup code was found.</string>
+    <string name="scan_emergency_kit">Scan your Emergency Kit</string>
+</resources>

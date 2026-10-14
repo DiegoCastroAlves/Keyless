@@ -18,6 +18,10 @@ object Native {
     @JvmStatic
     external fun call(method: String, args: String): String
 
+    /** The contents of the QR codes in a greyscale picture (rows `stride` bytes apart), as a JSON array. */
+    @JvmStatic
+    external fun decodeQr(pixels: ByteArray, width: Int, height: Int, stride: Int): String
+
     /** The answer's value: a JSONObject, JSONArray, String, Number, Boolean or null. */
     fun run(method: String, args: Any? = null): Any? {
         val text = when (args) {

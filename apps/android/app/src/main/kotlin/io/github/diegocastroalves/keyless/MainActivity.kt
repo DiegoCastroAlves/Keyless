@@ -50,6 +50,27 @@ class MainActivity : Activity() {
     /** What Back does in the editor (asks before dropping changes). */
     internal var editorBack: (() -> Unit)? = null
 
+    /** Where a scanned QR code goes. */
+    private var onScanned: ((String) -> Unit)? = null
+
+    /** Scans a QR code holding what is `wanted` (QrScanActivity.WANT_*). */
+    @Suppress("DEPRECATION")
+    internal fun scanQr(wanted: String, onResult: (String) -> Unit) {
+        onScanned = onResult
+        startActivityForResult(Intent(this, QrScanActivity::class.java).putExtra(QrScanActivity.EXTRA_WANTED, wanted), SCAN_QR)
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != SCAN_QR) return
+        val content = data?.getStringExtra(QrScanActivity.EXTRA_CONTENT)
+        val callback = onScanned
+        onScanned = null
+        if (resultCode == RESULT_OK && content != null) callback?.invoke(content)
+    }
+
     /** The email and Secret Key from a setup link or another device. */
     private var received: Pair<String, String>? = null
     private var notice: String? = null
@@ -177,6 +198,17 @@ class MainActivity : Activity() {
         } else {
             form.add(secretKey, top = 8)
             form.add(label(getString(R.string.secret_key_hint), 12f, muted = true), top = 2)
+            form.add(plainButton(getString(R.string.scan_emergency_kit)) {
+                scanQr(QrScanActivity.WANT_SETUP) { link ->
+                    try {
+                        val parsed = Native.obj("parseSetupLink", JSONObject().put("text", link))
+                        received = parsed.getString("email") to parsed.getString("secretKey")
+                        showSignIn()
+                    } catch (e: KeylessException) {
+                        errorLine.text = errorText(e)
+                    }
+                }
+            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
             secretKey.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -774,5 +806,6 @@ class MainActivity : Activity() {
 
     companion object {
         const val CLIP_LABEL = "keyless"
+        private const val SCAN_QR = 10
     }
 }

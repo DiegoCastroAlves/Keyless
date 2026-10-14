@@ -349,6 +349,11 @@ private fun MainActivity.fieldEditor(field: JSONObject, onRemove: () -> Unit): V
         }
         line.add(toggle, width = ViewGroup.LayoutParams.WRAP_CONTENT)
     }
+    if (kind == "totp") {
+        line.add(plainButton(getString(R.string.scan_qr)) {
+            scanQr(QrScanActivity.WANT_TOTP) { value.setText(it) }
+        }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    }
     if (kind == "concealed" || field.optString("purpose") == "password") {
         line.add(plainButton(getString(R.string.generate)) {
             showGenerator(onUse = { value.setText(it) }, copy = { copy(getString(R.string.generated_password), it) })

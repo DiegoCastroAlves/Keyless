@@ -8,11 +8,13 @@ Results are printed as GitHub annotations.
 Usage: full_run.py <keyless-mock.apk> <formtest.apk> <fixture.json> <writes.jsonl>
 """
 
+import base64
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -109,6 +111,41 @@ def replace_text(package, index, value):
     time.sleep(0.4)
 
 
+def tap_described(description):
+    """Taps the node whose content description is `description`."""
+    adb("shell", "uiautomator", "dump", "/sdcard/ui.xml", check=False)
+    xml = adb("shell", "cat", "/sdcard/ui.xml", check=False)
+    for match in re.finditer(r'content-desc="([^"]*)"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml):
+        if match.group(1) == description:
+            x1, y1, x2, y2 = map(int, match.groups()[1:])
+            adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+            return True
+    return False
+
+
+def push_pictures(fixture):
+    """The fixture's QR code pictures, in the phone's Downloads."""
+    for key, name in (("qrTotp", "qr-totp.bmp"), ("qrSetup", "qr-setup.bmp")):
+        local = os.path.join(tempfile.mkdtemp(), name)
+        with open(local, "wb") as out:
+            out.write(base64.b64decode(fixture[key]))
+        adb("push", local, f"/sdcard/Download/{name}")
+
+
+def scan_picture(name):
+    """In the QR scanner: lets it use the camera once, then reads `name` from Downloads."""
+    time.sleep(2)
+    tap_last("Only this time")
+    check(f"the QR scanner opens for {name}", "Choose an image or PDF", 20)
+    tap_text("Choose an image or PDF")
+    time.sleep(3)
+    tap_described("Show roots")
+    time.sleep(2)
+    tap_last("Downloads")
+    time.sleep(3)
+    tap_text(name)
+
+
 def fields(package):
     return [(x, y) for _, cls, (x, y), pkg in screen() if cls == "android.widget.EditText" and pkg == package]
 
@@ -150,13 +187,17 @@ def main():
     fixture = json.load(open(fixture_path))
     adb("install", "-r", keyless_apk)
     adb("install", "-r", form_apk)
+    push_pictures(fixture)
 
     # Sign in.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
     check("starts on the sign-in screen", "Sign in to Keyless", 60)
-    type_into(PACKAGE, 0, fixture["email"])
-    type_into(PACKAGE, 1, fixture["secretKey"])
-    type_into(PACKAGE, 2, fixture["masterPassword"].replace(" ", "%s"))
+    # The Emergency Kit's QR code gives the email and Secret Key.
+    tap_text("Scan your Emergency Kit")
+    scan_picture("qr-setup.bmp")
+    check("the Emergency Kit's QR code fills the Secret Key", "Secret Key received", 30)
+    check("and the email", fixture["email"], 5)
+    type_into(PACKAGE, 1, fixture["masterPassword"].replace(" ", "%s"))
     hide_keyboard()
     tap_text("Sign in")
     check("signs in and syncs the items", "GitHub", 120)
@@ -188,6 +229,13 @@ def main():
     type_into(PACKAGE, 0, "Editor%stest")
     check("starts with the username used most", "client", 5)
     hide_keyboard()
+    # A one-time password, from its QR code.
+    tap_text("+ Add field")
+    tap_last("One-Time Password")
+    time.sleep(1)
+    tap_text("Scan QR code")
+    scan_picture("qr-totp.bmp")
+    check("the QR code fills the one-time password", "otpauth://totp/Scanned", 30)
     tap_text("Generate")
     check("the generator makes a password", "Password generator", 15)
     tap_last("Use this password")
@@ -197,6 +245,7 @@ def main():
     check("saves the new item", "Editor test", 30)
     outcome("uploads the new item", wait_write(writes_path, "insert", inserts))
     check("the item has the generated password hidden", "••••••••••••", 5)
+    check("and its one-time password", "One-Time Password", 5)
 
     updates = writes(writes_path, "update")
     tap_text("Edit")

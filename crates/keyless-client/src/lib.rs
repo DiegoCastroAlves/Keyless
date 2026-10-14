@@ -12,6 +12,7 @@
 //! so each host needs a single binding.
 
 pub mod matching;
+pub mod qr;
 mod store;
 mod writes;
 
