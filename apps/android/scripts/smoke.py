@@ -114,9 +114,9 @@ def main():
     tap_text("Sign in")
     check("a mistyped Secret Key is refused", "That Secret Key is not valid.", 60)
 
-    # Another device: without the server functions, it says so.
+    # Another device: the request reaches the server and waits for approval.
     tap_text("Sign in with another device")
-    check("signing in with another device asks the server", "not available on the server yet", 40)
+    check("signing in with another device waits for an approval", "Waiting for your other device", 40)
 
     failed = [r for r in results if not r[1]]
     summary = "%0A".join(f"{'✓' if ok else '✗'} {name}" for name, ok, _ in results)
