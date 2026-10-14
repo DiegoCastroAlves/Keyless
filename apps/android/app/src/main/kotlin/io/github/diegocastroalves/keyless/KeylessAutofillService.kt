@@ -3,6 +3,7 @@ package io.github.diegocastroalves.keyless
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.CancellationSignal
 import android.service.autofill.AutofillService
 import android.service.autofill.Dataset
@@ -12,15 +13,21 @@ import android.service.autofill.FillResponse
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
+import android.view.autofill.AutofillId
 import android.view.autofill.AutofillValue
+import android.view.inputmethod.InlineSuggestionsRequest
 import android.widget.RemoteViews
 import android.widget.Toast
+import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
- * Fills logins in apps and browsers. While Keyless is locked it offers to
- * unlock (AutofillAuthActivity); unlocked, the logins of the app or website,
- * best first. It never fills Keyless itself.
+ * Fills logins, credit cards and identities in apps and browsers. While
+ * Keyless is locked it offers to unlock (AutofillAuthActivity); unlocked,
+ * the logins of the app or website, best first, and the cards or
+ * identities a payment or address form asks for. Suggestions show in the
+ * keyboard when it can show them (Android 11+), in a list otherwise. It
+ * never fills Keyless itself.
  */
 class KeylessAutofillService : AutofillService() {
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -30,12 +37,15 @@ class KeylessAutofillService : AutofillService() {
             return
         }
         val parsed = AutofillParser.parse(structure)
-        if ((parsed.passwords.isEmpty() && parsed.usernames.isEmpty()) || parsed.packageName == packageName || !Keyless.hasAccount) {
+        if (!parsed.anything || parsed.packageName == packageName || !Keyless.hasAccount) {
             callback.onSuccess(null)
             return
         }
+        val asked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) request.inlineSuggestionsRequest else null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) AutofillCheck.noteInlineRequest(this, asked != null)
+        val inline = if (AutofillCheck.inlineEnabled(this)) asked else null
         val response = try {
-            if (Keyless.isUnlocked) AutofillResponses.datasets(this, parsed) else AutofillResponses.locked(this, parsed)
+            if (Keyless.isUnlocked) AutofillResponses.datasets(this, parsed, inline) else AutofillResponses.locked(this, parsed, inline)
         } catch (e: Exception) {
             null
         }
@@ -94,6 +104,14 @@ object AutofillResponses {
             setTextViewText(R.id.autofill_subtitle, subtitle ?: "")
         }
 
+    /** A suggestion's list entry, and its chip in the keyboard when there is room for one. */
+    @Suppress("DEPRECATION")
+    private fun dataset(context: Context, chips: InlineSuggestions.Chips?, title: String, subtitle: String?): Dataset.Builder {
+        val builder = Dataset.Builder(presentation(context, title, subtitle))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) chips?.next(title, subtitle)?.let { builder.setInlinePresentation(it) }
+        return builder
+    }
+
     /** Asks Android to offer saving what is typed in these fields. */
     private fun saveInfo(parsed: ParsedFields): SaveInfo? {
         if (parsed.passwords.isEmpty()) return null
@@ -103,44 +121,122 @@ object AutofillResponses {
         return builder.build()
     }
 
-    /** The logins for the fields' app or website, and the offer to save (null when neither applies). */
+    /** A login's username, password and one-time password (an otpauth:// address). */
+    class LoginValues(val username: String?, val password: String?, val totp: String?)
+
+    fun loginValues(item: JSONObject): LoginValues {
+        val fields = item.getJSONObject("details").optJSONArray("fields")
+        var username: String? = null
+        var password: String? = null
+        var totp: String? = null
+        val all = ArrayList<JSONObject>()
+        if (fields != null) for (i in 0 until fields.length()) all.add(fields.getJSONObject(i))
+        item.getJSONObject("details").optJSONArray("sections")?.let { sections ->
+            for (s in 0 until sections.length()) sections.optJSONObject(s)?.optJSONArray("fields")?.let { f -> for (i in 0 until f.length()) all.add(f.getJSONObject(i)) }
+        }
+        for ((index, field) in all.withIndex()) {
+            val value = field.optString("value").ifEmpty { null } ?: continue
+            when {
+                field.optString("purpose") == "username" && index < (fields?.length() ?: 0) -> if (username == null) username = value
+                field.optString("purpose") == "password" && index < (fields?.length() ?: 0) -> if (password == null) password = value
+                field.optString("kind") == "totp" -> if (totp == null) totp = value
+            }
+        }
+        return LoginValues(username, password, totp)
+    }
+
+    /** The values to put in the fields, for a login. */
     @Suppress("DEPRECATION")
-    fun datasets(context: Context, parsed: ParsedFields): FillResponse? {
-        val matches = Keyless.matches(parsed.webDomain, if (parsed.webDomain == null) parsed.packageName else null).take(8)
+    fun fillLogin(builder: Dataset.Builder, values: LoginValues, usernames: List<AutofillId>, passwords: List<AutofillId>): Boolean {
+        var filled = false
+        values.username?.let { u -> usernames.forEach { builder.setValue(it, AutofillValue.forText(u)); filled = true } }
+        values.password?.let { p -> passwords.forEach { builder.setValue(it, AutofillValue.forText(p)); filled = true } }
+        return filled
+    }
+
+    /**
+     * The logins for the fields' app or website, the cards or identities
+     * for a payment or address form, and the offer to save (null when none
+     * applies). A login with a one-time password goes through
+     * AutofillFillActivity, which copies the code once it is chosen.
+     */
+    @Suppress("DEPRECATION")
+    fun datasets(context: Context, parsed: ParsedFields, inline: InlineSuggestionsRequest?): FillResponse? {
+        val chips = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) InlineSuggestions.Chips(context, inline) else null
         val builder = FillResponse.Builder()
         var count = 0
-        for (match in matches) {
-            val details = Keyless.item(match.id).getJSONObject("details")
-            val fields = details.optJSONArray("fields") ?: continue
-            var username: String? = null
-            var password: String? = null
-            for (i in 0 until fields.length()) {
-                val field = fields.getJSONObject(i)
-                when (field.optString("purpose")) {
-                    "username" -> if (username == null) username = field.optString("value").ifEmpty { null }
-                    "password" -> if (password == null) password = field.optString("value").ifEmpty { null }
+        if (parsed.logins) {
+            val matches = Keyless.matches(parsed.webDomain, if (parsed.webDomain == null) parsed.packageName else null).take(8)
+            for ((index, match) in matches.withIndex()) {
+                val values = loginValues(Keyless.item(match.id))
+                if (values.username == null && values.password == null) continue
+                val dataset = dataset(context, chips, match.title, values.username)
+                if (!fillLogin(dataset, values, parsed.usernames, parsed.passwords)) continue
+                if (values.totp != null) {
+                    val intent = Intent(context, AutofillFillActivity::class.java)
+                        .putExtra(AutofillFillActivity.EXTRA_ITEM, match.id)
+                        .putParcelableArrayListExtra(AutofillFillActivity.EXTRA_USERNAMES, ArrayList(parsed.usernames))
+                        .putParcelableArrayListExtra(AutofillFillActivity.EXTRA_PASSWORDS, ArrayList(parsed.passwords))
+                    val sender = PendingIntent.getActivity(context, 4000 + index, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE).intentSender
+                    dataset.setAuthentication(sender)
                 }
+                builder.addDataset(dataset.build())
+                count++
             }
-            if (username == null && password == null) continue
-            val dataset = Dataset.Builder(presentation(context, match.title, username))
-            var filled = false
-            if (username != null) parsed.usernames.forEach { dataset.setValue(it, AutofillValue.forText(username)); filled = true }
-            if (password != null) parsed.passwords.forEach { dataset.setValue(it, AutofillValue.forText(password)); filled = true }
-            if (!filled) continue
-            builder.addDataset(dataset.build())
-            count++
         }
+        if (parsed.cards || parsed.identities) count += forms(context, parsed, builder, chips)
         val save = saveInfo(parsed)
         if (save != null) builder.setSaveInfo(save)
         return if (count > 0 || save != null) builder.build() else null
     }
 
-    /** Locked: a suggestion that opens the unlock screen, which answers with the logins. */
-    fun locked(context: Context, parsed: ParsedFields): FillResponse {
+    /** The cards and identities that fit the form, each filling every field it has a value for. */
+    @Suppress("DEPRECATION")
+    private fun forms(context: Context, parsed: ParsedFields, builder: FillResponse.Builder, chips: InlineSuggestions.Chips?): Int {
+        // Cards only on secure pages.
+        val secure = parsed.webDomain == null || parsed.webScheme == null || parsed.webScheme.equals("https", ignoreCase = true)
+        val items = Native.obj("autofillItems", parsed.formJson()).optJSONArray("items") ?: return 0
+        var count = 0
+        for (i in 0 until minOf(items.length(), 10)) {
+            val item = items.getJSONObject(i)
+            if (item.optString("category") == "credit_card" && !secure) continue
+            val values = item.optJSONArray("values") ?: continue
+            val dataset = dataset(context, chips, item.optString("title"), item.optString("subtitle").ifEmpty { null })
+            var filled = false
+            for ((index, field) in parsed.formFields.withIndex()) {
+                if (index >= values.length() || values.isNull(index)) continue
+                val value = when (val v = values.get(index)) {
+                    is String -> AutofillValue.forText(v)
+                    is JSONObject -> when {
+                        v.has("index") -> AutofillValue.forList(v.getInt("index"))
+                        v.has("date") -> AutofillValue.forDate(v.getLong("date"))
+                        else -> null
+                    }
+                    else -> null
+                } ?: continue
+                dataset.setValue(field.id, value)
+                filled = true
+            }
+            if (!filled) continue
+            builder.addDataset(dataset.build())
+            count++
+        }
+        return count
+    }
+
+    /** Locked: a suggestion that opens the unlock screen, which answers with the suggestions. */
+    @Suppress("DEPRECATION")
+    fun locked(context: Context, parsed: ParsedFields, inline: InlineSuggestionsRequest?): FillResponse {
         val intent = Intent(context, AutofillAuthActivity::class.java)
         val sender = PendingIntent.getActivity(context, 1001, intent, PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE).intentSender
+        val title = context.getString(R.string.autofill_unlock)
+        val chip = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) InlineSuggestions.Chips(context, inline).next(title, null) else null
         val builder = FillResponse.Builder()
-            .setAuthentication(parsed.all.toTypedArray(), sender, presentation(context, context.getString(R.string.autofill_unlock), null))
+        if (chip != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setAuthentication(parsed.all.toTypedArray(), sender, presentation(context, title, null), chip)
+        } else {
+            builder.setAuthentication(parsed.all.toTypedArray(), sender, presentation(context, title, null))
+        }
         saveInfo(parsed)?.let { builder.setSaveInfo(it) }
         return builder.build()
     }

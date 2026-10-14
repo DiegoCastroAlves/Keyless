@@ -55,9 +55,19 @@ class AutofillAuthActivity : Activity() {
             @Suppress("DEPRECATION")
             intent.getParcelableExtra<AssistStructure>(AutofillManager.EXTRA_ASSIST_STRUCTURE)
         }
+        // The keyboard's request for chips, when it made one.
+        val inline = when {
+            !AutofillCheck.inlineEnabled(this) -> null
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                intent.getParcelableExtra(AutofillManager.EXTRA_INLINE_SUGGESTIONS_REQUEST, android.view.inputmethod.InlineSuggestionsRequest::class.java)
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra<android.view.inputmethod.InlineSuggestionsRequest>(AutofillManager.EXTRA_INLINE_SUGGESTIONS_REQUEST)
+            else -> null
+        }
         val response = structure?.let {
             try {
-                AutofillResponses.datasets(this, AutofillParser.parse(it))
+                AutofillResponses.datasets(this, AutofillParser.parse(it), inline)
             } catch (e: Exception) {
                 null
             }

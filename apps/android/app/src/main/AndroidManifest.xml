@@ -6,6 +6,23 @@
     <!-- Scanning QR codes (two-step verification setups, setup codes). -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- "Code copied" after filling a login with a one-time password (asked on the autofill check screen). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Running until that code leaves the clipboard (ClipboardClearService, 90 seconds). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Whether Chrome lets another autofill service fill (the autofill check screen);
+         apps' names, for the title of a login saved from them. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <package android:name="com.android.chrome" />
+        <package android:name="com.chrome.beta" />
+        <package android:name="com.chrome.dev" />
+        <package android:name="com.chrome.canary" />
+    </queries>
 
     <application
         android:name=".KeylessApp"
@@ -41,6 +58,29 @@
             android:excludeFromRecents="true"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- A login with a one-time password, chosen in the autofill list. -->
+        <activity
+            android:name=".AutofillFillActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.Keyless.Translucent"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Also Android's autofill settings' gear (xml/autofill_service.xml). -->
+        <activity
+            android:name=".AutofillCheckActivity"
+            android:exported="true"
+            android:label="@string/check_title" />
+
+        <receiver
+            android:name=".ClipboardClearReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".ClipboardClearService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
 
         <activity
             android:name=".QrScanActivity"

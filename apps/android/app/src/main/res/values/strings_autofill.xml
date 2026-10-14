@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Autofill, Credential Manager and the autofill check screen. -->
+<resources>
+    <!-- Keyboard chips -->
+    <string name="inline_description">%1$s, from Keyless</string>
+
+    <!-- One-time codes after filling -->
+    <string name="totp_channel">One-time codes</string>
+    <string name="totp_copied_title">Code copied</string>
+    <string name="totp_copied_body">The one-time code for %1$s is on the clipboard for 90 seconds.</string>
+    <string name="totp_copied_toast">One-time code copied. It is cleared from the clipboard in 90 seconds.</string>
+
+    <!-- Autofill check -->
+    <string name="check_title">Autofill check</string>
+    <string name="check_intro">What Keyless needs to fill logins, cards and addresses in apps and browsers on this phone.</string>
+    <string name="check_no_settings">This setting is not available on this phone.</string>
+
+    <string name="check_service_title">Autofill service</string>
+    <string name="check_service_on">Keyless is the autofill service.</string>
+    <string name="check_service_off">Keyless is not the autofill service.</string>
+    <string name="check_service_unsupported">This phone does not support autofill services.</string>
+    <string name="check_service_body">Android lets one service fill fields in apps and browsers: choose Keyless to fill your logins, credit cards and identities.</string>
+    <string name="check_service_button">Choose Keyless for autofill</string>
+    <string name="check_service_change">Open autofill and password settings</string>
+
+    <string name="check_provider_title">Passwords and passkeys</string>
+    <string name="check_provider_on">Keyless is on in Credential Manager.</string>
+    <string name="check_provider_off">Keyless is off in Credential Manager.</string>
+    <string name="check_provider_body">Apps that sign in through Android\'s Credential Manager can then use your Keyless passkeys and passwords, and save new ones in Keyless.</string>
+    <string name="check_provider_button">Open Credential Manager settings</string>
+    <string name="check_provider_old">Needs Android 14 or later.</string>
+
+    <string name="check_inline_title">Suggestions in the keyboard</string>
+    <string name="check_inline_body">Keyboards that support it, like Gboard, show Keyless\'s suggestions as chips above the keys (Android 11 and later). Otherwise they show in a list under the field.</string>
+    <string name="check_inline_yes">%1$s showed Keyless\'s suggestions in the keyboard the last time.</string>
+    <string name="check_inline_no">%1$s did not ask for suggestions in the keyboard the last time: they show in a list under the field.</string>
+    <string name="check_inline_unknown">Keyboard: %1$s. Tap a field in another app, then come back to see whether it shows Keyless\'s suggestions.</string>
+    <string name="check_inline_off">Off: suggestions show in a list under the field.</string>
+    <string name="check_inline_switch">Show suggestions in the keyboard</string>
+    <string name="check_inline_old">Needs Android 11 or later: suggestions show in a list under the field.</string>
+    <string name="check_keyboard_button">Open keyboard settings</string>
+
+    <string name="check_notifications_title">Notifications</string>
+    <string name="check_notifications_on">Keyless may notify you.</string>
+    <string name="check_notifications_off">Keyless may not notify you.</string>
+    <string name="check_notifications_body">When Keyless fills a login that has a one-time password, it copies the current code so you can paste it on the next screen, and tells you with a notification.</string>
+    <string name="check_notifications_button">Allow notifications</string>
+    <string name="check_notifications_settings">Open notification settings</string>
+
+    <string name="check_chrome_title">Chrome</string>
+    <string name="check_chrome_body">Chrome fills with Google Password Manager unless told otherwise. In Chrome, open Settings › Autofill services (chrome://settings/autofill), choose “Autofill using another service” and restart Chrome. Other browsers, like Firefox, Brave or Edge, use Keyless directly.</string>
+    <string name="check_chrome_on">Chrome lets Keyless fill.</string>
+    <string name="check_chrome_off">Chrome fills with its own service now.</string>
+    <string name="check_chrome_unknown">This Chrome does not say which service it uses. Chrome 135 and later can use Keyless.</string>
+    <string name="check_chrome_absent">Chrome is not installed.</string>
+    <string name="check_chrome_button">Open Chrome\'s autofill settings</string>
+</resources>

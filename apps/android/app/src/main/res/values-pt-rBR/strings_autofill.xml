@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Preenchimento automático, Gerenciador de credenciais e a tela de verificação. -->
+<resources>
+    <string name="inline_description">%1$s, do Keyless</string>
+
+    <string name="totp_channel">Códigos de verificação</string>
+    <string name="totp_copied_title">Código copiado</string>
+    <string name="totp_copied_body">O código de verificação de %1$s fica na área de transferência por 90 segundos.</string>
+    <string name="totp_copied_toast">Código de verificação copiado. Ele sai da área de transferência em 90 segundos.</string>
+
+    <string name="check_title">Verificar preenchimento</string>
+    <string name="check_intro">O que o Keyless precisa para preencher logins, cartões e endereços em apps e navegadores neste celular.</string>
+    <string name="check_no_settings">Esta configuração não existe neste celular.</string>
+
+    <string name="check_service_title">Serviço de preenchimento automático</string>
+    <string name="check_service_on">O Keyless é o serviço de preenchimento automático.</string>
+    <string name="check_service_off">O Keyless não é o serviço de preenchimento automático.</string>
+    <string name="check_service_unsupported">Este celular não aceita serviços de preenchimento automático.</string>
+    <string name="check_service_body">O Android deixa um serviço preencher campos em apps e navegadores: escolha o Keyless para preencher seus logins, cartões de crédito e identidades.</string>
+    <string name="check_service_button">Escolher o Keyless para preencher</string>
+    <string name="check_service_change">Abrir configurações de preenchimento e senhas</string>
+
+    <string name="check_provider_title">Senhas e chaves de acesso</string>
+    <string name="check_provider_on">O Keyless está ativado no Gerenciador de credenciais.</string>
+    <string name="check_provider_off">O Keyless está desativado no Gerenciador de credenciais.</string>
+    <string name="check_provider_body">Assim, apps que fazem login pelo Gerenciador de credenciais do Android podem usar suas chaves de acesso e senhas do Keyless, e salvar novas no Keyless.</string>
+    <string name="check_provider_button">Abrir configurações do Gerenciador de credenciais</string>
+    <string name="check_provider_old">Precisa do Android 14 ou mais recente.</string>
+
+    <string name="check_inline_title">Sugestões no teclado</string>
+    <string name="check_inline_body">Teclados compatíveis, como o Gboard, mostram as sugestões do Keyless em botões acima das teclas (Android 11 ou mais recente). Nos outros, elas aparecem numa lista abaixo do campo.</string>
+    <string name="check_inline_yes">O %1$s mostrou as sugestões do Keyless no teclado da última vez.</string>
+    <string name="check_inline_no">O %1$s não pediu sugestões no teclado da última vez: elas aparecem numa lista abaixo do campo.</string>
+    <string name="check_inline_unknown">Teclado: %1$s. Toque num campo de outro app e volte aqui para ver se ele mostra as sugestões do Keyless.</string>
+    <string name="check_inline_off">Desativado: as sugestões aparecem numa lista abaixo do campo.</string>
+    <string name="check_inline_switch">Mostrar sugestões no teclado</string>
+    <string name="check_inline_old">Precisa do Android 11 ou mais recente: as sugestões aparecem numa lista abaixo do campo.</string>
+    <string name="check_keyboard_button">Abrir configurações do teclado</string>
+
+    <string name="check_notifications_title">Notificações</string>
+    <string name="check_notifications_on">O Keyless pode enviar notificações.</string>
+    <string name="check_notifications_off">O Keyless não pode enviar notificações.</string>
+    <string name="check_notifications_body">Quando o Keyless preenche um login com código de verificação, ele copia o código atual para você colar na próxima tela e avisa com uma notificação.</string>
+    <string name="check_notifications_button">Permitir notificações</string>
+    <string name="check_notifications_settings">Abrir configurações de notificação</string>
+
+    <string name="check_chrome_title">Chrome</string>
+    <string name="check_chrome_body">O Chrome preenche com o Gerenciador de senhas do Google, a menos que você mude isso. No Chrome, abra Configurações › Serviços de preenchimento automático (chrome://settings/autofill), escolha “Preencher automaticamente usando outro serviço” e reinicie o Chrome. Outros navegadores, como Firefox, Brave ou Edge, usam o Keyless diretamente.</string>
+    <string name="check_chrome_on">O Chrome deixa o Keyless preencher.</string>
+    <string name="check_chrome_off">O Chrome preenche com o próprio serviço agora.</string>
+    <string name="check_chrome_unknown">Este Chrome não informa qual serviço usa. O Chrome 135 ou mais recente pode usar o Keyless.</string>
+    <string name="check_chrome_absent">O Chrome não está instalado.</string>
+    <string name="check_chrome_button">Abrir preenchimento automático do Chrome</string>
+</resources>
