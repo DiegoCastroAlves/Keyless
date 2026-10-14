@@ -141,7 +141,15 @@ fun Context.errorText(error: Throwable): String {
         else -> null
     }
     if (key == "field_too_long") return getString(R.string.err_field_too_long, error.message ?: "")
-    return if (res != null) getString(res) else getString(R.string.err_unknown, error.message ?: error.toString())
+    if (res != null) return getString(res)
+    // The desktop's texts for the rest; the client puts a text's one value
+    // (a detail, a minimum, an email) in the message.
+    if (key != null) {
+        val detail = error.message ?: ""
+        val text = Labels.t(this, "errors.$key", mapOf("detail" to detail, "min" to detail, "email" to detail, "max" to detail, "quota" to detail, "label" to detail, "seconds" to detail))
+        if (text != "errors.$key") return text
+    }
+    return getString(R.string.err_unknown, error.message ?: error.toString())
 }
 
 // ----- unlocking (the app and autofill) --------------------------------------

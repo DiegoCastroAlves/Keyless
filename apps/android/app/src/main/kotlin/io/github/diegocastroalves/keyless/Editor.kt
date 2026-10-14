@@ -177,10 +177,22 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
             page.add(line, top = 4)
         }
 
+        // An SSH key's public key and fingerprint come from its private key.
+        val sshFields = if (category == "ssh_key") sshFieldsOf(draft) else null
+        val afterChange: ((JSONObject) -> Unit)? = sshFields?.let { ssh ->
+            { changed: JSONObject -> if (changed === ssh.first) readSshKey(ssh, null) { render() } }
+        }
+        if (sshFields != null) {
+            page.add(label(Labels.t(this, "sshKey.hint"), 13f, muted = true), top = 8)
+            page.add(plainButton(Labels.t(this, "sshKey.generate")) {
+                act({ fillSsh(sshFields, Keyless.sshGenerate(draft.optString("title"))) }) { render() }
+            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
         fun fieldList(fields: JSONArray): View {
             val panel = panel()
             for (i in 0 until fields.length()) {
-                panel.add(fieldEditor(fields.getJSONObject(i)) {
+                panel.add(fieldEditor(fields.getJSONObject(i), draft.optString("id").takeIf { !isNew }, afterChange) {
                     fields.remove(i)
                     render()
                 }, top = if (i == 0) 0 else 4)
@@ -274,8 +286,56 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
     render()
 }
 
+/** An SSH key item's private key, public key and fingerprint fields (as the desktop's template). */
+private fun MainActivity.sshFieldsOf(draft: JSONObject): Triple<JSONObject, JSONObject?, JSONObject?>? {
+    val fields = draft.optJSONArray("fields") ?: return null
+    val all = (0 until fields.length()).map { fields.getJSONObject(it) }
+    fun named(english: String) = all.firstOrNull { val l = it.optString("label"); l == english || l == Labels.field(this, english) }
+    val private = named("private key") ?: all.firstOrNull { it.optString("kind") == "concealed" } ?: return null
+    return Triple(private, named("public key"), named("fingerprint"))
+}
+
+private fun fillSsh(ssh: Triple<JSONObject, JSONObject?, JSONObject?>, key: JSONObject) {
+    ssh.first.put("value", key.getString("privateKey"))
+    ssh.second?.put("value", key.getString("publicKey"))
+    ssh.third?.put("value", key.getString("fingerprint"))
+}
+
+/** Reads a pasted private key (asking for its passphrase when it has one) into the item's fields. */
+private fun MainActivity.readSshKey(ssh: Triple<JSONObject, JSONObject?, JSONObject?>, passphrase: String?, then: () -> Unit) {
+    val text = ssh.first.optString("value")
+    if (!text.contains("-----END")) return
+    thread {
+        val result = try {
+            Keyless.sshImport(text, passphrase, "")
+        } catch (e: Exception) {
+            e
+        }
+        runOnUiThread {
+            if (ssh.first.optString("value") != text) return@runOnUiThread
+            when {
+                result is JSONObject -> {
+                    fillSsh(ssh, result)
+                    then()
+                }
+                (result as? KeylessException)?.key == "ssh_key_passphrase" || (result as? KeylessException)?.key == "ssh_key_wrong_passphrase" -> {
+                    val input = field(Labels.t(this, "sshKey.passphrase"), TEXT_PASSWORD, secret = true)
+                    AlertDialog.Builder(this)
+                        .setTitle(Labels.t(this, "sshKey.passphrase"))
+                        .setMessage(if ((result as KeylessException).key == "ssh_key_wrong_passphrase") errorText(result) else null)
+                        .setView(column(20).apply { add(input) })
+                        .setPositiveButton(Labels.t(this, "sshKey.unlock")) { _, _ -> readSshKey(ssh, input.text.toString(), then) }
+                        .setNegativeButton(R.string.cancel, null)
+                        .show()
+                }
+                else -> Toast.makeText(this, errorText(result as Exception), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+}
+
 /** One field: its name, its value as its kind needs, and a button to remove it. */
-private fun MainActivity.fieldEditor(field: JSONObject, onRemove: () -> Unit): View {
+private fun MainActivity.fieldEditor(field: JSONObject, itemId: String?, afterChange: ((JSONObject) -> Unit)?, onRemove: () -> Unit): View {
     val box = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setPadding(0, dp(4), 0, dp(4))
@@ -317,7 +377,10 @@ private fun MainActivity.fieldEditor(field: JSONObject, onRemove: () -> Unit): V
             "totp" -> hint = getString(R.string.totp_hint)
             "month_year" -> hint = getString(R.string.month_year_hint)
         }
-        onChange { field.put("value", it) }
+        onChange {
+            field.put("value", it)
+            afterChange?.invoke(field)
+        }
     }
     if (kind == "date") {
         // The desktop keeps dates as YYYY-MM-DD.
@@ -360,6 +423,31 @@ private fun MainActivity.fieldEditor(field: JSONObject, onRemove: () -> Unit): V
         }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
     }
     box.add(line)
+    // (Not for an SSH key's editor, whose secret is the private key.)
+    if (afterChange == null && (field.optString("purpose") == "password" || kind == "concealed")) {
+        // How strong the password is, as the desktop's meter.
+        val meter = label("", 12f, muted = true)
+        val update = { text: String ->
+            if (text.isEmpty()) {
+                meter.text = ""
+            } else {
+                try {
+                    val strength = Keyless.strength(text, itemId)
+                    val level = strength.optInt("level")
+                    meter.text = Labels.t(this, "filters.strengthChip", mapOf("level" to Labels.t(this, "strength.$level")))
+                    meter.setTextColor(getColor(if (strength.optInt("score") < 3) R.color.danger else R.color.accent))
+                } catch (e: Exception) {
+                    meter.text = ""
+                }
+            }
+        }
+        update(field.optString("value"))
+        value.onChange {
+            field.put("value", it)
+            update(it)
+        }
+        box.add(meter, top = 2)
+    }
     return box
 }
 

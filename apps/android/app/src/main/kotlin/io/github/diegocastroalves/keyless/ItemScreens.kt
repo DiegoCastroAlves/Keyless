@@ -1,0 +1,439 @@
+package io.github.diegocastroalves.keyless
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.content.Context
+import android.content.Intent
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.net.Uri
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
+import android.text.format.Formatter
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.MimeTypeMap
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.ScrollView
+import android.widget.Switch
+import android.widget.TextView
+import android.widget.Toast
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.DateFormat
+import java.util.Date
+import kotlin.concurrent.thread
+
+/*
+ * An item's screens beyond its fields, as the desktop: its history, share
+ * links, attached files, Wi-Fi QR code and large type.
+ */
+
+private fun dateTime(seconds: Long): String = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(seconds * 1000))
+
+private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+
+/** A dialog with a bar for a file being moved; `update` may be called from any thread. */
+internal fun Activity.progressDialog(title: String): Pair<AlertDialog, Progress> {
+    val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 1000 }
+    val box = column(20).apply { add(bar) }
+    val dialog = AlertDialog.Builder(this).setTitle(title).setView(box).setCancelable(false).create()
+    dialog.show()
+    return dialog to { done, total -> runOnUiThread { bar.progress = if (total <= 0) 1000 else (done * 1000 / total).toInt() } }
+}
+
+// ----- history ------------------------------------------------------------------
+
+internal fun MainActivity.showHistory(id: String, writable: Boolean) {
+    val page = column(20)
+    page.add(plainButton("← " + t("common.back")) { showItem(id) }, width = WRAP)
+    page.add(label(t("itemHistory.title"), 24f, bold = true), top = 8)
+    page.add(label(t("itemHistory.note"), 13f, muted = true), top = 4)
+    val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    page.add(body, top = 12)
+    body.add(label(t("itemHistory.loading"), 14f, muted = true))
+    show("history", page)
+    thread {
+        val versions = try {
+            Keyless.itemVersions(id)
+        } catch (e: Exception) {
+            runOnUiThread {
+                body.removeAllViews()
+                body.add(label(errorText(e), 14f).apply { setTextColor(getColor(R.color.danger)) })
+            }
+            return@thread
+        }
+        runOnUiThread {
+            if (screen != "history") return@runOnUiThread
+            body.removeAllViews()
+            if (versions.length() == 0) body.add(label(t("itemHistory.empty"), 14f, muted = true))
+            for (i in 0 until versions.length()) body.add(versionView(id, versions.getJSONObject(i), writable), top = if (i == 0) 0 else 12)
+        }
+    }
+}
+
+private fun MainActivity.versionView(id: String, version: JSONObject, writable: Boolean): View {
+    val panel = panel()
+    val overview = version.getJSONObject("overview")
+    val details = version.getJSONObject("details")
+    panel.add(label(dateTime(version.optLong("updatedAt")), 13f, bold = true, muted = true))
+    panel.add(label(overview.optString("title"), 17f, bold = true), top = 4)
+    val fields = mutableListOf<JSONObject>()
+    details.optJSONArray("fields")?.let { list -> for (i in 0 until list.length()) fields.add(list.getJSONObject(i)) }
+    details.optJSONArray("sections")?.let { sections ->
+        for (s in 0 until sections.length()) sections.getJSONObject(s).optJSONArray("fields")?.let { list -> for (i in 0 until list.length()) fields.add(list.getJSONObject(i)) }
+    }
+    for (field in fields) {
+        val value = field.optString("value")
+        if (value.isEmpty()) continue
+        val name = Labels.field(this, field.optString("label"))
+        val secret = field.optString("kind") in listOf("concealed", "pin", "card_number", "security_question", "totp")
+        val line = row()
+        line.add(label(name, 13f, muted = true), width = 0, weight = 2f)
+        val shown = label(if (secret) "••••••••" else value, 14f).apply { setTextIsSelectable(!secret) }
+        line.add(shown, width = 0, weight = 3f)
+        if (secret) {
+            var open = false
+            lateinit var toggle: android.widget.Button
+            toggle = plainButton(t("common.show")) {
+                open = !open
+                shown.text = if (open) value else "••••••••"
+                toggle.text = t(if (open) "common.hide" else "common.show")
+            }
+            line.add(toggle, width = WRAP)
+        }
+        panel.add(line, top = 2)
+    }
+    val notes = details.optString("notes")
+    if (notes.isNotEmpty()) panel.add(label(notes, 14f).apply { setTextIsSelectable(true) }, top = 4)
+    val changed = version.optJSONArray("changed")
+    if (changed != null && changed.length() > 0) {
+        val names = (0 until changed.length()).map { changed.getString(it) }.map { name ->
+            if (name.startsWith(":")) t("itemHistory.changed.${name.removePrefix(":")}") else Labels.field(this, name)
+        }
+        panel.add(label(t("itemHistory.laterChanged", mapOf("list" to names.joinToString(", "))), 12f, muted = true), top = 6)
+    }
+    if (writable) {
+        panel.add(plainButton(t("itemHistory.restore")) {
+            AlertDialog.Builder(this)
+                .setMessage(t("itemHistory.restoreConfirm"))
+                .setPositiveButton(t("common.restore")) { _, _ ->
+                    act({ Keyless.restoreVersion(id, version.getLong("revision")) }) {
+                        Toast.makeText(this, t("itemHistory.restored"), Toast.LENGTH_SHORT).show()
+                        showItem(id)
+                    }
+                }
+                .setNegativeButton(t("common.cancel"), null)
+                .show()
+        }, width = WRAP, top = 4)
+    }
+    return panel
+}
+
+// ----- share links ----------------------------------------------------------------
+
+private val SHARE_HOURS = listOf(1, 24, 7 * 24, 14 * 24, 30 * 24)
+
+private fun Context.duration(hours: Int): String =
+    if (hours < 24) t("share.hours", mapOf("count" to hours)) else t("share.days", mapOf("count" to hours / 24))
+
+internal fun MainActivity.shareItem(id: String, title: String) {
+    val box = column(20)
+    box.add(label(t("share.description"), 13f, muted = true))
+    box.add(label(t("share.expires"), 14f, bold = true), top = 12)
+    val hours = RadioGroup(this)
+    for (h in SHARE_HOURS) {
+        hours.addView(RadioButton(this).apply {
+            text = duration(h)
+            this.id = View.generateViewId()
+            tag = h
+            isChecked = h == 7 * 24
+        })
+    }
+    box.add(hours, top = 2)
+    val once = Switch(this).apply { text = t("share.viewOnce") }
+    box.add(once, top = 8)
+    box.add(label(t("share.who"), 14f, bold = true), top = 12)
+    val who = RadioGroup(this)
+    val anyone = RadioButton(this).apply { text = t("share.anyone"); this.id = View.generateViewId(); isChecked = true }
+    val only = RadioButton(this).apply { text = t("share.onlyEmails"); this.id = View.generateViewId() }
+    who.addView(anyone)
+    who.addView(only)
+    box.add(who, top = 2)
+    val emails = field(t("share.emailsPlaceholder"), TEXT_EMAIL).apply { visibility = View.GONE }
+    val emailsHint = label(t("share.emailsHint"), 12f, muted = true).apply { visibility = View.GONE }
+    box.add(emails, top = 2)
+    box.add(emailsHint, top = 2)
+    who.setOnCheckedChangeListener { _, checked ->
+        val restricted = checked == only.id
+        emails.visibility = if (restricted) View.VISIBLE else View.GONE
+        emailsHint.visibility = emails.visibility
+    }
+    val links = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    box.add(links, top = 16)
+    val dialog = AlertDialog.Builder(this)
+        .setTitle(t("share.title", mapOf("title" to title)))
+        .setView(ScrollView(this).apply { addView(box) })
+        .setPositiveButton(t("share.create"), null)
+        .setNegativeButton(t("common.close"), null)
+        .create()
+    dialog.setOnShowListener {
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val chosen = hours.findViewById<RadioButton>(hours.checkedRadioButtonId)?.tag as? Int ?: 7 * 24
+            val recipients = if (only.isChecked) emails.text.toString().split(',', ';', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() } else emptyList()
+            if (only.isChecked && recipients.isEmpty()) {
+                emails.error = t("errors.email_invalid")
+                return@setOnClickListener
+            }
+            var made: JSONObject? = null
+            act({ made = Keyless.createShare(id, chosen, once.isChecked, recipients) }) {
+                dialog.dismiss()
+                made?.let { showShareLink(it, recipients) }
+            }
+        }
+    }
+    dialog.show()
+    loadShareLinks(id, links)
+}
+
+/** The link just made, shown once. */
+private fun MainActivity.showShareLink(made: JSONObject, recipients: List<String>) {
+    val link = made.getString("link")
+    val box = column(20)
+    box.add(label(t("share.onlyNow", mapOf("date" to dateTime(made.optLong("expiresAt")))), 13f, muted = true))
+    if (recipients.isNotEmpty()) box.add(label(t("share.restrictedCreated", mapOf("emails" to recipients.joinToString(", "))), 13f, muted = true), top = 6)
+    box.add(label(link, 14f).apply { setTextIsSelectable(true); typeface = Typeface.MONOSPACE }, top = 10)
+    AlertDialog.Builder(this)
+        .setTitle(t("share.link"))
+        .setView(box)
+        .setPositiveButton(t("common.copy")) { _, _ -> copy(t("share.link"), link) }
+        .setNegativeButton(t("common.close"), null)
+        .show()
+}
+
+private fun MainActivity.loadShareLinks(id: String, holder: LinearLayout) {
+    thread {
+        val list = try {
+            Keyless.shareList(id, all = false)
+        } catch (e: Exception) {
+            return@thread
+        }
+        runOnUiThread {
+            holder.removeAllViews()
+            if (list.length() == 0) return@runOnUiThread
+            holder.add(label(t("share.active"), 14f, bold = true))
+            for (i in 0 until list.length()) {
+                val share = list.getJSONObject(i)
+                val line = row()
+                val views = share.optInt("views")
+                val text = buildString {
+                    append(t("share.until", mapOf("date" to dateTime(share.optLong("expiresAt")))))
+                    append(" · ")
+                    if (!share.isNull("maxViews")) append(t("share.viewsOf", mapOf("count" to views, "max" to share.optInt("maxViews")))) else append(t("share.views", mapOf("count" to views)))
+                    val emails = share.optJSONArray("recipients")
+                    if (emails != null && emails.length() > 0) append("\n").append(t("share.onlyFor", mapOf("emails" to (0 until emails.length()).joinToString(", ") { emails.getString(it) })))
+                }
+                line.add(label(text, 13f), width = 0, weight = 1f)
+                line.add(plainButton(t("share.revoke")) {
+                    act({ Keyless.revokeShare(share.getString("id")) }) {
+                        Toast.makeText(this, t("share.revoked"), Toast.LENGTH_SHORT).show()
+                        loadShareLinks(id, holder)
+                    }
+                }, width = WRAP)
+                holder.add(line, top = 4)
+            }
+        }
+    }
+}
+
+// ----- attached files -----------------------------------------------------------------
+
+/** The item's files, to save or remove, and a button to attach more. */
+internal fun MainActivity.attachmentsSection(page: LinearLayout, id: String, writable: Boolean) {
+    val files = try {
+        Keyless.attachments(id)
+    } catch (e: KeylessException) {
+        JSONArray()
+    }
+    if (files.length() == 0 && !writable) return
+    page.add(label(t("item.attachments").uppercase(), 12f, bold = true, muted = true), top = 20)
+    val panel = panel()
+    for (i in 0 until files.length()) {
+        val file = files.getJSONObject(i)
+        val line = row()
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        texts.add(label(file.optString("name"), 15f))
+        texts.add(label(Formatter.formatShortFileSize(this, file.optLong("size")), 12f, muted = true))
+        line.add(texts, width = 0, weight = 1f)
+        line.add(plainButton(t("item.attachmentSave")) { saveAttachmentAs(id, file) }, width = WRAP)
+        if (writable) {
+            line.add(plainButton("✕") {
+                AlertDialog.Builder(this)
+                    .setMessage(t("item.attachmentDeleteConfirm"))
+                    .setPositiveButton(t("common.delete")) { _, _ ->
+                        act({ Keyless.removeAttachment(id, file.getString("id")) }) {
+                            Toast.makeText(this, t("item.attachmentDeleted"), Toast.LENGTH_SHORT).show()
+                            showItem(id)
+                        }
+                    }
+                    .setNegativeButton(t("common.cancel"), null)
+                    .show()
+            }.apply { contentDescription = t("common.delete") }, width = WRAP)
+        }
+        panel.add(line, top = if (i == 0) 0 else 4)
+    }
+    if (writable) panel.add(plainButton(t("item.attach")) { attachFile(id) }, width = WRAP, top = if (files.length() == 0) 0 else 4)
+    page.add(panel, top = 6)
+}
+
+/** The name and size of a file the user picked. */
+internal fun Context.fileInfo(uri: Uri): Pair<String, Long> {
+    var name = "file"
+    var size = -1L
+    contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            cursor.getString(0)?.let { name = it }
+            if (!cursor.isNull(1)) size = cursor.getLong(1)
+        }
+    }
+    if (size < 0) size = contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+    if (size < 0) throw KeylessException("file_unreadable")
+    return name to size
+}
+
+internal fun MainActivity.attachFile(id: String) {
+    val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+    startForResult(pick) { result, data ->
+        val uri = data?.data
+        if (result != Activity.RESULT_OK || uri == null) return@startForResult
+        val (name, size) = try {
+            fileInfo(uri)
+        } catch (e: Exception) {
+            Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
+            return@startForResult
+        }
+        val (dialog, progress) = progressDialog(t("item.attachmentUploading", mapOf("name" to name, "percent" to "")).trimEnd('%', ' '))
+        act({
+            try {
+                contentResolver.openInputStream(uri)?.use { input -> Keyless.attach(id, name, size, input, progress) } ?: throw KeylessException("file_unreadable")
+            } finally {
+                runOnUiThread { dialog.dismiss() }
+            }
+        }) {
+            Toast.makeText(this, t("item.attachmentsAdded", mapOf("count" to 1)), Toast.LENGTH_SHORT).show()
+            showItem(id)
+        }
+    }
+}
+
+private fun MainActivity.saveAttachmentAs(id: String, file: JSONObject) {
+    val name = file.optString("name")
+    val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
+    val create = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type).putExtra(Intent.EXTRA_TITLE, name)
+    startForResult(create) { result, data ->
+        val uri = data?.data
+        if (result != Activity.RESULT_OK || uri == null) return@startForResult
+        val (dialog, progress) = progressDialog(t("item.attachmentDownloading", mapOf("name" to name, "percent" to "")).trimEnd('%', ' '))
+        act({
+            try {
+                contentResolver.openOutputStream(uri, "wt")?.use { out -> Keyless.saveAttachment(id, file.getString("id"), out, progress) } ?: throw KeylessException("file_unwritable")
+            } catch (e: Exception) {
+                // No half-written decrypted file stays behind.
+                try {
+                    DocumentsContract.deleteDocument(contentResolver, uri)
+                } catch (ignored: Exception) {
+                }
+                throw e
+            } finally {
+                runOnUiThread { dialog.dismiss() }
+            }
+        }) {
+            Toast.makeText(this, t("item.attachmentSaved"), Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+// ----- QR codes and large type ------------------------------------------------------------
+
+/** A QR code drawn from its modules ('1' dark), with its quiet zone, as large as it fits. */
+class QrView(context: Context, private val modules: List<String>) : View(context) {
+    private val dark = Paint().apply { color = Color.BLACK }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val side = MeasureSpec.getSize(widthMeasureSpec)
+        setMeasuredDimension(side, side)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawColor(Color.WHITE)
+        val count = modules.size + 8
+        val cell = width.toFloat() / count
+        for ((y, line) in modules.withIndex()) {
+            for ((x, module) in line.withIndex()) {
+                if (module == '1') canvas.drawRect((x + 4) * cell, (y + 4) * cell, (x + 5) * cell, (y + 5) * cell, dark)
+            }
+        }
+    }
+}
+
+internal fun MainActivity.showQr(title: String, modules: List<String>) {
+    val box = column(20)
+    box.add(QrView(this, modules))
+    AlertDialog.Builder(this).setTitle(title).setView(box).setPositiveButton(t("common.close"), null).show()
+}
+
+internal fun MainActivity.showWifiQr(id: String) {
+    try {
+        showQr(t("item.wifiQr"), Keyless.wifiQr(id))
+    } catch (e: Exception) {
+        Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
+    }
+}
+
+/** A value in large type, a character per cell (digits and symbols in color), or as a QR code. */
+internal fun MainActivity.showLargeType(value: String) {
+    val box = column(16)
+    val cells = android.widget.GridLayout(this).apply { columnCount = 6 }
+    for ((i, c) in value.withIndex()) {
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+        }
+        cell.addView(TextView(this).apply {
+            text = c.toString()
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 30f)
+            gravity = Gravity.CENTER
+            when {
+                c.isDigit() -> setTextColor(accent())
+                !c.isLetter() -> setTextColor(getColor(R.color.danger))
+            }
+        })
+        cell.addView(label((i + 1).toString(), 10f, muted = true).apply { gravity = Gravity.CENTER })
+        cells.addView(cell)
+    }
+    box.add(cells)
+    val holder = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    box.add(holder, top = 8)
+    box.add(plainButton(t("largeType.qr")) {
+        holder.removeAllViews()
+        try {
+            holder.add(QrView(this, Keyless.qrModules(value)))
+        } catch (e: Exception) {
+            holder.add(label(errorText(e), 13f, muted = true))
+        }
+    }, width = WRAP)
+    AlertDialog.Builder(this)
+        .setView(ScrollView(this).apply { addView(box) })
+        .setPositiveButton(t("common.close"), null)
+        .show()
+}

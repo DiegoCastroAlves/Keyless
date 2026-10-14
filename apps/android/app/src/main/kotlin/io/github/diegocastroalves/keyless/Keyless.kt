@@ -102,7 +102,7 @@ object Keyless {
         vaults = JSONArray()
     }
 
-    private fun save() {
+    internal fun save() {
         val file = snapshotFile()
         val partial = File(file.parentFile, "vault.json.part")
         partial.writeText(Native.run("snapshot").toString())
@@ -112,7 +112,12 @@ object Keyless {
     /** Signs in with the email, master password and Secret Key, and syncs. */
     fun signIn(email: String, secretKey: String, masterPassword: String) {
         val derived = Native.obj("derive", JSONObject().put("email", email).put("masterPassword", masterPassword).put("secretKey", secretKey))
-        val signed = Server.signIn(email.trim().lowercase(), derived.getString("authSecret"))
+        finishSignIn(email, derived.getString("authSecret"), secretKey)
+    }
+
+    /** Signs in with the secret derived last (`derive`, or a recovery's new credentials), and syncs. */
+    internal fun finishSignIn(email: String, authSecret: String, secretKey: String) {
+        val signed = Server.signIn(email.trim().lowercase(), authSecret)
         val profile = Server.profile(signed.accessToken, signed.userId)
         Native.run("signedIn", JSONObject().put("userId", signed.userId).put("profile", profile ?: JSONObject.NULL))
         session = signed
@@ -145,7 +150,7 @@ object Keyless {
 
     fun exportUserKey(): String = Native.run("exportUserKey") as String
 
-    private fun token(): String {
+    internal fun token(): String {
         val current = session
         if (current != null && current.expiresAt - 60 > System.currentTimeMillis() / 1000) return current.accessToken
         val refresh = current?.refreshToken ?: SecureStore.get(app, "refresh_token") ?: throw KeylessException("session_expired")
@@ -181,7 +186,7 @@ object Keyless {
         refreshCache()
     }
 
-    private fun refreshCache() {
+    internal fun refreshCache() {
         vaults = Native.arr("vaults")
         val list = Native.arr("items")
         val all = ArrayList<Summary>(list.length())
@@ -201,7 +206,7 @@ object Keyless {
 
     fun canWrite(vaultId: String): Boolean = writableVaults().any { it.optString("id") == vaultId }
 
-    private fun now(): Long = System.currentTimeMillis() / 1000
+    internal fun now(): Long = System.currentTimeMillis() / 1000
 
     /**
      * Uploads a write (`sealItem`, `saveDraft`, `setFlags`, `sealTombstone`...)
@@ -319,6 +324,11 @@ object Keyless {
     class PendingSave(val domain: String?, val packageName: String?, val title: String, val username: String, val password: String)
 
     @Volatile var pendingSave: PendingSave? = null
+
+    /** A recovery's new credentials, shown and not sent yet (see AccountData). */
+    @Volatile internal var pendingRecovery: JSONObject? = null
+
+    internal val context: Context get() = app
 
     /** Removes the account and its data from this phone. */
     fun signOut() {

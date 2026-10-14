@@ -79,4 +79,15 @@
     <string name="passkeys_enable">Usar Keyless para llaves de acceso</string>
     <string name="err_passkey_origin">Esta app o sitio no puede usar llaves de acceso de ese sitio.</string>
     <string name="err_passkey_excluded">Ya tienes una llave de acceso de esta cuenta en Keyless.</string>
+    <string name="save_in_keyless">Guardar en Keyless</string>
+    <string name="saved_in_keyless">“%1$s” guardado en Keyless</string>
+    <string name="save_needs_account">Inicia sesión en Keyless primero.</string>
+    <string name="shortcut_search">Buscar</string>
+    <string name="shortcut_new_item">Nuevo elemento</string>
+    <string name="shortcut_generator">Generador de contraseñas</string>
+    <string name="theme">Tema</string>
+    <string name="theme_system">Como el sistema</string>
+    <string name="theme_light">Claro</string>
+    <string name="theme_dark">Oscuro</string>
+    <string name="select_item">Elige un elemento para ver sus detalles</string>
 </resources>

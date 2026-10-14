@@ -80,4 +80,15 @@
     <string name="passkeys_enable">Use Keyless for passkeys</string>
     <string name="err_passkey_origin">This app or website cannot use passkeys for that site.</string>
     <string name="err_passkey_excluded">You already have a passkey for this account in Keyless.</string>
+    <string name="save_in_keyless">Save in Keyless</string>
+    <string name="saved_in_keyless">“%1$s” saved in Keyless</string>
+    <string name="save_needs_account">Sign in to Keyless first.</string>
+    <string name="shortcut_search">Search</string>
+    <string name="shortcut_new_item">New item</string>
+    <string name="shortcut_generator">Password generator</string>
+    <string name="theme">Theme</string>
+    <string name="theme_system">As the system</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="select_item">Select an item to see its details</string>
 </resources>

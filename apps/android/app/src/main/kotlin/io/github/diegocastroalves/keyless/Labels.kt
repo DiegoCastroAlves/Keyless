@@ -85,3 +85,6 @@ object Labels {
     /** Field kinds in the editor's "Add field" menu, as the desktop's. */
     val FIELD_KINDS = listOf("text", "concealed", "email", "url", "phone", "totp", "date", "month_year", "card_number", "pin", "multiline")
 }
+
+/** A desktop text in the phone's language (see `Labels.t`). */
+internal fun Context.t(path: String, vars: Map<String, Any> = emptyMap()): String = Labels.t(this, path, vars)

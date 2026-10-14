@@ -35,4 +35,5 @@
     <string name="err_device_setup_code_denied">Too many wrong codes: the request was refused.</string>
     <string name="err_device_setup_expired">The request expired.</string>
     <string name="err_device_setup_failed">The request could not be checked.</string>
+    <string name="passwords_differ">The two passwords are different.</string>
 </resources>

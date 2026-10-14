@@ -35,4 +35,5 @@
     <string name="err_device_setup_code_denied">Demasiados códigos incorrectos: se rechazó la solicitud.</string>
     <string name="err_device_setup_expired">La solicitud caducó.</string>
     <string name="err_device_setup_failed">No se pudo comprobar la solicitud.</string>
+    <string name="passwords_differ">Las dos contraseñas son distintas.</string>
 </resources>

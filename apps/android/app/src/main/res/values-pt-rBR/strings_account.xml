@@ -35,4 +35,5 @@
     <string name="err_device_setup_code_denied">Códigos errados demais: o pedido foi recusado.</string>
     <string name="err_device_setup_expired">O pedido expirou.</string>
     <string name="err_device_setup_failed">Não foi possível conferir o pedido.</string>
+    <string name="passwords_differ">As duas senhas são diferentes.</string>
 </resources>

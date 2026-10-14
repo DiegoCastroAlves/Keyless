@@ -79,4 +79,15 @@
     <string name="passkeys_enable">Usar o Keyless para chaves de acesso</string>
     <string name="err_passkey_origin">Este app ou site não pode usar chaves de acesso desse site.</string>
     <string name="err_passkey_excluded">Você já tem uma chave de acesso dessa conta no Keyless.</string>
+    <string name="save_in_keyless">Salvar no Keyless</string>
+    <string name="saved_in_keyless">“%1$s” salvo no Keyless</string>
+    <string name="save_needs_account">Entre no Keyless primeiro.</string>
+    <string name="shortcut_search">Buscar</string>
+    <string name="shortcut_new_item">Novo item</string>
+    <string name="shortcut_generator">Gerador de senhas</string>
+    <string name="theme">Tema</string>
+    <string name="theme_system">Igual ao sistema</string>
+    <string name="theme_light">Claro</string>
+    <string name="theme_dark">Escuro</string>
+    <string name="select_item">Escolha um item para ver os detalhes</string>
 </resources>

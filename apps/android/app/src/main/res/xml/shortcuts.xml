@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The launcher icon's shortcuts: they open the app on these screens (after unlocking). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="search"
+        android:shortcutShortLabel="@string/shortcut_search">
+        <intent
+            android:action="io.github.diegocastroalves.keyless.SEARCH"
+            android:targetClass="io.github.diegocastroalves.keyless.MainActivity"
+            android:targetPackage="io.github.diegocastroalves.keyless" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="new_item"
+        android:shortcutShortLabel="@string/shortcut_new_item">
+        <intent
+            android:action="io.github.diegocastroalves.keyless.NEW_ITEM"
+            android:targetClass="io.github.diegocastroalves.keyless.MainActivity"
+            android:targetPackage="io.github.diegocastroalves.keyless" />
+    </shortcut>
+    <shortcut
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutId="generator"
+        android:shortcutShortLabel="@string/shortcut_generator">
+        <intent
+            android:action="io.github.diegocastroalves.keyless.GENERATOR"
+            android:targetClass="io.github.diegocastroalves.keyless.MainActivity"
+            android:targetPackage="io.github.diegocastroalves.keyless" />
+    </shortcut>
+</shortcuts>

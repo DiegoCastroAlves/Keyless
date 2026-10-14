@@ -51,6 +51,23 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="keyless" android:host="setup" />
             </intent-filter>
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
+        </activity>
+
+        <!-- "Save in Keyless" in the share menu: a file becomes a Document item. -->
+        <activity
+            android:name=".SaveFileActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:label="@string/save_in_keyless"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
         </activity>
 
         <activity
