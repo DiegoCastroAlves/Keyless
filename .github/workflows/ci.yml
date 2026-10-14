@@ -288,7 +288,7 @@ jobs:
           xcrun simctl install "$device" build/Build/Products/Release-iphonesimulator/Keyless.app
           xcrun simctl launch --console-pty "$device" io.github.diegocastroalves.keyless --smoke 2>&1 | tee smoke.log
           grep -q "SMOKE DONE 0" smoke.log
-          message=$(grep "SMOKE" smoke.log | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          message=$(tr -d '\r' < smoke.log | grep "SMOKE" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::notice title=iOS on the simulator::${message}"
 
       - name: Report errors
