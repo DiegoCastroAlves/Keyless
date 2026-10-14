@@ -63,6 +63,16 @@ object Origins {
         return if (signing.hasMultipleSigners()) signing.apkContentsSigners.toList() else signing.signingCertificateHistory.toList()
     }
 
+    /** The page's origin a browser in Google's list reports (null for an app, or for another browser). */
+    fun browserOrigin(context: Context, info: CallingAppInfo): String? {
+        if (!info.isOriginPopulated()) return null
+        return try {
+            info.getOrigin(allowlist(context))
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** The origin to put in the WebAuthn answer, once `info` may use passkeys for `rpId`; throws otherwise. */
     fun origin(context: Context, info: CallingAppInfo, rpId: String): String {
         val site = rpId.trim().lowercase()

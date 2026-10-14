@@ -73,6 +73,12 @@
             android:exported="true"
             android:label="@string/check_title" />
 
+        <activity
+            android:name=".PasswordCredentialActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <receiver
             android:name=".ClipboardClearReceiver"
             android:exported="false" />
@@ -94,7 +100,7 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
-        <!-- Passkeys for apps and websites (Android 14 and later). -->
+        <!-- Passkeys and passwords for apps and websites (Android 14 and later). -->
         <service
             android:name=".KeylessCredentialService"
             android:enabled="true"

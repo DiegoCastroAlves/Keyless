@@ -13,21 +13,25 @@ import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.provider.AuthenticationAction
 import androidx.credentials.provider.BeginCreateCredentialRequest
 import androidx.credentials.provider.BeginCreateCredentialResponse
+import androidx.credentials.provider.BeginCreatePasswordCredentialRequest
 import androidx.credentials.provider.BeginCreatePublicKeyCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
+import androidx.credentials.provider.BeginGetPasswordOption
 import androidx.credentials.provider.BeginGetPublicKeyCredentialOption
 import androidx.credentials.provider.CreateEntry
 import androidx.credentials.provider.CredentialProviderService
 import androidx.credentials.provider.ProviderClearCredentialStateRequest
 import androidx.credentials.provider.PublicKeyCredentialEntry
 import org.json.JSONObject
+import kotlin.concurrent.thread
 
 /**
- * Keyless as a passkey provider in Android's Credential Manager: the
- * passkeys kept for the site an app or browser signs in to, and new ones.
- * The choice opens PasskeyActivity, which unlocks if needed, checks who is
- * asking (Origins) and answers.
+ * Keyless as a provider in Android's Credential Manager: the passkeys kept
+ * for the site an app or browser signs in to, and new ones; the passwords
+ * of the app asking, and new ones (CredentialPasswords). The choice opens
+ * PasskeyActivity or PasswordCredentialActivity, which unlock if needed,
+ * check who is asking and answer.
  */
 @RequiresApi(34)
 class KeylessCredentialService : CredentialProviderService() {
@@ -36,6 +40,10 @@ class KeylessCredentialService : CredentialProviderService() {
         cancellationSignal: CancellationSignal,
         callback: OutcomeReceiver<BeginCreateCredentialResponse, CreateCredentialException>,
     ) {
+        if (request is BeginCreatePasswordCredentialRequest && Keyless.hasAccount && request.callingAppInfo?.packageName != packageName) {
+            callback.onResult(BeginCreateCredentialResponse.Builder().addCreateEntry(CredentialPasswords.createEntry(this)).build())
+            return
+        }
         if (request !is BeginCreatePublicKeyCredentialRequest || !Keyless.hasAccount) {
             callback.onError(CreateCredentialUnknownException())
             return
@@ -51,7 +59,7 @@ class KeylessCredentialService : CredentialProviderService() {
         cancellationSignal: CancellationSignal,
         callback: OutcomeReceiver<BeginGetCredentialResponse, GetCredentialException>,
     ) {
-        if (!Keyless.hasAccount || request.beginGetCredentialOptions.none { it is BeginGetPublicKeyCredentialOption }) {
+        if (!Keyless.hasAccount || request.beginGetCredentialOptions.none { it is BeginGetPublicKeyCredentialOption || it is BeginGetPasswordOption }) {
             callback.onResult(BeginGetCredentialResponse.Builder().build())
             return
         }
@@ -61,7 +69,8 @@ class KeylessCredentialService : CredentialProviderService() {
             callback.onResult(BeginGetCredentialResponse.Builder().addAuthenticationAction(AuthenticationAction(getString(R.string.autofill_unlock), pending)).build())
             return
         }
-        callback.onResult(entries(this, request))
+        // Telling a browser's page apart may need the network.
+        thread { callback.onResult(entries(this, request)) }
     }
 
     override fun onClearCredentialStateRequest(
@@ -73,7 +82,7 @@ class KeylessCredentialService : CredentialProviderService() {
     }
 
     companion object {
-        /** One entry per passkey kept for the requests' sites. */
+        /** One entry per passkey kept for the requests' sites, and per password of the caller. */
         fun entries(context: Context, request: BeginGetCredentialRequest): BeginGetCredentialResponse {
             val builder = BeginGetCredentialResponse.Builder()
             var code = 3000
@@ -98,6 +107,7 @@ class KeylessCredentialService : CredentialProviderService() {
                     )
                 }
             }
+            CredentialPasswords.addEntries(context, request, builder)
             return builder.build()
         }
     }
