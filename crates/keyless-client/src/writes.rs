@@ -125,6 +125,38 @@ impl Client {
         Ok(json!({ "password": generated.password.as_str(), "entropyBits": generated.entropy_bits }))
     }
 
+    /// A new SSH key (Ed25519) with `comment`: the private key, public key
+    /// and fingerprint fields of an SSH key item.
+    #[cfg(feature = "ssh")]
+    pub(crate) fn ssh_generate(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct A {
+            comment: String,
+        }
+        let a: A = args(json)?;
+        let fields = keyless_core::ssh::generate(&a.comment).map_err(|e| Failure::new(e.0))?;
+        Ok(serde_json::to_value(fields)?)
+    }
+
+    /// The same fields for a pasted private key (decrypted once with
+    /// `passphrase` when it has one).
+    #[cfg(feature = "ssh")]
+    pub(crate) fn ssh_import(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            private_key: zeroize::Zeroizing<String>,
+            #[serde(default)]
+            passphrase: Option<zeroize::Zeroizing<String>>,
+            #[serde(default)]
+            comment: String,
+        }
+        let a: A = args(json)?;
+        let fields = keyless_core::ssh::import(&a.private_key, a.passphrase.as_deref().map(|p| p.as_str()), &a.comment).map_err(|e| Failure::new(e.0))?;
+        Ok(serde_json::to_value(fields)?)
+    }
+
     /// Deletes an item for good (after Recently Deleted): the tombstone to
     /// upload where the server still has `baseRevision`.
     pub(crate) fn seal_tombstone(&self, json: &str) -> Outcome<Value> {

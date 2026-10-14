@@ -31,6 +31,7 @@ pub mod setup_code;
 pub mod share;
 pub mod time;
 pub mod site;
+pub mod ssh;
 pub mod totp;
 pub mod vault;
 pub mod wifi;

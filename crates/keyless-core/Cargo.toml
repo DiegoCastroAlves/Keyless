@@ -39,6 +39,12 @@ zeroize = { version = "1.9.0", features = ["derive", "serde"] }
 # Password strength (health.rs).
 zxcvbn = "3.1.1"
 zip = { version = "8.6.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+# Reading and making SSH keys (ssh.rs), for the apps that need it.
+rsa = { version = "0.9", optional = true }
+ssh-key = { version = "0.6.7", optional = true, default-features = false, features = ["std", "ed25519", "rsa", "p256", "p384", "encryption", "getrandom"] }
+
+[features]
+ssh = ["dep:rsa", "dep:ssh-key"]
 
 # Locking key pages in RAM (crypto.rs); WebAssembly has no such thing.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

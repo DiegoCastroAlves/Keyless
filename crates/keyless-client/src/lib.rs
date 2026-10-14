@@ -277,6 +277,10 @@ impl Client {
             "recoveryOpen" => self.recovery_open(json),
             "recoveryPrepare" => self.recovery_prepare(json),
             "recoveryForget" => self.recovery_forget(),
+            #[cfg(feature = "ssh")]
+            "sshGenerate" => self.ssh_generate(json),
+            #[cfg(feature = "ssh")]
+            "sshImport" => self.ssh_import(json),
             "attachments" => self.attachments(json),
             "attachmentNew" => self.attachment_new(json),
             "attachmentsAdd" => self.attachments_add(json),

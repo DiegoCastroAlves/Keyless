@@ -929,3 +929,15 @@ fn makes_and_uses_recovery_keys_like_the_desktop() {
     ok(later.call("recoveryForget", ""));
     assert_eq!(error(later.call("recoveryPrepare", &json!({ "masterPassword": new_password }).to_string())), "recovery_expired");
 }
+
+#[cfg(feature = "ssh")]
+#[test]
+fn makes_and_reads_ssh_keys() {
+    let mut client = Client::new();
+    let made = ok(client.call("sshGenerate", &json!({ "comment": "phone" }).to_string()));
+    assert!(made["publicKey"].as_str().unwrap().starts_with("ssh-ed25519 "));
+    let flattened = made["privateKey"].as_str().unwrap().replace('\n', " ");
+    let read = ok(client.call("sshImport", &json!({ "privateKey": flattened }).to_string()));
+    assert_eq!(read["fingerprint"], made["fingerprint"]);
+    assert_eq!(error(client.call("sshImport", &json!({ "privateKey": "nope" }).to_string())), "ssh_key_invalid");
+}

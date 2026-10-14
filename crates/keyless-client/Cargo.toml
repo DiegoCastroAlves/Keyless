@@ -16,6 +16,10 @@ serde_json = "1.0.151"
 uuid = { version = "1.27.0", features = ["v4"] }
 zeroize = "1.9.0"
 
+[features]
+# Reading and making SSH keys (the Android app; the web vault goes without).
+ssh = ["keyless-core/ssh"]
+
 [dev-dependencies]
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pem", "std"] }
 sha2 = "0.11.0"

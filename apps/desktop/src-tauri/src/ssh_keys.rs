@@ -2,23 +2,15 @@
 //! the user pasted or generated, its public key and fingerprint, and signing
 //! for the SSH agent (see `ssh_agent`).
 //!
-//! Private keys are stored unencrypted inside the item, which the vault
-//! encrypts like any other secret; a passphrase-protected key is decrypted
-//! once, when it is added.
+//! Reading and making keys is `keyless_core::ssh`, shared with the Android
+//! app.
 
 use rsa::{
-    pkcs1::DecodeRsaPrivateKey,
     pkcs1v15::SigningKey,
     sha2::{Sha256, Sha512},
     signature::{SignatureEncoding, Signer as _},
 };
-use serde::Serialize;
-use ssh_key::{
-    Algorithm, HashAlg, LineEnding, PrivateKey, Signature,
-    private::{KeypairData, RsaKeypair},
-    rand_core::OsRng,
-};
-use zeroize::Zeroizing;
+use ssh_key::{Algorithm, PrivateKey, Signature, private::KeypairData};
 
 use crate::error::{AppError, AppResult, Msg};
 
@@ -28,87 +20,26 @@ const RSA_SHA2_256: u32 = 2;
 #[cfg_attr(not(unix), allow(dead_code))]
 const RSA_SHA2_512: u32 = 4;
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SshKeyFields {
-    /// OpenSSH private key, unencrypted.
-    pub private_key: String,
-    /// `ssh-ed25519 AAAA… comment`.
-    pub public_key: String,
-    /// `SHA256:…`.
-    pub fingerprint: String,
-}
+pub use keyless_core::ssh::{SshKeyFields, normalize_pem};
 
-fn invalid(key: &'static str) -> AppError {
-    AppError::Invalid(Msg::new(key))
-}
-
-/// A PEM block typed or pasted where line breaks were lost (single-line
-/// fields turn them into spaces): puts them back.
-pub(crate) fn normalize_pem(text: &str) -> Zeroizing<String> {
-    let text = text.trim();
-    let Some(begin_end) = text.find("-----BEGIN ").and_then(|b| text[b + 11..].find("-----").map(|e| b + 11 + e + 5)) else {
-        return Zeroizing::new(text.to_string());
-    };
-    let Some(end_start) = text.find("-----END ") else { return Zeroizing::new(text.to_string()) };
-    let header = &text[..begin_end];
-    let footer = &text[end_start..];
-    let body: String = text[begin_end..end_start].split_whitespace().collect();
-    let mut lines = Zeroizing::new(String::new());
-    lines.push_str(header.trim());
-    lines.push('\n');
-    for chunk in body.as_bytes().chunks(70) {
-        lines.push_str(std::str::from_utf8(chunk).unwrap_or_default());
-        lines.push('\n');
-    }
-    lines.push_str(footer.trim());
-    lines.push('\n');
-    lines
+fn invalid(err: keyless_core::ssh::SshKeyError) -> AppError {
+    AppError::Invalid(Msg::new(err.0))
 }
 
 /// Reads a private key: OpenSSH format (decrypted with `passphrase` when it
 /// has one) or a PKCS#1 RSA key.
 pub fn parse_private(text: &str, passphrase: Option<&str>) -> AppResult<PrivateKey> {
-    let pem = normalize_pem(text);
-    if pem.contains("BEGIN RSA PRIVATE KEY") {
-        if pem.contains("ENCRYPTED") {
-            return Err(invalid("ssh_key_unsupported"));
-        }
-        let rsa = rsa::RsaPrivateKey::from_pkcs1_pem(&pem).map_err(|_| invalid("ssh_key_invalid"))?;
-        let keypair = RsaKeypair::try_from(rsa).map_err(|_| invalid("ssh_key_invalid"))?;
-        return PrivateKey::new(KeypairData::Rsa(keypair), "").map_err(|_| invalid("ssh_key_invalid"));
-    }
-    let key = PrivateKey::from_openssh(pem.as_bytes()).map_err(|_| invalid("ssh_key_invalid"))?;
-    if !key.is_encrypted() {
-        return Ok(key);
-    }
-    let passphrase = passphrase.filter(|p| !p.is_empty()).ok_or_else(|| invalid("ssh_key_passphrase"))?;
-    key.decrypt(passphrase).map_err(|_| invalid("ssh_key_wrong_passphrase"))
-}
-
-fn fields(key: &PrivateKey) -> AppResult<SshKeyFields> {
-    let private_key = key.to_openssh(LineEnding::LF).map_err(|_| invalid("ssh_key_invalid"))?;
-    Ok(SshKeyFields {
-        private_key: private_key.to_string(),
-        public_key: key.public_key().to_openssh().map_err(|_| invalid("ssh_key_invalid"))?,
-        fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
-    })
+    keyless_core::ssh::parse_private(text, passphrase).map_err(invalid)
 }
 
 /// The fields of an SSH key item for a pasted private key.
 pub fn import(text: &str, passphrase: Option<&str>, comment: &str) -> AppResult<SshKeyFields> {
-    let mut key = parse_private(text, passphrase)?;
-    if key.comment().is_empty() && !comment.trim().is_empty() {
-        key.set_comment(comment.trim());
-    }
-    fields(&key)
+    keyless_core::ssh::import(text, passphrase, comment).map_err(invalid)
 }
 
 /// A new Ed25519 key.
 pub fn generate(comment: &str) -> AppResult<SshKeyFields> {
-    let mut key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519).map_err(|e| AppError::Server(e.to_string()))?;
-    key.set_comment(comment.trim());
-    fields(&key)
+    keyless_core::ssh::generate(comment).map_err(invalid)
 }
 
 /// Signs for the agent. RSA keys sign with SHA-256 or SHA-512 as the client
@@ -134,7 +65,7 @@ pub fn sign(key: &PrivateKey, data: &[u8], flags: u32) -> AppResult<Signature> {
 
 #[cfg(test)]
 mod tests {
-    use ssh_key::{PublicKey, SshSig};
+    use ssh_key::{HashAlg, LineEnding, PublicKey, SshSig, rand_core::OsRng};
 
     use super::*;
 

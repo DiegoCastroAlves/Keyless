@@ -20,7 +20,7 @@ futures-lite = "2.6.1"
 hex = "0.4.3"
 hkdf = "0.13.0"
 image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "gif", "webp", "bmp"] }
-keyless-core = { path = "../../../crates/keyless-core" }
+keyless-core = { path = "../../../crates/keyless-core", features = ["ssh"] }
 keyring = "4.2.0"
 keyring-core = "1"
 log = "0.4.34"

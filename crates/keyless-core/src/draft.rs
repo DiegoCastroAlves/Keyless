@@ -115,7 +115,8 @@ pub fn subtitle(category: Category, details: &ItemDetails) -> String {
 }
 
 /// Field ids, one-time password setups trimmed, addresses kept as text too,
-/// expiry alerts only on dates, and sections that are left empty dropped.
+/// expiry alerts only on dates, SSH private keys with their line breaks, and
+/// sections that are left empty dropped.
 pub fn normalize(draft: &mut ItemDraft) {
     for field in draft.fields.iter_mut().chain(draft.sections.iter_mut().flat_map(|s| s.fields.iter_mut())) {
         if field.id.is_empty() {
@@ -133,6 +134,10 @@ pub fn normalize(draft: &mut ItemDraft) {
         }
         if !field.kind.is_date() {
             field.extra.alert = None;
+        }
+        // A private key whose line breaks were lost in a single-line field.
+        if draft.category == Category::SshKey && field.kind == FieldKind::Concealed && field.value.contains("-----BEGIN ") {
+            field.value = crate::ssh::normalize_pem(&field.value).to_string();
         }
     }
     for section in draft.sections.iter_mut() {
@@ -250,6 +255,19 @@ mod tests {
         assert_eq!(overview.tags, vec!["bills", "Money"]);
         assert_eq!((overview.created_at, overview.updated_at), (100, 100));
         assert!(details.password_history.is_empty());
+    }
+
+    #[test]
+    fn puts_back_an_ssh_keys_line_breaks() {
+        let pem = "-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXktdjEAAAAA BG5vbmU= -----END OPENSSH PRIVATE KEY-----";
+        let mut draft = ItemDraft {
+            category: Category::SshKey,
+            fields: vec![field("private key", FieldKind::Concealed, pem, None), field("note", FieldKind::Text, pem, None)],
+            ..Default::default()
+        };
+        normalize(&mut draft);
+        assert_eq!(draft.fields[0].value, "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU=\n-----END OPENSSH PRIVATE KEY-----\n");
+        assert_eq!(draft.fields[1].value, pem);
     }
 
     #[test]
