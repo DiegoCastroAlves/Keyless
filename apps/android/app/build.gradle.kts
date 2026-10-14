@@ -6,6 +6,9 @@ plugins {
 // The server: Keyless's own, unless a test build points elsewhere
 // (-PkeylessServer=http://10.0.2.2:8787 for the fake server in CI).
 val server = (project.findProperty("keylessServer") as String?) ?: "https://ednfhgbjtgkrmtnudcjr.supabase.co"
+// Where sites' Digital Asset Links come from: the sites themselves, unless a
+// test build reads them from the fake server.
+val assetLinks = (project.findProperty("keylessAssetLinks") as String?) ?: ""
 
 android {
     namespace = "io.github.diegocastroalves.keyless"
@@ -18,6 +21,7 @@ android {
         versionCode = 1
         versionName = "0.1.9"
         buildConfigField("String", "SERVER", "\"$server\"")
+        buildConfigField("String", "ASSET_LINKS", "\"$assetLinks\"")
         // Plain http only for a test build that names an http server.
         manifestPlaceholders["cleartext"] = if (server.startsWith("http://")) "true" else "false"
     }

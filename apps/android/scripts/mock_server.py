@@ -52,6 +52,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         query = parse_qs(url.query)
+        # Test builds read sites' Digital Asset Links here.
+        if url.path.startswith("/assetlinks/"):
+            site = url.path[len("/assetlinks/"):].removesuffix(".json")
+            return self.answer(200, fixture.get("assetLinks", {}).get(site, []))
         if not url.path.startswith("/rest/v1/"):
             return self.answer(404, {"message": "not found"})
         if not self.authorized():

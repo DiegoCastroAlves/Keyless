@@ -84,7 +84,8 @@ object Origins {
         if (certificates.isEmpty()) throw KeylessException("passkey_origin", "no certificate")
         val wanted = certificates.map { fingerprint(it) }.toSet()
         val links = try {
-            JSONArray(fetch("https://$site/.well-known/assetlinks.json"))
+            val url = if (BuildConfig.ASSET_LINKS.isEmpty()) "https://$site/.well-known/assetlinks.json" else "${BuildConfig.ASSET_LINKS}$site.json"
+            JSONArray(fetch(url))
         } catch (e: Exception) {
             throw KeylessException("passkey_origin", "no Digital Asset Links for $site")
         }

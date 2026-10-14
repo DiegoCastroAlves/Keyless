@@ -90,6 +90,24 @@ def hide_keyboard():
         time.sleep(1)
 
 
+def drive_sheet(done, buttons, seconds=90):
+    """Goes through Credential Manager's sheets (tapping the first of `buttons`
+    shown outside the form app) until the form app shows one of `done`."""
+    end = time.time() + seconds
+    while time.time() < end:
+        nodes = screen()
+        for text, _, _, pkg in nodes:
+            if pkg == FORM and any(d in text for d in done):
+                return text
+        for wanted in buttons:
+            hit = next(((x, y) for t, _, (x, y), pkg in nodes if pkg != FORM and t == wanted), None)
+            if hit:
+                adb("shell", "input", "tap", str(hit[0]), str(hit[1]))
+                break
+        time.sleep(2)
+    return "timed out on: " + texts()[:300]
+
+
 def main():
     keyless_apk, form_apk, fixture_path, writes_path = sys.argv[1:5]
     fixture = json.load(open(fixture_path))
@@ -153,8 +171,9 @@ def main():
         adb("shell", "input", "text", value)
     hide_keyboard()
     tap_text("Log in", FORM)
-    if check("Android offers to save in Keyless", "Save", 30):
-        tap_text("Save")
+    # "Save" for a new form, "Update" when it had been filled.
+    if check("Android offers to save in Keyless", "in Keyless?", 30):
+        tap_text("Save") or tap_text("Update")
         end = time.time() + 40
         saved = False
         while time.time() < end and not saved:
@@ -162,6 +181,26 @@ def main():
             time.sleep(2)
         results.append(("saves the new login on the server", saved, open(writes_path).read() if os.path.exists(writes_path) else "nothing written"))
         print(f"{'PASS' if saved else 'FAIL'} saves the new login on the server", flush=True)
+
+    # Passkeys: Keyless as the provider for the form app's site (its Digital
+    # Asset Links come from the fake server in this test build).
+    component = f"{PACKAGE}/{PACKAGE}.KeylessCredentialService"
+    adb("shell", "settings", "put", "secure", "credential_service", component)
+    adb("shell", "settings", "put", "secure", "credential_service_primary", component)
+    adb("shell", "am", "start", "-W", "-n", f"{FORM}/.LoginActivity")
+    check("the form app is back", "Create passkey", 30)
+    inserts_before = open(writes_path).read().count('"insert"') if os.path.exists(writes_path) else 0
+    tap_text("Create passkey", FORM)
+    created = drive_sheet(["Passkey created", "Create failed"], ["Create", "Continue", "Save", "Keyless", fixture["email"], "Create passkey"])
+    results.append(("creates a passkey in Keyless", "Passkey created" in created, created))
+    print(f"{'PASS' if 'Passkey created' in created else 'FAIL'} creates a passkey: {created}", flush=True)
+    if "Passkey created" in created:
+        stored = os.path.exists(writes_path) and open(writes_path).read().count('"insert"') > inserts_before
+        results.append(("keeps the passkey on the server", stored, ""))
+        tap_text("Sign in with passkey", FORM)
+        used = drive_sheet(["Signed in with passkey", "Sign-in failed", "No signature"], ["Continue", "tester", "Sign in", "Use passkey", "Keyless"])
+        results.append(("signs in with the passkey", "Signed in with passkey" in used, used))
+        print(f"{'PASS' if 'Signed in with passkey' in used else 'FAIL'} signs in with the passkey: {used}", flush=True)
 
     failed = [r for r in results if not r[1]]
     summary = "%0A".join(f"{'✓' if ok else '✗'} {name}" for name, ok, _ in results)
