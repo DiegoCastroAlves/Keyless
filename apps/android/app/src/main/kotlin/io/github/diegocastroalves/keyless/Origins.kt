@@ -99,7 +99,7 @@ object Origins {
             val prints = target.optJSONArray("sha256_cert_fingerprints") ?: continue
             if ((0 until prints.length()).any { prints.optString(it).uppercase() in wanted }) allowed = true
         }
-        if (!allowed) throw KeylessException("passkey_origin", "$site does not name ${info.packageName}")
+        if (!allowed) throw KeylessException("passkey_origin", "$site does not name ${info.packageName} with ${wanted.joinToString()}")
         val hash = Base64.encodeToString(sha256(certificates.last().toByteArray()), Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
         return "android:apk-key-hash:$hash"
     }

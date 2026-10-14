@@ -207,6 +207,7 @@ def main():
     if failed:
         details = "%0A".join(f"{name}: {shown}" for name, _, shown in failed).replace("\n", " ")
         print(f"::error title=Android app end to end::{summary}%0A%0A{details}")
+        print("::error title=Test site links::" + json.dumps(fixture.get("assetLinks", "none"))[:1500])
         if os.path.exists("mock.log"):
             asked = [line.strip() for line in open("mock.log") if "assetlinks" in line or "rpc/" in line][-10:]
             print("::error title=Fake server requests::" + "%0A".join(asked or ["no asset links asked"]))
