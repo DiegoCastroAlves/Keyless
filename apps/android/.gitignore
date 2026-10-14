@@ -4,3 +4,4 @@ local.properties
 build.log
 # Built by CI (cargo ndk) from crates/keyless-android.
 app/src/main/jniLibs/
+__pycache__/
