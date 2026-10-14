@@ -415,3 +415,60 @@ fn settles_conflicts_like_the_desktop() {
     assert_eq!(answer["plan"], "overwrite");
     assert_eq!(answer["body"]["enc_overview"], ours["encOverview"]);
 }
+
+#[test]
+fn edits_drafts_like_the_desktop() {
+    let server = server();
+    let mut client = signed_in(&server);
+    let draft = json!({
+        "vaultId": VAULT,
+        "title": " Mail ",
+        "category": "login",
+        "urls": [{ "href": "mail.example" }],
+        "tags": ["b", "a", "A"],
+        "fields": [
+            { "id": "", "label": "username", "kind": "text", "value": "me", "purpose": "username" },
+            { "id": "", "label": "password", "kind": "concealed", "value": "first", "purpose": "password" }
+        ],
+        "notes": "hi"
+    });
+    let sealed = ok(client.call("saveDraft", &json!({ "draft": draft, "now": 100 }).to_string()));
+    assert!(sealed["baseRevision"].is_null());
+    let id = sealed["id"].as_str().unwrap().to_string();
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 1, 30)] }).to_string()));
+
+    let mut editing = ok(client.call("draftOf", &json!({ "id": id }).to_string()));
+    assert_eq!(editing["title"], "Mail");
+    assert_eq!(editing["urls"][0]["href"], "https://mail.example");
+    assert_eq!(editing["tags"], json!(["a", "b"]));
+    assert_eq!(editing["fields"][1]["id"].as_str().unwrap().len(), 12);
+    editing["fields"][1]["value"] = json!("second");
+    let sealed = ok(client.call("saveDraft", &json!({ "draft": editing, "now": 200 }).to_string()));
+    assert_eq!(sealed["baseRevision"], 1);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 2, 31)] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": id }).to_string()));
+    assert_eq!(item["details"]["password_history"][0]["value"], "first");
+    assert_eq!(item["overview"]["created_at"], 100);
+
+    // Favorite, then Recently Deleted and back.
+    let sealed = ok(client.call("setFlags", &json!({ "id": id, "favorite": true, "trashed": true, "now": 300 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 3, 32)] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": id }).to_string()));
+    assert_eq!(item["overview"]["favorite"], true);
+    assert_eq!(item["overview"]["trashed_at"], 300);
+    let sealed = ok(client.call("setFlags", &json!({ "id": id, "trashed": false, "now": 400 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 4, 33)] }).to_string()));
+    assert!(ok(client.call("item", &json!({ "id": id }).to_string()))["overview"].get("trashed_at").is_none());
+
+    // A copy, without the history.
+    let copy = ok(client.call("duplicate", &json!({ "id": id, "title": "Mail copy", "now": 500 }).to_string()));
+    assert_ne!(copy["id"], json!(id));
+    assert!(copy["baseRevision"].is_null());
+    let opened = server.vault_key.open_details(VAULT, copy["id"].as_str().unwrap(), copy["encDetails"].as_str().unwrap()).unwrap();
+    assert_eq!(opened.password(), Some("second"));
+    assert!(opened.password_history.is_empty());
+
+    // Limits come from the shared rules.
+    let long = json!({ "vaultId": VAULT, "title": "t".repeat(600), "category": "login" });
+    assert_eq!(error(client.call("saveDraft", &json!({ "draft": long, "now": 1 }).to_string())), "title_too_long");
+}

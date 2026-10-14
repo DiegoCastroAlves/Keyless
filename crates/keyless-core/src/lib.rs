@@ -13,6 +13,7 @@ pub mod backup;
 pub mod crypto;
 pub mod cxf;
 pub mod device_setup;
+pub mod draft;
 pub mod encoding;
 pub mod error;
 pub mod export;

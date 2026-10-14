@@ -4,6 +4,7 @@
 //! kept as a "conflicted copy"; an edit survives a deletion elsewhere.
 
 use keyless_core::{
+    draft::{self, DraftError, ItemDraft},
     generator::{GeneratorOptions, generate},
     item::stamp_version,
     vault::Tombstone,
@@ -13,7 +14,109 @@ use serde_json::{Value, json};
 
 use crate::{Client, Failure, OpenVault, Outcome, RemoteItem, Verdict, args, can_write, verify};
 
+impl From<DraftError> for Failure {
+    fn from(err: DraftError) -> Self {
+        Self { key: err.key, message: err.label.unwrap_or_else(|| err.key.to_string()) }
+    }
+}
+
 impl Client {
+    /// An item as the editor shows it (the desktop's draft).
+    pub(crate) fn draft_of(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        struct A {
+            id: String,
+        }
+        let a: A = args(json)?;
+        let (vault_id, overview, details) = self.open_item(&a.id)?;
+        let draft = ItemDraft {
+            id: Some(a.id),
+            vault_id,
+            title: overview.title.clone(),
+            category: overview.category,
+            urls: overview.urls.clone(),
+            tags: overview.tags.clone(),
+            favorite: overview.favorite,
+            fields: details.fields.clone(),
+            sections: details.sections.clone(),
+            notes: details.notes.clone(),
+            icon: details.icon.clone(),
+        };
+        Ok(serde_json::to_value(draft)?)
+    }
+
+    /// Saves what the editor made, with the rules every app follows
+    /// (`keyless_core::draft`): the write to upload, like `sealItem`. An item
+    /// stays in its vault.
+    pub(crate) fn save_draft(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        struct A {
+            draft: ItemDraft,
+            now: i64,
+        }
+        let a: A = args(json)?;
+        let mut draft = a.draft;
+        draft::validate(&draft)?;
+        draft::normalize(&mut draft);
+        let existing = match &draft.id {
+            Some(id) => {
+                let (vault_id, overview, details) = self.open_item(id)?;
+                if vault_id != draft.vault_id {
+                    return Err(Failure::new("invalid_request"));
+                }
+                Some((overview, details))
+            }
+            None => None,
+        };
+        let (id, vault_id) = (draft.id.clone(), draft.vault_id.clone());
+        let (overview, details) = draft::build(draft, existing.as_ref().map(|(o, d)| (o, d)), a.now)?;
+        self.seal_item(&json!({ "vaultId": vault_id, "id": id, "overview": overview, "details": details, "now": a.now }).to_string())
+    }
+
+    /// A copy of an item in its vault, under `title`, without its passkeys
+    /// and attachments (as the desktop's "Duplicate").
+    pub(crate) fn duplicate(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        struct A {
+            id: String,
+            title: String,
+            now: i64,
+        }
+        let a: A = args(json)?;
+        let mut draft: ItemDraft = serde_json::from_value(self.draft_of(&json!({ "id": a.id }).to_string())?)?;
+        draft.id = None;
+        draft.title = a.title;
+        self.save_draft(&json!({ "draft": draft, "now": a.now }).to_string())
+    }
+
+    /// Favorite, archived or in Recently Deleted (`trashed`): the write to
+    /// upload, like `sealItem`.
+    pub(crate) fn set_flags(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        struct A {
+            id: String,
+            #[serde(default)]
+            favorite: Option<bool>,
+            #[serde(default)]
+            archived: Option<bool>,
+            #[serde(default)]
+            trashed: Option<bool>,
+            now: i64,
+        }
+        let a: A = args(json)?;
+        let (vault_id, mut overview, details) = self.open_item(&a.id)?;
+        if let Some(favorite) = a.favorite {
+            overview.favorite = favorite;
+        }
+        if let Some(archived) = a.archived {
+            overview.archived = archived;
+        }
+        if let Some(trashed) = a.trashed {
+            overview.trashed_at = if trashed { Some(a.now) } else { None };
+        }
+        self.seal_item(&json!({ "vaultId": vault_id, "id": a.id, "overview": overview, "details": details, "now": a.now }).to_string())
+    }
+
     /// A password for these generator options (`{"kind": "random" |
     /// "memorable" | "pin", ...}`, as the desktop's generator).
     pub(crate) fn generate(&self, json: &str) -> Outcome<Value> {
