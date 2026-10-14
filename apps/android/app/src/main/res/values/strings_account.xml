@@ -36,4 +36,18 @@
     <string name="err_device_setup_expired">The request expired.</string>
     <string name="err_device_setup_failed">The request could not be checked.</string>
     <string name="passwords_differ">The two passwords are different.</string>
+    <string name="with_passkey">Sign in with a passkey</string>
+    <string name="signin_passkeys">Passkeys for Keyless</string>
+    <string name="signin_passkeys_body">Sign in to Keyless with a passkey instead of your master password and Secret Key. The passkey must support the PRF extension (Google Password Manager and most security keys do).</string>
+    <string name="add_passkey">Add a passkey</string>
+    <string name="passkey_name">Name (for you to recognize it)</string>
+    <string name="passkey_added">Passkey added</string>
+    <string name="no_passkeys">No passkeys yet.</string>
+    <string name="passkeys_changed">Passkeys are removed when the master password or the Secret Key changes.</string>
+    <string name="passkey_cancelled">The passkey was not used.</string>
+    <string name="passkey_no_prf">This passkey cannot be used to sign in to Keyless (it does not support the PRF extension).</string>
+    <string name="err_passkey_failed">This passkey is not set up for Keyless, or was removed.</string>
+    <string name="err_passkey_throttled">Too many attempts with this passkey. Try again later.</string>
+    <string name="err_passkey_sign_in_off">Signing in with a passkey is not turned on yet.</string>
+    <string name="err_passkey_needs_password">Unlock with your master password (not biometrics) to add a passkey.</string>
 </resources>

@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.diegocastroalves.keyless",
+      "sha256_cert_fingerprints": [
+        "01:BF:F4:BE:23:7E:1C:30:DB:3F:86:52:83:2C:6A:01:D2:35:4C:82:0B:09:0F:3C:AC:EF:40:34:A7:B4:C3:A9"
+      ]
+    }
+  }
+]

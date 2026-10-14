@@ -89,6 +89,8 @@ object Server {
             code == "email_not_confirmed" -> KeylessException("email_not_confirmed", message)
             status == 429 || code.startsWith("over_") -> KeylessException("too_many_attempts", message)
             code == "PGRST202" || code == "PGRST205" -> KeylessException("missing_function", message)
+            // add_passkey while the server's passkey sign-in switch is off.
+            code == "55000" -> KeylessException("passkey_sign_in_off", message)
             status == 401 || status == 403 || code == "refresh_token_not_found" || code == "session_not_found" -> KeylessException("session_expired", message)
             else -> KeylessException("unknown", "$message ($code)")
         }
@@ -218,6 +220,10 @@ object Server {
         } catch (e: Exception) {
             null
         }
+
+    /** The account's passkeys for signing in (their names encrypted). */
+    fun passkeys(token: String): String =
+        request("rest/v1/passkeys?select=id,credential_id,enc_name,created_at,last_used_at&order=created_at.asc", token = token)
 
     /** A database function; `token` is null for those open to anyone. */
     fun rpc(name: String, args: JSONObject, token: String? = null): String = request("rest/v1/rpc/$name", "POST", args.toString(), token)

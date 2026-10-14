@@ -241,6 +241,8 @@ class Handler(BaseHTTPRequestHandler):
             with lock:
                 rows = sorted(versions.get(item_id, []), key=lambda r: -r["revision"])
             return self.answer(200, rows)
+        if url.path == "/rest/v1/passkeys":
+            return self.answer(200, [])
         if url.path == "/rest/v1/shares":
             with lock:
                 rows = [{k: s[k] for k in ("id", "enc_label", "expires_at", "max_views", "views", "created_at", "revoked_at")} for s in shares.values()]

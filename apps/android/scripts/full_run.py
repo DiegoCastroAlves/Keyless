@@ -311,6 +311,7 @@ def import_export(fixture, writes_path):
 
 def recovery_key(fixture, writes_path):
     """Settings: making a recovery key. Returns it."""
+    outcome("lists the passkeys for signing in", scroll_to("No passkeys yet."))
     tap_scrolled("Recovery key")
     check("says there is no recovery key", "You don't have a recovery key yet", 30)
     tap_text("Create a recovery key")
@@ -337,6 +338,7 @@ def recover_account(fixture, key):
     time.sleep(1)
     tap_last("Sign out")
     check("signed out for the recovery", "Sign in to Keyless", 30)
+    check("offers to sign in with a passkey", "Sign in with a passkey", 5)
     tap_text("Forgot your master password or lost your Secret Key?")
     check("opens the recovery", "Recover your account", 15)
     type_into(PACKAGE, 0, fixture["email"])

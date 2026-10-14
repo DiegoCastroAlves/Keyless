@@ -36,4 +36,18 @@
     <string name="err_device_setup_expired">O pedido expirou.</string>
     <string name="err_device_setup_failed">Não foi possível conferir o pedido.</string>
     <string name="passwords_differ">As duas senhas são diferentes.</string>
+    <string name="with_passkey">Entrar com uma chave de acesso</string>
+    <string name="signin_passkeys">Chaves de acesso do Keyless</string>
+    <string name="signin_passkeys_body">Entre no Keyless com uma chave de acesso (passkey) em vez da senha mestra e da Chave Secreta. A chave precisa ter a extensão PRF (o Gerenciador de Senhas do Google e a maioria das chaves de segurança têm).</string>
+    <string name="add_passkey">Adicionar chave de acesso</string>
+    <string name="passkey_name">Nome (para você reconhecer)</string>
+    <string name="passkey_added">Chave de acesso adicionada</string>
+    <string name="no_passkeys">Nenhuma chave de acesso ainda.</string>
+    <string name="passkeys_changed">As chaves de acesso são removidas quando a senha mestra ou a Chave Secreta muda.</string>
+    <string name="passkey_cancelled">A chave de acesso não foi usada.</string>
+    <string name="passkey_no_prf">Esta chave de acesso não serve para entrar no Keyless (não tem a extensão PRF).</string>
+    <string name="err_passkey_failed">Esta chave de acesso não está configurada para o Keyless, ou foi removida.</string>
+    <string name="err_passkey_throttled">Tentativas demais com esta chave de acesso. Tente mais tarde.</string>
+    <string name="err_passkey_sign_in_off">Entrar com chave de acesso ainda não está ligado.</string>
+    <string name="err_passkey_needs_password">Desbloqueie com a senha mestra (não com a biometria) para adicionar uma chave de acesso.</string>
 </resources>

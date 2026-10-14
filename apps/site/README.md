@@ -26,9 +26,11 @@ WebAssembly client in `vendor/`), but it is not published.
 - The build leaves out every file of it, so `/vault/` is a 404.
 - The build drops the home page's link to it. Any link to it must carry
   `data-web-vault`, so that the build removes it.
-- The server's passkey sign-in is switched off. The web vault was the only
-  place that made and used those passkeys; the Android app will use them
-  too.
+- The server's passkey sign-in is switched off. Passkeys for Keyless are
+  made for this site's domain, by the web vault or by the Android app (which
+  `static/.well-known/assetlinks.json` lets use them: it names the app's
+  release signing key). Turning the switch on (step 2 below) is enough for
+  the Android app; the web vault can stay off.
 
 To turn the web vault back on:
 

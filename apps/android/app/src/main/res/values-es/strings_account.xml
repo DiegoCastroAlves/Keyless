@@ -36,4 +36,18 @@
     <string name="err_device_setup_expired">La solicitud caducó.</string>
     <string name="err_device_setup_failed">No se pudo comprobar la solicitud.</string>
     <string name="passwords_differ">Las dos contraseñas son distintas.</string>
+    <string name="with_passkey">Iniciar sesión con una llave de acceso</string>
+    <string name="signin_passkeys">Llaves de acceso de Keyless</string>
+    <string name="signin_passkeys_body">Inicia sesión en Keyless con una llave de acceso (passkey) en lugar de la contraseña maestra y la Clave Secreta. La llave debe admitir la extensión PRF (el Gestor de contraseñas de Google y la mayoría de las llaves de seguridad la admiten).</string>
+    <string name="add_passkey">Añadir llave de acceso</string>
+    <string name="passkey_name">Nombre (para reconocerla)</string>
+    <string name="passkey_added">Llave de acceso añadida</string>
+    <string name="no_passkeys">Todavía no hay llaves de acceso.</string>
+    <string name="passkeys_changed">Las llaves de acceso se eliminan cuando cambian la contraseña maestra o la Clave Secreta.</string>
+    <string name="passkey_cancelled">No se usó la llave de acceso.</string>
+    <string name="passkey_no_prf">Esta llave de acceso no sirve para iniciar sesión en Keyless (no admite la extensión PRF).</string>
+    <string name="err_passkey_failed">Esta llave de acceso no está configurada para Keyless, o se eliminó.</string>
+    <string name="err_passkey_throttled">Demasiados intentos con esta llave de acceso. Inténtalo más tarde.</string>
+    <string name="err_passkey_sign_in_off">Iniciar sesión con llave de acceso aún no está activado.</string>
+    <string name="err_passkey_needs_password">Desbloquea con la contraseña maestra (no con biometría) para añadir una llave de acceso.</string>
 </resources>

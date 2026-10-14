@@ -332,6 +332,13 @@ class MainActivity : Activity() {
             }
         }
         form.add(submit, top = 8)
+        form.add(plainButton(getString(R.string.with_passkey)) {
+            passkeySignIn(errorLine) {
+                received = null
+                notice = null
+                showList()
+            }
+        }, top = 4)
         form.add(plainButton(getString(R.string.use_other_device)) {
             val address = email.text.toString().trim().lowercase()
             if (!address.contains("@")) {
@@ -1121,6 +1128,8 @@ class MainActivity : Activity() {
                 }
             }, top = 8)
         }
+
+        signInPasskeysSection(page)
 
         page.add(label(getString(R.string.account), 16f, bold = true), top = 24)
         page.add(label(Keyless.email, 14f, muted = true), top = 4)

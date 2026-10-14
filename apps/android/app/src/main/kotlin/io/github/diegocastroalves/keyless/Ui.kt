@@ -138,6 +138,12 @@ fun Context.errorText(error: Throwable): String {
         "notes_too_long" -> R.string.err_notes_too_long
         "item_too_large" -> R.string.err_item_too_large
         "not_found" -> R.string.err_not_found
+        "passkey_failed" -> R.string.err_passkey_failed
+        "passkey_throttled" -> R.string.err_passkey_throttled
+        "passkey_sign_in_off" -> R.string.err_passkey_sign_in_off
+        "passkey_needs_password" -> R.string.err_passkey_needs_password
+        "passkey_cancelled" -> R.string.passkey_cancelled
+        "passkey_no_prf" -> R.string.passkey_no_prf
         else -> null
     }
     if (key == "field_too_long") return getString(R.string.err_field_too_long, error.message ?: "")
