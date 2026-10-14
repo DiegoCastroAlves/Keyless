@@ -43,7 +43,7 @@ def parse(tokens, i=0, stop=("end", "else")):
         if kind == "text":
             nodes.append(("text", value))
             continue
-        word = value.split()[0]
+        word = value.split()[0] if value.split() else value
         if word in stop or value.startswith("else"):
             return nodes, i, value
         if word == "if":
@@ -61,7 +61,7 @@ def parse(tokens, i=0, stop=("end", "else")):
                 else:
                     raise ValueError(f"unexpected {ended!r}")
             nodes.append(("if", branches))
-        elif value.startswith("$lang :="):
+        elif re.fullmatch(r'\$\w+ := printf "%v" \.Data\.lang', value):
             nodes.append(("setlang", None))
         elif value.startswith("."):
             nodes.append(("field", value))
@@ -71,7 +71,7 @@ def parse(tokens, i=0, stop=("end", "else")):
 
 
 def truth(cond, data, env):
-    m = re.fullmatch(r'eq \$lang "([^"]*)"', cond)
+    m = re.fullmatch(r'eq \$\w+ "([^"]*)"', cond)
     if m:
         return env["lang"] == m.group(1)
     m = re.fullmatch(r"\.Data\.(\w+)", cond)

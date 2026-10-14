@@ -246,11 +246,19 @@ OUT.mkdir(parents=True, exist_ok=True)
 (OUT / "magic_link.html").write_text(code_email())
 (OUT / "email_change.html").write_text(email_change_email())
 
+# Subjects may have at most 255 characters, template included: the compact
+# form, and one subject for both kinds of "Confirm signup" (the code also
+# confirms the email).
+def subject(pt, en, es):
+    return f'{{{{$l := printf "%v" .Data.lang}}}}{{{{if eq $l "en"}}}}{en}{{{{else if eq $l "es"}}}}{es}{{{{else}}}}{pt}{{{{end}}}}'
+
+
 SUBJECTS = {
-    "confirmation": LANG + "{{ if .Data.keyless_share_recipient }}" + L("Seu código de acesso do Keyless", "Your Keyless access code", "Tu código de acceso de Keyless") + "{{ else }}" + L("Confirme seu e-mail no Keyless", "Confirm your email on Keyless", "Confirma tu correo en Keyless") + "{{ end }}",
-    "magic_link": LANG + L("Seu código de acesso do Keyless", "Your Keyless access code", "Tu código de acceso de Keyless"),
-    "email_change": LANG + L("Confirme a troca de e-mail no Keyless", "Confirm the email change on Keyless", "Confirma el cambio de correo en Keyless"),
+    "confirmation": subject("Confirme seu e-mail no Keyless", "Confirm your email on Keyless", "Confirma tu correo en Keyless"),
+    "magic_link": subject("Seu código de acesso do Keyless", "Your Keyless access code", "Tu código de acceso de Keyless"),
+    "email_change": subject("Confirme a troca de e-mail no Keyless", "Confirm the email change on Keyless", "Confirma el cambio de correo en Keyless"),
 }
-for name, subject in SUBJECTS.items():
-    (OUT / f"{name}.subject.txt").write_text(subject + "\n")
+for name, text in SUBJECTS.items():
+    assert len(text) <= 255, (name, len(text))
+    (OUT / f"{name}.subject.txt").write_text(text + "\n")
 print("written", ", ".join(sorted(p.name for p in OUT.glob("*.html")) + sorted(p.name for p in OUT.glob("*.subject.txt"))))

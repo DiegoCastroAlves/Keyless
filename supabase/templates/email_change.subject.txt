@@ -1,1 +1,1 @@
-{{- $lang := printf "%v" .Data.lang -}}{{ if eq $lang "en" }}Confirm the email change on Keyless{{ else if eq $lang "es" }}Confirma el cambio de correo en Keyless{{ else }}Confirme a troca de e-mail no Keyless{{ end }}
+{{$l := printf "%v" .Data.lang}}{{if eq $l "en"}}Confirm the email change on Keyless{{else if eq $l "es"}}Confirma el cambio de correo en Keyless{{else}}Confirme a troca de e-mail no Keyless{{end}}

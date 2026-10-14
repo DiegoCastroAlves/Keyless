@@ -14,9 +14,11 @@ one, the subject is in `<name>.subject.txt` and the body in `<name>.html`.
 | Magic Link           | `magic_link.*`   | Someone asking a restricted link for a code again |
 | Change Email Address | `email_change.*` | Both addresses, when an account changes its email |
 
-The templates are Go `text/template`. Keep comparisons to `$lang`, which is
-always a string: `eq` on a metadata field that is missing fails, and Supabase
-then sends nothing.
+The templates are Go `text/template`. Keep comparisons to `$lang` (`$l` in
+the subjects), which is always a string: `eq` on a metadata field that is
+missing fails, and Supabase then sends nothing. A subject may have at most
+255 characters, template included, so the subjects use the compact form and
+`build.py` checks their length.
 
 ## Changing them
 
