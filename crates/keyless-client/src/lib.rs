@@ -11,6 +11,7 @@
 //! arguments in, JSON out (`{"ok": …}` or `{"error": {"key", "message"}}`),
 //! so each host needs a single binding.
 
+mod devices;
 pub mod matching;
 pub mod qr;
 mod store;
@@ -116,6 +117,7 @@ pub struct Client {
     unlocked: Option<Unlocked>,
     pending: Option<Pending>,
     setup: Option<SetupRequest>,
+    approvals: devices::Approvals,
 }
 
 /// Item roles that may write.
@@ -261,6 +263,11 @@ impl Client {
             "saveDraft" => self.save_draft(json),
             "duplicate" => self.duplicate(json),
             "setFlags" => self.set_flags(json),
+            "deviceInfo" => self.device_info(json),
+            "deviceList" => self.device_list(json),
+            "approvalStart" => self.approval_start(json),
+            "approvalSeal" => self.approval_seal(json),
+            "approvalForget" => self.approval_forget(json),
             "findLogin" => self.find_login(json),
             "passkeysFor" => self.passkeys_for(json),
             "passkeyGet" => self.passkey_get(json),
@@ -289,6 +296,7 @@ impl Client {
         self.unlocked = None;
         self.pending = None;
         self.setup = None;
+        self.approvals = Default::default();
     }
 
     fn status(&self) -> Value {

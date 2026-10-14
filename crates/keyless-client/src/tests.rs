@@ -472,3 +472,40 @@ fn edits_drafts_like_the_desktop() {
     let long = json!({ "vaultId": VAULT, "title": "t".repeat(600), "category": "login" });
     assert_eq!(error(client.call("saveDraft", &json!({ "draft": long, "now": 1 }).to_string())), "title_too_long");
 }
+
+#[test]
+fn approves_a_new_device_and_lists_devices() {
+    let server = server();
+    let mut approver = signed_in(&server);
+    let mut asker = Client::new();
+    let started = ok(asker.call("setupStart", ""));
+    let answer = ok(approver.call("approvalStart", &json!({ "id": "r1", "publicKey": started["publicKey"], "commitment": started["commitment"] }).to_string()));
+    let shown = ok(asker.call("setupCode", &json!({ "approverKey": answer["publicKey"], "approverNonce": answer["nonce"] }).to_string()));
+    let typed = |code: &str| json!({ "id": "r1", "nonce": shown["nonce"], "code": code, "secretKey": server.secret_key }).to_string();
+    assert_eq!(error(approver.call("approvalSeal", &typed("000000"))), "device_setup_code_wrong");
+    let envelope = ok(approver.call("approvalSeal", &typed(shown["code"].as_str().unwrap())));
+    let opened = ok(asker.call("setupOpen", &json!({ "requestId": "r1", "approverKey": answer["publicKey"], "approverNonce": answer["nonce"], "payload": envelope }).to_string()));
+    assert_eq!(opened["email"], "me@example.com");
+    assert_eq!(opened["secretKey"], json!(server.secret_key));
+
+    // Three wrong codes: the request has to be refused.
+    let started = ok(asker.call("setupStart", ""));
+    let answer = ok(approver.call("approvalStart", &json!({ "id": "r2", "publicKey": started["publicKey"], "commitment": started["commitment"] }).to_string()));
+    let shown = ok(asker.call("setupCode", &json!({ "approverKey": answer["publicKey"], "approverNonce": answer["nonce"] }).to_string()));
+    let wrong = json!({ "id": "r2", "nonce": shown["nonce"], "code": "111111", "secretKey": server.secret_key }).to_string();
+    assert_eq!(error(approver.call("approvalSeal", &wrong)), "device_setup_code_wrong");
+    assert_eq!(error(approver.call("approvalSeal", &wrong)), "device_setup_code_wrong");
+    assert_eq!(error(approver.call("approvalSeal", &wrong)), "device_setup_code_denied");
+    assert_eq!(error(approver.call("approvalSeal", &wrong)), "device_setup_expired");
+
+    // What a device says about itself, read back by another one.
+    let sealed = ok(approver.call("deviceInfo", &json!({ "deviceId": "d1", "name": "Pixel", "platform": "android", "os": "Android 15", "appVersion": "0.1.9" }).to_string()));
+    let rows = json!([{ "id": "d1", "enc_info": sealed, "ip": "1.2.3.4" }, { "id": "d2", "enc_info": sealed }]);
+    let list = ok(approver.call("deviceList", &rows.to_string()));
+    assert_eq!(list[0]["name"], "Pixel");
+    assert_eq!(list[0]["platform"], "android");
+    assert_eq!(list[0]["ip"], "1.2.3.4");
+    assert!(list[0].get("enc_info").is_none());
+    // Sealed for another device id: not shown as that device.
+    assert_eq!(list[1]["name"], "");
+}
