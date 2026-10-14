@@ -2,9 +2,11 @@
 //! encrypted channel). Deliberately small: status, unlocking, finding logins
 //! for a page and returning the credentials the user chose to fill.
 
+pub use keyless_core::site::{site_of, url_host};
 use keyless_core::{
     generator::{GeneratorOptions, generate},
     item::{Category, FieldKind, FieldPurpose, ItemUrl, UrlMatch},
+    site::url_parts,
     totp::Totp,
 };
 use serde_json::{Value, json};
@@ -530,34 +532,6 @@ fn unlock_error(err: AppError) -> &'static str {
     }
 }
 
-/// Host part of a URL, accepting bare domains.
-pub fn url_host(url: &str) -> Option<String> {
-    url_parts(url).map(|(host, _)| host)
-}
-
-/// Host and port (when not the scheme's default) of a URL, accepting bare
-/// domains.
-fn url_parts(url: &str) -> Option<(String, Option<u16>)> {
-    let url = url.trim();
-    let normalized = if url.contains("://") { url.to_string() } else { format!("https://{url}") };
-    let parsed = url::Url::parse(&normalized).ok()?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return None;
-    }
-    let host = parsed.host_str()?.trim_start_matches("www.").to_ascii_lowercase();
-    Some((host, parsed.port()))
-}
-
-/// Registrable domain ("eTLD+1"), e.g. accounts.google.com -> google.com.
-/// Addresses by number (192.168.1.1, [::1]) are whole hosts.
-pub fn site_of(host: &str) -> String {
-    let bare = host.trim_start_matches('[').trim_end_matches(']');
-    if bare.parse::<std::net::IpAddr>().is_ok() {
-        return host.to_string();
-    }
-    psl::domain_str(host).map(str::to_string).unwrap_or_else(|| host.to_string())
-}
-
 /// Hosts where anyone can publish pages under a big site's domain: logins
 /// for the rest of that site are not offered there (nor theirs elsewhere).
 const USER_CONTENT_HOSTS: &[&str] = &["script.google.com"];
@@ -885,10 +859,6 @@ mod tests {
 
     #[test]
     fn url_matching() {
-        assert_eq!(url_host("https://www.GitHub.com/login"), Some("github.com".into()));
-        assert_eq!(url_host("github.com"), Some("github.com".into()));
-        assert_eq!(url_host("javascript:alert(1)"), None);
-        assert_eq!(url_host("file:///etc/passwd"), None);
         assert!(Page::parse("javascript:alert(1)").is_none());
         assert!(Page::parse("github.com").is_none());
 
@@ -900,11 +870,6 @@ mod tests {
         // Different sites under a public suffix must not match.
         assert_eq!(match_score(&page("https://alice.github.io"), &url("https://bob.github.io")), 0);
         assert_eq!(match_score(&page("https://foo.co.uk"), &url("https://bar.co.uk")), 0);
-        // The sites the extension compares pages by.
-        assert_eq!(site_of("accounts.google.com"), "google.com");
-        assert_eq!(site_of("alice.github.io"), "alice.github.io");
-        assert_ne!(site_of("victim.vercel.app"), site_of("attacker.vercel.app"));
-        assert_eq!(site_of("[::1]"), "[::1]");
         // Addresses by number are whole hosts, not domains.
         assert_eq!(match_score(&page("http://192.168.1.1"), &url("http://10.0.1.1")), 0);
         assert_eq!(match_score(&page("http://192.168.1.1/admin"), &url("http://192.168.1.1")), 2);

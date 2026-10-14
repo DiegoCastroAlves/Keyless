@@ -218,7 +218,7 @@ pub(crate) fn parse_iso8601(text: &str) -> Option<i64> {
             sign * (h * 3600 + m * 60)
         }
     };
-    Some(crate::health::unix_day(year, month, day) + hours * 3600 + minutes * 60 + seconds - offset)
+    Some(keyless_core::health::unix_day(year, month, day) + hours * 3600 + minutes * 60 + seconds - offset)
 }
 
 #[cfg(test)]

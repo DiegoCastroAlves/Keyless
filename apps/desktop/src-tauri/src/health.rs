@@ -16,236 +16,41 @@
 //!   even which hash was looked up. It runs when the user asks, or by itself
 //!   with the setting on; what it found is kept, encrypted, until the
 //!   password changes.
+//!
+//! What is computed lives in `keyless_core::health`, shared with the other
+//! apps; here are the items, the lists kept on disk, the downloads and the
+//! notifications.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     io::Write,
-    net::IpAddr,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use hkdf::Hkdf;
+pub use keyless_core::health::{HealthReport, Strength, strength};
 use keyless_core::{
-    account::UnlockedAccount,
-    crypto::SymmetricKey,
-    item::{Category, FieldKind, FieldPurpose, ItemDetails, ItemUrl},
+    health::{self, BreachCheck, ChecksKey, Entry, LISTS, ListError, ListKind, MAX_LIST_BYTES, Online, PasswordChecks, Sites, analyze, compromised, range_matches},
+    item::ItemUrl,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use sha1::{Digest, Sha1};
-use sha2::Sha256;
+use serde::{Serialize, de::DeserializeOwned};
 use tauri::{AppHandle, Emitter, Manager};
-use zeroize::Zeroizing;
 
 use crate::{
     api::now_secs,
-    bridge::{forms::parse_expiry, handlers::{site_of, url_host}},
     error::{AppError, AppResult, Msg},
     state::{AppState, Settings},
     store::Store,
 };
 
-/// Dates whose label says they expire, with no alert chosen, are reported
-/// this many days ahead.
-const DEFAULT_ALERT_DAYS: i64 = 30;
-/// The public lists are a few megabytes; anything far larger is refused.
-const MAX_LIST_BYTES: usize = 20 * 1024 * 1024;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Strength {
-    /// zxcvbn's 0 (very weak) to 4 (very strong): what the rules use (a
-    /// weak password is below 3).
-    pub score: u8,
-    /// What the user sees: 0 (very weak) to 6 (excellent), see `level`.
-    pub level: u8,
-    pub guesses_log10: f64,
-    pub warning: Option<String>,
-    pub suggestions: Vec<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Expiry {
-    pub id: String,
-    /// Unix seconds.
-    pub expires_at: i64,
-    pub expired: bool,
-}
-
-#[derive(Serialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct HealthReport {
-    pub checked: usize,
-    pub weak: Vec<String>,
-    /// Groups of item ids that share the same password.
-    pub reused: Vec<Vec<String>>,
-    /// Groups of item ids for the same account: the same website and user
-    /// name.
-    pub duplicates: Vec<Vec<String>>,
-    /// Items with a website on plain `http`.
-    pub unsecured: Vec<String>,
-    /// Those whose website can simply move to `https` ("Use HTTPS"): on
-    /// plain http's own port.
-    pub https_ready: Vec<String>,
-    pub expiring: Vec<Expiry>,
-    /// Item ids whose password appears in known breaches, with the count.
-    pub breached: Vec<(String, u64)>,
-    /// Websites breached after the item's password was set.
-    pub compromised: Vec<SiteIssue>,
-    /// Websites that offer two-factor codes the item does not have.
-    pub two_factor: Vec<SiteIssue>,
-    /// Websites that accept passkeys, for items without one.
-    pub passkeys: Vec<SiteIssue>,
-    /// Logins imported from LastPass whose password was not changed since:
-    /// LastPass's stored vaults were stolen in 2022.
-    pub lastpass: Vec<String>,
-    /// Alerts not known yet: their list was never downloaded, or the
-    /// passwords never checked online.
-    pub pending: Vec<&'static str>,
-    /// Passwords not checked online yet (new or changed since).
-    pub unchecked: usize,
-    /// When every password was last checked online (Unix seconds).
-    pub passwords_checked_at: Option<i64>,
-    /// When the oldest list was downloaded (Unix seconds).
-    pub lists_updated_at: Option<i64>,
-    /// Alerts the user ignored: (item id, alert).
-    pub ignored: Vec<(String, String)>,
-    /// The ignored alerts that no longer apply (the problem was fixed), as
-    /// far as can be known: (item id, alert).
-    pub stale: Vec<(String, String)>,
-    /// Alerts whose list is turned off in the settings.
-    pub off: Vec<&'static str>,
-    /// Item id -> its password's strength level (0 to 6, see `level`).
-    pub levels: HashMap<String, u8>,
-    /// Vault id -> how many of its passwords are at each strength level.
-    pub strengths: HashMap<String, [usize; 7]>,
-}
-
 /// The editor's check of a password being typed.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PasswordCheck {
-    /// 0 (very weak) to 6 (excellent), see `level`.
+    /// 0 (very weak) to 6 (excellent), see `keyless_core::health::level`.
     pub level: u8,
     /// Other items that already use it.
     pub reused: usize,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SiteIssue {
-    pub id: String,
-    pub site: String,
-    /// The breach date (YYYY-MM-DD) for breached websites.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub date: Option<String>,
-    /// What the list says about the breach, for breached websites.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub breach: Option<BreachDetails>,
-}
-
-/// A website's breach, as Have I Been Pwned's list describes it.
-#[derive(Clone, Default, Debug, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BreachDetails {
-    /// The breach's name ("Adobe").
-    pub title: String,
-    /// What leaked, as the list words it ("Email addresses", "Passwords"…).
-    pub data_classes: Vec<String>,
-    /// Accounts in the breach.
-    pub accounts: u64,
-}
-
-/// Seven levels, finer than zxcvbn's five scores at the strong end, where
-/// most generated passwords are: the first four are the scores 0 to 3 (so
-/// "weak" means the same everywhere), and score 4 (at least 10^10 guesses)
-/// is split at 10^12 and 10^16 guesses.
-pub fn level(score: u8, guesses_log10: f64) -> u8 {
-    match score {
-        0..=3 => score,
-        _ if guesses_log10 < 12.0 => 4,
-        _ if guesses_log10 < 16.0 => 5,
-        _ => 6,
-    }
-}
-
-pub fn strength(password: &str, user_inputs: &[&str]) -> Strength {
-    if password.is_empty() {
-        return Strength { score: 0, level: 0, guesses_log10: 0.0, warning: None, suggestions: vec![] };
-    }
-    // zxcvbn is quadratic in length; anything this long is strong anyway.
-    let sample: String = password.chars().take(100).collect();
-    let entropy = zxcvbn::zxcvbn(&sample, user_inputs);
-    let score = entropy.score() as u8;
-    Strength {
-        score,
-        level: level(score, entropy.guesses_log10()),
-        guesses_log10: entropy.guesses_log10(),
-        warning: entropy.feedback().and_then(|f| f.warning()).map(|w| w.to_string()),
-        suggestions: entropy
-            .feedback()
-            .map(|f| f.suggestions().iter().map(|s| s.to_string()).collect())
-            .unwrap_or_default(),
-    }
-}
-
-/// An active item, as the checks need it.
-struct Entry {
-    id: String,
-    title: String,
-    /// Alerts the user ignored for this item.
-    ignored: Vec<String>,
-    category: Category,
-    urls: Vec<ItemUrl>,
-    created_at: i64,
-    imported_from: String,
-    vault_id: String,
-    details: ItemDetails,
-}
-
-impl Entry {
-    fn ignores(&self, alert: &str) -> bool {
-        self.ignored.iter().any(|a| a == alert)
-    }
-
-    fn password(&self) -> Option<&str> {
-        self.details.field_by_purpose(FieldPurpose::Password).map(|f| f.value.as_str()).filter(|p| !p.is_empty())
-    }
-
-    /// When the current password was set: when the previous one was
-    /// replaced, or when the item was created.
-    fn password_set_at(&self) -> i64 {
-        self.details.password_history.iter().map(|h| h.changed_at).max().unwrap_or(self.created_at)
-    }
-
-    /// The user name, compared without case or surrounding spaces.
-    fn username(&self) -> Option<String> {
-        self.details
-            .field_by_purpose(FieldPurpose::Username)
-            .map(|f| f.value.trim().to_lowercase())
-            .filter(|u| !u.is_empty())
-    }
-
-    /// Weaker when it holds the item's own words, as the editor shows it.
-    fn strength(&self, password: &str) -> Strength {
-        let username = self.username();
-        let inputs: Vec<&str> = username.as_deref().into_iter().chain([self.title.as_str()]).filter(|s| !s.trim().is_empty()).collect();
-        strength(password, &inputs)
-    }
-
-    fn is_login(&self) -> bool {
-        matches!(self.category, Category::Login | Category::Password)
-    }
-
-    fn has_totp(&self) -> bool {
-        self.details.all_fields().any(|f| f.kind == FieldKind::Totp && !f.value.trim().is_empty())
-    }
-
-    fn sites(&self) -> HashSet<String> {
-        self.urls.iter().filter_map(|u| url_host(&u.href)).map(|h| site_of(&h)).collect()
-    }
 }
 
 /// Every item that is neither archived nor in Recently Deleted.
@@ -264,17 +69,7 @@ async fn entries(state: &AppState) -> AppResult<Vec<Entry>> {
             continue;
         };
         let Ok(details) = vault.key.open_details(&local.vault_id, id, enc) else { continue };
-        out.push(Entry {
-            id: id.clone(),
-            title: o.title.clone(),
-            ignored: o.sentinel_ignored.clone(),
-            category: o.category,
-            urls: o.urls.clone(),
-            created_at: o.created_at,
-            imported_from: o.imported_from.clone(),
-            vault_id: local.vault_id.clone(),
-            details,
-        });
+        out.push(Entry::new(id, &local.vault_id, o, details));
     }
     Ok(out)
 }
@@ -302,134 +97,12 @@ async fn compute(app: &AppHandle, wake: bool) -> AppResult<HealthReport> {
     };
     let mut report = analyze(&entries, &online, now_secs());
     report.passwords_checked_at = checks.checked_at;
-    report.lists_updated_at = LISTS
-        .into_iter()
-        .filter(|kind| kind.enabled(&settings))
-        .map(|kind| lists.get(&kind).map(|list| list.fetched_at))
-        .collect::<Option<Vec<_>>>()
-        .and_then(|at| at.into_iter().min());
+    report.lists_updated_at = health::lists_updated_at(LISTS.into_iter().filter(|kind| kind.enabled(&settings)).map(|kind| lists.get(&kind).map(|list| list.fetched_at)));
     // New passwords: checked in the background, with the setting on.
     if wake && report.unchecked > 0 {
         state.sentinel.wake.notify_one();
     }
     Ok(report)
-}
-
-/// What the report compares the items with online.
-struct Online<'a> {
-    /// Times a password was seen in breaches; `None` when it was never
-    /// checked.
-    seen: &'a dyn Fn(&str) -> Option<u64>,
-    /// Every password was checked at least once.
-    checked: bool,
-    /// The lists turned on and downloaded.
-    lists: HashMap<ListKind, &'a Sites>,
-    /// The lists turned off.
-    off: Vec<ListKind>,
-}
-
-/// The report, from the items and what is known online (nothing is read or
-/// downloaded here).
-fn analyze(entries: &[Entry], online: &Online, now: i64) -> HealthReport {
-    let mut report = HealthReport::default();
-    // Every alert that applies, ignored or not: an ignored alert missing
-    // here no longer applies.
-    let mut found: HashSet<(String, &'static str)> = HashSet::new();
-    let mut by_password: HashMap<&str, Vec<String>> = HashMap::new();
-    for entry in entries {
-        // Every ignored alert is listed, so it can be watched again.
-        report.ignored.extend(entry.ignored.iter().map(|alert| (entry.id.clone(), alert.clone())));
-        // Whether the alert shows: it applies and is not ignored.
-        let mut shows = |alert: &'static str| {
-            found.insert((entry.id.clone(), alert));
-            !entry.ignores(alert)
-        };
-        if let Some(password) = entry.password() {
-            report.checked += 1;
-            let strength = entry.strength(password);
-            report.levels.insert(entry.id.clone(), strength.level);
-            report.strengths.entry(entry.vault_id.clone()).or_default()[usize::from(strength.level.min(6))] += 1;
-            if strength.score < 3 && shows("weak") {
-                report.weak.push(entry.id.clone());
-            }
-            // Grouped even when ignored: the other items still share it.
-            by_password.entry(password).or_default().push(entry.id.clone());
-            if entry.imported_from == "lastpass" && entry.details.password_history.is_empty() && shows("lastpass") {
-                report.lastpass.push(entry.id.clone());
-            }
-            match (online.seen)(password) {
-                Some(seen) if seen > 0 && shows("breached") => report.breached.push((entry.id.clone(), seen)),
-                Some(_) => {}
-                None => report.unchecked += 1,
-            }
-        }
-        if entry.urls.iter().any(|u| unsecured(&u.href)) && shows("unsecured") {
-            report.unsecured.push(entry.id.clone());
-            if entry.urls.iter().any(|u| https_url(&u.href).is_some()) {
-                report.https_ready.push(entry.id.clone());
-            }
-        }
-        if let Some(expires_at) = expiry(&entry.details, now)
-            && shows("expiring")
-        {
-            report.expiring.push(Expiry { id: entry.id.clone(), expires_at, expired: expires_at < now });
-        }
-    }
-    report.reused = by_password.into_values().filter(|ids| ids.len() > 1).collect();
-    report.duplicates = duplicate_accounts(entries);
-    for (groups, alert) in [(&report.reused, "reused"), (&report.duplicates, "duplicate")] {
-        found.extend(groups.iter().flatten().map(|id| (id.clone(), alert)));
-    }
-    report.expiring.sort_by_key(|e| e.expires_at);
-
-    if !online.checked {
-        report.pending.push("breached");
-    }
-    let by_id: HashMap<&str, &Entry> = entries.iter().map(|e| (e.id.as_str(), e)).collect();
-    for kind in LISTS {
-        if online.off.contains(&kind) {
-            report.off.push(kind.alert());
-            continue;
-        }
-        let Some(sites) = online.lists.get(&kind) else {
-            report.pending.push(kind.alert());
-            continue;
-        };
-        let issues = match kind {
-            ListKind::Breaches => compromised(entries, sites),
-            ListKind::TwoFactor => missing_two_factor(entries, sites),
-            ListKind::Passkeys => missing_passkeys(entries, sites),
-        };
-        found.extend(issues.iter().map(|issue| (issue.id.clone(), kind.alert())));
-        let shown = issues.into_iter().filter(|issue| !by_id.get(issue.id.as_str()).is_some_and(|e| e.ignores(kind.alert())));
-        match kind {
-            ListKind::Breaches => report.compromised = shown.collect(),
-            ListKind::TwoFactor => report.two_factor = shown.collect(),
-            ListKind::Passkeys => report.passkeys = shown.collect(),
-        }
-    }
-    report.stale = stale_ignores(entries, &found, online);
-    report
-}
-
-/// The ignored alerts that no longer apply: not among those `found`, and
-/// knowable (an alert whose list is off or not downloaded, or a password
-/// never checked online, could still apply).
-fn stale_ignores(entries: &[Entry], found: &HashSet<(String, &'static str)>, online: &Online) -> Vec<(String, String)> {
-    let mut stale = Vec::new();
-    for entry in entries {
-        for alert in &entry.ignored {
-            let known = match alert.as_str() {
-                "breached" => entry.password().is_none_or(|password| (online.seen)(password).is_some()),
-                "weak" | "reused" | "unsecured" | "expiring" | "duplicate" | "lastpass" => true,
-                list => LISTS.into_iter().any(|kind| kind.alert() == list && online.lists.contains_key(&kind)),
-            };
-            if known && !found.contains(&(entry.id.clone(), alert.as_str())) {
-                stale.push((entry.id.clone(), alert.clone()));
-            }
-        }
-    }
-    stale
 }
 
 /// Serious alerts not announced yet (breached passwords and websites, dates
@@ -440,9 +113,9 @@ async fn notify_new_alerts(app: &AppHandle) -> AppResult<()> {
     let state = app.state::<AppState>();
     let report = compute(app, false).await?;
     let key = checks_key(&state).await?;
-    let previous: Option<BTreeSet<String>> = key.load_row(&state.store(), ChecksKey::NOTIFIED);
+    let previous: Option<BTreeSet<String>> = key.load_row(&state.store(), NOTIFIED);
     let current = announced(&report, previous.as_ref());
-    key.save_row(&state.store(), ChecksKey::NOTIFIED, &current)?;
+    key.save_row(&state.store(), NOTIFIED, &current)?;
     let new = previous.map_or(0, |seen| current.difference(&seen).count());
     if new > 0 && state.settings().sentinel_notifications {
         crate::notify::sentinel(app, new);
@@ -531,65 +204,7 @@ pub async fn site_alerts(app: &AppHandle, site: &str) -> AppResult<Vec<SiteAlert
 /// Nothing leaves this device.
 pub async fn check_password(state: &AppState, password: &str, item_id: Option<&str>, inputs: &[&str]) -> AppResult<PasswordCheck> {
     let entries = entries(state).await?;
-    let reused = entries.iter().filter(|e| Some(e.id.as_str()) != item_id && e.password() == Some(password)).count();
-    Ok(PasswordCheck { level: strength(password, inputs).level, reused })
-}
-
-/// Groups of logins for the same account in the same vault: the first
-/// website's site and the user name (a copy in another vault, shared with
-/// other people, is on purpose). Grouped even when ignored, like reused
-/// passwords.
-fn duplicate_accounts(entries: &[Entry]) -> Vec<Vec<String>> {
-    let mut by_account: HashMap<(String, String, String), Vec<String>> = HashMap::new();
-    for entry in entries.iter().filter(|e| e.is_login()) {
-        let site = entry.urls.first().and_then(|u| url_host(&u.href)).map(|h| site_of(&h));
-        if let (Some(site), Some(user)) = (site, entry.username()) {
-            by_account.entry((entry.vault_id.clone(), site, user)).or_default().push(entry.id.clone());
-        }
-    }
-    by_account.into_values().filter(|ids| ids.len() > 1).collect()
-}
-
-/// A website on plain `http` that is not on this computer or the local
-/// network (routers, printers and the like rarely have a choice).
-fn unsecured(href: &str) -> bool {
-    let href = href.trim();
-    if !href.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://")) {
-        return false;
-    }
-    let Some(host) = url_host(href) else { return false };
-    let bare = host.trim_start_matches('[').trim_end_matches(']');
-    if let Ok(ip) = bare.parse::<IpAddr>() {
-        return !match ip {
-            IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-            IpAddr::V6(v6) => v6.is_loopback() || (v6.segments()[0] & 0xfe00) == 0xfc00 || (v6.segments()[0] & 0xffc0) == 0xfe80,
-        };
-    }
-    let local = [".localhost", ".local", ".lan", ".home", ".internal", ".home.arpa", ".test"];
-    !(host == "localhost" || !host.contains('.') || local.iter().any(|s| host.ends_with(s)))
-}
-
-/// The website on `https` instead of plain `http`, for an address
-/// `unsecured` reports on plain http's own port (none, or 80, which is
-/// dropped); `None` for any other: a server on another port rarely answers
-/// https there.
-pub fn https_url(href: &str) -> Option<String> {
-    if !unsecured(href) {
-        return None;
-    }
-    let rest = &href.trim()[7..];
-    let (authority, path) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
-    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    let port = match host.strip_prefix('[') {
-        Some(v6) => v6.split_once("]:").map(|(_, port)| port),
-        None => host.rsplit_once(':').map(|(_, port)| port),
-    };
-    let authority = match port {
-        None => authority,
-        Some(port @ ("" | "80")) => &authority[..authority.len() - port.len() - 1],
-        Some(_) => return None,
-    };
-    Some(format!("https://{authority}{path}"))
+    Ok(PasswordCheck { level: strength(password, inputs).level, reused: health::reuses(&entries, password, item_id) })
 }
 
 /// "Use HTTPS" on an item's addresses: the ones on plain http's own port
@@ -599,14 +214,7 @@ fn switch_to_https(urls: &mut [ItemUrl], trashed: bool) -> AppResult<()> {
     if trashed {
         return Err(AppError::Invalid(Msg::new("https_trashed")));
     }
-    let mut changed = false;
-    for url in urls {
-        if let Some(https) = https_url(&url.href) {
-            url.href = https;
-            changed = true;
-        }
-    }
-    if !changed {
+    if !health::switch_to_https(urls) {
         return Err(AppError::Invalid(Msg::new("https_unavailable")));
     }
     Ok(())
@@ -624,62 +232,6 @@ pub async fn use_https(app: &AppHandle, item_id: &str) -> AppResult<()> {
     let mut draft = crate::items::get_item_draft(&state, item_id).await?;
     switch_to_https(&mut draft.urls, trashed)?;
     crate::items::save_item(app, draft).await.map(|_| ())
-}
-
-/// Labels of fields that hold an expiry date (the item templates' and what
-/// people type in the three languages).
-fn is_expiry_label(label: &str) -> bool {
-    let label = label.to_lowercase();
-    ["expir", "expires", "valid until", "validade", "vencimento", "vence", "caducidad", "vencimiento", "válido hasta"]
-        .iter()
-        .any(|word| label.contains(word))
-}
-
-/// The earliest date in the item that is due to be warned about at `now`,
-/// in Unix seconds: a date field warns as early as its alert says, or, with
-/// no alert chosen, a month ahead when its label says it expires.
-fn expiry(details: &ItemDetails, now: i64) -> Option<i64> {
-    details
-        .all_fields()
-        .filter(|f| f.kind.is_date())
-        .filter_map(|f| {
-            let ahead = match f.extra.alert {
-                Some(alert) => alert.days()?,
-                None if is_expiry_label(&f.label) => DEFAULT_ALERT_DAYS,
-                None => return None,
-            };
-            let at = match f.kind {
-                FieldKind::Date => parse_date(&f.value)?,
-                // The end of the month.
-                _ => parse_expiry(&f.value).map(|(month, year)| {
-                    let (year, month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
-                    unix_day(year as i64, month, 1) - 1
-                })?,
-            };
-            (at - now < ahead * 86_400).then_some(at)
-        })
-        .min()
-}
-
-/// "2027-05-31" (as date inputs store it), at the end of that day.
-fn parse_date(text: &str) -> Option<i64> {
-    let mut parts = text.trim().splitn(3, '-');
-    let year: i64 = parts.next()?.parse().ok()?;
-    let month: u32 = parts.next()?.parse().ok()?;
-    let day: u32 = parts.next()?.get(..2)?.parse().ok()?;
-    ((1900..=2200).contains(&year) && (1..=12).contains(&month) && (1..=31).contains(&day)).then(|| unix_day(year, month, day) + 86_399)
-}
-
-/// Unix seconds at the start of a day (UTC), from Howard Hinnant's
-/// days-from-civil.
-pub(crate) fn unix_day(year: i64, month: u32, day: u32) -> i64 {
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let m = month as i64;
-    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + day as i64 - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    (era * 146_097 + doe - 719_468) * 86_400
 }
 
 fn client() -> AppResult<reqwest::Client> {
@@ -816,30 +368,17 @@ async fn run_due(app: &AppHandle) {
 
 // ----- public lists -----------------------------------------------------------
 
-/// The public lists of websites, kept on disk so Sentinel works offline, and
-/// downloaded again once a day. A new copy replaces the old one only once it
-/// downloaded whole and reads as a real list; otherwise the old one stays.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum ListKind {
-    /// Have I Been Pwned's breaches.
-    Breaches,
-    /// 2fa.directory's websites with one-time codes.
-    TwoFactor,
-    /// The Passkeys Directory.
-    Passkeys,
+/// Where the desktop keeps each public list (see
+/// `keyless_core::health::ListKind`), and whether it is turned on.
+trait ListFile {
+    fn file(self) -> &'static str;
+    /// Turned on in the settings.
+    fn enabled(self, settings: &Settings) -> bool;
+    /// The sites in the list as downloaded, or why it is not the real one.
+    fn read(self, body: &[u8]) -> AppResult<Sites>;
 }
 
-const LISTS: [ListKind; 3] = [ListKind::Breaches, ListKind::TwoFactor, ListKind::Passkeys];
-
-impl ListKind {
-    fn url(self) -> &'static str {
-        match self {
-            Self::Breaches => "https://haveibeenpwned.com/api/v3/breaches",
-            Self::TwoFactor => "https://api.2fa.directory/v3/totp.json",
-            Self::Passkeys => "https://passkeys-api.2fa.directory/v1/supported.json",
-        }
-    }
-
+impl ListFile for ListKind {
     fn file(self) -> &'static str {
         match self {
             Self::Breaches => "breaches.json",
@@ -848,7 +387,6 @@ impl ListKind {
         }
     }
 
-    /// Turned on in the settings.
     fn enabled(self, settings: &Settings) -> bool {
         match self {
             Self::Breaches => settings.sentinel_breach_list,
@@ -857,48 +395,12 @@ impl ListKind {
         }
     }
 
-    /// The alert the list is for.
-    fn alert(self) -> &'static str {
-        match self {
-            Self::Breaches => "compromised",
-            Self::TwoFactor => "two_factor",
-            Self::Passkeys => "passkey",
-        }
+    fn read(self, body: &[u8]) -> AppResult<Sites> {
+        self.parse(body).map_err(|err| match err {
+            ListError::Json(err) => err.into(),
+            ListError::Incomplete(sites) => AppError::Server(format!("{} looks incomplete ({sites} sites)", self.file())),
+        })
     }
-
-    /// A list with fewer sites than this is a broken download, not the real
-    /// one: they have hundreds to thousands.
-    fn min_sites(self) -> usize {
-        match self {
-            Self::Breaches => 100,
-            Self::TwoFactor => 200,
-            Self::Passkeys => 50,
-        }
-    }
-
-    fn parse(self, body: &[u8]) -> AppResult<Sites> {
-        let sites = match self {
-            Self::Breaches => sites_from_breaches(serde_json::from_slice(body)?),
-            Self::TwoFactor => sites_from_directory(&serde_json::from_slice(body)?),
-            Self::Passkeys => sites_from_passkey_directory(&serde_json::from_slice(body)?),
-        };
-        if sites.len() < self.min_sites() {
-            return Err(AppError::Server(format!("{} looks incomplete ({} sites)", self.file(), sites.len())));
-        }
-        Ok(sites)
-    }
-}
-
-/// Site (registrable domain) -> what the list says about it.
-type Sites = HashMap<String, SiteInfo>;
-
-/// For breached websites, the latest breach that exposed passwords; nothing
-/// for the other lists.
-#[derive(Clone, Default)]
-struct SiteInfo {
-    /// The breach date (YYYY-MM-DD).
-    date: String,
-    details: BreachDetails,
 }
 
 struct SiteList {
@@ -945,7 +447,7 @@ fn read_list(dir: &Path, kind: ListKind) -> AppResult<Option<SiteList>> {
     };
     let modified = std::fs::metadata(&path).and_then(|m| m.modified()).map_err(io_error)?;
     let fetched_at = modified.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
-    Ok(Some(SiteList { sites: kind.parse(&body)?, fetched_at }))
+    Ok(Some(SiteList { sites: kind.read(&body)?, fetched_at }))
 }
 
 /// Downloads the lists older than `max_age` seconds. Returns whether any was
@@ -975,7 +477,7 @@ async fn refresh_lists(app: &AppHandle, max_age: i64) -> AppResult<bool> {
         }
         let downloaded = async {
             let body = get_list(&client, kind.url()).await?;
-            let sites = kind.parse(&body)?;
+            let sites = kind.read(&body)?;
             Ok::<_, AppError>((body, sites))
         }
         .await;
@@ -1063,184 +565,42 @@ fn replace_file(dir: &Path, name: &str, data: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "PascalCase")]
-struct Breach {
-    #[serde(default)]
-    title: String,
-    #[serde(default)]
-    domain: String,
-    #[serde(default)]
-    breach_date: String,
-    #[serde(default)]
-    pwn_count: u64,
-    #[serde(default)]
-    data_classes: Vec<String>,
-    #[serde(default)]
-    is_verified: bool,
-    #[serde(default)]
-    is_fabricated: bool,
-    #[serde(default)]
-    is_spam_list: bool,
-}
-
-/// Site -> its latest verified breach that exposed passwords, from Have I
-/// Been Pwned's list.
-fn sites_from_breaches(list: Vec<Breach>) -> Sites {
-    let mut sites = Sites::new();
-    for breach in list {
-        if breach.domain.is_empty() || !breach.is_verified || breach.is_fabricated || breach.is_spam_list {
-            continue;
-        }
-        if !breach.data_classes.iter().any(|c| c == "Passwords") || parse_date(&breach.breach_date).is_none() {
-            continue;
-        }
-        let Some(host) = url_host(&breach.domain) else { continue };
-        let entry = sites.entry(site_of(&host)).or_default();
-        if breach.breach_date > entry.date {
-            *entry = SiteInfo {
-                date: breach.breach_date,
-                details: BreachDetails { title: breach.title, data_classes: breach.data_classes, accounts: breach.pwn_count },
-            };
-        }
-    }
-    sites
-}
-
-/// Logins whose website was breached after their password was set (ignored
-/// or not).
-fn compromised(entries: &[Entry], sites: &Sites) -> Vec<SiteIssue> {
-    let mut issues = Vec::new();
-    for entry in entries.iter().filter(|e| e.password().is_some()) {
-        for site in entry.sites() {
-            let Some(info) = sites.get(&site) else { continue };
-            // The breach happened (or ended) after this password was set.
-            if parse_date(&info.date).is_some_and(|breached_at| entry.password_set_at() < breached_at) {
-                issues.push(SiteIssue { id: entry.id.clone(), site, date: Some(info.date.clone()), breach: Some(info.details.clone()) });
-                break;
-            }
-        }
-    }
-    issues
-}
-
-/// Sites that offer one-time password codes, from 2fa.directory: a list of
-/// `[name, {domain, additional-domains, ...}]`.
-fn sites_from_directory(list: &Value) -> Sites {
-    let mut sites = Sites::new();
-    for entry in list.as_array().into_iter().flatten() {
-        let Some(info) = entry.get(1) else { continue };
-        let domains = info.get("domain").into_iter().chain(info.get("additional-domains").and_then(Value::as_array).into_iter().flatten());
-        for domain in domains.filter_map(Value::as_str) {
-            if let Some(host) = url_host(domain) {
-                sites.insert(site_of(&host), SiteInfo::default());
-            }
-        }
-    }
-    sites
-}
-
-/// Sites that accept passkeys, from the Passkeys Directory
-/// (passkeys.2fa.directory): `{domain: {passwordless, mfa, ...}}`, every
-/// website with some passkey support. Big services list their subdomains
-/// (mail.google.com), counted for the whole site (google.com).
-fn sites_from_passkey_directory(list: &Value) -> Sites {
-    list.as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(domain, _)| url_host(domain))
-        .map(|host| (site_of(&host), SiteInfo::default()))
-        .collect()
-}
-
-/// Logins without a passkey for a website that accepts them (ignored or
-/// not).
-fn missing_passkeys(entries: &[Entry], sites: &Sites) -> Vec<SiteIssue> {
-    entries
-        .iter()
-        .filter(|e| e.is_login() && e.details.passkeys.is_empty())
-        .filter_map(|e| e.sites().into_iter().find(|s| sites.contains_key(s)).map(|site| SiteIssue { id: e.id.clone(), site, date: None, breach: None }))
-        .collect()
-}
-
-/// Logins without one-time codes for a website that offers them (ignored or
-/// not).
-fn missing_two_factor(entries: &[Entry], sites: &Sites) -> Vec<SiteIssue> {
-    entries
-        .iter()
-        .filter(|e| e.is_login() && e.password().is_some() && !e.has_totp())
-        .filter_map(|e| e.sites().into_iter().find(|s| sites.contains_key(s)).map(|site| SiteIssue { id: e.id.clone(), site, date: None, breach: None }))
-        .collect()
-}
-
 // ----- breached passwords -----------------------------------------------------
 
-/// What the online check found about the passwords. Kept in the local
-/// database, encrypted with a key derived from the account key; passwords are
-/// named by a keyed hash, so a password that changes is checked again.
-#[derive(Serialize, Deserialize, Default)]
-struct PasswordChecks {
-    /// When every password was last checked (Unix seconds).
-    checked_at: Option<i64>,
-    /// Keyed hash of each password checked -> times seen in breaches (0: not
-    /// seen).
-    seen: HashMap<String, u64>,
+/// The alerts already announced (see `notify_new_alerts`).
+const NOTIFIED: &str = "notified";
+
+/// What Sentinel keeps in the local database, encrypted with a key derived
+/// from the account key (`ChecksKey`).
+trait Kept {
+    fn load(&self, store: &Store) -> PasswordChecks;
+    fn save(&self, store: &Store, checks: &PasswordChecks) -> AppResult<()>;
+    fn load_row<T: DeserializeOwned>(&self, store: &Store, row: &str) -> Option<T>;
+    fn save_row<T: Serialize>(&self, store: &Store, row: &str, value: &T) -> AppResult<()>;
 }
 
-struct ChecksKey {
-    seal: SymmetricKey,
-    ids: Hkdf<Sha256>,
-}
-
-impl ChecksKey {
-    const ROW: &str = "passwords";
-    /// The alerts already announced.
-    const NOTIFIED: &str = "notified";
-
-    fn new(account: &UnlockedAccount) -> AppResult<Self> {
-        let hkdf = Hkdf::<Sha256>::new(Some(b"keyless/sentinel/v1"), account.user_key().as_bytes());
-        let mut seal = Zeroizing::new([0u8; 32]);
-        hkdf.expand(b"seal", seal.as_mut()).map_err(|_| AppError::Server("sentinel key".into()))?;
-        Ok(Self { seal: SymmetricKey::from_slice(seal.as_ref())?, ids: hkdf })
-    }
-
-    fn id(&self, password: &str) -> String {
-        let mut id = [0u8; 16];
-        let _ = self.ids.expand_multi_info(&[b"password:", password.as_bytes()], &mut id);
-        hex::encode(id)
-    }
-
-    fn context(row: &str) -> Vec<u8> {
-        keyless_core::crypto::context("sentinel", &[row])
-    }
-
+impl Kept for ChecksKey {
     /// Nothing yet, or another account's: nothing checked.
     fn load(&self, store: &Store) -> PasswordChecks {
-        self.load_row(store, Self::ROW).unwrap_or_default()
+        self.load_row(store, ChecksKey::ROW).unwrap_or_default()
     }
 
     fn save(&self, store: &Store, checks: &PasswordChecks) -> AppResult<()> {
-        self.save_row(store, Self::ROW, checks)
+        self.save_row(store, ChecksKey::ROW, checks)
     }
 
-    fn load_row<T: serde::de::DeserializeOwned>(&self, store: &Store, row: &str) -> Option<T> {
-        store
-            .sentinel_data(row)
-            .ok()
-            .flatten()
-            .and_then(|data| self.seal.open(&data, &Self::context(row)).ok())
-            .and_then(|plain| serde_json::from_slice(&plain).ok())
+    fn load_row<T: DeserializeOwned>(&self, store: &Store, row: &str) -> Option<T> {
+        store.sentinel_data(row).ok().flatten().and_then(|data| self.open_row(row, &data))
     }
 
     fn save_row<T: Serialize>(&self, store: &Store, row: &str, value: &T) -> AppResult<()> {
-        let plain = Zeroizing::new(serde_json::to_vec(value)?);
-        store.set_sentinel_data(row, &self.seal.seal(&plain, &Self::context(row))?)
+        store.set_sentinel_data(row, &self.seal_row(row, value)?)
     }
 }
 
 /// Sentinel data that never leaves this device (the developer scan's
 /// ignored findings), encrypted like the checks.
-pub(crate) async fn load_private<T: serde::de::DeserializeOwned>(state: &AppState, row: &str) -> AppResult<Option<T>> {
+pub(crate) async fn load_private<T: DeserializeOwned>(state: &AppState, row: &str) -> AppResult<Option<T>> {
     let key = checks_key(state).await?;
     Ok(key.load_row(&state.store(), row))
 }
@@ -1252,7 +612,7 @@ pub(crate) async fn save_private<T: Serialize>(state: &AppState, row: &str, valu
 
 async fn checks_key(state: &AppState) -> AppResult<ChecksKey> {
     let guard = state.session.lock().await;
-    ChecksKey::new(&guard.as_ref().ok_or(AppError::Locked)?.account)
+    Ok(ChecksKey::new(guard.as_ref().ok_or(AppError::Locked)?.account.user_key())?)
 }
 
 /// Checks the passwords on Have I Been Pwned: all of them when the last full
@@ -1263,25 +623,14 @@ async fn check_passwords(app: &AppHandle, max_age: i64) -> AppResult<bool> {
     let entries = entries(&state).await?;
     let key = checks_key(&state).await?;
     let old = key.load(&state.store());
-    let all = old.checked_at.is_none_or(|at| now_secs() - at >= max_age);
-    // Keyed hash -> SHA-1, as Have I Been Pwned has it, of each password.
-    let mut current: HashMap<String, String> = HashMap::new();
-    for password in entries.iter().filter_map(Entry::password) {
-        current.entry(key.id(password)).or_insert_with(|| hex::encode_upper(Sha1::digest(password.as_bytes())));
-    }
+    let all = old.full_check_due(max_age, now_secs());
+    let check = BreachCheck::new(&key, entries.iter().filter_map(Entry::password), &old, all);
     drop(entries);
-    let to_check: HashMap<&String, &String> = current.iter().filter(|(id, _)| all || !old.seen.contains_key(*id)).collect();
-    if !all && to_check.is_empty() {
+    if check.is_done() {
         return Ok(false);
     }
-    let found = breached_hashes(&client()?, to_check.values().copied()).await?;
-    // Old passwords are forgotten.
-    let mut seen: HashMap<String, u64> =
-        if all { HashMap::new() } else { old.seen.into_iter().filter(|(id, _)| current.contains_key(id)).collect() };
-    for (id, hash) in to_check {
-        seen.insert(id.clone(), found.get(hash).copied().unwrap_or(0));
-    }
-    let checks = PasswordChecks { checked_at: if all { Some(now_secs()) } else { old.checked_at }, seen };
+    let found = breached_hashes(&client()?, check.ranges()).await?;
+    let checks = check.finish(old, &found, now_secs());
     // Not after signing out, which deletes the results.
     let guard = state.session.lock().await;
     if guard.is_none() {
@@ -1291,16 +640,13 @@ async fn check_passwords(app: &AppHandle, max_age: i64) -> AppResult<bool> {
     Ok(true)
 }
 
-/// The SHA-1 hashes (uppercase hex) seen in breaches, with how often. Asks
-/// Have I Been Pwned's range API with k-anonymity: only the first 5 characters
-/// of each hash are sent, and the responses are padded.
-async fn breached_hashes<'a>(client: &reqwest::Client, hashes: impl Iterator<Item = &'a String>) -> AppResult<HashMap<String, u64>> {
-    let mut by_prefix: HashMap<&str, Vec<&str>> = HashMap::new();
-    for hash in hashes {
-        by_prefix.entry(&hash[..5]).or_default().push(&hash[5..]);
-    }
+/// The SHA-1 hashes (uppercase hex) seen in breaches, with how often, from
+/// the hashes to ask about by range (see `BreachCheck::ranges`). Asks Have I
+/// Been Pwned's range API with k-anonymity: only the first 5 characters of
+/// each hash are sent, and the responses are padded.
+async fn breached_hashes(client: &reqwest::Client, ranges: BTreeMap<&str, Vec<&str>>) -> AppResult<HashMap<String, u64>> {
     let mut found = HashMap::new();
-    for (prefix, suffixes) in by_prefix {
+    for (prefix, suffixes) in ranges {
         let body = client
             .get(format!("https://api.pwnedpasswords.com/range/{prefix}"))
             .header("Add-Padding", "true")
@@ -1309,193 +655,16 @@ async fn breached_hashes<'a>(client: &reqwest::Client, hashes: impl Iterator<Ite
             .error_for_status()?
             .text()
             .await?;
-        for line in body.lines() {
-            let Some((suffix, count)) = line.trim().split_once(':') else { continue };
-            let count: u64 = count.trim().parse().unwrap_or(0);
-            // Padding entries have a count of 0.
-            if count > 0 && suffixes.contains(&suffix.trim()) {
-                found.insert(format!("{prefix}{}", suffix.trim()), count);
-            }
-        }
+        found.extend(range_matches(prefix, &body, &suffixes));
     }
     Ok(found)
 }
 
 #[cfg(test)]
 mod tests {
-    use keyless_core::item::{Field, PasswordHistoryEntry};
+    use keyless_core::health::SiteIssue;
 
     use super::*;
-
-    #[test]
-    fn strength_scores() {
-        assert!(strength("password", &[]).score <= 1);
-        assert!(strength("correct-horse-battery-staple-91", &[]).score >= 3);
-        assert_eq!(strength("", &[]).score, 0);
-    }
-
-    #[test]
-    fn strength_levels() {
-        // The weak ones are the scores, so "weak" means the same.
-        for score in 0..=3 {
-            assert_eq!(level(score, 20.0), score);
-        }
-        assert_eq!(level(4, 10.5), 4);
-        assert_eq!(level(4, 13.0), 5);
-        assert_eq!(level(4, 16.0), 6);
-        assert_eq!(strength("password", &[]).level, 0);
-        assert_eq!(strength("8]bz-Pv&wu~AO5uEF?f{Uec>", &[]).level, 6);
-    }
-
-    #[test]
-    fn plain_http_websites() {
-        assert!(unsecured("http://example.com/login"));
-        assert!(unsecured("HTTP://8.8.8.8"));
-        assert!(!unsecured("https://example.com"));
-        assert!(!unsecured("example.com"));
-        for local in ["http://localhost:8080", "http://192.168.0.1", "http://10.1.2.3", "http://[::1]", "http://router.lan", "http://nas", "http://printer.local"] {
-            assert!(!unsecured(local), "{local}");
-        }
-    }
-
-    #[test]
-    fn dates() {
-        assert_eq!(unix_day(1970, 1, 1), 0);
-        assert_eq!(unix_day(2000, 3, 1), 951_868_800);
-        assert_eq!(parse_date("2024-02-29"), Some(unix_day(2024, 2, 29) + 86_399));
-        assert_eq!(parse_date("29/02/2024"), None);
-        let mut details = ItemDetails::default();
-        let field = |label: &str, kind, value: &str| Field { id: label.into(), label: label.into(), kind, value: value.into(), purpose: None, extra: Default::default() };
-        details.fields = vec![field("expiry date", FieldKind::MonthYear, "05/2027"), field("birth date", FieldKind::Date, "1990-01-01")];
-        let may_2027 = unix_day(2027, 5, 15);
-        // The end of May 2027, not the birth date.
-        assert_eq!(expiry(&details, may_2027), Some(unix_day(2027, 6, 1) - 1));
-        // A month ahead by default: not yet in March.
-        assert_eq!(expiry(&details, unix_day(2027, 3, 1)), None);
-        details.sections = vec![];
-        details.fields.push(field("Validade", FieldKind::Date, "2026-01-10"));
-        assert_eq!(expiry(&details, may_2027), Some(unix_day(2026, 1, 10) + 86_399));
-
-        // Alerts chosen per field: any date, as far ahead as asked; never.
-        use keyless_core::item::ExpiryAlert;
-        let mut details = ItemDetails::default();
-        let mut renewal = field("renewal", FieldKind::Date, "2027-09-01");
-        renewal.extra.alert = Some(ExpiryAlert::SixMonths);
-        let mut card = field("expiry date", FieldKind::MonthYear, "05/2027");
-        card.extra.alert = Some(ExpiryAlert::Never);
-        details.fields = vec![renewal, card];
-        assert_eq!(expiry(&details, unix_day(2027, 4, 1)), Some(unix_day(2027, 9, 1) + 86_399));
-        assert_eq!(expiry(&details, unix_day(2027, 2, 1)), None);
-    }
-
-    fn login(id: &str, url: &str, created_at: i64, changed_at: Option<i64>, totp: bool) -> Entry {
-        let mut details = ItemDetails::default();
-        details.fields = vec![Field {
-            id: "p".into(),
-            label: "password".into(),
-            kind: FieldKind::Concealed,
-            value: "secret".into(),
-            purpose: Some(FieldPurpose::Password),
-            extra: Default::default(),
-        }];
-        if totp {
-            details.fields.push(Field { id: "t".into(), label: "one-time password".into(), kind: FieldKind::Totp, value: "otpauth://x".into(), purpose: None, extra: Default::default() });
-        }
-        if let Some(at) = changed_at {
-            details.password_history.push(PasswordHistoryEntry { value: "old".into(), changed_at: at });
-        }
-        Entry {
-            id: id.into(),
-            title: String::new(),
-            ignored: Vec::new(),
-            category: Category::Login,
-            urls: vec![ItemUrl { href: url.into(), ..Default::default() }],
-            created_at,
-            imported_from: String::new(),
-            vault_id: "v".into(),
-            details,
-        }
-    }
-
-    #[test]
-    fn breached_websites() {
-        let breaches: Vec<Breach> = serde_json::from_str(
-            r#"[
-              {"Name":"Adobe","Title":"Adobe","Domain":"adobe.com","BreachDate":"2013-10-04","PwnCount":152445165,"DataClasses":["Email addresses","Passwords"],"IsVerified":true},
-              {"Name":"Fake","Domain":"fake.com","BreachDate":"2020-01-01","DataClasses":["Passwords"],"IsVerified":true,"IsFabricated":true},
-              {"Name":"Emails","Domain":"mail.example.org","BreachDate":"2021-05-01","DataClasses":["Email addresses"],"IsVerified":true}
-            ]"#,
-        )
-        .unwrap();
-        let sites = sites_from_breaches(breaches);
-        assert_eq!(sites.len(), 1);
-        let before = unix_day(2012, 1, 1);
-        let after = unix_day(2014, 1, 1);
-        let entries = [
-            login("old", "https://accounts.adobe.com", before, None, false),
-            login("changed", "https://adobe.com", before, Some(after), false),
-            login("other", "https://example.org", before, None, false),
-        ];
-        let found = compromised(&entries, &sites);
-        assert_eq!(found.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["old"]);
-        assert_eq!(found[0].date.as_deref(), Some("2013-10-04"));
-        // "Learn more": the list's own words about the breach.
-        let details = found[0].breach.as_ref().unwrap();
-        assert_eq!(details.title, "Adobe");
-        assert_eq!(details.data_classes, ["Email addresses", "Passwords"]);
-        assert_eq!(details.accounts, 152_445_165);
-    }
-
-    #[test]
-    fn two_factor_support() {
-        let list: Value = serde_json::from_str(
-            r#"[["GitHub",{"domain":"github.com","additional-domains":["githubusercontent.com"]}],["Weird",{"name":"no domain"}]]"#,
-        )
-        .unwrap();
-        let sites = sites_from_directory(&list);
-        let entries = [
-            login("plain", "https://github.com/login", 0, None, false),
-            login("with-code", "https://github.com", 0, None, true),
-            login("elsewhere", "https://example.com", 0, None, false),
-        ];
-        let found = missing_two_factor(&entries, &sites);
-        assert_eq!(found.iter().map(|i| (i.id.as_str(), i.site.as_str())).collect::<Vec<_>>(), [("plain", "github.com")]);
-    }
-
-    #[test]
-    fn passkey_support() {
-        let list: Value = serde_json::from_str(
-            r#"{"github.com":{"passwordless":"allowed"},"accounts.example.org":{"mfa":"allowed"},"mail.google.com":{"passwordless":"allowed"}}"#,
-        )
-        .unwrap();
-        let sites = sites_from_passkey_directory(&list);
-        let mut saved = login("saved", "https://github.com", 0, None, false);
-        saved.details.passkeys.push(
-            serde_json::from_value(serde_json::json!({"credentialId": "Y3JlZA", "rpId": "github.com", "userHandle": "dQ", "key": "a2V5"})).unwrap(),
-        );
-        let entries = [
-            login("plain", "https://github.com/login", 0, None, false),
-            saved,
-            login("subdomain", "https://www.example.org", 0, None, false),
-            login("elsewhere", "https://example.com", 0, None, false),
-            // Listed as mail.google.com and others.
-            login("google", "https://accounts.google.com/", 0, None, false),
-        ];
-        let mut found: Vec<(String, String)> = missing_passkeys(&entries, &sites).into_iter().map(|i| (i.id, i.site)).collect();
-        found.sort();
-        let expected = [("google", "google.com"), ("plain", "github.com"), ("subdomain", "example.org")];
-        assert_eq!(found, expected.map(|(id, site)| (id.to_string(), site.to_string())));
-    }
-
-    #[test]
-    fn incomplete_lists_are_refused() {
-        let few = serde_json::to_vec(&serde_json::json!({"github.com": {}, "google.com": {}})).unwrap();
-        assert!(ListKind::Passkeys.parse(&few).is_err());
-        assert!(ListKind::Passkeys.parse(b"<html>maintenance</html>").is_err());
-        let many: serde_json::Map<String, Value> = (0..60).map(|i| (format!("site{i}.com"), serde_json::json!({}))).collect();
-        let sites = ListKind::Passkeys.parse(&serde_json::to_vec(&many).unwrap()).unwrap();
-        assert_eq!(sites.len(), 60);
-    }
 
     #[test]
     fn lists_are_replaced_whole() {
@@ -1505,113 +674,6 @@ mod tests {
         assert_eq!(std::fs::read(dir.join("list.json")).unwrap(), b"new");
         assert!(!dir.join("list.json.part").exists());
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    fn with_password(mut entry: Entry, password: &str) -> Entry {
-        entry.details.fields[0].value = password.into();
-        entry
-    }
-
-    fn ignoring(mut entry: Entry, alerts: &[&str]) -> Entry {
-        entry.ignored = alerts.iter().map(|a| a.to_string()).collect();
-        entry
-    }
-
-    /// Nothing checked online, and no lists.
-    fn offline<'a>(seen: &'a dyn Fn(&str) -> Option<u64>) -> Online<'a> {
-        Online { seen, checked: false, lists: HashMap::new(), off: Vec::new() }
-    }
-
-    const STRONG: &str = "8]bz-Pv&wu~AO5uEF?f{Uec>";
-
-    #[test]
-    fn stale_ignores() {
-        let entries = [
-            // Fixed since they were ignored.
-            ignoring(with_password(login("fixed-weak", "https://a.com", 0, None, false), STRONG), &["weak"]),
-            ignoring(with_password(login("https-now", "https://b.com", 0, None, false), "Zq8!vT3#mW9$kL2@"), &["unsecured"]),
-            ignoring(with_password(login("clean", "https://c.com", 0, None, false), "checked-and-clean-Q7#"), &["breached"]),
-            ignoring(with_password(login("alone", "https://d.com", 0, None, false), "only-here-R5$x9!Lp"), &["reused"]),
-            // Still true.
-            ignoring(with_password(login("still-weak", "https://e.com", 0, None, false), "password"), &["weak"]),
-            ignoring(with_password(login("still-http", "http://example.com", 0, None, false), "Hn4#pX8!rT2$wQ6@"), &["unsecured"]),
-            ignoring(with_password(login("shared-1", "https://f.com", 0, None, false), "shared-Pw-9#kL"), &["reused"]),
-            with_password(login("shared-2", "https://g.com", 0, None, false), "shared-Pw-9#kL"),
-            // Cannot be known: never checked online, list off or missing, an
-            // alert this version does not know.
-            ignoring(with_password(login("unchecked", "https://h.com", 0, None, false), "never-checked-W3!"), &["breached"]),
-            ignoring(login("two-factor-off", "https://github.com", 0, None, false), &["two_factor"]),
-            ignoring(login("passkey-missing", "https://github.com", 0, None, false), &["passkey"]),
-            ignoring(login("future", "https://i.com", 0, None, false), &["something_new"]),
-        ];
-        let seen = |password: &str| (password == "checked-and-clean-Q7#").then_some(0);
-        let online = Online { off: vec![ListKind::TwoFactor], ..offline(&seen) };
-        let report = analyze(&entries, &online, 0);
-        let mut stale: Vec<(&str, &str)> = report.stale.iter().map(|(id, alert)| (id.as_str(), alert.as_str())).collect();
-        stale.sort();
-        assert_eq!(stale, [("alone", "reused"), ("clean", "breached"), ("fixed-weak", "weak"), ("https-now", "unsecured")]);
-        // Ignored alerts stay out of their lists, and all are listed as ignored.
-        assert!(!report.weak.contains(&"still-weak".to_string()));
-        assert!(!report.unsecured.contains(&"still-http".to_string()));
-        assert_eq!(report.ignored.len(), 11);
-    }
-
-    #[test]
-    fn strength_counts() {
-        let in_vault = |id: &str, vault: &str, password: &str| {
-            let mut entry = with_password(login(id, "https://example.com", 0, None, false), password);
-            entry.vault_id = vault.into();
-            entry
-        };
-        let mut no_password = login("note", "https://example.com", 0, None, false);
-        no_password.details.fields.clear();
-        let entries = [in_vault("a", "personal", "password"), in_vault("b", "personal", STRONG), in_vault("c", "work", STRONG), no_password];
-        let seen = |_: &str| None;
-        let report = analyze(&entries, &offline(&seen), 0);
-        assert_eq!(report.strengths["personal"], [1, 0, 0, 0, 0, 0, 1]);
-        assert_eq!(report.strengths["work"], [0, 0, 0, 0, 0, 0, 1]);
-        // Every password checked is counted once, in its vault.
-        assert_eq!(report.checked, 3);
-        assert_eq!(report.strengths.values().flatten().sum::<usize>(), report.checked);
-        assert_eq!(report.levels["a"], 0);
-    }
-
-    #[test]
-    fn lists_turned_off() {
-        let entries = [login("plain", "https://github.com/login", 0, None, false)];
-        let list: Value = serde_json::from_str(r#"[["GitHub",{"domain":"github.com"}]]"#).unwrap();
-        let sites = sites_from_directory(&list);
-        let seen = |_: &str| None;
-        let on = Online { lists: HashMap::from([(ListKind::TwoFactor, &sites)]), ..offline(&seen) };
-        let report = analyze(&entries, &on, 0);
-        assert_eq!(report.two_factor.len(), 1);
-        assert_eq!(report.pending, ["breached", "compromised", "passkey"]);
-        assert!(report.off.is_empty());
-        let off = Online { off: vec![ListKind::TwoFactor, ListKind::Passkeys], ..offline(&seen) };
-        let report = analyze(&entries, &off, 0);
-        assert!(report.two_factor.is_empty());
-        assert_eq!(report.off, ["two_factor", "passkey"]);
-        assert_eq!(report.pending, ["breached", "compromised"]);
-    }
-
-    #[test]
-    fn https_rewrite() {
-        assert_eq!(https_url("http://example.com/login?next=/").as_deref(), Some("https://example.com/login?next=/"));
-        assert_eq!(https_url(" HTTP://Example.com ").as_deref(), Some("https://Example.com"));
-        // Plain http's own port goes.
-        assert_eq!(https_url("http://example.com:80/a").as_deref(), Some("https://example.com/a"));
-        assert_eq!(https_url("http://example.com:/a").as_deref(), Some("https://example.com/a"));
-        assert_eq!(https_url("http://user:pw@example.com:80#top").as_deref(), Some("https://user:pw@example.com#top"));
-        assert_eq!(https_url("http://[2001:db8::1]:80/").as_deref(), Some("https://[2001:db8::1]/"));
-        assert_eq!(https_url("http://[2001:db8::1]/").as_deref(), Some("https://[2001:db8::1]/"));
-        // Another port: https is unlikely to answer there.
-        for href in ["http://example.com:8080/a", "http://user:pw@example.com:8000", "http://[2001:db8::1]:8080/"] {
-            assert_eq!(https_url(href), None, "{href}");
-        }
-        // Already secure, or on the local network: left alone.
-        for href in ["https://example.com", "http://192.168.0.1", "http://router.lan", "example.com"] {
-            assert_eq!(https_url(href), None, "{href}");
-        }
     }
 
     #[test]
@@ -1626,12 +688,6 @@ mod tests {
         assert_eq!(urls[0].href, "http://example.com");
         let mut urls = [url("http://example.com:8080")];
         assert!(matches!(switch_to_https(&mut urls, false), Err(AppError::Invalid(m)) if m.key == "https_unavailable"));
-        // Offered only where it can work.
-        let entries = [login("plain", "http://example.com", 0, None, false), login("port", "http://example.com:8080", 0, None, false)];
-        let seen = |_: &str| None;
-        let report = analyze(&entries, &offline(&seen), 0);
-        assert_eq!(report.unsecured, ["plain", "port"]);
-        assert_eq!(report.https_ready, ["plain"]);
     }
 
     #[test]
@@ -1675,26 +731,5 @@ mod tests {
         assert!(!cached.as_ref().unwrap().contains_key(&ListKind::Breaches));
         assert_eq!(cached.as_ref().unwrap().len(), 2);
         std::fs::remove_dir_all(&dir).unwrap();
-    }
-
-    #[test]
-    fn duplicate_items() {
-        let with_user = |id: &str, url: &str, user: &str| {
-            let mut entry = login(id, url, 0, None, false);
-            entry.details.fields.push(Field { id: "u".into(), label: "username".into(), kind: FieldKind::Text, value: user.into(), purpose: Some(FieldPurpose::Username), extra: Default::default() });
-            entry
-        };
-        let entries = [
-            with_user("a", "https://github.com/login", "Ana@Example.com"),
-            with_user("b", "https://www.github.com", " ana@example.com "),
-            with_user("c", "https://github.com", "bob@example.com"),
-            with_user("d", "https://gitlab.com", "ana@example.com"),
-            login("e", "https://github.com", 0, None, false),
-        ];
-        let mut groups = duplicate_accounts(&entries);
-        for group in &mut groups {
-            group.sort();
-        }
-        assert_eq!(groups, [vec!["a".to_string(), "b".to_string()]]);
     }
 }

@@ -4,7 +4,10 @@
 //! English mostly but also Portuguese and Spanish), so fields are found by
 //! kind and by words in their label.
 
-use keyless_core::item::{Category, Field, FieldKind, ItemDetails};
+use keyless_core::{
+    health::parse_expiry,
+    item::{Category, Field, FieldKind, ItemDetails},
+};
 use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 
@@ -31,20 +34,6 @@ fn card_number(details: &ItemDetails) -> Option<String> {
     let raw = find(details, |f| f.kind == FieldKind::CardNumber).or_else(|| find(details, |f| label_has(f, NUMBER)))?;
     let digits: String = raw.chars().filter(char::is_ascii_digit).collect();
     (12..=19).contains(&digits.len()).then_some(digits)
-}
-
-/// "MM/YYYY", "MM/YY", "YYYY-MM" or "MMYY" -> (month, four-digit year).
-pub(crate) fn parse_expiry(text: &str) -> Option<(u32, u32)> {
-    let parts: Vec<&str> = text.split(|c: char| !c.is_ascii_digit()).filter(|p| !p.is_empty()).collect();
-    let (month, year) = match parts.as_slice() {
-        [a, b] if a.len() == 4 => (b.parse().ok()?, a.parse().ok()?),
-        [a, b] => (a.parse().ok()?, b.parse().ok()?),
-        [ab] if ab.len() == 4 => (ab[..2].parse().ok()?, ab[2..].parse().ok()?),
-        [ab] if ab.len() == 6 => (ab[..2].parse().ok()?, ab[2..].parse().ok()?),
-        _ => return None,
-    };
-    let year: u32 = if year < 100 { 2000 + year } else { year };
-    ((1..=12).contains(&month) && (2000..=2100).contains(&year)).then_some((month, year))
 }
 
 fn brand(number: &str) -> &'static str {
@@ -379,15 +368,6 @@ mod tests {
         assert_eq!((card["expMonth"].as_u64(), card["expYear"].as_u64()), (Some(7), Some(2029)));
         assert_eq!(card["code"], "123");
         assert_eq!(card["brand"], "visa");
-    }
-
-    #[test]
-    fn expiry_formats() {
-        assert_eq!(parse_expiry("07/2029"), Some((7, 2029)));
-        assert_eq!(parse_expiry("7/29"), Some((7, 2029)));
-        assert_eq!(parse_expiry("2029-07"), Some((7, 2029)));
-        assert_eq!(parse_expiry("0729"), Some((7, 2029)));
-        assert_eq!(parse_expiry("13/29"), None);
     }
 
     #[test]

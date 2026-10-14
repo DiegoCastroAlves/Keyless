@@ -3086,7 +3086,6 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
- "sha1",
  "sha2 0.11.0",
  "ssh-agent-lib",
  "ssh-key",
@@ -3111,7 +3110,6 @@ dependencies = [
  "x25519-dalek",
  "zbus",
  "zeroize",
- "zxcvbn",
 ]
 
 [[package]]

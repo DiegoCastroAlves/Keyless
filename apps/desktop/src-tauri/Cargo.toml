@@ -37,7 +37,6 @@ serde_json = "1.0.151"
 # SSH keys kept in items, and the SSH agent (see ssh_keys.rs, ssh_agent.rs).
 rsa = { version = "0.9", features = ["sha2"] }
 ssh-key = { version = "0.6.7", default-features = false, features = ["std", "ed25519", "rsa", "p256", "p384", "encryption", "getrandom"] }
-sha1 = "0.11.0"
 sha2 = "0.11.0"
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 # The file dialog comes from rfd, set up below for Linux.
@@ -53,7 +52,6 @@ url = "2.5.8"
 uuid = { version = "1.27.0", features = ["v4", "serde"] }
 x25519-dalek = { version = "3.0.0", features = ["static_secrets", "zeroize"] }
 zeroize = "1.9.0"
-zxcvbn = "3.1.1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
