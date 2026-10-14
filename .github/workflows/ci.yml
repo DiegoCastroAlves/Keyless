@@ -198,7 +198,7 @@ jobs:
           json.dump(fixture, open(path, "w"))
           PY
           # Who signed the APK (the release key or a debug one), readable without a login.
-          signer=$("$apksigner" verify --print-certs out/keyless.apk | awk -F': ' '/certificate DN/ {print $2; exit}')
+          signer=$("$apksigner" verify --print-certs out/keyless.apk | sed -n 's/.*certificate DN: //p' | head -n 1)
           app_digest=$("$apksigner" verify --print-certs out/keyless.apk | awk '/SHA-256 digest/ {print $NF; exit}')
           echo "::notice title=Android signing::Signed by ${signer} (SHA-256 ${app_digest})"
 
