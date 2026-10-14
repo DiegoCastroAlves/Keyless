@@ -584,6 +584,32 @@ or Secret Key changed, account recovered) drops them all, by a trigger on
 `auth.users`. A passkey is then as strong as the master password and Secret
 Key together: whoever can unlock it gets in.
 
+## Android and iOS apps
+
+Both run the same client as the web vault (`crates/keyless-client`, through
+JNI on Android and C on iOS): the same key derivation, the same checks on
+everything the server sends, and the same decryption.
+
+- What stays on the device: the server's ciphertext (a file, excluded from
+  backups, with complete file protection on iOS), and the Secret Key and
+  refresh token, encrypted with an Android Keystore key or kept in the iOS
+  Keychain (this device only).
+- Biometric unlock keeps the user key behind a Keystore key that needs a
+  strong biometric for each use (invalidated when biometrics change) or a
+  Keychain item tied to the current biometrics. On Android the master
+  password is asked again after the phone restarts.
+- The screens cannot be captured (Android FLAG_SECURE); copied values are
+  marked sensitive and cleared after 90 seconds.
+- Autofill (Android) fills a login only for the app or website it names;
+  while locked it offers to unlock first. It never fills Keyless itself.
+- Passkeys (Android 14 and later, Credential Manager): a browser's origin is
+  believed only for Google's list of privileged browsers, checked by
+  signing certificate, and must be the site or a subdomain over https; any
+  other app must be named, with its signing certificate, in the site's
+  Digital Asset Links (`delegate_permission/common.get_login_creds`). New
+  passkeys are kept in the site's login and uploaded before the site gets
+  them.
+
 ## Updates
 
 - The app looks at the public list of releases on GitHub twice a day (this
