@@ -12,7 +12,7 @@ import java.net.URLEncoder
  * uses it. What is sent is ciphertext, a proof or the derived sign-in secret.
  */
 object Server {
-    const val BASE = "https://ednfhgbjtgkrmtnudcjr.supabase.co"
+    val BASE: String = BuildConfig.SERVER
     private const val KEY = "sb_publishable_3SSYrJqgt-zB30WaRHnuSw_YN7WaHqD"
 
     class Session(val accessToken: String, val refreshToken: String, val expiresAt: Long, val userId: String)

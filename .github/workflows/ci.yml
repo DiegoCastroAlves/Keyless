@@ -161,6 +161,13 @@ jobs:
         run: |
           set -o pipefail
           gradle --no-daemon assembleRelease 2>&1 | tee build.log
+          mkdir -p out test
+          cp app/build/outputs/apk/release/app-release.apk out/keyless.apk
+          cp formtest/build/outputs/apk/release/formtest-release.apk test/formtest.apk
+          # The same app pointed at the fake server, for the end-to-end run.
+          gradle --no-daemon :app:assembleRelease -PkeylessServer=http://10.0.2.2:8787 2>&1 | tee -a build.log
+          cp app/build/outputs/apk/release/app-release.apk test/keyless-mock.apk
+          cargo run -q -p keyless-client --example fixture > test/fixture.json
 
       # Compile errors as one annotation (job logs need a login to read).
       - name: Report build errors
@@ -174,7 +181,12 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: keyless-android
-          path: apps/android/app/build/outputs/apk/release/*.apk
+          path: apps/android/out/keyless.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-test
+          path: apps/android/test/
 
   # The APK on an emulator: what works without an account (smoke.py).
   android-emulator:
@@ -188,6 +200,11 @@ jobs:
           name: keyless-android
           path: apk
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-test
+          path: apk-test
+
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -200,7 +217,7 @@ jobs:
           target: google_apis
           arch: x86_64
           disable-animations: true
-          script: python3 apps/android/scripts/smoke.py apk/app-release.apk
+          script: bash apps/android/scripts/emulator.sh
 
   macos:
     runs-on: macos-14

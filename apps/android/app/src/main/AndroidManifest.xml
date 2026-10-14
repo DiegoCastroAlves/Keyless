@@ -12,7 +12,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Keyless">
+        android:theme="@style/Theme.Keyless"
+        android:usesCleartextTraffic="${cleartext}">
 
         <activity
             android:name=".MainActivity"

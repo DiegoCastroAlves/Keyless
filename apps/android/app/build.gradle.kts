@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// The server: Keyless's own, unless a test build points elsewhere
+// (-PkeylessServer=http://10.0.2.2:8787 for the fake server in CI).
+val server = (project.findProperty("keylessServer") as String?) ?: "https://ednfhgbjtgkrmtnudcjr.supabase.co"
+
 android {
     namespace = "io.github.diegocastroalves.keyless"
     compileSdk = 35
@@ -13,6 +17,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.9"
+        buildConfigField("String", "SERVER", "\"$server\"")
+        // Plain http only for a test build that names an http server.
+        manifestPlaceholders["cleartext"] = if (server.startsWith("http://")) "true" else "false"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     // A release key comes from the environment (KEYLESS_ANDROID_KEYSTORE and
