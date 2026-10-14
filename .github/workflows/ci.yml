@@ -156,8 +156,25 @@ jobs:
           cargo install cargo-ndk --locked
           cargo ndk -t arm64-v8a -t x86_64 -o apps/android/app/src/main/jniLibs build -p keyless-android --release
 
+      # The release key, once the repository has one: the secrets
+      # KEYLESS_ANDROID_KEYSTORE_BASE64 (the keystore, in base64) and
+      # KEYLESS_ANDROID_KEYSTORE_PASSWORD. Without them the APK is signed with
+      # the runner's debug key, which changes between runs.
+      - name: Release key
+        env:
+          KEYSTORE: ${{ secrets.KEYLESS_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::notice title=Android signing::No release key; the APK is signed with a debug key."
+            exit 0
+          fi
+          echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/keyless-release.keystore"
+          echo "KEYLESS_ANDROID_KEYSTORE=$RUNNER_TEMP/keyless-release.keystore" >> "$GITHUB_ENV"
+
       - name: Build the APK
         working-directory: apps/android
+        env:
+          KEYLESS_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KEYLESS_ANDROID_KEYSTORE_PASSWORD }}
         run: |
           set -o pipefail
           gradle --no-daemon assembleRelease 2>&1 | tee build.log

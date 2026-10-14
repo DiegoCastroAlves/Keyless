@@ -31,7 +31,8 @@ android {
     }
 
     // A release key comes from the environment (KEYLESS_ANDROID_KEYSTORE and
-    // its passwords); without one, release builds are signed with the debug
+    // its password; the alias defaults to "keyless" and the key's password to
+    // the keystore's); without one, release builds are signed with the debug
     // key, for testing.
     signingConfigs {
         create("release") {
@@ -39,8 +40,8 @@ android {
             if (path != null) {
                 storeFile = file(path)
                 storePassword = System.getenv("KEYLESS_ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("KEYLESS_ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("KEYLESS_ANDROID_KEY_PASSWORD")
+                keyAlias = System.getenv("KEYLESS_ANDROID_KEY_ALIAS") ?: "keyless"
+                keyPassword = System.getenv("KEYLESS_ANDROID_KEY_PASSWORD") ?: storePassword
             }
         }
     }
