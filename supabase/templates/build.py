@@ -90,7 +90,6 @@ def page(preheader, eyebrow, title, blocks):
 <tr><td class="k-ink k-title" style="padding:12px 0 0;font-family:{SERIF};font-size:44px;line-height:1.02;letter-spacing:-0.02em;color:{INK};">{title}</td></tr>
 {blocks}
 <tr><td class="k-rule k-ink2" style="padding:20px 0 0;border-top:1px solid {RULE};font-family:{MONO};font-size:11px;line-height:1.7;letter-spacing:0.06em;color:{INK2};">
-  {L("KEYLESS · GERENCIADOR DE SENHAS DE CÓDIGO ABERTO", "KEYLESS · OPEN-SOURCE PASSWORD MANAGER", "KEYLESS · GESTOR DE CONTRASEÑAS DE CÓDIGO ABIERTO")}<br>
   <a href="{SITE}/" class="k-ink2" style="color:{INK2};text-decoration:underline;">keyless.diegoalves.dev</a>
 </td></tr>
 </table>
