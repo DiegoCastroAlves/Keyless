@@ -62,4 +62,6 @@ same texts, images and privacy answers. Then step 3 with Edge's id.
 - `pnpm test` and `pnpm test:firefox` pass.
 - The screenshots still match the extension (`images/`; they were taken
   in Chromium at 1280×944 and cut to the page area).
-- `docs/PRIVACY.md` and the site's `/privacy/` page say the same.
+- The privacy policy still describes the extension (`docs/PRIVACY.md`, with
+  `PRIVACY.pt-BR.md` and `PRIVACY.es.md`; the site's `/privacy/` page is
+  built from them).

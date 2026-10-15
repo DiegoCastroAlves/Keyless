@@ -11,7 +11,9 @@ It has these pages:
 - the home page;
 - `/share/`, which opens share links;
 - `/tutorial/`, the browser extension's tutorial;
-- `/privacy/`;
+- `/privacy/`, the privacy policy, built from `docs/PRIVACY.md` and its
+  translations (`docs/PRIVACY.pt-BR.md`, `docs/PRIVACY.es.md`) by
+  `policy.mjs`: change the policy there, in the three languages;
 - `/email-changed/`;
 - `/vault/`, the web vault, which is off.
 

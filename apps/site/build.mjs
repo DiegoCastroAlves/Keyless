@@ -6,6 +6,7 @@
 // only, served by Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { policyArticles } from "./policy.mjs";
 
 // The same public project values as the app (see apps/desktop config.rs).
 const SUPABASE_URL = process.env.KEYLESS_SUPABASE_URL ?? "https://ednfhgbjtgkrmtnudcjr.supabase.co";
@@ -40,6 +41,11 @@ mkdirSync("dist/share", { recursive: true });
 cpSync("static", "dist", { recursive: true });
 cpSync("../extension/static/icons/icon-32.png", "dist/icon-32.png");
 cpSync("../extension/static/icons/icon-128.png", "dist/icon-128.png");
+// The privacy policy, from the documents in docs/.
+const POLICY = "      <!-- The policy in each language, from docs/PRIVACY*.md (policy.mjs). -->";
+const privacy = readFileSync("dist/privacy/index.html", "utf8");
+if (!privacy.includes(POLICY)) throw new Error("static/privacy/index.html lost the policy's place");
+writeFileSync("dist/privacy/index.html", privacy.replace(POLICY, policyArticles()));
 if (WEB_VAULT) {
   cpSync("vendor/keyless-wasm/keyless_wasm_bg.wasm", "dist/vault/keyless_wasm_bg.wasm");
 } else {
