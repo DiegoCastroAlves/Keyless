@@ -36,8 +36,9 @@ from the Keyless app on your computer (Windows and Linux).
 
 Everything is encrypted on your computer before it goes anywhere. The
 extension talks only to the Keyless app on the same computer, over a channel
-encrypted with keys set up when you pair them; it has no analytics and sends
-nothing to us.
+encrypted with keys set up when you pair them, and has no analytics. The app
+syncs your vault end-to-end encrypted: the Keyless server keeps only data
+that nobody but you can read.
 
 Needs the Keyless app: https://keyless.diegoalves.dev
 
@@ -61,8 +62,9 @@ navegador, a partir do app do Keyless no seu computador (Windows e Linux).
 
 Tudo é criptografado no seu computador antes de sair dele. A extensão
 conversa apenas com o app do Keyless no mesmo computador, por um canal
-criptografado com chaves combinadas quando você os conecta; ela não tem
-análise de uso e não nos envia nada.
+criptografado com chaves combinadas quando você os conecta, e não tem análise
+de uso. O app sincroniza seu cofre com criptografia de ponta a ponta: o
+servidor do Keyless guarda só dados que ninguém além de você consegue ler.
 
 Precisa do app do Keyless: https://keyless.diegoalves.dev
 
@@ -89,7 +91,9 @@ y Linux).
 
 Todo se cifra en tu ordenador antes de salir de él. La extensión solo habla
 con la app de Keyless en el mismo ordenador, por un canal cifrado con claves
-acordadas al conectarlas; no tiene analítica y no nos envía nada.
+acordadas al conectarlas, y no tiene analítica. La app sincroniza tu bóveda
+con cifrado de extremo a extremo: el servidor de Keyless solo guarda datos que
+nadie más que tú puede leer.
 
 Necesita la app de Keyless: https://keyless.diegoalves.dev
 
@@ -151,6 +155,11 @@ now or in the future?"):
 | Web history | no | It looks at the active tab's address to find its logins, and keeps no list of pages. |
 | User activity | no | It notices clicks, focus and form submissions on a page to fill and offer saving there; nothing is recorded or sent. |
 | Website content | no | It reads a page's forms (and, when asked, a QR code on the visible page) in the browser; only what the user fills or saves reaches the app. |
+
+Firefox asks the same in the manifest (`data_collection_permissions`, see
+build.mjs): `authenticationInfo`, `personallyIdentifyingInfo` and
+`financialAndPaymentInfo`, required. Firefox shows them when the extension
+is installed.
 
 All three certifications are checked: no selling or transfer of user data
 outside the approved use cases, no use unrelated to the single purpose, and

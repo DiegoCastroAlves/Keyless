@@ -1,6 +1,6 @@
 # Keyless privacy policy
 
-Last updated: October 14, 2026
+Last updated: October 15, 2026
 
 Keyless is a zero-knowledge password manager. Everything you store in your
 vaults is encrypted on your device before it is sent anywhere, with keys that
@@ -56,7 +56,8 @@ than the items shared with that address.
   computer, which checks its shape to offer saving it.
 - When you choose to change a breached password, it opens the website's
   `/.well-known/change-password` address.
-- It has no analytics and no remote code, and sends nothing to us.
+- It has no analytics and no remote code. What you save through it goes to
+  the app, which syncs it end-to-end encrypted with the rest of your vault.
 
 ## Third parties
 
