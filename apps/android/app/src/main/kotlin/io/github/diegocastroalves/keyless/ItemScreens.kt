@@ -396,6 +396,82 @@ class QrView(context: Context, private val modules: List<String>, private val ma
     }
 }
 
+/**
+ * A QR code in Keyless's look, from `keyless_core::qr::art`: dots, rounded
+ * patterns and the logo in the middle, as the desktop draws it. Whole pixels
+ * per module, as `QrView`; up to `maxSide` pixels.
+ */
+class BrandedQrView(context: Context, art: JSONObject, private val maxSide: Int = Int.MAX_VALUE) : View(context) {
+    private val size = art.getInt("size")
+    private val modules = art.getJSONArray("modules").let { rows -> (0 until rows.length()).map { rows.getString(it) } }
+    private val finders = art.getJSONArray("finders").let { list -> (0 until list.length()).map { list.getJSONArray(it).let { p -> p.getInt(0) to p.getInt(1) } } }
+    private val alignments = art.getJSONArray("alignments").let { list -> (0 until list.length()).map { list.getJSONArray(it).let { p -> p.getInt(0) to p.getInt(1) } } }
+    private val logoRadius = art.getDouble("logo_radius").toFloat()
+    private val dot = art.getDouble("dot_radius").toFloat()
+    private val finderCorners = art.getJSONArray("finder_corners").let { c -> FloatArray(3) { c.getDouble(it).toFloat() } }
+    private val alignmentCorners = art.getJSONArray("alignment_corners").let { c -> FloatArray(2) { c.getDouble(it).toFloat() } }
+    // Near black, as the desktop: lighter colors stopped readers finding the code.
+    private val dark = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF061A18.toInt() }
+    private val light = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val side = minOf(MeasureSpec.getSize(widthMeasureSpec), maxSide)
+        setMeasuredDimension(side, side)
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawColor(Color.WHITE)
+        val count = size + 8
+        val cell = maxOf(1, width / count).toFloat()
+        val origin = ((width - cell * count) / 2f) + 4 * cell
+        fun square(x: Float, y: Float, side: Float, corner: Float, paint: Paint) =
+            canvas.drawRoundRect(origin + x * cell, origin + y * cell, origin + (x + side) * cell, origin + (y + side) * cell, corner * cell, corner * cell, paint)
+        for ((x, y) in finders) {
+            square(x.toFloat(), y.toFloat(), 7f, finderCorners[0], dark)
+            square(x + 1f, y + 1f, 5f, finderCorners[1], light)
+            square(x + 2f, y + 2f, 3f, finderCorners[2], dark)
+        }
+        for ((x, y) in alignments) {
+            square(x - 2f, y - 2f, 5f, alignmentCorners[0], dark)
+            square(x - 1f, y - 1f, 3f, alignmentCorners[1], light)
+            canvas.drawCircle(origin + (x + 0.5f) * cell, origin + (y + 0.5f) * cell, dot * cell, dark)
+        }
+        for ((y, row) in modules.withIndex()) {
+            for ((x, kind) in row.withIndex()) {
+                when (kind) {
+                    '1' -> canvas.drawCircle(origin + (x + 0.5f) * cell, origin + (y + 0.5f) * cell, dot * cell, dark)
+                    '2' -> canvas.drawRect(origin + x * cell, origin + y * cell, origin + (x + 1) * cell, origin + (y + 1) * cell, dark)
+                }
+            }
+        }
+        drawLogo(canvas, origin + size / 2f * cell, origin + size / 2f * cell, logoRadius * cell * 0.82f)
+    }
+
+    /** The app's logo (the desktop's `Logo`), its ring `radius` wide, centered on (cx, cy). */
+    private fun drawLogo(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
+        val s = radius / 452f
+        fun x(v: Float) = cx + (v - 512f) * s
+        fun y(v: Float) = cy + (v - 512f) * s
+        val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.LinearGradient(x(60f + 0.18f * 904f), y(60f + 0.08f * 904f), x(60f + 0.82f * 904f), y(60f + 0.96f * 904f),
+                intArrayOf(0xFF7AF0DD.toInt(), 0xFF14B8A6.toInt(), 0xFF0B5F58.toInt()), floatArrayOf(0f, 0.45f, 1f), android.graphics.Shader.TileMode.CLAMP)
+        }
+        canvas.drawCircle(cx, cy, radius, ring)
+        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = android.graphics.RadialGradient(x(512f), y(194f + 0.32f * 636f), 0.75f * 636f * s,
+                intArrayOf(0xFF16524D.toInt(), 0xFF062523.toInt()), null, android.graphics.Shader.TileMode.CLAMP)
+        }
+        canvas.drawCircle(cx, cy, 318f * s, core)
+        val hole = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF2FFFC.toInt() }
+        canvas.drawCircle(x(512f), y(438f), 94f * s, hole)
+        canvas.drawPath(android.graphics.Path().apply {
+            moveTo(x(470f), y(486f)); lineTo(x(554f), y(486f)); lineTo(x(586f), y(676f))
+            quadTo(x(590f), y(702f), x(564f), y(702f)); lineTo(x(460f), y(702f))
+            quadTo(x(434f), y(702f), x(438f), y(676f)); close()
+        }, hole)
+    }
+}
+
 internal fun MainActivity.showQr(title: String, modules: List<String>) {
     val box = column(20)
     box.add(QrView(this, modules))

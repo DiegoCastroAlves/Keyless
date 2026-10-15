@@ -12,13 +12,11 @@
     <string name="qr_not_found_setup">No se encontró ningún código de configuración de Keyless.</string>
     <string name="scan_emergency_kit">Escanear el Kit de Emergencia</string>
     <string name="qr_sign_in">Iniciar sesión con un código QR</string>
-    <string name="qr_sign_in_body">En un teléfono donde ya usas Keyless, toca “Iniciar sesión en otro dispositivo” y apunta la cámara a este código.</string>
     <string name="qr_sign_in_waiting">Esperando tu otro teléfono…</string>
     <string name="qr_sign_in_expired">Este código caducó.</string>
     <string name="qr_sign_in_denied">El código fue rechazado en tu otro teléfono.</string>
     <string name="qr_sign_in_new">Mostrar otro código</string>
     <string name="sign_in_other">Iniciar sesión en otro dispositivo</string>
-    <string name="scan_hint_sign_in">Apunta la cámara al código QR que el otro dispositivo muestra en “Iniciar sesión con un código QR”.</string>
     <string name="qr_not_found_sign_in">No se encontró ningún código de inicio de sesión de Keyless.</string>
     <string name="qr_approve_title">¿Iniciar sesión en otro dispositivo?</string>
     <string name="qr_approve_body">El dispositivo que muestra este código recibirá tu correo y tu Clave Secreta. Allí se seguirá pidiendo tu contraseña maestra.</string>
@@ -27,4 +25,12 @@
     <string name="qr_approved">Aprobado. Termina de iniciar sesión en el otro dispositivo con tu contraseña maestra.</string>
     <string name="qr_sign_in_first">Primero inicia sesión en Keyless en este teléfono.</string>
     <string name="device_password_still">Tu otro teléfono envía solo tu correo y tu Clave Secreta. Aquí sigues necesitando tu contraseña maestra.</string>
+    <string name="qr_approve_account">La cuenta que inicia sesión allí</string>
+    <string name="qr_approve_device">Un dispositivo nuevo</string>
+    <string name="qr_steps_title">En el teléfono donde usas Keyless</string>
+    <string name="qr_step_open">Abre Keyless.</string>
+    <string name="qr_step_account">Toca la letra de tu cuenta, arriba en la pantalla.</string>
+    <string name="qr_step_scan">Elige “Iniciar sesión en otro dispositivo” y apunta la cámara a este código.</string>
+    <string name="scan_step_open">En el dispositivo nuevo, abre Keyless y elige “Iniciar sesión”.</string>
+    <string name="scan_step_point">Apunta la cámara al código QR que muestra.</string>
 </resources>

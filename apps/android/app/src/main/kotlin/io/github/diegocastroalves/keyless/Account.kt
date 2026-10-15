@@ -105,25 +105,76 @@ internal fun MainActivity.reviewQrSignIn(link: String) {
                 Toast.makeText(this, getString(R.string.qr_code_gone), Toast.LENGTH_LONG).show()
                 return@runOnUiThread
             }
-            val place = listOf(platformName(request.optString("platform")), request.optString("country"), request.optString("ip"), when_(request.optString("created_at")))
-                .filter { it.isNotBlank() && it != "null" }.joinToString(" · ")
-            AlertDialog.Builder(this)
-                .setTitle(R.string.qr_approve_title)
-                .setMessage(getString(R.string.qr_approve_body) + "\n\n" + place + "\n\n" + getString(R.string.qr_approve_warning))
-                .setPositiveButton(R.string.approve) { _, _ ->
-                    act({ Keyless.approveQrSignIn(link) }) {
-                        Toast.makeText(this, getString(R.string.qr_approved), Toast.LENGTH_LONG).show()
-                    }
-                }
-                .setNegativeButton(R.string.deny) { _, _ ->
-                    act({ Keyless.denyQrSignIn(link) }) {
-                        Toast.makeText(this, getString(R.string.denied), Toast.LENGTH_SHORT).show()
-                    }
-                }
-                .setNeutralButton(R.string.cancel, null)
-                .show()
+            showQrApproval(link, request)
         }
     }
+}
+
+/** A country code ("BR") as its flag and name ("🇧🇷 Brasil"), or blank. */
+private fun countryName(code: String): String {
+    val upper = code.trim().uppercase()
+    if (upper.length != 2 || !upper.all { it in 'A'..'Z' }) return ""
+    val flag = String(Character.toChars(0x1F1E6 + (upper[0] - 'A'))) + String(Character.toChars(0x1F1E6 + (upper[1] - 'A')))
+    val name = java.util.Locale.Builder().setRegion(upper).build().displayCountry
+    return if (name.isBlank() || name == upper) flag else "$flag $name"
+}
+
+/**
+ * The phone's answer to a new device's code, as a page: the account it gets,
+ * the device and where it asks from, what it receives, and approve or deny.
+ * Back leaves the code unanswered (it expires).
+ */
+private fun MainActivity.showQrApproval(link: String, request: JSONObject) {
+    val page = column(20)
+    page.addBack { showMain() }
+    page.add(label(getString(R.string.qr_approve_title), 24f, bold = true), top = 8)
+
+    val account = group()
+    account.add(groupRow(accountButton(Keyless.email, Keyless.email, null), Keyless.email, getString(R.string.qr_approve_account)))
+    page.add(account, top = 16)
+
+    val platform = request.optString("platform")
+    val device = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = android.view.Gravity.CENTER_HORIZONTAL
+    }
+    val deviceIcon = when (platform) {
+        "android", "ios" -> R.drawable.ic_smartphone
+        "web" -> R.drawable.ic_globe
+        else -> R.drawable.ic_monitor
+    }
+    device.addCentered(roundIcon(deviceIcon, Hues.teal, 88))
+    device.add(label(platformName(platform).ifBlank { getString(R.string.qr_approve_device) }, 20f, bold = true).apply { gravity = android.view.Gravity.CENTER }, top = 14)
+    val place = listOf(countryName(request.optString("country")), request.optString("ip"))
+        .filter { it.isNotBlank() && it != "null" }.joinToString(" · ")
+    if (place.isNotEmpty()) device.add(label(place, 14f, muted = true).apply { gravity = android.view.Gravity.CENTER }, top = 4)
+    val asked = request.optString("created_at")
+    if (asked.isNotBlank() && asked != "null") device.add(label(when_(asked), 13f, muted = true).apply { gravity = android.view.Gravity.CENTER }, top = 2)
+    page.add(device, top = 28)
+
+    page.add(label(getString(R.string.qr_approve_body), 15f), top = 28)
+    val warning = row().apply {
+        gravity = android.view.Gravity.TOP
+        background = shape(getColor(R.color.panel), 16f)
+        setPadding(dp(16), dp(14), dp(16), dp(14))
+    }
+    warning.add(icon(R.drawable.ic_alert, hueColor(Hues.amber)), width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    warning.add(label(getString(R.string.qr_approve_warning), 14f, muted = true).apply { setPadding(dp(12), 0, 0, 0) }, width = 0, weight = 1f)
+    page.add(warning, top = 16)
+
+    var answered = false
+    fun answer(work: () -> Unit, message: Int, length: Int) {
+        if (answered) return
+        answered = true
+        act(work) {
+            Toast.makeText(this, getString(message), length).show()
+            showMain()
+        }
+    }
+    page.add(android.widget.Space(this), top = 0, weight = 1f)
+    page.add(primaryButton(getString(R.string.approve)) { answer({ Keyless.approveQrSignIn(link) }, R.string.qr_approved, Toast.LENGTH_LONG) }, top = 28)
+    page.add(secondaryButton(getString(R.string.deny)) { answer({ Keyless.denyQrSignIn(link) }, R.string.denied, Toast.LENGTH_SHORT) }, top = 10)
+    show("qr-approve", page)
 }
 
 /** Shows `banner` when a new device asks to sign in to this account. */

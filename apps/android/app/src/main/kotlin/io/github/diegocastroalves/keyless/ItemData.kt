@@ -61,6 +61,9 @@ fun Keyless.wifiQr(id: String): List<String> = Native.arr("wifiQr", JSONObject()
 
 fun Keyless.qrModules(text: String): List<String> = Native.arr("qrModules", JSONObject().put("text", text)).let { rows -> (0 until rows.length()).map { rows.getString(it) } }
 
+/** A QR code in Keyless's look (`keyless_core::qr::art`), for the codes one Keyless app shows another. */
+fun Keyless.qrArt(text: String): JSONObject = Native.obj("qrArt", JSONObject().put("text", text))
+
 /** How strong a password is (`score` 0 to 4, `level`...) and whether another item uses it. */
 fun Keyless.strength(password: String, itemId: String?): JSONObject {
     val args = JSONObject().put("password", password)

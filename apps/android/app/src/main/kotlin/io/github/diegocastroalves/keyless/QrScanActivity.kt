@@ -81,6 +81,12 @@ class QrScanActivity : KeylessActivity() {
         root.addView(texture, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val panel = column(20).apply { setBackgroundColor(getColor(R.color.panel)) }
         panel.add(label(getString(R.string.scan_qr), 18f, bold = true))
+        // Another device's sign-in code: what to do on it, step by step.
+        if (wanted == WANT_SIGN_IN) {
+            for ((n, step) in listOf(R.string.scan_step_open, R.string.scan_step_point).withIndex()) {
+                panel.add(numberedStep(n + 1, getString(step)), top = if (n == 0) 12 else 8)
+            }
+        }
         status = label(hint(), 14f, muted = true)
         panel.add(status, top = 4)
         allowCamera = plainButton(getString(R.string.camera_allow)) { askForCamera() }.apply { visibility = View.GONE }
@@ -114,7 +120,7 @@ class QrScanActivity : KeylessActivity() {
     private fun hint(): String = getString(
         when (wanted) {
             WANT_SETUP -> R.string.scan_hint_setup
-            WANT_SIGN_IN -> R.string.scan_hint_sign_in
+            WANT_SIGN_IN -> R.string.scan_looking
             else -> R.string.scan_hint_totp
         },
     )

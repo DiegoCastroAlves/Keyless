@@ -198,6 +198,7 @@ class MainActivity : KeylessActivity() {
             "settings-page" -> showSettings()
             "history" -> showItem(lastItemId)
             "devices", "recovery-key" -> showSettingsPage("account")
+            "qr-approve" -> showMain()
             "transfer" -> showSettingsPage("transfer")
             "recover" -> leaveRecovery()
             "sentinel-list" -> showSentinel(null)
@@ -507,15 +508,22 @@ class MainActivity : KeylessActivity() {
     private fun showQrSignIn() {
         stopQrSignIn()
         val form = column()
-        form.add(brandHeader(getString(R.string.qr_sign_in), getString(R.string.qr_sign_in_body)))
-        val box = panel().apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
+        form.add(brandHeader(getString(R.string.qr_sign_in), null))
+        // The code on its own, as wide as the screen lets it be: inside a
+        // panel a small phone would leave it too few pixels per module.
         val holder = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val status = label(getString(R.string.syncing), 14f, muted = true).apply { gravity = android.view.Gravity.CENTER }
         val again = secondaryButton(getString(R.string.qr_sign_in_new)) { showQrSignIn() }.apply { visibility = View.GONE }
-        box.addCentered(holder, top = 8)
-        box.add(status, top = 12)
-        box.add(again, top = 12)
-        form.add(box, top = 24)
+        form.addCentered(holder, top = 16)
+        form.add(status, top = 12)
+        form.add(again, top = 12)
+        // What to do on the other phone, as the desktop shows it beside its code.
+        val box = panel()
+        box.add(label(getString(R.string.qr_steps_title), 15f, bold = true))
+        for ((n, step) in listOf(R.string.qr_step_open, R.string.qr_step_account, R.string.qr_step_scan).withIndex()) {
+            box.add(numberedStep(n + 1, getString(step)), top = 10)
+        }
+        form.add(box, top = 16)
         form.add(label(getString(R.string.device_password_still), 12f, muted = true).apply { gravity = android.view.Gravity.CENTER }, top = 12)
         form.add(secondaryButton(getString(R.string.cancel)) {
             stopQrSignIn()
@@ -539,11 +547,11 @@ class MainActivity : KeylessActivity() {
                 return@thread
             }
             qrRequest = request
-            val modules = Keyless.qrModules(request.link)
+            val art = Keyless.qrArt(request.link)
             runOnUiThread {
                 if (qrRequest !== request) return@runOnUiThread
-                // As large as the panel lets it be, up to 260 dp (a narrow phone has less).
-                holder.addView(QrView(this, modules, dp(260)), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                // As large as the panel lets it be, up to 280 dp (a narrow phone has less).
+                holder.addView(BrandedQrView(this, art, dp(280)), LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
                 holder.contentDescription = getString(R.string.qr_sign_in)
                 status.text = getString(R.string.qr_sign_in_waiting)
             }

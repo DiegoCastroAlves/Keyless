@@ -429,6 +429,28 @@ fun Context.quietButton(text: String, iconRes: Int? = null, onClick: () -> Unit)
         setOnClickListener { onClick() }
     }
 
+/** A numbered step of instructions: its number on a round tint, then the text. */
+fun Context.numberedStep(number: Int, text: String): LinearLayout = LinearLayout(this).apply {
+    orientation = LinearLayout.HORIZONTAL
+    addView(TextView(context).apply {
+        this.text = number.toString()
+        gravity = Gravity.CENTER
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        setTextColor(accent())
+        weight(600)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(getColor(R.color.accent_soft))
+        }
+    }, LinearLayout.LayoutParams(dp(22), dp(22)).apply { topMargin = dp(1) })
+    addView(TextView(context).apply {
+        this.text = text
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        setTextColor(getColor(R.color.muted))
+        setLineSpacing(0f, 1.15f)
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(12) })
+}
+
 /** Back, at the top of a page with a large title under it. */
 fun LinearLayout.addBack(onBack: () -> Unit) {
     val back = context.iconButton(R.drawable.ic_back, context.getString(R.string.back), context.getColor(R.color.fg)) { onBack() }

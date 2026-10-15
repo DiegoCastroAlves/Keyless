@@ -19,6 +19,8 @@ from scratch; when the desktop changes its look, change these with it.
 | Names of the item groups | `sidebar` in `src/i18n` | `Labels.t("sidebar.…")` (copied by `scripts/labels.mjs`) |
 | Buttons, fields | `src/components/ui` | `Ui.kt` (`primaryButton`, `secondaryButton`, `plainButton`, `field`) |
 | Colored passwords | `PasswordText` | `passwordText` |
+| QR codes one Keyless app shows another (signing in, setup codes) | `branded_qr_svg` (`src-tauri/src/items.rs`) | `BrandedQrView`; both draw `keyless_core::qr::art` (other QR codes stay plain: `QrView`) |
+| Numbered steps (what to do on the other device) | the sign-in's QR code screen | `numberedStep` |
 
 The theme (`res/values/themes.xml`) only sets these colors and Inter on the
 platform's widgets. Settings > General > Theme applies to every screen
