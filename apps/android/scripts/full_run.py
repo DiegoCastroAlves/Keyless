@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -465,6 +466,16 @@ def start_requester(path):
     return asker, ask
 
 
+def picture_info(path):
+    """A PNG's size and type, from its header (what a failed check saw)."""
+    with open(path, "rb") as f:
+        head = f.read(33)
+    if head[:8] != b"\x89PNG\r\n\x1a\n":
+        return f"{path}: not a PNG ({os.path.getsize(path)} bytes)"
+    width, height = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+    return f"{path}: {width}x{height}, color type {head[25]}, {os.path.getsize(path)} bytes"
+
+
 def capture_screen():
     """The screen as a PNG, through the emulator (the app blocks screenshots):
     its path, or None where the emulator cannot take one. Some emulators take
@@ -508,7 +519,11 @@ def qr_sign_in(fixture, requester_path):
     else:
         found = ask({"op": "scanPng", "path": shot}) or []
         link = next((f for f in found if f.startswith("keyless://sign-in")), None)
-        outcome("the QR code holds the sign-in link", link is not None, f"found {found} in {shot}")
+        outcome("the QR code holds the sign-in link", link is not None, f"found {found} in {picture_info(shot)}")
+        if link is None:
+            # Kept for the CI to publish (captures/).
+            os.makedirs("captures", exist_ok=True)
+            shutil.copy(shot, os.path.join("captures", "qr-sign-in.png"))
     if link:
         sealed = ask({"op": "qrSeal", "link": link, "email": fixture["email"], "secretKey": fixture["secretKey"]})
         mock(f"/test/qr_sign_in/{sealed['id']}/approve", {"approver_key": sealed["approverKey"], "enc_payload": sealed["payload"]})

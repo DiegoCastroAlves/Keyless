@@ -255,6 +255,14 @@ jobs:
           disable-animations: true
           script: bash apps/android/scripts/emulator.sh
 
+      # What the screen showed when a check that reads it failed.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: android-emulator-captures
+          path: captures/
+          if-no-files-found: ignore
+
   macos:
     runs-on: macos-14
     steps:
