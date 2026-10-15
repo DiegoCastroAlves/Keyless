@@ -560,9 +560,14 @@ fun Context.groupRow(icon: View?, title: CharSequence, subtitle: CharSequence? =
     }
 
 /** Lets a row's subtitle (from listRow or groupRow) take up to `lines` lines. */
-fun LinearLayout.wrapSubtitle(lines: Int = 3): LinearLayout = apply {
+fun LinearLayout.wrapSubtitle(lines: Int = 3): LinearLayout = wrapLine(1, lines)
+
+/** Lets a row's title take up to `lines` lines (narrow screens, with something at the end). */
+fun LinearLayout.wrapTitle(lines: Int = 2): LinearLayout = wrapLine(0, lines)
+
+private fun LinearLayout.wrapLine(index: Int, lines: Int): LinearLayout = apply {
     val texts = (0 until childCount).map { getChildAt(it) }.firstOrNull { it is LinearLayout } as? LinearLayout ?: return@apply
-    (texts.getChildAt(1) as? TextView)?.apply {
+    (texts.getChildAt(index) as? TextView)?.apply {
         setSingleLine(false)
         maxLines = lines
     }

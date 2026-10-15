@@ -138,7 +138,7 @@ internal fun MainActivity.showHome(sync: Boolean = false) {
         val left = setupSteps().count { !it.done }
         if (left > 0) {
             val card = group()
-            card.add(groupRow(roundIcon(R.drawable.ic_setup, Hues.teal), getString(R.string.setup_title), null, badge(resources.getQuantityString(R.plurals.setup_steps_left, left, left))) { showSetup() })
+            card.add(groupRow(roundIcon(R.drawable.ic_setup, Hues.teal), getString(R.string.setup_title), null, badge(resources.getQuantityString(R.plurals.setup_steps_left, left, left))) { showSetup() }.wrapTitle())
             page.add(card, top = 8)
         }
     }
@@ -285,7 +285,7 @@ internal fun MainActivity.showSetup() {
         } else {
             plainButton(getString(R.string.turn_on)) { step.start() }
         }
-        card.add(groupRow(roundIcon(step.icon, step.hue), step.title, step.hint, end).wrapSubtitle())
+        card.add(groupRow(roundIcon(step.icon, step.hue), step.title, step.hint, end).wrapTitle().wrapSubtitle(6))
     }
     body.add(card, top = 12)
     body.addCentered(quietButton(getString(R.string.hide_setup)) {

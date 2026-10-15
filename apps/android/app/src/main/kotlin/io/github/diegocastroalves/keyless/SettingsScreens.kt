@@ -234,7 +234,7 @@ private fun MainActivity.autofillPage(body: LinearLayout) {
         } catch (e: Exception) {
             // No autofill settings on this phone.
         }
-    }).wrapSubtitle(4))
+    }).wrapTitle().wrapSubtitle(12))
     if (Build.VERSION.SDK_INT >= 34) {
         card.add(groupRow(roundIcon(R.drawable.ic_cat_login, Hues.amber, 36), getString(R.string.passkeys), getString(R.string.passkeys_hint), stepState(passkeysOn()) {
             try {
@@ -242,7 +242,7 @@ private fun MainActivity.autofillPage(body: LinearLayout) {
             } catch (e: Exception) {
                 // No such settings screen on this phone.
             }
-        }).wrapSubtitle(5))
+        }).wrapTitle().wrapSubtitle(12))
     }
     body.add(card, top = 8)
 }
