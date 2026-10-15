@@ -223,10 +223,16 @@ def pick_from_list(name, text, field_index=0, seconds=30):
 
 
 def keyboard_top():
-    """Where the keyboard starts on the screen (its touchable part)."""
+    """Where the keyboard starts on the screen: its touchable part from
+    edge to edge. Gboard's first inline suggestions bring a tip above it,
+    a little narrower ("Autofill suggestions are now above your keyboard")."""
     out = adb("shell", "dumpsys", "window", "InputMethod", check=False)
-    found = re.search(r"touchable region=SkRegion\(\((\d+),(\d+),(\d+),(\d+)\)", out)
-    return int(found.group(2)) if found else None
+    found = re.search(r"touchable region=SkRegion\(((?:\(\d+,\d+,\d+,\d+\))+)\)", out)
+    if not found:
+        return None
+    rects = [tuple(map(int, r)) for r in re.findall(r"\((\d+),(\d+),(\d+),(\d+)\)", found.group(1))]
+    wide = [y1 for x1, y1, x2, _ in rects if x1 <= 0 and x2 >= screen_size()[0]]
+    return min(wide) if wide else rects[0][1]
 
 
 def pick_chip(name, filled, field_index=0, seconds=30):
@@ -323,6 +329,8 @@ def main():
     fixture = json.load(open(fixture_path))
     password = fixture["masterPassword"].replace(" ", "%s")
     mock("/test/items", {"key": "autofillItems"})
+    # Gboard as on a new phone, as the CI's emulator (with its first-run tips).
+    adb("shell", "pm", "clear", "com.google.android.inputmethod.latin", check=False)
     adb("uninstall", PACKAGE, check=False)
     adb("install", "-r", keyless_apk)
     adb("install", "-r", form_apk)
