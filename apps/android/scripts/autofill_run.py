@@ -189,24 +189,18 @@ def type_into(package, index, value):
     time.sleep(0.4)
 
 
-def clear_field(package, index):
-    x, y = fields(package)[index]
-    tap(x, y)
-    time.sleep(0.4)
-    adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
-    for _ in range(40):
-        adb("shell", "input", "keyevent", "KEYCODE_DEL")
-
-
 def hide_keyboard():
-    if "mInputShown=true" in adb("shell", "dumpsys", "input_method", check=False):
+    # Back may close autofill's list under the field first.
+    for _ in range(3):
+        if "mInputShown=true" not in adb("shell", "dumpsys", "input_method", check=False):
+            return
         adb("shell", "input", "keyevent", "KEYCODE_BACK")
         time.sleep(1)
 
 
-def start(activity):
+def start(activity, *extras):
     """Starts one of formtest's forms afresh."""
-    adb("shell", "am", "start", "-S", "-W", "-n", f"{FORM}/.{activity}")
+    adb("shell", "am", "start", "-S", "-W", "-n", f"{FORM}/.{activity}", *extras)
     time.sleep(1)
 
 
@@ -424,12 +418,9 @@ def main():
     record("gives a password through Credential Manager after unlocking", "Got password for tester" in got, got)
 
     before = inserts(writes_path)
+    start("LoginActivity", "--es", "username", "cm-user", "--es", "password", "cm-pass-789")
     hide_keyboard()
-    clear_field(FORM, 0)
-    adb("shell", "input", "text", "cm-user")
-    clear_field(FORM, 1)
-    adb("shell", "input", "text", "cm-pass-789")
-    hide_keyboard()
+    scroll_to("Save password")
     tap_text("Save password", FORM)
     saved = drive_sheet(["Password saved", "Save failed"], ["Save", "Create", "Continue", "Keyless", fixture["email"]])
     record("saves a password through Credential Manager", "Password saved" in saved, saved)

@@ -4,6 +4,7 @@ import android.app.Activity
 import android.os.Bundle
 import android.text.InputType
 import android.view.View
+import android.view.WindowManager
 import android.view.autofill.AutofillManager
 import android.widget.Button
 import android.widget.EditText
@@ -31,6 +32,8 @@ import org.json.JSONObject
 class LoginActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // No keyboard until a field is tapped (a scrolling form would open it).
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN)
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             padded()
@@ -45,6 +48,9 @@ class LoginActivity : Activity() {
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setAutofillHints(View.AUTOFILL_HINT_PASSWORD)
         }
+        // A login given by the run (`--es username … --es password …`): typed, it races autofill's list.
+        intent.getStringExtra("username")?.let { username.setText(it) }
+        intent.getStringExtra("password")?.let { password.setText(it) }
         val status = TextView(this)
         val login = Button(this).apply {
             text = "Log in"
