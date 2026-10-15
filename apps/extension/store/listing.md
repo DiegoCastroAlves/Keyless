@@ -166,6 +166,10 @@ the app from https://keyless.diegoalves.dev, create an account, click
 tutorial at https://keyless.diegoalves.dev/tutorial/ has practice forms.
 
 For Mozilla: the published files are built from TypeScript with esbuild
-(not minified). The source package (`keyless-source-<version>.zip`) builds
-with `pnpm install --frozen-lockfile && pnpm build` (Node 22 or newer, pnpm
-from `packageManager` in package.json); the result is `dist/firefox`.
+(not minified); no file in the source package is generated. It builds on
+any operating system Node.js runs on (checked on Linux, x86-64), with
+Node.js 22 or newer and the pnpm of `packageManager` in package.json
+(`npm install -g pnpm@<that version>`): in the unpacked
+`keyless-source-<version>.zip`, `pnpm install --frozen-lockfile` and then
+`pnpm build`. The result, `dist/firefox`, is identical to the submitted
+package.
