@@ -321,8 +321,9 @@ fn generates_passwords() {
     assert_eq!(random["password"].as_str().unwrap().chars().count(), 20);
     let pin = ok(client.call("generate", &json!({ "kind": "pin", "length": 6 }).to_string()));
     assert!(pin["password"].as_str().unwrap().chars().all(|c| c.is_ascii_digit()));
-    let words = ok(client.call("generate", &json!({ "kind": "memorable", "words": 4, "separator": "-" }).to_string()));
-    assert_eq!(words["password"].as_str().unwrap().split('-').count(), 4);
+    // Not "-": a few words have a hyphen of their own ("t-shirt").
+    let words = ok(client.call("generate", &json!({ "kind": "memorable", "words": 4, "separator": "." }).to_string()));
+    assert_eq!(words["password"].as_str().unwrap().split('.').count(), 4);
     assert_eq!(error(client.call("generate", &json!({ "kind": "random", "length": 2 }).to_string())), "invalid_request");
 }
 
