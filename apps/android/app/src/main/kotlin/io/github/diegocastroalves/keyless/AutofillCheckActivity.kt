@@ -77,6 +77,9 @@ object AutofillCheck {
 class AutofillCheckActivity : Activity() {
     private lateinit var root: FrameLayout
 
+    /** The scroll a drawing has yet to restore (it waits for its layout). */
+    private var restoring = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) window.setDecorFitsSystemWindows(false)
@@ -227,17 +230,21 @@ class AutofillCheckActivity : Activity() {
         val chromeButtons = if (installed.isEmpty()) emptyList() else listOf(getString(R.string.check_chrome_button) to { openChrome(installed.first()) })
         section(page, R.string.check_chrome_title, chromeOk, chromeStatus, getString(R.string.check_chrome_body), chromeButtons)
 
-        // Drawn again after each change: where the reader was stays in view.
-        val scrolled = (root.getChildAt(0) as? ScrollView)?.scrollY ?: 0
+        // Drawn again after each change: where the reader was stays in view
+        // (also when drawn twice before the first one's layout, as after the
+        // notification permission: its answer, then onResume).
+        val scrolled = restoring.takeIf { it > 0 } ?: (root.getChildAt(0) as? ScrollView)?.scrollY ?: 0
         val scroll = ScrollView(this).apply { addView(page) }
         root.removeAllViews()
         root.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         root.requestApplyInsets()
         if (scrolled > 0) {
+            restoring = scrolled
             scroll.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
                 override fun onLayoutChange(v: View, left: Int, top: Int, right: Int, bottom: Int, oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int) {
                     scroll.removeOnLayoutChangeListener(this)
                     scroll.scrollTo(0, scrolled)
+                    restoring = 0
                 }
             })
         }
