@@ -30,6 +30,7 @@
         <a href="#como" data-i18n="navHow">Como funciona</a>
         <a href="#ferramentas" data-i18n="navTools">Ferramentas</a>
         <a href="#baixar" data-i18n="navDownload">Baixar</a>
+        <a href="#instalar" data-i18n="navInstall">Instalar</a>
         <a href="/vault/" data-web-vault data-i18n="navVault">Cofre web</a>
       </nav>
       <div class="prefs">
@@ -178,9 +179,60 @@
             <ul class="files mono" data-platform="extension"></ul>
           </div>
         </div>
-        <p class="note">
+        <p class="note links">
+          <a href="#instalar" data-i18n="howToInstall">Como instalar cada arquivo</a>
           <a href="https://github.com/DiegoCastroAlves/Keyless/releases" data-i18n="allReleases">Todas as versões no GitHub</a>
         </p>
+      </section>
+
+      <section id="instalar" class="section" aria-labelledby="install-title">
+        <div class="section-head">
+          <span class="mono number">§ 05</span>
+          <h2 id="install-title" data-i18n="installTitle">Como instalar</h2>
+        </div>
+        <p class="note install-intro" data-i18n="installIntro">
+          Escolha o arquivo que você baixou. Os comandos já trazem o nome do arquivo da versão mais recente: é só copiar e colar no terminal.
+        </p>
+        <!-- The steps for each file are built by home.ts. -->
+        <div class="formats" role="tablist" aria-label="Tipo de arquivo" data-i18n-aria="formats">
+          <button type="button" class="format" role="tab" id="tab-appimage" aria-controls="guide-appimage" aria-selected="true" data-format="appimage">
+            <span class="format-name">AppImage</span>
+            <span class="format-for mono" data-i18n="formatAny">Qualquer distribuição</span>
+          </button>
+          <button type="button" class="format" role="tab" id="tab-deb" aria-controls="guide-deb" aria-selected="false" tabindex="-1" data-format="deb">
+            <span class="format-name">.deb</span>
+            <span class="format-for mono">Debian, Ubuntu, Mint, Pop!_OS</span>
+          </button>
+          <button type="button" class="format" role="tab" id="tab-rpm" aria-controls="guide-rpm" aria-selected="false" tabindex="-1" data-format="rpm">
+            <span class="format-name">.rpm</span>
+            <span class="format-for mono">Fedora, openSUSE</span>
+          </button>
+          <button type="button" class="format" role="tab" id="tab-arch" aria-controls="guide-arch" aria-selected="false" tabindex="-1" data-format="arch">
+            <span class="format-name">Arch</span>
+            <span class="format-for mono">CachyOS, Manjaro, EndeavourOS</span>
+          </button>
+          <button type="button" class="format" role="tab" id="tab-windows" aria-controls="guide-windows" aria-selected="false" tabindex="-1" data-format="windows">
+            <span class="format-name">Windows</span>
+            <span class="format-for mono" data-i18n="formatExe">Instalador .exe</span>
+          </button>
+        </div>
+        <div class="guides" id="guides"></div>
+        <p class="visually-hidden" role="status" id="copy-status"></p>
+
+        <div class="after">
+          <h3 class="mono" data-i18n="afterTitle">Depois de instalar</h3>
+          <div class="after-grid">
+            <p data-i18n-html="afterAccount">
+              Abra o Keyless e escolha <strong>Criar uma nova conta</strong>, ou entre na que você já tem. Guarde bem o Kit de Emergência: é nele
+              que fica a sua Chave Secreta.
+            </p>
+            <p data-i18n-html="afterBrowser">
+              Para preencher senhas no navegador, instale a extensão
+              (<a href="https://github.com/DiegoCastroAlves/Keyless#browser-extension">veja como</a>) e pratique no
+              <a href="/tutorial/">tutorial</a>.
+            </p>
+          </div>
+        </div>
       </section>
     </main>
 

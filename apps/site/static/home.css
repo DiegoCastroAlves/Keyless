@@ -461,6 +461,523 @@ h3 {
     gap: 40px;
   }
 }
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+}
+
+/* How to install: a tab for each file, and its steps (src/home.ts). */
+.install-intro {
+  margin: 0 0 clamp(20px, 3vw, 32px);
+}
+.formats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* The page's ink between the cells draws the lines. */
+  gap: 1px;
+  background: var(--ink);
+  border: 1px solid var(--ink);
+}
+.format {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  padding: 14px 16px 16px;
+  border: 0;
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+.format:last-child {
+  grid-column: 1 / -1;
+}
+.format-name {
+  font: 400 1.6rem/1 var(--serif);
+  letter-spacing: -0.01em;
+}
+.format-for {
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+  transition: color 0.2s ease;
+}
+.format:hover {
+  background: var(--paper-2);
+}
+.format[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+  cursor: default;
+}
+.format[aria-selected="true"] .format-for {
+  color: var(--paper);
+  opacity: 0.75;
+}
+.format[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--accent);
+}
+.format:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -5px;
+}
+@media (min-width: 760px) {
+  .formats {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .format:last-child {
+    grid-column: auto;
+  }
+  .format {
+    padding: 18px 20px 20px;
+  }
+}
+
+.guide {
+  display: grid;
+  gap: clamp(24px, 3.5vw, 40px);
+  padding: clamp(18px, 3.5vw, 40px);
+  border: 1px solid var(--ink);
+  border-top: 0;
+  animation: guide-in 0.3s ease both;
+}
+.guide[hidden] {
+  display: none;
+}
+@keyframes guide-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.guide-lead {
+  margin: 0;
+  font-size: clamp(1.05rem, 0.4vw + 0.95rem, 1.2rem);
+  color: var(--ink-2);
+}
+/* The notes beside the steps once the longest command fits beside them. */
+@media (min-width: 1080px) {
+  .guide {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 28%);
+    column-gap: 48px;
+  }
+  .guide-lead {
+    grid-column: 1 / -1;
+  }
+}
+
+.guide-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.guide-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: 14px;
+  padding-bottom: 28px;
+}
+.guide-step:last-child {
+  padding-bottom: 0;
+}
+/* The line from one step's number to the next. */
+.guide-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 15.5px;
+  top: 32px;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule);
+}
+.guide-number {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.guide-body {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  min-width: 0;
+  padding-top: 4px;
+}
+.guide-body p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.95rem;
+}
+.guide-body p.guide-note {
+  font-size: 0.88rem;
+}
+.guide code,
+.after code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+.guide-body p code,
+.guide-box code {
+  padding: 1px 5px;
+  background: var(--paper-2);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.guide strong,
+.after strong {
+  font-weight: 600;
+  color: var(--ink);
+}
+@media (min-width: 760px) {
+  .guide-step {
+    grid-template-columns: 36px minmax(0, 1fr);
+    column-gap: 18px;
+  }
+  .guide-step:not(:last-child)::before {
+    left: 17.5px;
+    top: 36px;
+  }
+  .guide-number {
+    width: 36px;
+    height: 36px;
+  }
+  .guide-body {
+    padding-top: 6px;
+  }
+}
+
+/* The file to download. */
+.guide-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 11px 14px;
+  border: 1px solid var(--ink);
+  font-size: 0.85rem;
+  line-height: 1.35;
+  text-decoration: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.guide-file:hover {
+  color: inherit;
+  transform: translate(-2px, -2px);
+  box-shadow: 2px 2px 0 var(--accent);
+}
+.guide-file-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.guide-file-size {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.guide-file.pending {
+  border-style: dashed;
+}
+.guide svg,
+.term svg {
+  display: block;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.guide-file svg {
+  color: var(--accent);
+}
+
+/* A terminal: dark in both themes, in the dark theme's colors. */
+.term {
+  --term-bg: #15171a;
+  --term-ink: #ebe6da;
+  --term-dim: #a19f97;
+  --term-line: #2b2f34;
+  --term-accent: #3fd6c2;
+  min-width: 0;
+  border: 1px solid var(--term-line);
+  background: var(--term-bg);
+  color: var(--term-ink);
+}
+.term-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 5px 5px 14px;
+  border-bottom: 1px solid var(--term-line);
+}
+.term-label {
+  font: 400 0.72rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  color: var(--term-dim);
+}
+.term-label::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 9px;
+  vertical-align: 0.1em;
+  background: var(--term-accent);
+}
+.term-body {
+  margin: 0;
+  padding: 14px 16px 16px;
+  overflow-x: auto;
+  font: 400 0.86rem/1.75 var(--mono);
+  scrollbar-width: thin;
+  scrollbar-color: var(--term-line) transparent;
+}
+.term-body code {
+  font: inherit;
+}
+.term-line {
+  display: block;
+}
+.term-prompt {
+  margin-right: 1ch;
+  color: var(--term-accent);
+  user-select: none;
+}
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid var(--term-line);
+  border-radius: 0;
+  background: none;
+  color: var(--term-ink);
+  font: 500 0.72rem/1 var(--mono);
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.copy:hover {
+  border-color: var(--term-dim);
+  background: #1f2327;
+}
+.copy:focus-visible {
+  outline: 2px solid var(--term-accent);
+  outline-offset: -2px;
+}
+.term .copy svg {
+  width: 14px;
+  height: 14px;
+}
+.copy .icon-done,
+.copy.copied .icon-copy {
+  display: none;
+}
+.copy.copied .icon-done {
+  display: block;
+}
+.copy.copied {
+  border-color: var(--term-accent);
+  color: var(--term-accent);
+}
+
+/* The SmartScreen warning, sketched. */
+.smartscreen {
+  display: grid;
+  gap: 12px;
+  max-width: 400px;
+  margin-top: 2px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--ink);
+  background: var(--paper-2);
+  font-size: 0.85rem;
+  line-height: 1.3;
+}
+.smartscreen-title {
+  font: 400 1.35rem/1.1 var(--serif);
+}
+/* Two lines of text, as gray bars. */
+.smartscreen-text {
+  height: 18px;
+  background:
+    linear-gradient(var(--rule), var(--rule)) 0 0 / 100% 5px no-repeat,
+    linear-gradient(var(--rule), var(--rule)) 0 100% / 62% 5px no-repeat;
+}
+.smartscreen-more {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+.smartscreen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+.smartscreen-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+.smartscreen-button.target {
+  border-color: var(--ink);
+  color: var(--ink);
+  font-weight: 500;
+}
+.smartscreen-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* Updates and good-to-know, beside the steps. */
+.guide-side {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  gap: 16px 24px;
+  align-items: start;
+  align-content: start;
+}
+.guide-box {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--ink);
+}
+.guide-box.updates {
+  border-top: 0;
+  background: var(--accent-soft);
+}
+.guide-box h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.guide-box.updates h3 {
+  color: var(--ink);
+}
+.guide-box.updates h3 svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+}
+.guide-box p {
+  margin: 0;
+  font-size: 0.92rem;
+}
+.guide-box ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.guide-box li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+.guide-box li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+}
+
+/* After installing. */
+.after {
+  display: grid;
+  gap: 14px;
+  margin-top: clamp(28px, 4vw, 48px);
+}
+.after h3 {
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+.after-grid {
+  display: grid;
+  gap: 0 40px;
+}
+.after-grid p {
+  margin: 0;
+  padding: 14px 0;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: 0.95rem;
+}
+@media (min-width: 760px) {
+  .after-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ----- bottom ----------------------------------------------------------- */
 
@@ -495,10 +1012,15 @@ h3 {
     animation: none;
     width: 100%;
   }
-  .button {
+  .button,
+  .guide-file {
     transition: none;
   }
-  .button:hover {
+  .button:hover,
+  .guide-file:hover {
     transform: none;
+  }
+  .guide {
+    animation: none;
   }
 }
