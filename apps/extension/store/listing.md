@@ -137,6 +137,25 @@ user's computer. None of it is sent to the developer or anyone else, sold,
 or used for anything else. Privacy policy:
 https://keyless.diegoalves.dev/privacy/
 
+The "Data usage" form ("What user data do you plan to collect from users
+now or in the future?"):
+
+| Data type | Checked | Why |
+| --- | --- | --- |
+| Personally identifiable information | yes | Names, addresses, emails and phone numbers of the identities it fills and saves. |
+| Health information | no | |
+| Financial and payment information | yes | The cards it fills and saves. |
+| Authentication information | yes | Logins, passkeys, one-time codes and copied API keys. |
+| Personal communications | no | |
+| Location | no | |
+| Web history | no | It looks at the active tab's address to find its logins, and keeps no list of pages. |
+| User activity | no | It notices clicks, focus and form submissions on a page to fill and offer saving there; nothing is recorded or sent. |
+| Website content | no | It reads a page's forms (and, when asked, a QR code on the visible page) in the browser; only what the user fills or saves reaches the app. |
+
+All three certifications are checked: no selling or transfer of user data
+outside the approved use cases, no use unrelated to the single purpose, and
+no use for creditworthiness or lending.
+
 ## Notes for reviewers
 
 Keyless works with the Keyless desktop app (open source:
