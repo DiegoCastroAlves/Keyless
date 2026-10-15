@@ -956,6 +956,74 @@ pub(crate) fn qr_svg(text: &str) -> AppResult<String> {
         .build())
 }
 
+/// A QR code in Keyless's look (see `keyless_core::qr`), for the codes one
+/// Keyless app shows another: signing in and setup codes.
+pub(crate) fn branded_qr_svg(text: &str) -> AppResult<String> {
+    use std::fmt::Write;
+    let art = keyless_core::qr::art(text).ok_or_else(|| AppError::Invalid(Msg::new("qr_too_long")))?;
+    const QUIET: f32 = 4.0;
+    // Near black: lighter colors stopped readers finding the code.
+    const DARK: &str = "#061a18";
+    let side = art.size as f32 + 2.0 * QUIET;
+    let n = |v: f32| format!("{}", (v * 100.0).round() / 100.0);
+    let mut svg = format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s} {s}" width="320" height="320" shape-rendering="geometricPrecision"><rect width="{s}" height="{s}" fill="#fff"/>"##,
+        s = n(side)
+    );
+    let rect = |svg: &mut String, x: f32, y: f32, w: f32, r: f32, fill: &str| {
+        let _ = write!(svg, r#"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{fill}"/>"#, n(x), n(y), n(w), n(w), n(r));
+    };
+    let [outer, hole, stone] = art.finder_corners;
+    for &[x, y] in &art.finders {
+        let (x, y) = (x as f32 + QUIET, y as f32 + QUIET);
+        rect(&mut svg, x, y, 7.0, outer, DARK);
+        rect(&mut svg, x + 1.0, y + 1.0, 5.0, hole, "#fff");
+        rect(&mut svg, x + 2.0, y + 2.0, 3.0, stone, DARK);
+    }
+    let [outer, hole] = art.alignment_corners;
+    let r = art.dot_radius;
+    for &[x, y] in &art.alignments {
+        let (cx, cy) = (x as f32 + QUIET + 0.5, y as f32 + QUIET + 0.5);
+        rect(&mut svg, cx - 2.5, cy - 2.5, 5.0, outer, DARK);
+        rect(&mut svg, cx - 1.5, cy - 1.5, 3.0, hole, "#fff");
+        let _ = write!(svg, r#"<circle cx="{}" cy="{}" r="{}" fill="{DARK}"/>"#, n(cx), n(cy), n(r));
+    }
+    // Every module in one path: a dot is two half arcs, a square four lines.
+    let _ = write!(svg, r#"<path fill="{DARK}" d=""#);
+    for (y, row) in art.modules.iter().enumerate() {
+        for (x, kind) in row.bytes().enumerate() {
+            let (left, top) = (x as f32 + QUIET, y as f32 + QUIET);
+            match kind {
+                b'1' => {
+                    let _ = write!(svg, "M{} {}a{r} {r} 0 1 0 {d} 0a{r} {r} 0 1 0 -{d} 0", n(left + 0.5 - r), n(top + 0.5), r = n(r), d = n(2.0 * r));
+                }
+                b'2' => {
+                    let _ = write!(svg, "M{} {}h1v1h-1z", n(left), n(top));
+                }
+                _ => {}
+            }
+        }
+    }
+    svg.push_str(r#""/>"#);
+    // The logo (as in the app's Logo component), inside a white margin.
+    let center = side / 2.0;
+    let scale = art.logo_radius * 0.82 / 452.0;
+    let _ = write!(
+        svg,
+        concat!(
+            r##"<g transform="translate({x:.4} {x:.4}) scale({s:.6})">"##,
+            r##"<defs><linearGradient id="kq-r" x1="0.18" y1="0.08" x2="0.82" y2="0.96"><stop offset="0" stop-color="#7AF0DD"/><stop offset="0.45" stop-color="#14B8A6"/><stop offset="1" stop-color="#0B5F58"/></linearGradient>"##,
+            r##"<radialGradient id="kq-c" cx="0.5" cy="0.32" r="0.75"><stop offset="0" stop-color="#16524D"/><stop offset="1" stop-color="#062523"/></radialGradient></defs>"##,
+            r##"<circle cx="512" cy="512" r="452" fill="url(#kq-r)"/><circle cx="512" cy="512" r="318" fill="url(#kq-c)"/>"##,
+            r##"<g fill="#F2FFFC"><circle cx="512" cy="438" r="94"/><path d="M470 486 H554 L586 676 Q590 702 564 702 H460 Q434 702 438 676 Z"/></g></g>"##,
+        ),
+        x = center - 512.0 * scale,
+        s = scale,
+    );
+    svg.push_str("</svg>");
+    Ok(svg)
+}
+
 /// Items whose details hold `query`: notes, labels, section titles, file
 /// names and the values that are not secret (passwords, card numbers,
 /// codes and answers are never searched). The details are decrypted for

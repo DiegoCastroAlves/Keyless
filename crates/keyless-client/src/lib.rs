@@ -314,6 +314,7 @@ impl Client {
             "itemsWithPasskeys" => self.items_with_passkeys(),
             "wifiQr" => self.wifi_qr(json),
             "qrModules" => search::qr_modules(json),
+            "qrArt" => search::qr_art(json),
             "shareCreate" => self.share_create(json),
             "shareList" => self.share_list(json),
             "shareRevokedAt" => self.share_revoked_at(json),

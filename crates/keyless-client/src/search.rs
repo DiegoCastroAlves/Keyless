@@ -44,6 +44,17 @@ impl Client {
 }
 
 /// Any text as a QR code's modules, for large type.
+/// A QR code in Keyless's look (`keyless_core::qr::art`), for the codes one
+/// Keyless app shows another.
+pub(crate) fn qr_art(json: &str) -> Outcome<Value> {
+    #[derive(Deserialize)]
+    struct A {
+        text: zeroize::Zeroizing<String>,
+    }
+    let a: A = args(json)?;
+    Ok(json!(keyless_core::qr::art(&a.text).ok_or(Failure::new("qr_too_long"))?))
+}
+
 pub(crate) fn qr_modules(json: &str) -> Outcome<Value> {
     #[derive(Deserialize)]
     struct A {

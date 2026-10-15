@@ -29,7 +29,6 @@ psl = "2.1.239"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 regex = "1"
 reqwest = { version = "0.13.5", default-features = false, features = ["json", "http2", "rustls-no-provider"] }
-rqrr = { version = "0.11", default-features = false }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1.0.229", features = ["derive"] }

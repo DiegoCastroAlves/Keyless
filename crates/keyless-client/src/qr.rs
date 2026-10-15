@@ -16,11 +16,7 @@ pub fn modules(text: &str) -> Option<Vec<String>> {
 /// The contents of every QR code found in a greyscale image whose rows are
 /// `stride` bytes apart (a camera's luminance plane, as it comes).
 pub fn decode_grey(pixels: &[u8], width: usize, height: usize, stride: usize) -> Vec<String> {
-    if width == 0 || height == 0 || stride < width || pixels.len() < stride * (height - 1) + width {
-        return Vec::new();
-    }
-    let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(width, height, |x, y| pixels[y * stride + x]);
-    prepared.detect_grids().into_iter().filter_map(|grid| grid.decode().ok()).map(|(_, content)| content).collect()
+    keyless_core::qr::decode_grey(pixels, width, height, stride)
 }
 
 #[cfg(test)]

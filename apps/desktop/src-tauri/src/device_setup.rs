@@ -143,7 +143,7 @@ pub struct SetupQr {
 
 fn qr_for(email: &str, secret_key: &SecretKey) -> AppResult<SetupQr> {
     let link = setup_code::setup_link(email, secret_key);
-    Ok(SetupQr { svg: crate::items::qr_svg(&link)?, link: link.to_string() })
+    Ok(SetupQr { svg: crate::items::branded_qr_svg(&link)?, link: link.to_string() })
 }
 
 /// The signed-in account's setup code, after the master password.
@@ -344,7 +344,7 @@ impl QrSignIns {
         if let Some(err) = answer_error(&answer) {
             return Err(err);
         }
-        let qr = SignInQr { id: request.id().to_string(), svg: crate::items::qr_svg(&request.link())? };
+        let qr = SignInQr { id: request.id().to_string(), svg: crate::items::branded_qr_svg(&request.link())? };
         self.0.lock().await.insert(qr.id.clone(), request);
         Ok(qr)
     }

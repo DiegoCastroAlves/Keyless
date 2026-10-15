@@ -24,6 +24,9 @@ hmac = { version = "0.13.0", features = ["zeroize"] }
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "pem", "std"] }
 # Sites, the registrable domains (site.rs).
 psl = "2.1.239"
+# QR codes: drawing them in Keyless's look and reading them (qr.rs).
+qrcode = { version = "0.14", default-features = false }
+rqrr = { version = "0.11", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 sha1 = "0.11.0"

@@ -89,14 +89,9 @@ pub async fn scan_image(bytes: Vec<u8>) -> AppResult<String> {
 
 /// The first QR code in the image holding what is `wanted`.
 fn decode(image: &GrayImage, wanted: Wanted) -> Option<String> {
-    let mut prepared = rqrr::PreparedImage::prepare_from_greyscale(image.width() as usize, image.height() as usize, |x, y| {
-        image.get_pixel(x as u32, y as u32)[0]
-    });
-    prepared
-        .detect_grids()
+    let width = image.width() as usize;
+    keyless_core::qr::decode_grey(image.as_raw(), width, image.height() as usize, width)
         .into_iter()
-        .filter_map(|grid| grid.decode().ok())
-        .map(|(_, content)| content)
         .find(|content| wanted.accepts(content))
 }
 

@@ -25,6 +25,7 @@ pub mod item;
 pub mod keys;
 pub mod passkey;
 pub mod passkey_login;
+pub mod qr;
 pub mod qr_sign_in;
 pub mod password_rules;
 pub mod recovery;
