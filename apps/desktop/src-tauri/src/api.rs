@@ -188,6 +188,14 @@ impl Api {
         Ok(Self { http, base, key: config::SUPABASE_PUBLISHABLE_KEY.to_string() })
     }
 
+    /// A client for a test server on this machine (plain HTTP).
+    #[cfg(test)]
+    pub fn local(base: &str) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let http = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().expect("test client");
+        Self { http, base: Url::parse(base).expect("test url"), key: "test".into() }
+    }
+
     pub fn server_url(&self) -> String {
         self.base.as_str().trim_end_matches('/').to_string()
     }

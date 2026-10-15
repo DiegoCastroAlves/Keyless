@@ -31,6 +31,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use zeroize::Zeroizing;
 
 use crate::{
+    api::Api,
     auth::normalize_email,
     devices,
     dialog_text::DialogText,
@@ -68,9 +69,7 @@ struct Outgoing {
 pub struct SetupState {
     received: Mutex<Option<Received>>,
     outgoing: tokio::sync::Mutex<Option<Outgoing>>,
-    /// This device's QR codes waiting for a phone, by request id: each sign-in
-    /// screen polls and cancels its own (a screen shown twice starts twice).
-    qr: tokio::sync::Mutex<HashMap<String, SignInRequest>>,
+    qr: QrSignIns,
     /// Requests this device answered: its key, and the wrong codes typed.
     approvals: Mutex<HashMap<String, (SetupApproval, u32)>>,
     /// Requests already announced with a notification.
@@ -321,10 +320,68 @@ pub struct SignInQr {
     pub svg: String,
 }
 
-async fn cancel_request(state: &AppState, request: &SignInRequest) {
-    let result: AppResult<Value> = state.api.rpc(None, "cancel_qr_sign_in", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await;
-    if let Err(err) = result {
-        log::info!("could not cancel the QR code sign-in: {err}");
+/// Where a QR code sign-in is.
+enum QrProgress {
+    Waiting,
+    /// A phone sent the account's email and Secret Key.
+    Approved { email: String, secret_key: SecretKey },
+    Denied,
+    Expired,
+}
+
+/// This device's QR codes waiting for a phone, by request id: each sign-in
+/// screen polls and cancels its own (a screen shown twice starts twice).
+#[derive(Default)]
+struct QrSignIns(tokio::sync::Mutex<HashMap<String, SignInRequest>>);
+
+impl QrSignIns {
+    async fn start(&self, api: &Api, platform: &str) -> AppResult<SignInQr> {
+        let request = SignInRequest::new()?;
+        let answer: Value = api
+            .rpc(None, "start_qr_sign_in", json!({ "p_id": request.id(), "p_secret": request.poll_secret(), "p_platform": platform }))
+            .await
+            .map_err(|err| if devices::is_missing_function(&err) { invalid("device_setup_unavailable") } else { err })?;
+        if let Some(err) = answer_error(&answer) {
+            return Err(err);
+        }
+        let qr = SignInQr { id: request.id().to_string(), svg: crate::items::qr_svg(&request.link())? };
+        self.0.lock().await.insert(qr.id.clone(), request);
+        Ok(qr)
+    }
+
+    async fn poll(&self, api: &Api, id: &str) -> AppResult<QrProgress> {
+        let mut requests = self.0.lock().await;
+        let request = requests.get(id).ok_or_else(|| invalid("device_setup_expired"))?;
+        let status: QrStatus = api.rpc(None, "qr_sign_in_status", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await?;
+        match status.status.as_str() {
+            "waiting" => Ok(QrProgress::Waiting),
+            "approved" => {
+                let request = requests.remove(id).ok_or_else(|| invalid("device_setup_expired"))?;
+                let (Some(key), Some(payload)) = (status.approver_key, status.payload) else {
+                    return Err(invalid("device_setup_failed"));
+                };
+                let SetupPayload { email, secret_key } = request.open(&key, &payload).map_err(|_| invalid("device_setup_failed"))?;
+                let email = normalize_email(&email).map_err(|_| invalid("device_setup_failed"))?;
+                let secret_key = SecretKey::parse(&secret_key).map_err(|_| invalid("device_setup_failed"))?;
+                Ok(QrProgress::Approved { email, secret_key })
+            }
+            "denied" => {
+                requests.remove(id);
+                Ok(QrProgress::Denied)
+            }
+            _ => {
+                requests.remove(id);
+                Ok(QrProgress::Expired)
+            }
+        }
+    }
+
+    async fn cancel(&self, api: &Api, id: &str) {
+        let Some(request) = self.0.lock().await.remove(id) else { return };
+        let result: AppResult<Value> = api.rpc(None, "cancel_qr_sign_in", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await;
+        if let Err(err) = result {
+            log::info!("could not cancel the QR code sign-in: {err}");
+        }
     }
 }
 
@@ -333,63 +390,33 @@ async fn cancel_request(state: &AppState, request: &SignInRequest) {
 /// cancelling it.
 pub async fn qr_start(app: &AppHandle) -> AppResult<SignInQr> {
     let state = app.state::<AppState>();
-    let request = SignInRequest::new()?;
-    let answer: Value = state
-        .api
-        .rpc(None, "start_qr_sign_in", json!({ "p_id": request.id(), "p_secret": request.poll_secret(), "p_platform": devices::platform() }))
-        .await
-        .map_err(|err| if devices::is_missing_function(&err) { invalid("device_setup_unavailable") } else { err })?;
-    if let Some(err) = answer_error(&answer) {
-        return Err(err);
-    }
-    let qr = SignInQr { id: request.id().to_string(), svg: crate::items::qr_svg(&request.link())? };
-    state.setup.qr.lock().await.insert(qr.id.clone(), request);
-    Ok(qr)
+    state.setup.qr.start(&state.api, devices::platform()).await
 }
 
 /// Whether a phone answered QR code `id`; keeps the email and Secret Key it
 /// sent for the sign-in form.
 pub async fn qr_poll(app: &AppHandle, id: &str) -> AppResult<SetupProgress> {
     let state = app.state::<AppState>();
-    let mut requests = state.setup.qr.lock().await;
-    let request = requests.get(id).ok_or_else(|| invalid("device_setup_expired"))?;
-    let status: QrStatus = state.api.rpc(None, "qr_sign_in_status", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await?;
     let progress = |status: &'static str, email: Option<String>| SetupProgress { status, code: None, email };
-    match status.status.as_str() {
-        "waiting" => Ok(progress("waiting", None)),
-        "approved" => {
-            let request = requests.remove(id).ok_or_else(|| invalid("device_setup_expired"))?;
-            let (Some(key), Some(payload)) = (status.approver_key, status.payload) else {
-                return Err(invalid("device_setup_failed"));
-            };
-            let SetupPayload { email, secret_key } = request.open(&key, &payload).map_err(|_| invalid("device_setup_failed"))?;
-            let email = normalize_email(&email).map_err(|_| invalid("device_setup_failed"))?;
+    match state.setup.qr.poll(&state.api, id).await? {
+        QrProgress::Waiting => Ok(progress("waiting", None)),
+        QrProgress::Approved { email, secret_key } => {
             if let Some(existing) = state.store().account()?
                 && !existing.email.eq_ignore_ascii_case(&email)
             {
                 return Err(AppError::Invalid(Msg::new("device_other_account").with("email", &existing.email)));
             }
-            let secret_key = SecretKey::parse(&secret_key).map_err(|_| invalid("device_setup_failed"))?;
             Ok(progress("approved", Some(receive(&state, email, secret_key))))
         }
-        "denied" => {
-            requests.remove(id);
-            Ok(progress("denied", None))
-        }
-        _ => {
-            requests.remove(id);
-            Ok(progress("expired", None))
-        }
+        QrProgress::Denied => Ok(progress("denied", None)),
+        QrProgress::Expired => Ok(progress("expired", None)),
     }
 }
 
 /// Takes QR code `id` off the server.
 pub async fn qr_cancel(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
-    let request = state.setup.qr.lock().await.remove(id);
-    if let Some(request) = request {
-        cancel_request(&state, &request).await;
-    }
+    state.setup.qr.cancel(&state.api, id).await;
 }
 
 // ----- a signed-in device -----------------------------------------------------
@@ -542,5 +569,177 @@ pub async fn check_requests(app: &AppHandle) {
     if fresh > 0 {
         let _ = app.emit(EVENT_SETUP_REQUESTED, ());
         crate::notify::device_setup(app);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use keyless_core::qr_sign_in::SignInLink;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    use super::*;
+
+    /// A request as the server keeps it.
+    struct Row {
+        secret: String,
+        status: &'static str,
+        approver_key: Option<String>,
+        payload: Option<String>,
+    }
+
+    type Rows = Arc<std::sync::Mutex<HashMap<String, Row>>>;
+
+    /// The server's QR code functions, as `20261015000000_qr_sign_in.sql`
+    /// answers them.
+    fn answer(rows: &Rows, name: &str, args: &Value) -> Value {
+        let mut rows = rows.lock().unwrap();
+        let id = args["p_id"].as_str().unwrap_or_default().to_string();
+        let secret = args["p_secret"].as_str().unwrap_or_default();
+        match name {
+            "start_qr_sign_in" => {
+                rows.insert(id, Row { secret: secret.into(), status: "waiting", approver_key: None, payload: None });
+                json!({ "ok": true })
+            }
+            "qr_sign_in_status" => match rows.get(&id) {
+                Some(row) if row.secret == secret && row.status == "approved" => {
+                    let row = rows.remove(&id).unwrap();
+                    json!({ "status": "approved", "approver_key": row.approver_key, "payload": row.payload })
+                }
+                Some(row) if row.secret == secret => json!({ "status": row.status }),
+                _ => json!({ "status": "unknown" }),
+            },
+            "cancel_qr_sign_in" => {
+                if rows.get(&id).is_some_and(|row| row.secret == secret) {
+                    rows.remove(&id);
+                }
+                Value::Null
+            }
+            _ => json!({ "message": "not found" }),
+        }
+    }
+
+    /// Serves `rest/v1/rpc/*` on a local port, one request per connection.
+    async fn server(rows: Rows) -> Api {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut data = Vec::new();
+                let mut buf = [0u8; 4096];
+                let (head, body) = loop {
+                    let n = stream.read(&mut buf).await.unwrap();
+                    data.extend_from_slice(&buf[..n]);
+                    let Some(end) = data.windows(4).position(|w| w == b"\r\n\r\n") else { continue };
+                    let head = String::from_utf8_lossy(&data[..end]).to_string();
+                    let length: usize = head
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap()))
+                        .unwrap_or(0);
+                    if data.len() >= end + 4 + length {
+                        break (head, data[end + 4..end + 4 + length].to_vec());
+                    }
+                };
+                let path = head.split(' ').nth(1).unwrap_or_default();
+                let name = path.strip_prefix("/rest/v1/rpc/").unwrap_or_default();
+                let args: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                let reply = answer(&rows, name, &args).to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                    reply.len()
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        Api::local(&format!("http://127.0.0.1:{port}/"))
+    }
+
+    /// The link a QR code on screen holds (what the phone reads).
+    async fn link(qrs: &QrSignIns, id: &str) -> SignInLink {
+        SignInLink::parse(&qrs.0.lock().await[id].link()).unwrap()
+    }
+
+    /// The phone approves request `id`: seals the email and Secret Key with
+    /// what it read from `link`.
+    fn approve(rows: &Rows, id: &str, link: &SignInLink, email: &str, secret_key: &SecretKey) {
+        let payload = SetupPayload { email: email.into(), secret_key: secret_key.to_display() };
+        let (key, envelope) = link.seal(&payload).unwrap();
+        let mut rows = rows.lock().unwrap();
+        let row = rows.get_mut(id).unwrap();
+        row.status = "approved";
+        row.approver_key = Some(key);
+        row.payload = Some(envelope);
+    }
+
+    #[tokio::test]
+    async fn the_qr_code_brings_the_email_and_secret_key() {
+        let rows = Rows::default();
+        let api = server(rows.clone()).await;
+        let qrs = QrSignIns::default();
+
+        let qr = qrs.start(&api, "linux").await.unwrap();
+        assert!(qr.svg.contains("<svg"));
+        assert!(rows.lock().unwrap().contains_key(&qr.id));
+        assert!(matches!(qrs.poll(&api, &qr.id).await.unwrap(), QrProgress::Waiting));
+
+        let link = link(&qrs, &qr.id).await;
+        assert_eq!(link.id(), qr.id);
+        let sent = SecretKey::generate().unwrap();
+        approve(&rows, &qr.id, &link, " Me@Example.com ", &sent);
+        let QrProgress::Approved { email, secret_key } = qrs.poll(&api, &qr.id).await.unwrap() else {
+            panic!("not approved");
+        };
+        assert_eq!(email, "me@example.com");
+        assert_eq!(secret_key.as_bytes(), sent.as_bytes());
+
+        // Handed out once: the server and this device forgot the request.
+        assert!(rows.lock().unwrap().is_empty());
+        assert!(qrs.poll(&api, &qr.id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn each_screen_cancels_only_its_own_qr_code() {
+        let rows = Rows::default();
+        let api = server(rows.clone()).await;
+        let qrs = QrSignIns::default();
+
+        let first = qrs.start(&api, "linux").await.unwrap();
+        let second = qrs.start(&api, "linux").await.unwrap();
+        assert_ne!(first.id, second.id);
+        assert_eq!(rows.lock().unwrap().len(), 2);
+
+        qrs.cancel(&api, &first.id).await;
+        assert!(!rows.lock().unwrap().contains_key(&first.id));
+        assert!(qrs.poll(&api, &first.id).await.is_err());
+        assert!(matches!(qrs.poll(&api, &second.id).await.unwrap(), QrProgress::Waiting));
+
+        // Gone from the server some other way (it expired): the screen says so.
+        rows.lock().unwrap().clear();
+        assert!(matches!(qrs.poll(&api, &second.id).await.unwrap(), QrProgress::Expired));
+        assert!(qrs.0.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_denied_or_tampered_answer_signs_nobody_in() {
+        let rows = Rows::default();
+        let api = server(rows.clone()).await;
+        let qrs = QrSignIns::default();
+
+        let qr = qrs.start(&api, "linux").await.unwrap();
+        rows.lock().unwrap().get_mut(&qr.id).unwrap().status = "denied";
+        assert!(matches!(qrs.poll(&api, &qr.id).await.unwrap(), QrProgress::Denied));
+        assert!(qrs.0.lock().await.is_empty());
+
+        // Sealed for another QR code: this one cannot open it.
+        let qr = qrs.start(&api, "linux").await.unwrap();
+        let other = SignInLink::parse(&SignInRequest::new().unwrap().link()).unwrap();
+        approve(&rows, &qr.id, &other, "me@example.com", &SecretKey::generate().unwrap());
+        assert!(qrs.poll(&api, &qr.id).await.is_err());
+        assert!(qrs.0.lock().await.is_empty());
     }
 }
