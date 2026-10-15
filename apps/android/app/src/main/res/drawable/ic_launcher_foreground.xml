@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The logo's core and keyhole (apps/desktop/assets/logo.svg), in the
+     icon's safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="1024"
+    android:viewportHeight="1024">
+    <group
+        android:pivotX="512"
+        android:pivotY="512"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+        <path android:pathData="M512,194a318,318 0,1 1,0 636a318,318 0,1 1,0 -636z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="radial"
+                    android:centerX="512"
+                    android:centerY="397.5"
+                    android:gradientRadius="477">
+                    <item android:offset="0" android:color="#FF16524D" />
+                    <item android:offset="1" android:color="#FF062523" />
+                </gradient>
+            </aapt:attr>
+        </path>
+        <path
+            android:pathData="M512,194a318,318 0,1 1,0 636a318,318 0,1 1,0 -636z"
+            android:strokeWidth="10"
+            android:strokeColor="#2E000000" />
+        <path android:pathData="M512,344a94,94 0,1 1,0 188a94,94 0,1 1,0 -188zM470,486H554L586,676Q590,702 564,702H460Q434,702 438,676Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="0"
+                    android:startY="344"
+                    android:endX="0"
+                    android:endY="702">
+                    <item android:offset="0" android:color="#FFFFFFFF" />
+                    <item android:offset="1" android:color="#FFD5FBF4" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+</vector>
