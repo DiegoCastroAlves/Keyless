@@ -7,6 +7,7 @@
     <string name="scan_looking">Looking for the code…</string>
     <string name="choose_file">Choose an image or PDF</string>
     <string name="camera_denied">Keyless cannot use the camera. You can choose an image or PDF instead.</string>
+    <string name="camera_allow">Allow the camera</string>
     <string name="qr_not_found_totp">No two-step verification QR code was found.</string>
     <string name="qr_not_found_setup">No Keyless setup code was found.</string>
     <string name="scan_emergency_kit">Scan your Emergency Kit</string>

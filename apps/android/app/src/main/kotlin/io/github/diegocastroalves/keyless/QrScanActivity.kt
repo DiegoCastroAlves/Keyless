@@ -20,9 +20,11 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
+import android.provider.Settings
 import android.view.Gravity
 import android.view.Surface
 import android.view.TextureView
+import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -45,6 +47,7 @@ class QrScanActivity : Activity() {
         const val WANT_SETUP = "setup"
         private const val ASK_CAMERA = 1
         private const val PICK_FILE = 2
+        private const val ASKED_CAMERA = "asked_camera"
     }
 
     private lateinit var wanted: String
@@ -58,18 +61,28 @@ class QrScanActivity : Activity() {
     @Volatile private var busy = false
     @Volatile private var done = false
 
+    /** Android asked for the camera once already: not again on each return (its dialog pauses us). */
+    private var askedCamera = false
+
+    /** Android refuses without asking (denied twice, or "don't ask again"): only its settings can allow it. */
+    private var cameraBlocked = false
+    private lateinit var allowCamera: View
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // What the camera sees may be a secret: no screenshots or previews.
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         wanted = intent.getStringExtra(EXTRA_WANTED) ?: WANT_TOTP
+        askedCamera = savedInstanceState?.getBoolean(ASKED_CAMERA) ?: false
         val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         texture = TextureView(this)
         root.addView(texture, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         val panel = column(20).apply { setBackgroundColor(getColor(R.color.panel)) }
         panel.add(label(getString(R.string.scan_qr), 18f, bold = true))
-        status = label(getString(if (wanted == WANT_SETUP) R.string.scan_hint_setup else R.string.scan_hint_totp), 14f, muted = true)
+        status = label(hint(), 14f, muted = true)
         panel.add(status, top = 4)
+        allowCamera = plainButton(getString(R.string.camera_allow)) { askForCamera() }.apply { visibility = View.GONE }
+        panel.add(allowCamera, width = ViewGroup.LayoutParams.WRAP_CONTENT, top = 4)
         val buttons = row()
         buttons.add(plainButton(getString(R.string.choose_file)) { pickFile() }, width = 0, weight = 1f)
         buttons.add(plainButton(getString(R.string.cancel)) { finish() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -82,7 +95,37 @@ class QrScanActivity : Activity() {
         super.onResume()
         if (done) return
         if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            startWhenReady()
+            cameraAllowed()
+        } else if (!askedCamera) {
+            askedCamera = true
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), ASK_CAMERA)
+        } else {
+            cameraDenied()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(ASKED_CAMERA, askedCamera)
+    }
+
+    private fun hint(): String = getString(if (wanted == WANT_SETUP) R.string.scan_hint_setup else R.string.scan_hint_totp)
+
+    private fun cameraAllowed() {
+        if (allowCamera.visibility == View.VISIBLE) status.text = hint()
+        allowCamera.visibility = View.GONE
+        startWhenReady()
+    }
+
+    private fun cameraDenied() {
+        status.text = getString(R.string.camera_denied)
+        allowCamera.visibility = View.VISIBLE
+    }
+
+    /** Asks again, or, once Android stopped asking, opens Keyless's settings. */
+    private fun askForCamera() {
+        if (cameraBlocked) {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
         } else {
             requestPermissions(arrayOf(Manifest.permission.CAMERA), ASK_CAMERA)
         }
@@ -100,7 +143,13 @@ class QrScanActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         if (requestCode != ASK_CAMERA) return
-        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startWhenReady() else status.text = getString(R.string.camera_denied)
+        if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            cameraAllowed()
+        } else {
+            // A dismissed dialog gives no answer, and may show again.
+            cameraBlocked = grantResults.isNotEmpty() && !shouldShowRequestPermissionRationale(Manifest.permission.CAMERA)
+            cameraDenied()
+        }
     }
 
     private fun startWhenReady() {
