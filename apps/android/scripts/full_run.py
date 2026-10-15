@@ -465,6 +465,26 @@ def start_requester(path):
     return asker, ask
 
 
+def capture_screen():
+    """The screen as a PNG, through the emulator (the app blocks screenshots):
+    its path, or None where the emulator cannot take one. Some emulators take
+    the file's name, others a folder to put it in."""
+    folder = tempfile.mkdtemp()
+    target = os.path.join(folder, "screen.png")
+    said = adb("emu", "screenrecord", "screenshot", target, check=False)
+    time.sleep(1)
+
+    def pictures():
+        return sorted(os.path.join(root, name) for root, _, names in os.walk(folder) for name in names if name.endswith(".png"))
+
+    if not pictures():
+        said += adb("emu", "screenrecord", "screenshot", folder, check=False)
+        time.sleep(1)
+    found = pictures()
+    print(f"screen capture: {said.strip()!r} -> {found}", flush=True)
+    return found[0] if found else None
+
+
 def qr_sign_in(fixture, requester_path):
     """Signing in with a QR code: refused once, then the code read from the
     screen (the emulator's own capture: the app blocks screenshots) and
@@ -481,11 +501,14 @@ def qr_sign_in(fixture, requester_path):
     second = wait_mock("/test/qr_sign_in", lambda rows: any(r["status"] == "waiting" for r in rows), 20)
     outcome("shows a new code", second is not None)
     time.sleep(2)
-    shot = os.path.join(tempfile.mkdtemp(), "qr.png")
-    adb("emu", "screenrecord", "screenshot", shot, check=False)
-    found = (ask({"op": "scanPng", "path": shot}) or []) if os.path.exists(shot) else []
-    link = next((f for f in found if f.startswith("keyless://sign-in")), None)
-    outcome("the QR code holds the sign-in link", link is not None, f"found {found}")
+    shot = capture_screen()
+    if shot is None:
+        print("::notice title=QR code sign-in::This emulator cannot capture its screen: reading the code off it was skipped.", flush=True)
+        link = None
+    else:
+        found = ask({"op": "scanPng", "path": shot}) or []
+        link = next((f for f in found if f.startswith("keyless://sign-in")), None)
+        outcome("the QR code holds the sign-in link", link is not None, f"found {found} in {shot}")
     if link:
         sealed = ask({"op": "qrSeal", "link": link, "email": fixture["email"], "secretKey": fixture["secretKey"]})
         mock(f"/test/qr_sign_in/{sealed['id']}/approve", {"approver_key": sealed["approverKey"], "enc_payload": sealed["payload"]})

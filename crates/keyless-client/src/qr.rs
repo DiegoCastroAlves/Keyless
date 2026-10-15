@@ -71,6 +71,33 @@ mod tests {
         assert!(modules(&"x".repeat(5000)).is_none());
     }
 
+    /// A code drawn as the Android app's QrView draws it: the modules and a
+    /// 4-module quiet zone across `side` pixels, cells of a fractional size,
+    /// a pixel dark when its center falls in a dark module.
+    fn drawn(text: &str, side: usize) -> Vec<u8> {
+        let rows = modules(text).unwrap();
+        let count = (rows.len() + 8) as f32;
+        let cell = side as f32 / count;
+        let mut pixels = vec![255u8; side * side];
+        for py in 0..side {
+            for px in 0..side {
+                let (mx, my) = (((px as f32 + 0.5) / cell) as usize, ((py as f32 + 0.5) / cell) as usize);
+                if (4..rows.len() + 4).contains(&mx) && (4..rows.len() + 4).contains(&my) && rows[my - 4].as_bytes()[mx - 4] == b'1' {
+                    pixels[py * side + px] = 0;
+                }
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn reads_a_sign_in_code_as_small_phones_draw_it() {
+        let link = "keyless://sign-in#id=f118f056-8b84-4038-9e1f-0123456789ab&key=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&token=BBBBBBBBBBBBBBBBBBBBBB";
+        for side in [224, 240, 260, 300] {
+            assert_eq!(decode_grey(&drawn(link, side), side, side, side), vec![link.to_string()], "{side} px");
+        }
+    }
+
     #[test]
     fn reads_codes_in_frames() {
         let uri = "otpauth://totp/Example:me?secret=JBSWY3DPEHPK3PXP&issuer=Example";
