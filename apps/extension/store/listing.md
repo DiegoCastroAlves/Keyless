@@ -102,6 +102,9 @@ Chrome Web Store: Productivity › Tools. Edge: Productivity. Firefox: Privacy
 
 `store/images/`:
 
+- store icon, 128×128: `store-icon-128.png` (the logo at 96×96 with 16 px of
+  transparent padding, as the Chrome Web Store asks; rendered from
+  `apps/desktop/assets/logo.svg`);
 - screenshots, 1280×800: `1-suggest-password.png`, `2-save-login.png`,
   `3-sign-in-card.png`, `4-fill-menu.png`, `5-popup.png` (a made-up site,
   northwind.example, and a made-up account);
