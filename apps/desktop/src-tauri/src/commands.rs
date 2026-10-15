@@ -22,7 +22,6 @@ use crate::{
     health::{self, HealthReport, Strength},
     import::{self, ImportFormat, ImportTarget},
     items::{self, HistoryEntry, ItemDetailView, ItemDraft, ItemSummary, TotpCode, VaultDto},
-    oauth,
     state::{AppState, Settings, SyncStatus},
     sync, updates,
 };
@@ -57,22 +56,6 @@ pub async fn get_status(state: State<'_, AppState>) -> AppResult<AppStatus> {
 #[tauri::command]
 pub async fn create_account(app: AppHandle, email: String, master_password: String, language: Option<String>) -> AppResult<CreatedAccount> {
     auth::create_account(&app, &email, Zeroizing::new(master_password), language.as_deref()).await
-}
-
-#[tauri::command]
-pub async fn sign_in_with_google(app: AppHandle, page: oauth::BrowserPage) -> AppResult<oauth::GoogleResult> {
-    oauth::sign_in_with_google(&app, page).await
-}
-
-#[tauri::command]
-pub async fn cancel_google_sign_in(state: State<'_, AppState>) -> AppResult<()> {
-    oauth::cancel(&state).await;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn create_account_with_google(app: AppHandle, master_password: String) -> AppResult<CreatedAccount> {
-    auth::create_account_with_google(&app, Zeroizing::new(master_password)).await
 }
 
 #[tauri::command]

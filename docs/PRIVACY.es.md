@@ -28,13 +28,13 @@ quien gestiona el servidor de Keyless, puede leer tus bóvedas.
   una copia cifrada de lo que necesita el inicio de sesión (que solo la
   llave de acceso abre).
 
-## Iniciar sesión con Google
+## Cuentas creadas con Google
 
-Si eliges continuar con Google, Keyless recibe de Google tu correo
-verificado, tu nombre y tu foto de perfil. Se guardan con tu cuenta y solo
-sirven para identificarla. Keyless no pide acceso a ningún otro dato o
-servicio de Google, y entrar con Google nunca da acceso a tus bóvedas:
-abrirlas siempre exige la contraseña maestra y la Clave Secreta.
+Keyless ya no ofrece iniciar sesión con Google. Las cuentas creadas con él
+antes conservan el correo verificado, el nombre y la foto de perfil que Google
+envió en su momento, guardados con la cuenta y solo para identificarla, hasta
+que se elimine la cuenta. Keyless nunca tuvo acceso a ningún otro dato o
+servicio de Google.
 
 ## Enlaces compartidos con correos concretos
 

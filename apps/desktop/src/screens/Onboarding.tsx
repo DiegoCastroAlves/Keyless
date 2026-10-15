@@ -1,9 +1,10 @@
 import {
   ArrowLeft,
   ArrowRight,
-  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
   ClipboardPaste,
-  Cloud,
   FileText,
   KeyRound,
   LifeBuoy,
@@ -11,31 +12,37 @@ import {
   MailCheck,
   MonitorSmartphone,
   ScanLine,
-  QrCode,
   ShieldAlert,
-  ShieldCheck,
 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
-import { AuthShell, Logo, PasswordInput, StrengthMeter, useStrength } from "../components/common";
+import { AccountAvatar, AuthShell, Logo, PasswordInput, StrengthMeter, UnlockField, useStrength } from "../components/common";
 import { EmergencyKit } from "../components/EmergencyKit";
 import { RecoveryKit } from "../components/RecoveryKit";
-import { Button, ErrorText, Input, Label } from "../components/ui";
-import { api, errorCode, errorMessage, isCancelled, type AppStatus, type GoogleResult, type RecoveryPrepare } from "../lib/api";
+import { Button, ErrorText, Input, Label, cx } from "../components/ui";
+import { api, errorCode, errorMessage, isCancelled, type AppStatus, type RecoveryPrepare } from "../lib/api";
 import { useApp } from "../lib/store";
 import { toast } from "../lib/toast";
 
+type Notice = "confirm" | "recovered";
+
 type Step =
   | { kind: "welcome" }
-  | { kind: "create"; googleEmail?: string }
+  | { kind: "create" }
   | { kind: "kit"; email: string; secretKey: string; confirmationRequired: boolean }
-  | { kind: "signin"; email?: string; notice?: "confirm" | "google" | "recovered" }
+  /** "Sign in": the QR code for a phone, and the other ways. */
+  | { kind: "qr" }
+  | { kind: "email"; email?: string }
+  /** The last step: the master password, and the Secret Key unless this
+   * device already has it. */
+  | { kind: "signin"; email: string; notice?: Notice }
   | { kind: "otherDevice"; email: string }
-  | { kind: "qr"; email?: string }
   | { kind: "recover"; email?: string }
   | { kind: "recoverPassword"; email: string }
   | { kind: "recoverKits"; prepared: RecoveryPrepare };
+
+type ScanSource = "screen" | "clipboard" | "file";
 
 export function Onboarding({ status }: { status: AppStatus }) {
   const [step, setStep] = useState<Step>(() => {
@@ -51,28 +58,15 @@ export function Onboarding({ status }: { status: AppStatus }) {
 
   // A setup code arrived (a keyless://setup link was opened): sign in with it.
   useEffect(() => {
-    if (status.setupEmail) setStep((current) => (current.kind === "signin" && current.email === status.setupEmail ? current : { kind: "signin", email: status.setupEmail ?? undefined }));
+    if (status.setupEmail) setStep((current) => (current.kind === "signin" && current.email === status.setupEmail ? current : { kind: "signin", email: status.setupEmail ?? "" }));
   }, [status.setupEmail]);
 
   switch (step.kind) {
     case "welcome":
-      return (
-        <Welcome
-          onCreate={() => setStep({ kind: "create" })}
-          onSignIn={() => setStep({ kind: "signin" })}
-          onGoogle={(result) =>
-            setStep(
-              result.kind === "new"
-                ? { kind: "create", googleEmail: result.email }
-                : { kind: "signin", email: result.email, notice: "google" },
-            )
-          }
-        />
-      );
+      return <Welcome onCreate={() => setStep({ kind: "create" })} onSignIn={() => setStep({ kind: "qr" })} />;
     case "create":
       return (
         <CreateAccount
-          googleEmail={step.googleEmail}
           onBack={() => setStep({ kind: "welcome" })}
           onCreated={(email, secretKey, confirmationRequired) => setStep({ kind: "kit", email, secretKey, confirmationRequired })}
         />
@@ -91,33 +85,53 @@ export function Onboarding({ status }: { status: AppStatus }) {
           }}
         />
       );
-    case "signin":
-      return (
-        <SignIn
-          initialEmail={step.email}
-          notice={step.notice}
-          knownSecretKey={status.hasSecretKey && !!step.email && step.email === status.pendingEmail}
-          setupEmail={status.setupEmail}
-          onBack={() => setStep({ kind: "welcome" })}
-          onRecover={(email) => setStep({ kind: "recover", email })}
-          onOtherDevice={(email) => setStep({ kind: "otherDevice", email })}
-          onQr={(email) => setStep({ kind: "qr", email })}
-        />
-      );
-    case "otherDevice":
-      return <OtherDevice email={step.email} onBack={() => setStep({ kind: "signin", email: step.email })} />;
     case "qr":
       return (
         <QrSignIn
-          onBack={() => setStep({ kind: "signin", email: step.email })}
+          onBack={() => setStep({ kind: "welcome" })}
+          onManual={() => setStep({ kind: "email" })}
           onReceived={(email) => setStep({ kind: "signin", email })}
         />
       );
+    case "email":
+      return <SignInEmail initialEmail={step.email} onBack={() => setStep({ kind: "qr" })} onNext={(email) => setStep({ kind: "signin", email })} />;
+    case "signin": {
+      const email = step.email.toLowerCase();
+      // The Secret Key came with a setup code or from another device, or
+      // stayed here (an account waiting for its email confirmation).
+      const received = !!status.setupEmail && status.setupEmail.toLowerCase() === email;
+      const kept = status.hasSecretKey && (status.pendingEmail ?? "").toLowerCase() === email;
+      return received || kept ? (
+        <SignInPassword
+          email={step.email}
+          notice={step.notice}
+          onOtherAccount={async () => {
+            if (received) {
+              await api.clearSetupCode();
+              await useApp.getState().refreshStatus();
+            }
+            setStep({ kind: "qr" });
+          }}
+          onRecover={() => setStep({ kind: "recover", email: step.email })}
+        />
+      ) : (
+        <SignInKey
+          email={step.email}
+          notice={step.notice}
+          onBack={() => setStep({ kind: "email", email: step.email })}
+          onReceived={(email) => setStep({ kind: "signin", email })}
+          onRecover={() => setStep({ kind: "recover", email: step.email })}
+          onOtherDevice={() => setStep({ kind: "otherDevice", email: step.email })}
+        />
+      );
+    }
+    case "otherDevice":
+      return <OtherDevice email={step.email} onBack={() => setStep({ kind: "signin", email: step.email })} />;
     case "recover":
       return (
         <RecoverStart
           initialEmail={step.email}
-          onBack={() => setStep({ kind: "signin", email: step.email })}
+          onBack={() => setStep(step.email ? { kind: "signin", email: step.email } : { kind: "qr" })}
           onOpened={(email) => setStep({ kind: "recoverPassword", email })}
         />
       );
@@ -143,51 +157,18 @@ export function Onboarding({ status }: { status: AppStatus }) {
   }
 }
 
-function GoogleLogo({ className }: { className?: string }) {
+function BackButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
   return (
-    <svg viewBox="0 0 48 48" className={className} aria-hidden="true">
-      <path
-        fill="#FFC107"
-        d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.6-.4-3.9z"
-      />
-      <path fill="#FF3D00" d="m6.3 14.7 6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 8 3l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
-      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2A11.9 11.9 0 0 1 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
-      <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3a12 12 0 0 1-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.6-.4-3.9z" />
-    </svg>
+    <button onClick={onClick} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+      <ArrowLeft className="size-4" /> {t("common.back")}
+    </button>
   );
 }
 
-function Welcome({
-  onCreate,
-  onSignIn,
-  onGoogle,
-}: {
-  onCreate: () => void;
-  onSignIn: () => void;
-  onGoogle: (result: GoogleResult) => void;
-}) {
+function Welcome({ onCreate, onSignIn }: { onCreate: () => void; onSignIn: () => void }) {
   const { t } = useTranslation();
-  const [waiting, setWaiting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const revoked = useApp((s) => s.deviceRevoked);
-
-  const continueWithGoogle = async () => {
-    setWaiting(true);
-    setError(null);
-    try {
-      const result = await api.signInWithGoogle({
-        doneTitle: t("google.browserDoneTitle"),
-        doneBody: t("google.browserDoneBody"),
-        errorTitle: t("google.browserErrorTitle"),
-      });
-      onGoogle(result);
-    } catch (err) {
-      if (!isCancelled(err)) setError(errorMessage(err));
-    } finally {
-      setWaiting(false);
-    }
-  };
-
   return (
     <AuthShell>
       <div className="flex flex-col items-center text-center">
@@ -202,65 +183,25 @@ function Welcome({
         </div>
       )}
       <div className="mt-8 space-y-2.5">
-        {waiting ? (
-          <div className="rounded-xl border border-line bg-panel-2 p-5 text-center">
-            <Loader2 className="mx-auto size-5 animate-spin text-accent" />
-            <p className="mt-3 text-sm font-medium">{t("google.waitingTitle")}</p>
-            <p className="mt-1 text-[13px] leading-relaxed text-muted">{t("google.waitingBody")}</p>
-            <Button size="sm" variant="ghost" className="mt-3" onClick={() => void api.cancelGoogleSignIn()}>
-              {t("common.cancel")}
-            </Button>
-          </div>
-        ) : (
-          <>
-            <Button size="lg" className="w-full" onClick={continueWithGoogle}>
-              <GoogleLogo className="size-[18px]" />
-              {t("welcome.google")}
-            </Button>
-            <div className="flex items-center gap-3 py-1 text-[11px] uppercase tracking-wider text-subtle">
-              <span className="h-px flex-1 bg-line" />
-              {t("welcome.or")}
-              <span className="h-px flex-1 bg-line" />
-            </div>
-            <Button variant="primary" size="lg" className="w-full" onClick={onCreate}>
-              {t("welcome.create")}
-            </Button>
-            <Button size="lg" className="w-full" onClick={onSignIn}>
-              {t("welcome.signIn")}
-            </Button>
-          </>
-        )}
-        <ErrorText>{error}</ErrorText>
-      </div>
-      <div className="mt-8 grid grid-cols-3 gap-3 text-center text-[11px] text-subtle">
-        <div className="flex flex-col items-center gap-1.5">
-          <ShieldCheck className="size-4 text-accent" />
-          {t("welcome.zeroKnowledge")}
-        </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <KeyRound className="size-4 text-accent" />
-          {t("welcome.twoSecrets")}
-        </div>
-        <div className="flex flex-col items-center gap-1.5">
-          <Cloud className="size-4 text-accent" />
-          {t("welcome.synced")}
-        </div>
+        <Button variant="primary" size="lg" className="w-full" onClick={onSignIn}>
+          {t("welcome.signIn")}
+        </Button>
+        <Button size="lg" className="w-full" onClick={onCreate}>
+          {t("welcome.create")}
+        </Button>
       </div>
     </AuthShell>
   );
 }
 
 function CreateAccount({
-  googleEmail,
   onBack,
   onCreated,
 }: {
-  /** Set when Google already confirmed the email. */
-  googleEmail?: string;
   onBack: () => void;
   onCreated: (email: string, secretKey: string, confirmationRequired: boolean) => void;
 }) {
-  const [email, setEmail] = useState(googleEmail ?? "");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [understood, setUnderstood] = useState(false);
@@ -279,7 +220,7 @@ function CreateAccount({
     setBusy(true);
     setError(null);
     try {
-      const result = googleEmail ? await api.createAccountWithGoogle(password) : await api.createAccount(email, password);
+      const result = await api.createAccount(email, password);
       setPassword("");
       setConfirm("");
       onCreated(email.trim().toLowerCase(), result.secretKey, result.confirmationRequired);
@@ -292,35 +233,17 @@ function CreateAccount({
 
   return (
     <AuthShell>
-      <button
-        onClick={() => {
-          if (googleEmail) void api.cancelGoogleSignIn();
-          onBack();
-        }}
-        className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg"
-      >
-        <ArrowLeft className="size-4" /> {t("common.back")}
-      </button>
-      <h1 className="text-xl font-semibold tracking-tight">{t(googleEmail ? "google.createTitle" : "create.title")}</h1>
-      <p className="mt-1.5 text-sm leading-relaxed text-muted">{t(googleEmail ? "google.createSubtitle" : "create.subtitle")}</p>
+      <BackButton onClick={onBack} />
+      <h1 className="text-xl font-semibold tracking-tight">{t("create.title")}</h1>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted">{t("create.subtitle")}</p>
       <form onSubmit={submit} className="mt-6 space-y-4">
-        {googleEmail ? (
-          <div className="flex items-center gap-3 rounded-lg border border-line bg-panel-2 px-3 py-2.5">
-            <GoogleLogo className="size-5 shrink-0" />
-            <div className="min-w-0">
-              <p className="text-[11px] text-subtle">{t("google.account")}</p>
-              <p className="truncate text-sm font-medium">{googleEmail}</p>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <Label htmlFor="email">{t("common.email")}</Label>
-            <Input id="email" type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="h-10" />
-          </div>
-        )}
+        <div>
+          <Label htmlFor="email">{t("common.email")}</Label>
+          <Input id="email" type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="h-10" />
+        </div>
         <div>
           <Label htmlFor="password">{t("common.masterPassword")}</Label>
-          <PasswordInput id="password" autoFocus={!!googleEmail} value={password} onChange={(e) => setPassword(e.target.value)} invalid={tooShort} />
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} invalid={tooShort} />
           <StrengthMeter strength={strength} />
           {tooShort && <p className="mt-1 text-xs text-danger">{t("create.tooShort")}</p>}
         </div>
@@ -368,71 +291,87 @@ function KitStep({ email, secretKey, onDone }: { email: string; secretKey: strin
   );
 }
 
-function SignIn({
-  initialEmail,
-  notice,
-  knownSecretKey,
-  setupEmail,
-  onBack,
-  onRecover,
-  onOtherDevice,
-  onQr,
+/** A list of other ways, each a row with an icon, a title and a hint. */
+function Options({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div>
+      <div className="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-subtle">{title}</div>
+      <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-panel">{children}</div>
+    </div>
+  );
+}
+
+function OptionRow({
+  icon,
+  title,
+  hint,
+  onClick,
+  open,
+  children,
 }: {
-  initialEmail?: string;
-  notice?: "confirm" | "google" | "recovered";
-  knownSecretKey: boolean;
-  setupEmail: string | null;
-  onBack: () => void;
-  onRecover: (email: string) => void;
-  onOtherDevice: (email: string) => void;
-  onQr: (email?: string) => void;
+  icon: ReactNode;
+  title: string;
+  hint?: string;
+  onClick: () => void;
+  /** Set for a row that opens below itself. */
+  open?: boolean;
+  children?: ReactNode;
 }) {
-  const [email, setEmail] = useState(initialEmail ?? "");
-  const [secretKey, setSecretKey] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [resending, setResending] = useState(false);
-  const refreshStatus = useApp((s) => s.refreshStatus);
+  const Chevron = open ? ChevronDown : ChevronRight;
+  return (
+    <div>
+      <button type="button" onClick={onClick} aria-expanded={open} className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-panel-2">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent">{icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-medium">{title}</span>
+          {hint && <span className="mt-0.5 block text-xs leading-relaxed text-muted">{hint}</span>}
+        </span>
+        <Chevron className="size-4 shrink-0 text-subtle" />
+      </button>
+      {open && children && <div className="px-3.5 pb-3.5 pl-[3.75rem]">{children}</div>}
+    </div>
+  );
+}
+
+/** Reads the Emergency Kit's setup code (or the one "Set up another device"
+ * shows): from its PDF or a picture, the screen or the clipboard. */
+function KitCodeOption({ open, onToggle, onRead }: { open: boolean; onToggle: () => void; onRead: (source: ScanSource) => void }) {
   const { t } = useTranslation();
+  return (
+    <OptionRow icon={<ScanLine className="size-[18px]" />} title={t("signIn.kitCode")} hint={t("signIn.kitCodeHint")} onClick={onToggle} open={open}>
+      <p className="text-xs leading-relaxed text-subtle">{t("setup.codeHint")}</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <Button type="button" size="sm" onClick={() => onRead("file")}>
+          <FileText className="size-4" /> {t("setup.fromFile")}
+        </Button>
+        <Button type="button" size="sm" onClick={() => onRead("screen")}>
+          <ScanLine className="size-4" /> {t("setup.fromScreen")}
+        </Button>
+        <Button type="button" size="sm" onClick={() => onRead("clipboard")}>
+          <ClipboardPaste className="size-4" /> {t("setup.fromClipboard")}
+        </Button>
+      </div>
+    </OptionRow>
+  );
+}
 
-  const typedEmail = email.trim().toLowerCase();
-  // The Secret Key came with a setup code or from another device.
-  const received = !!setupEmail && typedEmail === setupEmail.toLowerCase();
-  const needsSecretKey = !received && !(knownSecretKey && typedEmail === (initialEmail ?? "").toLowerCase());
+/** Reads a setup code; returns its email, or null (cancelled, or failed
+ * with the error shown through `setError`). */
+async function readSetupCode(read: () => Promise<string>, setError: (error: string | null) => void): Promise<string | null> {
+  setError(null);
+  try {
+    const email = await read();
+    await useApp.getState().refreshStatus();
+    return email;
+  } catch (err) {
+    if (!isCancelled(err)) setError(errorMessage(err));
+    return null;
+  }
+}
 
-  const useSetup = async (read: () => Promise<string>) => {
-    setError(null);
-    try {
-      const found = await read();
-      setEmail(found);
-      setSecretKey("");
-      await refreshStatus();
-    } catch (err) {
-      if (!isCancelled(err)) setError(errorMessage(err));
-    }
-  };
-
-  const forgetSetup = async () => {
-    await api.clearSetupCode();
-    await refreshStatus();
-  };
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      await api.signIn(email, needsSecretKey ? secretKey : null, password);
-      setPassword("");
-      await refreshStatus();
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function Notices({ notice, email }: { notice?: Notice; email: string }) {
+  const { t } = useTranslation();
+  const [resending, setResending] = useState(false);
   const resend = async () => {
     setResending(true);
     try {
@@ -444,97 +383,228 @@ function SignIn({
       setResending(false);
     }
   };
+  if (notice === "confirm") {
+    return (
+      <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-left text-[13px] leading-relaxed">
+        <MailCheck className="mt-0.5 size-5 shrink-0 text-accent" />
+        <div>
+          <Trans i18nKey="signIn.confirmNotice" values={{ email }} components={{ strong: <strong /> }} />{" "}
+          <button type="button" onClick={resend} disabled={resending} className="font-medium text-accent hover:underline disabled:opacity-50">
+            {t("signIn.resend")}
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (notice === "recovered") {
+    return (
+      <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-left text-[13px] leading-relaxed">
+        <LifeBuoy className="mt-0.5 size-5 shrink-0 text-accent" />
+        <div>{t("recovery.recoveredSignIn")}</div>
+      </div>
+    );
+  }
+  return null;
+}
 
+/** Signing in by hand, first the email. */
+function SignInEmail({ initialEmail, onBack, onNext }: { initialEmail?: string; onBack: () => void; onNext: (email: string) => void }) {
+  const { t } = useTranslation();
+  const [email, setEmail] = useState(initialEmail ?? "");
+  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   return (
     <AuthShell>
-      <button onClick={onBack} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
-        <ArrowLeft className="size-4" /> {t("common.back")}
-      </button>
-      <div className="flex items-center gap-3">
-        <Logo className="size-10" />
-        <h1 className="text-xl font-semibold tracking-tight">{t("signIn.title")}</h1>
-      </div>
-      {notice === "confirm" && (
-        <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-[13px] leading-relaxed">
-          <MailCheck className="mt-0.5 size-5 shrink-0 text-accent" />
-          <div>
-            <Trans i18nKey="signIn.confirmNotice" values={{ email: initialEmail }} components={{ strong: <strong /> }} />{" "}
-            <button type="button" onClick={resend} disabled={resending} className="font-medium text-accent hover:underline disabled:opacity-50">
-              {t("signIn.resend")}
-            </button>
-          </div>
-        </div>
-      )}
-      {notice === "recovered" && (
-        <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-[13px] leading-relaxed">
-          <LifeBuoy className="mt-0.5 size-5 shrink-0 text-accent" />
-          <div>{t("recovery.recoveredSignIn")}</div>
-        </div>
-      )}
-      {notice === "google" && (
-        <div className="mt-5 flex gap-3 rounded-xl border border-accent/30 bg-accent-soft p-3.5 text-[13px] leading-relaxed">
-          <GoogleLogo className="mt-0.5 size-5 shrink-0" />
-          <div>
-            <Trans i18nKey="signIn.googleNotice" values={{ email: initialEmail }} components={{ strong: <strong /> }} />
-          </div>
-        </div>
-      )}
-      <form onSubmit={submit} className="mt-6 space-y-4">
+      <BackButton onClick={onBack} />
+      <h1 className="text-xl font-semibold tracking-tight">{t("signIn.emailTitle")}</h1>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted">{t("signIn.emailBody")}</p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (valid) onNext(email.trim().toLowerCase());
+        }}
+        className="mt-6 space-y-4"
+      >
         <div>
           <Label htmlFor="email">{t("common.email")}</Label>
-          <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!initialEmail} className="h-10" />
+          <Input id="email" type="email" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="h-10" />
         </div>
-        {received && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-success/30 bg-success/10 px-3.5 py-3 text-[13px] leading-relaxed">
-            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
-            <div className="min-w-0 flex-1">
-              {t("signIn.keyReceived")}{" "}
-              <button type="button" onClick={forgetSetup} className="font-medium text-accent hover:underline">
-                {t("signIn.typeKeyInstead")}
-              </button>
-            </div>
-          </div>
-        )}
-        {needsSecretKey && (
-          <div>
-            <Label htmlFor="secret-key">{t("common.secretKey")}</Label>
-            <Input
-              id="secret-key"
-              value={secretKey}
-              onChange={(e) => {
-                const value = e.target.value;
-                // A setup link pasted here does the same as reading its code.
-                if (value.trim().toLowerCase().startsWith("keyless://setup")) {
-                  setSecretKey("");
-                  void useSetup(() => api.useSetupLink(value));
-                } else {
-                  setSecretKey(value.toUpperCase());
-                }
-              }}
-              placeholder="K1-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX"
-              className="h-10 font-mono tracking-wide"
-            />
-            <p className="mt-1 text-xs text-subtle">{t("signIn.secretKeyHint")}</p>
-            <SetupCodeOptions
-              canUseDevice={!!email.trim()}
-              onQr={() => onQr(email.trim() || undefined)}
-              onOtherDevice={() => onOtherDevice(email.trim())}
-              onRead={(source) => void useSetup(() => api.scanSetupCode(source))}
-            />
-          </div>
-        )}
+        <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!valid}>
+          {t("common.continue")} <ArrowRight className="size-4" />
+        </Button>
+      </form>
+    </AuthShell>
+  );
+}
+
+/** The last step when this device has no Secret Key yet: the Secret Key and
+ * the master password, or another way to bring the Secret Key. */
+function SignInKey({
+  email,
+  notice,
+  onBack,
+  onReceived,
+  onRecover,
+  onOtherDevice,
+}: {
+  email: string;
+  notice?: Notice;
+  onBack: () => void;
+  onReceived: (email: string) => void;
+  onRecover: () => void;
+  onOtherDevice: () => void;
+}) {
+  const { t } = useTranslation();
+  const [secretKey, setSecretKey] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<"kit" | "where" | null>(null);
+  const refreshStatus = useApp((s) => s.refreshStatus);
+
+  const useSetup = async (read: () => Promise<string>) => {
+    const found = await readSetupCode(read, setError);
+    if (found) onReceived(found);
+  };
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.signIn(email, secretKey, password);
+      setPassword("");
+      await refreshStatus();
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthShell wide="md">
+      <BackButton onClick={onBack} />
+      <h1 className="text-xl font-semibold tracking-tight">{t("signIn.keyTitle")}</h1>
+      <p className="mt-1.5 text-sm leading-relaxed text-muted">{t("signIn.keyBody")}</p>
+      <Notices notice={notice} email={email} />
+      <div className="mt-5 flex items-center gap-3 rounded-xl border border-line bg-panel px-3 py-2.5">
+        <AccountAvatar email={email} className="size-8 rounded-lg text-sm" />
+        <span className="selectable min-w-0 flex-1 truncate text-sm font-medium">{email}</span>
+        <button type="button" onClick={onBack} className="text-[13px] font-medium text-accent hover:underline">
+          {t("signIn.changeEmail")}
+        </button>
+      </div>
+      <form onSubmit={submit} className="mt-4 space-y-4">
+        <div>
+          <Label htmlFor="secret-key">{t("common.secretKey")}</Label>
+          <Input
+            id="secret-key"
+            autoFocus
+            value={secretKey}
+            onChange={(e) => {
+              const value = e.target.value;
+              // A setup link pasted here does the same as reading its code.
+              if (value.trim().toLowerCase().startsWith("keyless://setup")) {
+                setSecretKey("");
+                void useSetup(() => api.useSetupLink(value));
+              } else {
+                setSecretKey(value.toUpperCase());
+              }
+            }}
+            placeholder="K1-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX"
+            className="h-10 font-mono tracking-wide"
+          />
+        </div>
         <div>
           <Label htmlFor="password">{t("common.masterPassword")}</Label>
-          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus={!!initialEmail} />
+          <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         <ErrorText>{error}</ErrorText>
-        <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={!email || !password || (needsSecretKey && !secretKey)}>
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={!password || !secretKey}>
           {t("signIn.submit")}
         </Button>
       </form>
+      <div className="mt-6">
+        <Options title={t("signIn.otherOptions")}>
+          <KitCodeOption open={open === "kit"} onToggle={() => setOpen((v) => (v === "kit" ? null : "kit"))} onRead={(source) => void useSetup(() => api.scanSetupCode(source))} />
+          <OptionRow icon={<MonitorSmartphone className="size-[18px]" />} title={t("signIn.askDevice")} hint={t("signIn.askDeviceHint")} onClick={onOtherDevice} />
+          <OptionRow icon={<CircleHelp className="size-[18px]" />} title={t("signIn.whereKey")} onClick={() => setOpen((v) => (v === "where" ? null : "where"))} open={open === "where"}>
+            <p className="text-[13px] leading-relaxed text-muted">{t("signIn.whereKeyBody")}</p>
+          </OptionRow>
+        </Options>
+      </div>
       <div className="mt-5 text-center">
-        <button type="button" onClick={() => onRecover(email.trim())} className="text-[13px] text-muted hover:text-fg hover:underline">
+        <button type="button" onClick={onRecover} className="text-[13px] text-muted hover:text-fg hover:underline">
           {t("recovery.forgot")}
+        </button>
+      </div>
+    </AuthShell>
+  );
+}
+
+/** The last step when the Secret Key is already here (it came with a QR
+ * code, a setup code or another device): only the master password. */
+function SignInPassword({ email, notice, onOtherAccount, onRecover }: { email: string; notice?: Notice; onOtherAccount: () => void; onRecover: () => void }) {
+  const { t } = useTranslation();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [shake, setShake] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const refreshStatus = useApp((s) => s.refreshStatus);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!password || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.signIn(email, null, password);
+      setPassword("");
+      await refreshStatus();
+    } catch (err) {
+      setError(errorMessage(err));
+      if (errorCode(err) === "wrong_password") setShake((s) => s + 1);
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <AuthShell>
+      <div className="flex flex-col items-center text-center">
+        <AccountAvatar email={email} />
+        <h1 className="mt-5 text-xl font-semibold tracking-tight">{t("signIn.passwordTitle")}</h1>
+        <p className="selectable mt-1 text-sm text-muted">{email}</p>
+      </div>
+      <Notices notice={notice} email={email} />
+      <form onSubmit={submit} className="mt-7">
+        <UnlockField
+          ref={inputRef}
+          value={password}
+          onChange={setPassword}
+          placeholder={t("lock.placeholder")}
+          submitLabel={t("signIn.submit")}
+          busy={busy}
+          invalid={!!error}
+          shake={shake}
+        />
+        <p className={cx("mt-2 min-h-5 text-center text-[13px]", error ? "text-danger" : "text-subtle")}>{error ?? t("signIn.passwordBody")}</p>
+      </form>
+      <div className="mt-5 flex flex-col items-center gap-2.5">
+        <button type="button" onClick={onRecover} className="text-[13px] text-subtle hover:text-fg hover:underline">
+          {t("recovery.forgot")}
+        </button>
+        <button type="button" onClick={onOtherAccount} className="text-[13px] text-subtle hover:text-fg hover:underline">
+          {t("signIn.otherAccount")}
         </button>
       </div>
     </AuthShell>
@@ -716,54 +786,6 @@ function RecoverKits({ prepared, onSignIn, onRestart }: { prepared: RecoveryPrep
   );
 }
 
-/** Ways to skip typing the Secret Key: a QR code for a signed-in phone to
- * read, another signed-in device, or a setup code (QR) from the screen, a
- * file (picture or Emergency Kit PDF) or the clipboard. */
-function SetupCodeOptions({
-  canUseDevice,
-  onQr,
-  onOtherDevice,
-  onRead,
-}: {
-  canUseDevice: boolean;
-  onQr: () => void;
-  onOtherDevice: () => void;
-  onRead: (source: "screen" | "clipboard" | "file") => void;
-}) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mt-3 rounded-xl border border-line bg-panel-2 p-3">
-      <div className="text-xs font-medium text-muted">{t("setup.noKeyTitle")}</div>
-      <div className="mt-2 grid gap-2">
-        <Button type="button" size="sm" className="justify-start" onClick={onQr}>
-          <QrCode className="size-4" /> {t("setup.qrSignIn")}
-        </Button>
-        <Button type="button" size="sm" className="justify-start" onClick={onOtherDevice} disabled={!canUseDevice} title={canUseDevice ? undefined : t("setup.emailFirst")}>
-          <MonitorSmartphone className="size-4" /> {t("setup.otherDevice")}
-        </Button>
-        <Button type="button" size="sm" className="justify-start" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-          <ScanLine className="size-4" /> {t("setup.useCode")}
-        </Button>
-      </div>
-      {open && (
-        <div className="mt-2 space-y-1">
-          <p className="text-[11px] leading-relaxed text-subtle">{t("setup.codeHint")}</p>
-          <Button type="button" size="sm" variant="ghost" className="w-full justify-start" onClick={() => onRead("file")}>
-            <FileText className="size-4" /> {t("setup.fromFile")}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" className="w-full justify-start" onClick={() => onRead("screen")}>
-            <ScanLine className="size-4" /> {t("setup.fromScreen")}
-          </Button>
-          <Button type="button" size="sm" variant="ghost" className="w-full justify-start" onClick={() => onRead("clipboard")}>
-            <ClipboardPaste className="size-4" /> {t("setup.fromClipboard")}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 /** Asks a signed-in device to let this one in: shows the code to type
  * there, then goes back to the sign-in form with the Secret Key received. */
 function OtherDevice({ email, onBack }: { email: string; onBack: () => void }) {
@@ -874,14 +896,17 @@ function OtherDevice({ email, onBack }: { email: string; onBack: () => void }) {
   );
 }
 
-/** Shows a QR code for a signed-in phone to read, then goes back to the
- * sign-in form with the email and Secret Key it sent. */
-function QrSignIn({ onBack, onReceived }: { onBack: () => void; onReceived: (email: string) => void }) {
+/** "Sign in": a QR code for a phone where the account is open, which sends
+ * back the email and Secret Key (the master password is still typed here),
+ * and the other ways. */
+function QrSignIn({ onBack, onManual, onReceived }: { onBack: () => void; onManual: () => void; onReceived: (email: string) => void }) {
   const { t } = useTranslation();
   const refreshStatus = useApp((s) => s.refreshStatus);
   const [phase, setPhase] = useState<"starting" | "showing" | "denied" | "expired" | "error">("starting");
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [kitOpen, setKitOpen] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const done = useRef(false);
 
@@ -942,44 +967,60 @@ function QrSignIn({ onBack, onReceived }: { onBack: () => void; onReceived: (ema
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt]);
 
+  const readKit = async (source: ScanSource) => {
+    const found = await readSetupCode(() => api.scanSetupCode(source), setScanError);
+    if (found) onReceived(found);
+  };
+
+  const steps = [t("setup.qrStep1"), t("setup.qrStep2"), t("setup.qrStep3")];
+
   return (
-    <AuthShell>
-      <button onClick={onBack} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
-        <ArrowLeft className="size-4" /> {t("common.back")}
-      </button>
-      <div className="flex items-center gap-3">
-        <QrCode className="size-9 text-accent" />
-        <h1 className="text-xl font-semibold tracking-tight">{t("setup.qrTitle")}</h1>
+    <AuthShell wide="xl">
+      <BackButton onClick={onBack} />
+      <h1 className="text-xl font-semibold tracking-tight">{t("signIn.title")}</h1>
+      <div className="mt-5 rounded-2xl border border-line bg-panel p-5 shadow-sm">
+        <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center">
+          <div className="flex size-72 shrink-0 items-center justify-center rounded-2xl bg-white p-1 shadow-sm ring-1 ring-black/5">
+            {phase === "starting" && <Loader2 className="size-6 animate-spin text-[#061a18]" />}
+            {phase === "showing" && svg && (
+              <img src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`} alt={t("setup.qrTitle")} className="size-full" draggable={false} />
+            )}
+            {(phase === "denied" || phase === "expired" || phase === "error") && (
+              <div className="flex flex-col items-center px-4 text-center text-[#3f4a48]">
+                <ShieldAlert className="size-6 text-warning" />
+                <p className="mt-2 text-[13px] leading-relaxed">{phase === "denied" ? t("setup.qrDenied") : phase === "expired" ? t("setup.qrExpired") : error}</p>
+                <Button size="sm" variant="primary" className="mt-3" onClick={() => setAttempt((n) => n + 1)}>
+                  {phase === "error" ? t("common.retry") : t("setup.qrNew")}
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-[15px] font-semibold">{t("setup.qrStepsTitle")}</h2>
+            <ol className="mt-3 space-y-2.5">
+              {steps.map((text, n) => (
+                <li key={n} className="flex gap-2.5 text-[13px] leading-relaxed text-muted">
+                  <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent">{n + 1}</span>
+                  <span>{text}</span>
+                </li>
+              ))}
+            </ol>
+            {phase === "showing" && (
+              <p className="mt-4 flex items-center gap-2 text-xs text-subtle">
+                <Loader2 className="size-3.5 animate-spin" /> {t("setup.qrWaiting")}
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="mt-5 border-t border-line pt-3.5 text-xs leading-relaxed text-subtle">{t("setup.qrPasswordStill")}</p>
       </div>
-      <p className="mt-3 text-sm leading-relaxed text-muted">{t("setup.qrBody")}</p>
-      <div className="mt-6 flex min-h-72 flex-col items-center justify-center rounded-2xl border border-line bg-panel-2 px-6 py-6 text-center">
-        {phase === "starting" && <Loader2 className="size-6 animate-spin text-accent" />}
-        {phase === "showing" && svg && (
-          <>
-            <img
-              src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`}
-              alt={t("setup.qrTitle")}
-              className="size-60 rounded-xl bg-white p-2"
-              draggable={false}
-            />
-            <p className="mt-4 flex items-center gap-2 text-[13px] text-muted">
-              <Loader2 className="size-3.5 animate-spin" /> {t("setup.qrWaiting")}
-            </p>
-          </>
-        )}
-        {(phase === "denied" || phase === "expired" || phase === "error") && (
-          <>
-            <ShieldAlert className="size-6 text-warning" />
-            <p className="mt-3 text-[13px] leading-relaxed text-muted">
-              {phase === "denied" ? t("setup.qrDenied") : phase === "expired" ? t("setup.qrExpired") : error}
-            </p>
-            <Button size="sm" className="mt-4" onClick={() => setAttempt((n) => n + 1)}>
-              {phase === "error" ? t("common.retry") : t("setup.qrNew")}
-            </Button>
-          </>
-        )}
+      <div className="mt-6">
+        <Options title={t("signIn.otherOptions")}>
+          <OptionRow icon={<KeyRound className="size-[18px]" />} title={t("signIn.manual")} hint={t("signIn.manualHint")} onClick={onManual} />
+          <KitCodeOption open={kitOpen} onToggle={() => setKitOpen((v) => !v)} onRead={(source) => void readKit(source)} />
+        </Options>
+        <ErrorText>{scanError}</ErrorText>
       </div>
-      <p className="mt-4 text-center text-xs leading-relaxed text-subtle">{t("setup.qrPasswordStill")}</p>
     </AuthShell>
   );
 }

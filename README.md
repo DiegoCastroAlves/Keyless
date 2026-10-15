@@ -18,8 +18,8 @@ server, can read your data. See [docs/SECURITY.md](docs/SECURITY.md).
 - Password generator (random, memorable, PIN)
 - Multiple vaults, favorites, tags, archive, Recently Deleted (30 days)
 - Sync across devices, offline first, conflicts never lose data
-- Continue with Google to create or find your account (the master password
-  and Secret Key still protect the vault)
+- Sign in on a new computer by scanning its QR code with your phone (the
+  master password is still typed there)
 - An optional recovery key, like 1Password's, for a forgotten master password
   or a lost Secret Key
 - Sentinel: weak, reused and breached passwords (Have I Been Pwned,

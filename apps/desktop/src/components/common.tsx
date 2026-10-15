@@ -1,5 +1,5 @@
-import { Check, CircleAlert, Eye, EyeOff, Info } from "lucide-react";
-import { forwardRef, useEffect, useId, useState, type InputHTMLAttributes } from "react";
+import { ArrowRight, Check, CircleAlert, Eye, EyeOff, Fingerprint, Info, Loader2 } from "lucide-react";
+import { forwardRef, useEffect, useId, useRef, useState, type InputHTMLAttributes } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api, type Category, type Strength } from "../lib/api";
@@ -144,6 +144,99 @@ export const PasswordInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HT
   },
 );
 
+/** The master password field of the lock screen and of the sign-in's last
+ * step: show or hide, the system unlock when it can be used, and the
+ * arrow that submits. */
+export const UnlockField = forwardRef<
+  HTMLInputElement,
+  {
+    value: string;
+    onChange: (value: string) => void;
+    placeholder: string;
+    submitLabel: string;
+    busy: boolean;
+    invalid: boolean;
+    /** Changes to shake the field (a wrong password). */
+    shake: number;
+    system?: { label: string; busy: boolean; onClick: () => void };
+  }
+>(function UnlockField({ value, onChange, placeholder, submitLabel, busy, invalid, shake, system }, ref) {
+  const [visible, setVisible] = useState(false);
+  const inner = useRef<HTMLInputElement | null>(null);
+  const { t } = useTranslation();
+  const setRefs = (node: HTMLInputElement | null) => {
+    inner.current = node;
+    if (typeof ref === "function") ref(node);
+    else if (ref) ref.current = node;
+  };
+  const side = "absolute top-1/2 flex size-9 -translate-y-1/2 items-center justify-center rounded-lg transition-colors";
+  return (
+    <div key={shake} className={cx("relative", shake > 0 && "animate-shake")}>
+      <input
+        ref={setRefs}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={busy}
+        className={cx(
+          "h-12 w-full rounded-xl border bg-panel pl-4 text-[15px] shadow-sm outline-none transition-colors placeholder:text-subtle focus:ring-4",
+          system ? "pr-[8.5rem]" : "pr-24",
+          invalid ? "border-danger focus:ring-danger-soft" : "border-line focus:border-accent focus:ring-accent-soft",
+        )}
+      />
+      <button
+        type="button"
+        onClick={() => {
+          setVisible((v) => !v);
+          inner.current?.focus();
+        }}
+        aria-label={visible ? t("common.hide") : t("common.show")}
+        title={visible ? t("common.hide") : t("common.show")}
+        className={cx(side, system ? "right-[5.25rem]" : "right-12", "text-muted hover:text-fg")}
+      >
+        {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </button>
+      {system && (
+        <>
+          <span aria-hidden className="absolute right-[4.9rem] top-1/2 h-5 w-px -translate-y-1/2 bg-line" />
+          <button
+            type="button"
+            onClick={system.onClick}
+            disabled={busy || system.busy}
+            aria-label={system.label}
+            title={system.label}
+            className={cx(side, "right-12 text-accent hover:bg-accent-soft disabled:opacity-50")}
+          >
+            {system.busy ? <Loader2 className="size-4 animate-spin" /> : <Fingerprint className="size-[18px]" />}
+          </button>
+        </>
+      )}
+      <button
+        type="submit"
+        aria-label={submitLabel}
+        title={submitLabel}
+        disabled={!value || busy}
+        className={cx(side, "right-1.5 bg-accent text-accent-fg hover:bg-accent-hover disabled:opacity-40")}
+      >
+        {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowRight className="size-4" />}
+      </button>
+    </div>
+  );
+});
+
+/** The account's first letter in a colored square. */
+export function AccountAvatar({ email, className = "size-16 rounded-2xl text-2xl" }: { email: string; className?: string }) {
+  const letter = (email.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase();
+  return (
+    <div aria-hidden className={cx("flex shrink-0 items-center justify-center font-semibold text-white shadow-sm", avatarColor(email), className)}>
+      {letter}
+    </div>
+  );
+}
+
 /** Per strength level (0 to 6): the bar and the word. */
 export const STRENGTH_COLORS = ["bg-danger", "bg-danger", "bg-warning", "bg-accent", "bg-success", "bg-success", "bg-success"];
 export const STRENGTH_TEXT = ["text-danger", "text-danger", "text-warning", "text-accent", "text-success", "text-success", "text-success"];
@@ -235,7 +328,7 @@ export function Toaster() {
 }
 
 /** Full-window centered layout used by onboarding and the lock screen. */
-export function AuthShell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+export function AuthShell({ children, wide }: { children: React.ReactNode; wide?: boolean | "md" | "xl" }) {
   return (
     <div className="relative flex h-full items-center justify-center overflow-y-auto bg-app p-6">
       <div
@@ -246,7 +339,7 @@ export function AuthShell({ children, wide }: { children: React.ReactNode; wide?
             "radial-gradient(60% 50% at 50% 0%, var(--accent-soft), transparent 70%), radial-gradient(40% 40% at 90% 100%, var(--accent-soft), transparent 70%)",
         }}
       />
-      <div className={cx("relative w-full animate-pop", wide ? "max-w-xl" : "max-w-sm")}>{children}</div>
+      <div className={cx("relative w-full animate-pop", wide === "xl" ? "max-w-2xl" : wide === "md" ? "max-w-md" : wide ? "max-w-xl" : "max-w-sm")}>{children}</div>
     </div>
   );
 }

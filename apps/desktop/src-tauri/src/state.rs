@@ -274,10 +274,6 @@ pub struct AppState {
     pub pending_recovery: Mutex<Option<crate::recovery::PendingRecovery>>,
     /// The recovery key just made, until the user is done saving it.
     pub shown_recovery_key: Mutex<Option<Zeroizing<String>>>,
-    /// Cancels the running "Continue with Google" browser step.
-    pub google_cancel: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
-    /// Google session waiting for the new account's master password.
-    pub pending_google: tokio::sync::Mutex<Option<crate::oauth::PendingGoogle>>,
     /// Newer Keyless version found by the update check.
     pub update: Mutex<Option<crate::updates::UpdateInfo>>,
     /// An update is being downloaded or installed.

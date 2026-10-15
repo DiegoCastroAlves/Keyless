@@ -27,13 +27,13 @@ quem cuida do servidor do Keyless, consegue ler seus cofres.
   uma cópia criptografada do que a entrada precisa (que só a chave de acesso
   abre).
 
-## Entrar com o Google
+## Contas criadas com o Google
 
-Se você escolher continuar com o Google, o Keyless recebe do Google seu
-e-mail verificado, seu nome e sua foto de perfil. Eles ficam guardados com a
-sua conta e servem só para identificá-la. O Keyless não pede acesso a nenhum
-outro dado ou serviço do Google, e entrar com o Google nunca dá acesso aos
-seus cofres: abri-los sempre exige a senha mestra e a Chave Secreta.
+O Keyless não oferece mais a entrada com o Google. As contas criadas com ele
+antes guardam o e-mail verificado, o nome e a foto de perfil que o Google
+enviou na época, junto com a conta e só para identificá-la, até a conta ser
+excluída. O Keyless nunca teve acesso a nenhum outro dado ou serviço do
+Google.
 
 ## Links compartilhados com e-mails específicos
 

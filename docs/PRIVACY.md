@@ -26,14 +26,12 @@ server, can read your vaults.
   and last used, and its name and an encrypted copy of what signing in needs
   (readable only with the passkey).
 
-## Sign in with Google
+## Accounts created with Google
 
-If you choose to continue with Google, Keyless receives your verified email
-address, your name and your profile picture from Google. They are stored with
-your account and used only to identify it. Keyless does not request access to
-any other Google data or service, and a Google sign-in never gives access to
-your vaults: unlocking them always requires your master password and Secret
-Key.
+Keyless no longer offers signing in with Google. Accounts created with it
+before keep the verified email address, name and profile picture Google sent
+then, stored with the account and used only to identify it, until the account
+is deleted. Keyless never had access to any other Google data or service.
 
 ## Links shared with specific emails
 

@@ -31,7 +31,6 @@ mod items;
 mod kit_pdf;
 mod lock;
 mod notify;
-mod oauth;
 mod qr;
 mod shares;
 mod quick_access;
@@ -206,8 +205,6 @@ pub fn run() {
                 pending_import: Mutex::new(None),
                 pending_recovery: Mutex::new(None),
                 shown_recovery_key: Mutex::new(None),
-                google_cancel: Mutex::new(None),
-                pending_google: tokio::sync::Mutex::new(None),
                 update: Mutex::new(None),
                 update_busy: std::sync::atomic::AtomicBool::new(false),
                 kept_keys: Mutex::new(None),
@@ -309,9 +306,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             commands::create_account,
-            commands::sign_in_with_google,
-            commands::cancel_google_sign_in,
-            commands::create_account_with_google,
             commands::sign_in,
             commands::unlock,
             commands::unlock_with_system,

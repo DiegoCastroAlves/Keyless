@@ -131,26 +131,21 @@ codes) would give a session without either, so they are refused twice:
 Even with a stolen session, an attacker cannot read anything, and the
 integrity checks above stop them from destroying data.
 
-### Continue with Google
+### Google
 
-Google only identifies the account; it never replaces the master password or
-the Secret Key, and Google never sees either.
+The apps no longer offer signing in or creating an account with Google (it
+only ever identified the account). Accounts created that way had their auth
+secret set at creation and sign in like any other, with the email, Secret
+Key and master password. The server keeps its rules for Google sessions for
+as long as the provider can be turned on in the Supabase dashboard:
 
-- The app runs the OAuth 2.0 authorization code flow with PKCE in the system
-  browser, with a loopback redirect (`http://127.0.0.1:<port>/auth/callback`,
-  RFC 8252). The code is useless without the verifier, which never leaves the
-  app.
 - A Google session can read nothing: it has no `password` entry in `amr`.
-- The hook issues Google sessions only to accounts that are not set up yet.
-  The app uses that session once, to set the auth secret derived from the new
-  master password and Secret Key, and then signs in with it like any other
-  account. Setting up the account (creating its profile) ends every session
-  that did not prove the password.
-- For an account that is already set up, the hook refuses the Google session
-  and returns only the account's email, to the app that completed the Google
-  sign-in. The user then signs in with the Secret Key and master password.
-  So whoever controls the Google account can never obtain a session that
-  could change the auth secret of an existing Keyless account.
+- The hook issues Google sessions only to accounts that are not set up yet;
+  for an account that is set up, it refuses the session and returns only the
+  account's email. Setting up an account (creating its profile) ends every
+  session that did not prove the password. So whoever controls a Google
+  account can never obtain a session that could change the auth secret of a
+  Keyless account.
 
 ### Devices
 
