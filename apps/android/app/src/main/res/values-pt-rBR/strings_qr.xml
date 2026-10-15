@@ -11,4 +11,20 @@
     <string name="qr_not_found_totp">Nenhum QR code de verificação em duas etapas foi encontrado.</string>
     <string name="qr_not_found_setup">Nenhum código de configuração do Keyless foi encontrado.</string>
     <string name="scan_emergency_kit">Ler o Kit de Emergência</string>
+    <string name="qr_sign_in">Entrar com QR code</string>
+    <string name="qr_sign_in_body">Num celular em que você já usa o Keyless, toque em “Entrar em outro dispositivo” e aponte a câmera para este código.</string>
+    <string name="qr_sign_in_waiting">Esperando o outro celular…</string>
+    <string name="qr_sign_in_expired">Este código expirou.</string>
+    <string name="qr_sign_in_denied">O código foi recusado no outro celular.</string>
+    <string name="qr_sign_in_new">Mostrar outro código</string>
+    <string name="sign_in_other">Entrar em outro dispositivo</string>
+    <string name="scan_hint_sign_in">Aponte a câmera para o QR code que o outro dispositivo mostra em “Entrar com QR code”.</string>
+    <string name="qr_not_found_sign_in">Nenhum código de entrada do Keyless foi encontrado.</string>
+    <string name="qr_approve_title">Entrar em outro dispositivo?</string>
+    <string name="qr_approve_body">O dispositivo que mostra este código vai receber seu e-mail e sua Chave Secreta. A senha mestra continua sendo pedida nele.</string>
+    <string name="qr_approve_warning">Só aprove se o código está na tela de um dispositivo seu, na sua frente. Nunca leia um código que alguém te enviou.</string>
+    <string name="qr_code_gone">Este código expirou ou já foi usado. Mostre outro no outro dispositivo.</string>
+    <string name="qr_approved">Aprovado. Termine de entrar no outro dispositivo com a senha mestra.</string>
+    <string name="qr_sign_in_first">Entre no Keyless neste celular primeiro.</string>
+    <string name="device_password_still">O outro celular envia só o seu e-mail e a sua Chave Secreta. A senha mestra continua sendo digitada aqui.</string>
 </resources>

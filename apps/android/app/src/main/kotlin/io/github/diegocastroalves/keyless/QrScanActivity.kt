@@ -34,8 +34,9 @@ import org.json.JSONObject
 import kotlin.concurrent.thread
 
 /**
- * "Scan QR code": a one-time password setup (`otpauth://`) or a Keyless
- * setup code, from the camera or from an image or PDF (an Emergency Kit).
+ * "Scan QR code": a one-time password setup (`otpauth://`), a Keyless
+ * setup code, or the sign-in code a new device shows, from the camera or
+ * from an image or PDF (an Emergency Kit).
  * Frames are read in memory and decoded by the Rust core; nothing is kept.
  * Answers RESULT_OK with the code's content in `EXTRA_CONTENT`.
  */
@@ -45,6 +46,7 @@ class QrScanActivity : KeylessActivity() {
         const val EXTRA_CONTENT = "content"
         const val WANT_TOTP = "totp"
         const val WANT_SETUP = "setup"
+        const val WANT_SIGN_IN = "sign-in"
         private const val ASK_CAMERA = 1
         private const val PICK_FILE = 2
         private const val ASKED_CAMERA = "asked_camera"
@@ -109,7 +111,13 @@ class QrScanActivity : KeylessActivity() {
         outState.putBoolean(ASKED_CAMERA, askedCamera)
     }
 
-    private fun hint(): String = getString(if (wanted == WANT_SETUP) R.string.scan_hint_setup else R.string.scan_hint_totp)
+    private fun hint(): String = getString(
+        when (wanted) {
+            WANT_SETUP -> R.string.scan_hint_setup
+            WANT_SIGN_IN -> R.string.scan_hint_sign_in
+            else -> R.string.scan_hint_totp
+        },
+    )
 
     private fun cameraAllowed() {
         if (allowCamera.visibility == View.VISIBLE) status.text = hint()
@@ -270,6 +278,9 @@ class QrScanActivity : KeylessActivity() {
         if (wanted == WANT_SETUP) {
             Native.obj("parseSetupLink", JSONObject().put("text", content))
             true
+        } else if (wanted == WANT_SIGN_IN) {
+            Native.obj("signInLink", JSONObject().put("text", content))
+            true
         } else {
             content.startsWith("otpauth://") && Native.obj("totp", JSONObject().put("uri", content).put("now", System.currentTimeMillis() / 1000)).has("code")
         }
@@ -322,7 +333,14 @@ class QrScanActivity : KeylessActivity() {
             } catch (e: Exception) {
                 false
             }
-            if (!found) runOnUiThread { status.text = getString(if (wanted == WANT_SETUP) R.string.qr_not_found_setup else R.string.qr_not_found_totp) }
+            if (!found) {
+                val missing = when (wanted) {
+                    WANT_SETUP -> R.string.qr_not_found_setup
+                    WANT_SIGN_IN -> R.string.qr_not_found_sign_in
+                    else -> R.string.qr_not_found_totp
+                }
+                runOnUiThread { status.text = getString(missing) }
+            }
         }
     }
 

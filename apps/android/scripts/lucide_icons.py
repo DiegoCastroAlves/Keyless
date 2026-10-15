@@ -21,7 +21,10 @@ ic_back=arrow-left ic_chevron_right=chevron-right ic_close=x ic_copy=copy ic_dow
 ic_external=external-link ic_eye=eye ic_eye_off=eye-off ic_file_down=file-down ic_file_up=file-up ic_filter=filter
 ic_fingerprint=fingerprint-pattern ic_lock=lock ic_log_out=log-out ic_more=ellipsis-vertical ic_paperclip=paperclip
 ic_plus=plus ic_search=search ic_shield=shield-check ic_smartphone=smartphone ic_sort=arrow-down-wide-narrow
-ic_star=star ic_star_filled=star:filled ic_trash=trash ic_user=user
+ic_star=star ic_star_filled=star:filled ic_trash=trash ic_user=user ic_scan=scan-qr-code
+ic_home=house ic_items=layout-grid ic_settings=settings ic_info=info ic_history=history ic_sparkles=sparkles
+ic_tag=tag ic_archive=archive ic_setup=list-checks ic_customize=sliders-horizontal ic_autofill=text-cursor-input
+ic_check=check ic_chevron_down=chevron-down ic_chevron_up=chevron-up ic_alert=shield-alert
 ic_cat_login=key-round ic_cat_password=asterisk ic_cat_secure_note=sticky-note ic_cat_credit_card=credit-card
 ic_cat_identity=id-card ic_cat_bank_account=landmark ic_cat_api_credential=braces ic_cat_database=database
 ic_cat_server=server ic_cat_ssh_key=terminal ic_cat_software_license=award ic_cat_wireless_router=wifi

@@ -101,6 +101,11 @@ export interface DeviceView {
 }
 
 /** This device's request to sign in with another one. */
+export interface SignInQr {
+  id: string;
+  svg: string;
+}
+
 export interface SetupProgress {
   status: "waiting" | "code" | "approved" | "denied" | "expired";
   code: string | null;
@@ -793,6 +798,10 @@ export const api = {
   requestDeviceSetup: (email: string) => invoke<void>("request_device_setup", { email }),
   pollDeviceSetup: () => invoke<SetupProgress>("poll_device_setup"),
   cancelDeviceSetup: () => invoke<void>("cancel_device_setup"),
+  /** A QR code for a signed-in phone to read; then poll its request until the phone answers. */
+  startQrSignIn: () => invoke<SignInQr>("start_qr_sign_in"),
+  pollQrSignIn: (id: string) => invoke<SetupProgress>("poll_qr_sign_in", { id }),
+  cancelQrSignIn: (id: string) => invoke<void>("cancel_qr_sign_in", { id }),
   /** A pasted keyless://setup link; returns its email. */
   useSetupLink: (link: string) => invoke<string>("use_setup_link", { link }),
   /** A setup code from the screen, the clipboard or a file (picture or Emergency Kit PDF). */

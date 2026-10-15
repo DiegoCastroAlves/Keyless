@@ -11,6 +11,7 @@ import {
   MailCheck,
   MonitorSmartphone,
   ScanLine,
+  QrCode,
   ShieldAlert,
   ShieldCheck,
 } from "lucide-react";
@@ -31,6 +32,7 @@ type Step =
   | { kind: "kit"; email: string; secretKey: string; confirmationRequired: boolean }
   | { kind: "signin"; email?: string; notice?: "confirm" | "google" | "recovered" }
   | { kind: "otherDevice"; email: string }
+  | { kind: "qr"; email?: string }
   | { kind: "recover"; email?: string }
   | { kind: "recoverPassword"; email: string }
   | { kind: "recoverKits"; prepared: RecoveryPrepare };
@@ -99,10 +101,18 @@ export function Onboarding({ status }: { status: AppStatus }) {
           onBack={() => setStep({ kind: "welcome" })}
           onRecover={(email) => setStep({ kind: "recover", email })}
           onOtherDevice={(email) => setStep({ kind: "otherDevice", email })}
+          onQr={(email) => setStep({ kind: "qr", email })}
         />
       );
     case "otherDevice":
       return <OtherDevice email={step.email} onBack={() => setStep({ kind: "signin", email: step.email })} />;
+    case "qr":
+      return (
+        <QrSignIn
+          onBack={() => setStep({ kind: "signin", email: step.email })}
+          onReceived={(email) => setStep({ kind: "signin", email })}
+        />
+      );
     case "recover":
       return (
         <RecoverStart
@@ -366,6 +376,7 @@ function SignIn({
   onBack,
   onRecover,
   onOtherDevice,
+  onQr,
 }: {
   initialEmail?: string;
   notice?: "confirm" | "google" | "recovered";
@@ -374,6 +385,7 @@ function SignIn({
   onBack: () => void;
   onRecover: (email: string) => void;
   onOtherDevice: (email: string) => void;
+  onQr: (email?: string) => void;
 }) {
   const [email, setEmail] = useState(initialEmail ?? "");
   const [secretKey, setSecretKey] = useState("");
@@ -505,6 +517,7 @@ function SignIn({
             <p className="mt-1 text-xs text-subtle">{t("signIn.secretKeyHint")}</p>
             <SetupCodeOptions
               canUseDevice={!!email.trim()}
+              onQr={() => onQr(email.trim() || undefined)}
               onOtherDevice={() => onOtherDevice(email.trim())}
               onRead={(source) => void useSetup(() => api.scanSetupCode(source))}
             />
@@ -703,15 +716,17 @@ function RecoverKits({ prepared, onSignIn, onRestart }: { prepared: RecoveryPrep
   );
 }
 
-/** Ways to skip typing the Secret Key: another signed-in device, or a setup
- * code (QR) from the screen, a file (picture or Emergency Kit PDF) or the
- * clipboard. */
+/** Ways to skip typing the Secret Key: a QR code for a signed-in phone to
+ * read, another signed-in device, or a setup code (QR) from the screen, a
+ * file (picture or Emergency Kit PDF) or the clipboard. */
 function SetupCodeOptions({
   canUseDevice,
+  onQr,
   onOtherDevice,
   onRead,
 }: {
   canUseDevice: boolean;
+  onQr: () => void;
   onOtherDevice: () => void;
   onRead: (source: "screen" | "clipboard" | "file") => void;
 }) {
@@ -721,6 +736,9 @@ function SetupCodeOptions({
     <div className="mt-3 rounded-xl border border-line bg-panel-2 p-3">
       <div className="text-xs font-medium text-muted">{t("setup.noKeyTitle")}</div>
       <div className="mt-2 grid gap-2">
+        <Button type="button" size="sm" className="justify-start" onClick={onQr}>
+          <QrCode className="size-4" /> {t("setup.qrSignIn")}
+        </Button>
         <Button type="button" size="sm" className="justify-start" onClick={onOtherDevice} disabled={!canUseDevice} title={canUseDevice ? undefined : t("setup.emailFirst")}>
           <MonitorSmartphone className="size-4" /> {t("setup.otherDevice")}
         </Button>
@@ -852,6 +870,118 @@ function OtherDevice({ email, onBack }: { email: string; onBack: () => void }) {
         )}
       </div>
       <p className="mt-4 text-center text-xs leading-relaxed text-subtle">{t("setup.passwordStill")}</p>
+    </AuthShell>
+  );
+}
+
+/** Shows a QR code for a signed-in phone to read, then goes back to the
+ * sign-in form with the email and Secret Key it sent. */
+function QrSignIn({ onBack, onReceived }: { onBack: () => void; onReceived: (email: string) => void }) {
+  const { t } = useTranslation();
+  const refreshStatus = useApp((s) => s.refreshStatus);
+  const [phase, setPhase] = useState<"starting" | "showing" | "denied" | "expired" | "error">("starting");
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const done = useRef(false);
+
+  useEffect(() => {
+    let live = true;
+    let timer: number | undefined;
+    let id: string | null = null;
+    done.current = false;
+    setPhase("starting");
+    setSvg(null);
+    setError(null);
+    const fail = (err: unknown) => {
+      if (!live) return;
+      done.current = true;
+      setError(errorMessage(err));
+      setPhase("error");
+    };
+    const poll = async () => {
+      try {
+        const progress = await api.pollQrSignIn(id!);
+        if (!live) return;
+        if (progress.status === "approved" && progress.email) {
+          done.current = true;
+          await refreshStatus();
+          onReceived(progress.email);
+          return;
+        }
+        if (progress.status === "denied" || progress.status === "expired") {
+          done.current = true;
+          setPhase(progress.status);
+          return;
+        }
+      } catch (err) {
+        fail(err);
+        return;
+      }
+      timer = window.setTimeout(poll, 2000);
+    };
+    api
+      .startQrSignIn()
+      .then((code) => {
+        // Gone meanwhile (the screen was left): the request goes too.
+        if (!live) {
+          void api.cancelQrSignIn(code.id);
+          return;
+        }
+        id = code.id;
+        setSvg(code.svg);
+        setPhase("showing");
+        timer = window.setTimeout(poll, 2000);
+      })
+      .catch((err) => {
+        if (!isCancelled(err)) fail(err);
+      });
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+      if (!done.current && id) void api.cancelQrSignIn(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
+
+  return (
+    <AuthShell>
+      <button onClick={onBack} className="mb-6 flex items-center gap-1.5 text-sm text-muted hover:text-fg">
+        <ArrowLeft className="size-4" /> {t("common.back")}
+      </button>
+      <div className="flex items-center gap-3">
+        <QrCode className="size-9 text-accent" />
+        <h1 className="text-xl font-semibold tracking-tight">{t("setup.qrTitle")}</h1>
+      </div>
+      <p className="mt-3 text-sm leading-relaxed text-muted">{t("setup.qrBody")}</p>
+      <div className="mt-6 flex min-h-72 flex-col items-center justify-center rounded-2xl border border-line bg-panel-2 px-6 py-6 text-center">
+        {phase === "starting" && <Loader2 className="size-6 animate-spin text-accent" />}
+        {phase === "showing" && svg && (
+          <>
+            <img
+              src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`}
+              alt={t("setup.qrTitle")}
+              className="size-60 rounded-xl bg-white p-2"
+              draggable={false}
+            />
+            <p className="mt-4 flex items-center gap-2 text-[13px] text-muted">
+              <Loader2 className="size-3.5 animate-spin" /> {t("setup.qrWaiting")}
+            </p>
+          </>
+        )}
+        {(phase === "denied" || phase === "expired" || phase === "error") && (
+          <>
+            <ShieldAlert className="size-6 text-warning" />
+            <p className="mt-3 text-[13px] leading-relaxed text-muted">
+              {phase === "denied" ? t("setup.qrDenied") : phase === "expired" ? t("setup.qrExpired") : error}
+            </p>
+            <Button size="sm" className="mt-4" onClick={() => setAttempt((n) => n + 1)}>
+              {phase === "error" ? t("common.retry") : t("setup.qrNew")}
+            </Button>
+          </>
+        )}
+      </div>
+      <p className="mt-4 text-center text-xs leading-relaxed text-subtle">{t("setup.qrPasswordStill")}</p>
     </AuthShell>
   );
 }

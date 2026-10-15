@@ -60,7 +60,7 @@ private fun MainActivity.copyLine(name: String, value: String): View {
 
 internal fun MainActivity.showRecoveryKey() {
     val page = column(20)
-    page.addBack { showSettings() }
+    page.addBack { showSettingsPage("account") }
     page.add(label(t("recovery.title"), 24f, bold = true), top = 8)
     page.add(label(t("recovery.settingsBody"), 13f, muted = true), top = 4)
     val status = label(t("itemHistory.loading"), 14f, muted = true)
@@ -284,7 +284,7 @@ private fun MainActivity.readPicked(uri: android.net.Uri): ByteArray {
 
 internal fun MainActivity.showImport() {
     val page = column(20)
-    page.addBack { showSettings() }
+    page.addBack { showSettingsPage("transfer") }
     page.add(label(t("importer.title"), 24f, bold = true), top = 8)
     for (format in importFormats()) {
         val panel = panel()
@@ -394,7 +394,7 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
                 if (done.optInt("files") > 0) lines.add(t("importer.filesAdded", mapOf("count" to done.optInt("files"))))
                 if (done.optInt("filesFailed") > 0) lines.add(t("importer.filesFailed", mapOf("count" to done.optInt("filesFailed"))))
                 lines.add(t("importer.deleteExport"))
-                AlertDialog.Builder(this).setMessage(lines.joinToString("\n\n")).setPositiveButton(t("common.done")) { _, _ -> showList() }.show()
+                AlertDialog.Builder(this).setMessage(lines.joinToString("\n\n")).setPositiveButton(t("common.done")) { _, _ -> showMain() }.show()
             }
         }
         .setNegativeButton(t("common.cancel")) { _, _ -> thread { Keyless.importCancel() } }
@@ -406,7 +406,7 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
 
 internal fun MainActivity.showExport() {
     val page = column(20)
-    page.addBack { showSettings() }
+    page.addBack { showSettingsPage("transfer") }
     page.add(label(t("importer.exportDialogTitle"), 24f, bold = true), top = 8)
 
     // The encrypted backup.

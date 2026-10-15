@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Runs the APK on an emulator (CI) and walks through what works without an
 account: the app starts and loads its Rust library, a keyless://setup link
-fills the sign-in form, a bad Secret Key is refused by the client, and a
+fills the sign-in form, a bad Secret Key is refused by the client, a
 well-formed one goes through key derivation to the server, which refuses the
-made-up account. Results are printed as GitHub annotations.
+made-up account, and signing in with another device or a QR code reaches
+the server. Results are printed as GitHub annotations.
 
 Usage: smoke.py <app.apk>
 """
@@ -125,6 +126,12 @@ def main():
     # Another device: the request reaches the server and waits for approval.
     tap_text("Sign in with another device")
     check("signing in with another device waits for an approval", "Waiting for your other device", 40)
+
+    # A QR code: its request reaches the server, and the code waits for a phone.
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back from another device", "Sign in to Keyless", 15)
+    tap_text("Sign in with a QR code")
+    check("signing in with a QR code shows the code and waits for a phone", "Waiting for your other phone", 40)
 
     failed = [r for r in results if not r[1]]
     summary = "%0A".join(f"{'✓' if ok else '✗'} {name}" for name, ok, _ in results)

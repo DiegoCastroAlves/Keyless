@@ -80,6 +80,13 @@ que a los elementos compartidos con esa dirección.
   como en cualquier descarga, ven la dirección IP de la petición. Cada lista
   se puede desactivar en Centinela: deja de descargarse, y la copia en tu
   dispositivo se borra.
+- **Los sitios de tus inicios de sesión** dan sus propios iconos: las apps
+  de escritorio y de Android descargan el icono del sitio de cada inicio de
+  sesión desde ese mismo sitio (nunca a través de un servicio que sabría
+  qué sitios tienes), lo guardan cifrado en el dispositivo y lo piden de
+  nuevo una vez al mes. El sitio ve la dirección IP de la petición, como
+  cuando lo visitas. Se puede desactivar en los ajustes de la app ("Mostrar
+  los iconos de los sitios"); los iconos guardados se borran.
 
 Keyless no tiene anuncios, analítica ni rastreo, y nunca vende ni comparte
 tus datos.

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The main tabs (home, items), the account menu, setting up the phone and the settings' groups. -->
+<resources>
+    <string name="tab_home">Início</string>
+    <string name="tab_items">Itens</string>
+    <string name="search_keyless">Procurar no Keyless</string>
+    <string name="account_menu">Conta</string>
+    <string name="fold">Recolher</string>
+    <string name="unfold">Expandir</string>
+    <string name="recently_used">Usados recentemente</string>
+    <string name="recently_added">Adicionados recentemente</string>
+    <string name="home_empty_favorites">Marque itens como favoritos para encontrá-los aqui.</string>
+    <string name="customize_home">Personalizar o início</string>
+    <string name="customize_home_hint">Mostre o que importa e esconda o resto.</string>
+    <string name="setup_title">Termine de configurar</string>
+    <string name="setup_screen_title">Configurar este celular</string>
+    <string name="setup_hint">Cada passo leva um instante e deixa o Keyless mais prático aqui.</string>
+    <string name="step_biometric">Desbloquear com biometria</string>
+    <string name="step_biometric_hint">Abra o Keyless com a digital ou o rosto.</string>
+    <string name="step_autofill">Preencher em apps e navegadores</string>
+    <string name="step_autofill_hint">O Android pede para você escolher o Keyless como serviço de preenchimento automático.</string>
+    <string name="step_passkeys">Chaves de acesso</string>
+    <string name="step_passkeys_hint">Ative o Keyless como provedor de chaves de acesso.</string>
+    <string name="step_on">Ativado</string>
+    <string name="turn_on">Ativar</string>
+    <string name="hide_setup">Ocultar</string>
+    <string name="show_more">Mostrar mais</string>
+    <string name="show_less">Mostrar menos</string>
+    <string name="settings_general">Geral</string>
+    <string name="settings_security">Segurança</string>
+    <string name="settings_transfer">Importar e exportar</string>
+    <string name="settings_about">Sobre</string>
+    <string name="about_licenses">Licenças de código aberto</string>
+    <string name="privacy_policy">Política de privacidade</string>
+    <string name="site_icons">Mostrar ícones dos sites</string>
+    <string name="site_icons_hint">O Keyless baixa o ícone de cada site do próprio site e o guarda cifrado neste celular.</string>
+    <string name="no_results">Nada encontrado.</string>
+    <string name="recent_searches_clear">Limpar</string>
+    <plurals name="setup_steps_left">
+        <item quantity="one">falta %d passo</item>
+        <item quantity="other">faltam %d passos</item>
+    </plurals>
+</resources>

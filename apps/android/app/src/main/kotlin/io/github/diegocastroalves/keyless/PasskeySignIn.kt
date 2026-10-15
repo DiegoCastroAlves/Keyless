@@ -181,9 +181,9 @@ private fun MainActivity.createSignInPasskey(name: String, done: () -> Unit) {
 
 /** Settings: the passkeys that sign in to Keyless, to add or remove. */
 internal fun MainActivity.signInPasskeysSection(page: LinearLayout) {
-    page.add(sectionTitle(getString(R.string.signin_passkeys)), top = 24)
-    val box = panel()
-    page.add(box, top = 8)
+    page.add(heading(getString(R.string.signin_passkeys)), top = 16)
+    val box = group().apply { setPadding(dp(16), dp(10), dp(16), dp(12)) }
+    page.add(box)
     box.add(label(getString(R.string.signin_passkeys_body), 13f, muted = true))
     val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     box.add(list, top = 4)

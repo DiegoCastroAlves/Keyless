@@ -49,49 +49,15 @@ internal fun MainActivity.act(work: () -> Unit, then: () -> Unit) {
 
 /** A new item: its category first, then the editor with the category's fields. */
 internal fun MainActivity.newItem(favorite: Boolean) {
-    val vaults = Keyless.writableVaults()
-    if (vaults.isEmpty()) {
+    if (Keyless.writableVaults().isEmpty()) {
         Toast.makeText(this, getString(R.string.err_vault_read_only), Toast.LENGTH_LONG).show()
         return
     }
-    val templates = Labels.templates(this)
-    val names = templates.map { Labels.category(this, it.getString("id")) }.toTypedArray()
-    // Each category with its icon, as the desktop's New item menu.
-    val rows = object : android.widget.BaseAdapter() {
-        override fun getCount(): Int = templates.size
-        override fun getItem(position: Int): Any = names[position]
-        override fun getItemId(position: Int): Long = position.toLong()
-        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View =
-            listRow(itemIcon(templates[position].getString("id"), "", null, 36), names[position], null).apply {
-                minimumHeight = dp(56)
-                setPadding(dp(24), dp(6), dp(16), dp(6))
-                background = null
-            }
-    }
-    AlertDialog.Builder(this)
-        .setTitle(R.string.choose_category)
-        .setAdapter(rows) { _, which ->
-            val category = templates[which].getString("id")
-            val fields = Labels.templateFields(this, category)
-            if (category == "login") prefillUsername(fields)
-            val draft = JSONObject()
-                .put("vaultId", vaults[0].getString("id"))
-                .put("title", "")
-                .put("category", category)
-                .put("fields", fields)
-                .put("sections", JSONArray())
-                .put("urls", JSONArray())
-                .put("tags", JSONArray())
-                .put("notes", "")
-                .put("favorite", favorite)
-            showEditor(draft)
-        }
-        .setNegativeButton(R.string.cancel, null)
-        .show()
+    showNewItem(favorite)
 }
 
 /** A new login starts with the username used most (as the desktop does). */
-private fun prefillUsername(fields: JSONArray) {
+internal fun prefillUsername(fields: JSONArray) {
     val top = Keyless.items.filter { it.category == "login" && it.subtitle.isNotBlank() }.groupingBy { it.subtitle.trim() }.eachCount()
         .entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).firstOrNull()?.key ?: return
     for (i in 0 until fields.length()) {
@@ -118,7 +84,7 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
     val hasWebsite = Labels.template(this, category)?.optBoolean("hasWebsite") == true
 
     fun leave() {
-        val back = { if (isNew) showList() else showItem(draft.getString("id")) }
+        val back = { if (isNew) showMain() else showItem(draft.getString("id")) }
         if (draft.toString() == original) return back()
         AlertDialog.Builder(this)
             .setTitle(R.string.discard_title)

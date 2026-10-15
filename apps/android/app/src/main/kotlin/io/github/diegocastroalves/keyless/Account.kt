@@ -32,7 +32,7 @@ private fun MainActivity.platformName(platform: String): String = when (platform
 /** The account's signed-in devices, with signing one out. */
 internal fun MainActivity.showDevices() {
     val page = column(20)
-    page.addBack { showSettings() }
+    page.addBack { showSettingsPage("account") }
     page.add(label(getString(R.string.devices), 24f, bold = true), top = 8)
     page.add(label(getString(R.string.devices_hint), 13f, muted = true), top = 4)
     val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -82,6 +82,46 @@ internal fun MainActivity.showDevices() {
                 }
                 list.add(panel, top = 8)
             }
+        }
+    }
+}
+
+/** "Sign in on another device": reads the QR code a new device shows and answers it. */
+internal fun MainActivity.signInOnOtherDevice() {
+    scanQr(QrScanActivity.WANT_SIGN_IN) { link -> reviewQrSignIn(link) }
+}
+
+/** A new device's sign-in code was read: where it asks from, then approve or refuse. */
+internal fun MainActivity.reviewQrSignIn(link: String) {
+    thread {
+        val request = try {
+            Keyless.qrSignInRequest(link)
+        } catch (e: Exception) {
+            runOnUiThread { Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show() }
+            return@thread
+        }
+        runOnUiThread {
+            if (request == null) {
+                Toast.makeText(this, getString(R.string.qr_code_gone), Toast.LENGTH_LONG).show()
+                return@runOnUiThread
+            }
+            val place = listOf(platformName(request.optString("platform")), request.optString("country"), request.optString("ip"), when_(request.optString("created_at")))
+                .filter { it.isNotBlank() && it != "null" }.joinToString(" · ")
+            AlertDialog.Builder(this)
+                .setTitle(R.string.qr_approve_title)
+                .setMessage(getString(R.string.qr_approve_body) + "\n\n" + place + "\n\n" + getString(R.string.qr_approve_warning))
+                .setPositiveButton(R.string.approve) { _, _ ->
+                    act({ Keyless.approveQrSignIn(link) }) {
+                        Toast.makeText(this, getString(R.string.qr_approved), Toast.LENGTH_LONG).show()
+                    }
+                }
+                .setNegativeButton(R.string.deny) { _, _ ->
+                    act({ Keyless.denyQrSignIn(link) }) {
+                        Toast.makeText(this, getString(R.string.denied), Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNeutralButton(R.string.cancel, null)
+                .show()
         }
     }
 }

@@ -56,7 +56,10 @@
     <string name="biometric_unlock">Desbloquear con biometría</string>
     <string name="biometric_unlock_hint">Tras la contraseña maestra, desbloquea con tu huella o tu cara. La contraseña maestra se vuelve a pedir cuando el teléfono se reinicia.</string>
     <string name="auto_lock">Bloquear tras</string>
-    <string name="minutes">%1$d minutos</string>
+    <plurals name="minutes">
+        <item quantity="one">%1$d minuto</item>
+        <item quantity="other">%1$d minutos</item>
+    </plurals>
     <string name="autofill">Autocompletar</string>
     <string name="autofill_hint">Rellena tus inicios de sesión en apps y navegadores. Android te pide elegir Keyless como servicio de autocompletar.</string>
     <string name="autofill_enable">Usar Keyless para autocompletar</string>

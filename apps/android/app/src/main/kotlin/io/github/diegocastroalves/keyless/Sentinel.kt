@@ -156,14 +156,14 @@ private val ALERTS = listOf(
     "unsecured" to "unsecured", "expiring" to "expiring", "two_factor" to "twoFactor", "passkey" to "passkey", "duplicate" to "duplicate",
 )
 
-private const val SERIOUS = "breached,compromised,lastpass,weak,reused,unsecured"
+private const val SERIOUS = "breached,compromised,lastpass"
 
 private fun Context.st(path: String, vars: Map<String, Any> = emptyMap()) = Labels.t(this, "sentinel.$path", vars)
 
 private fun dateOf(seconds: Long): String = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(seconds * 1000))
 
-/** A summary card for the item list: the score and the serious alerts; opens Sentinel. */
-internal fun MainActivity.sentinelCard(holder: LinearLayout) {
+/** A summary for Home: the score and the serious alerts (only when there are some, if `onlyAlerts`); opens Sentinel. */
+internal fun MainActivity.sentinelCard(holder: LinearLayout, onlyAlerts: Boolean = false) {
     thread {
         val summary = try {
             SentinelData.report(this, null).getJSONObject("summary")
@@ -175,18 +175,14 @@ internal fun MainActivity.sentinelCard(holder: LinearLayout) {
             if (summary == null || summary.optInt("checked") == 0) return@runOnUiThread
             val issues = summary.getJSONObject("issues")
             val serious = SERIOUS.split(",").sumOf { issues.optJSONArray(it)?.length() ?: 0 }
-            val card = panel()
-            val line = row()
-            line.add(label(summary.optInt("score").toString(), 22f, bold = true).apply { setTextColor(accent()) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-            val texts = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), 0, 0, 0)
+            if (onlyAlerts && serious == 0) return@runOnUiThread
+            val card = group()
+            val score = label(summary.optInt("score").toString(), 20f, bold = true).apply {
+                setTextColor(if (serious == 0) accent() else getColor(R.color.danger))
+                gravity = android.view.Gravity.CENTER
+                minWidth = dp(40)
             }
-            texts.add(label(st("title"), 14f, bold = true))
-            texts.add(label(if (serious == 0) st("noSeriousAlerts") else st("seriousAlerts", mapOf("count" to serious)), 13f, muted = true))
-            line.add(texts, width = 0, weight = 1f)
-            card.add(line)
-            card.setOnClickListener { showSentinel(null) }
+            card.add(groupRow(score, st("title"), if (serious == 0) st("noSeriousAlerts") else st("seriousAlerts", mapOf("count" to serious))) { showSentinel(null) })
             holder.add(card)
         }
     }
@@ -194,14 +190,14 @@ internal fun MainActivity.sentinelCard(holder: LinearLayout) {
 
 /** Sentinel: the score, each alert's items, the strength levels and the settings. */
 internal fun MainActivity.showSentinel(vaultId: String?) {
-    val page = column(20)
-    page.addBack { showList() }
-    page.add(label(st("title"), 24f, bold = true), top = 8)
+    if (!Keyless.isUnlocked) return route()
+    val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    page.add(label(st("title"), 24f, bold = true), top = 4)
     page.add(label(st("subtitle"), 13f, muted = true), top = 4)
     val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     page.add(body, top = 12)
     body.add(label(getString(R.string.syncing), 14f, muted = true))
-    show("sentinel", page)
+    tabScreen("sentinel", page, withNewItem = false)
     thread {
         val report = try {
             SentinelData.report(this, vaultId)
@@ -240,7 +236,7 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
         body.add(spinner)
     }
 
-    val score = panel()
+    val score = group().apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }
     val line = row()
     line.add(label(summary.optInt("score").toString(), 40f, bold = true).apply { setTextColor(accent()) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
     val texts = LinearLayout(this).apply {
@@ -256,9 +252,9 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     val checkedAt = report.optLong("passwordsCheckedAt")
     if (checkedAt > 0) body.add(label(st("lastChecked", mapOf("when" to dateOf(checkedAt))), 12f, muted = true), top = 8)
     val listsAt = report.optLong("listsUpdatedAt")
-    if (listsAt > 0) body.add(label(st("listsUpdated", mapOf("when" to dateOf(listsAt))), 12f, muted = true), top = 2)
+    if (listsAt > 0) body.add(label(st("listsUpdated", mapOf("when" to dateOf(listsAt))), 12f, muted = true), top = if (checkedAt > 0) 2 else 8)
     val unchecked = report.optInt("unchecked")
-    if (unchecked > 0) body.add(label(st("unchecked", mapOf("count" to unchecked)), 12f, muted = true), top = 2)
+    if (unchecked > 0) body.add(label(st("unchecked", mapOf("count" to unchecked)), 12f, muted = true), top = if (checkedAt > 0 || listsAt > 0) 2 else 8)
     lateinit var check: android.widget.Button
     check = primaryButton(st("checkBreaches")) {
         check.isEnabled = false
@@ -270,24 +266,30 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     }
     body.add(check, top = 8)
 
-    var any = false
+    val alerts = group()
     for ((alert, key) in ALERTS) {
         val list = issues.optJSONArray(alert) ?: continue
         if (list.length() == 0) continue
-        any = true
-        val rowView = row().apply { setPadding(dp(4), dp(10), dp(4), dp(10)) }
-        rowView.add(label(st(key), 16f), width = 0, weight = 1f)
-        rowView.add(label(list.length().toString(), 16f, bold = true).apply { setTextColor(if (alert in SERIOUS.split(",")) getColor(R.color.danger) else accent()) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        rowView.setOnClickListener { showSentinelAlert(alert, key, report, vaultId) }
-        body.add(rowView, top = 4)
+        val serious = alert in SERIOUS.split(",")
+        val count = label(list.length().toString(), 16f, bold = true).apply {
+            setTextColor(if (serious) getColor(R.color.danger) else accent())
+            setPadding(dp(8), 0, dp(4), 0)
+        }
+        alerts.add(groupRow(roundIcon(R.drawable.ic_alert, if (serious) Hues.red else Hues.amber, 36), st(key), null, count) { showSentinelAlert(alert, key, report, vaultId) })
     }
-    if (!any) body.add(label(st("allGood"), 15f).apply { setTextColor(accent()) }, top = 12)
+    if (alerts.childCount > 0) {
+        body.add(alerts, top = 16)
+    } else {
+        body.add(label(st("allGood"), 15f).apply { setTextColor(accent()) }, top = 12)
+    }
 
     // How many passwords at each strength level.
     val strengths = summary.optJSONArray("strengths")
     if (strengths != null && summary.optInt("checked") > 0) {
-        body.add(sectionTitle(st("strengthTitle")), top = 24)
-        body.add(label(st("strengthHint"), 12f, muted = true), top = 2)
+        body.add(heading(st("strengthTitle")), top = 16)
+        body.add(label(st("strengthHint"), 12f, muted = true).apply { setPadding(dp(4), 0, dp(4), dp(4)) })
+        val levels = group().apply { setPadding(dp(16), dp(8), dp(16), dp(8)) }
+        body.add(levels)
         val total = (0 until strengths.length()).sumOf { strengths.optInt(it) }.coerceAtLeast(1)
         for (level in 0 until strengths.length()) {
             val count = strengths.optInt(level)
@@ -304,7 +306,7 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
             bar.addView(View(this), LinearLayout.LayoutParams(0, dp(10), 1f - count.toFloat() / total))
             bar.add(label(" $count", 14f), width = ViewGroup.LayoutParams.WRAP_CONTENT)
             bar.setOnClickListener { showSentinelLevel(level, report, vaultId) }
-            body.add(bar)
+            levels.add(bar)
         }
     }
 
@@ -312,7 +314,7 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     val ignored = report.optJSONArray("ignored")
     if (ignored != null && ignored.length() > 0) {
         val stale = report.optJSONArray("stale")?.let { s -> (0 until s.length()).map { s.getJSONArray(it).let { p -> p.getString(0) to p.getString(1) } }.toSet() } ?: emptySet()
-        body.add(sectionTitle(st("ignoredTitle")), top = 24)
+        body.add(heading(st("ignoredTitle")), top = 16)
         for (i in 0 until ignored.length()) {
             val pair = ignored.getJSONArray(i)
             val (id, alert) = pair.getString(0) to pair.getString(1)
@@ -328,15 +330,17 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     }
 
     // What Sentinel downloads.
-    body.add(sectionTitle(st("listsTitle")), top = 24)
-    body.add(label(st("breachPrivacy"), 12f, muted = true), top = 2)
-    body.add(Switch(this).apply {
+    body.add(heading(st("listsTitle")), top = 16)
+    body.add(label(st("breachPrivacy"), 12f, muted = true).apply { setPadding(dp(4), 0, dp(4), dp(4)) })
+    val lists = group().apply { setPadding(dp(16), dp(4), dp(16), dp(8)) }
+    body.add(lists)
+    lists.add(Switch(this).apply {
         text = st("autoCheck")
         isChecked = SentinelData.checkPasswords(this@sentinelOverview)
         setOnCheckedChangeListener { _, on -> SentinelData.setCheckPasswords(this@sentinelOverview, on) }
     }, top = 8)
     for ((kind, key) in listOf("breaches" to "listBreaches", "twoFactor" to "listTwoFactor", "passkeys" to "listPasskeys")) {
-        body.add(Switch(this).apply {
+        lists.add(Switch(this).apply {
             text = st(key)
             isChecked = SentinelData.listOn(this@sentinelOverview, kind)
             setOnCheckedChangeListener { _, on ->

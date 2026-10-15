@@ -23,4 +23,8 @@
     <color name="symbol">#FF9F6B</color>
     <color name="press">#1FE7EAEE</color>
     <color name="scrim">#99000000</color>
+    <!-- The phone's layers: darker than the desktop's page, so groups stand out. -->
+    <color name="screen">#0A0C0F</color>
+    <color name="nav_bar">#14171C</color>
+    <color name="search_pill">#1F242C</color>
 </resources>

@@ -21,6 +21,8 @@ items = {row["id"]: dict(row) for row in fixture["items"]}
 # functions), as the real server keeps them.
 devices = {}
 requests = {}
+# New devices showing a QR code to sign in (the qr_sign_in functions).
+qr_sign_ins = {}
 # What each write replaced (item_versions), share links, attachment chunks
 # (Storage) and the account's recovery key, as the real server keeps them.
 versions = {}
@@ -159,6 +161,47 @@ class Handler(BaseHTTPRequestHandler):
     def authorized(self):
         return self.headers.get("Authorization") == f"Bearer {TOKEN}"
 
+    def qr_rpc(self, name, body):
+        """The qr_sign_in functions open to anyone (under the lock); None when unknown."""
+        if name == "start_qr_sign_in":
+            if len(body.get("p_secret") or "") != 43 or body.get("p_platform") not in ("linux", "windows", "macos", "android", "ios", "web") or body["p_id"] in qr_sign_ins:
+                return 200, {"error": "invalid_request"}
+            qr_sign_ins[body["p_id"]] = {"id": body["p_id"], "secret": body["p_secret"], "platform": body["p_platform"], "ip": "10.0.2.16", "country": "BR",
+                                         "created_at": "2026-10-15T10:00:00Z", "expires_at": "2026-10-15T10:10:00Z", "status": "waiting",
+                                         "approver_key": None, "enc_payload": None, "expired": False}
+            return 200, {"ok": True}
+        if name in ("qr_sign_in_status", "cancel_qr_sign_in"):
+            request = qr_sign_ins.get(body.get("p_id"))
+            if not request or request["secret"] != body.get("p_secret"):
+                return (200, {"status": "unknown"}) if name == "qr_sign_in_status" else (204, None)
+            if name == "cancel_qr_sign_in":
+                del qr_sign_ins[request["id"]]
+                return 204, None
+            if request["status"] == "approved":
+                del qr_sign_ins[request["id"]]
+                return 200, {"status": "approved", "approver_key": request["approver_key"], "payload": request["enc_payload"]}
+            if request["status"] == "denied":
+                return 200, {"status": "denied"}
+            return 200, {"status": "expired" if request["expired"] else "waiting"}
+        return None
+
+    def qr_signed_in_rpc(self, name, body):
+        """The qr_sign_in functions of a signed-in device (under the lock); None when unknown."""
+        request = qr_sign_ins.get(body.get("p_id"))
+        live = request is not None and request["status"] == "waiting" and not request["expired"]
+        if name == "qr_sign_in_request":
+            return 200, ({k: request[k] for k in ("id", "platform", "ip", "country", "created_at", "expires_at")} if live else None)
+        if name == "approve_qr_sign_in":
+            if not live or len(body.get("p_approver_key") or "") != 43:
+                return 200, False
+            request.update(status="approved", approver_key=body["p_approver_key"], enc_payload=body["p_enc_payload"])
+            return 200, True
+        if name == "deny_qr_sign_in":
+            if live:
+                request["status"] = "denied"
+            return 204, None
+        return None
+
     def device_rpc(self, name, body):
         """The devices and device_setup functions (under the lock); None when unknown."""
         if name == "register_device":
@@ -206,6 +249,13 @@ class Handler(BaseHTTPRequestHandler):
         if url.path.startswith("/test/device_request/"):
             with lock:
                 return self.answer(200, requests.get(url.path.rsplit("/", 1)[1]))
+        # The test's view of QR code sign-ins: all of them, or one.
+        if url.path == "/test/qr_sign_in":
+            with lock:
+                return self.answer(200, list(qr_sign_ins.values()))
+        if url.path.startswith("/test/qr_sign_in/"):
+            with lock:
+                return self.answer(200, qr_sign_ins.get(url.path.rsplit("/", 1)[1]))
         if url.path == "/rest/v1/devices" and self.authorized():
             with lock:
                 rows = [{k: d[k] for k in ("id", "enc_info", "ip", "country", "created_at", "last_seen_at")} for d in devices.values() if not d["revoked_at"]]
@@ -309,8 +359,31 @@ class Handler(BaseHTTPRequestHandler):
                 request = requests[url.path.split("/")[3]]
                 request.update(nonce=body["nonce"], status="revealed")
             return self.answer(200, {})
+        # A new device showing a QR code (for the phone to read), and a phone
+        # answering the app's own QR code.
+        if url.path == "/test/qr_sign_in":
+            with lock:
+                qr_sign_ins[body["id"]] = {"id": body["id"], "secret": "x" * 43, "platform": body.get("platform", "windows"), "ip": body.get("ip"), "country": body.get("country"),
+                                           "created_at": "2026-10-15T10:00:00Z", "expires_at": "2026-10-15T10:10:00Z", "status": "waiting",
+                                           "approver_key": None, "enc_payload": None, "expired": False}
+            return self.answer(201, {})
+        if url.path.startswith("/test/qr_sign_in/"):
+            _, _, _, qr_id, action = url.path.split("/")
+            with lock:
+                request = qr_sign_ins[qr_id]
+                if action == "approve":
+                    request.update(status="approved", approver_key=body["approver_key"], enc_payload=body["enc_payload"])
+                elif action == "deny":
+                    request["status"] = "denied"
+                elif action == "expire":
+                    request["expired"] = True
+            return self.answer(200, {})
         if url.path.startswith("/rest/v1/rpc/"):
             name = url.path[len("/rest/v1/rpc/"):]
+            with lock:
+                answer = self.qr_rpc(name, body)
+            if answer is not None:
+                return self.answer(*answer)
             # Open to anyone, as on the real server.
             if name == "device_status":
                 with lock:
@@ -325,6 +398,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.answer(401, {"message": "JWT expired"})
             with lock:
                 answer = self.device_rpc(name, body)
+                if answer is None:
+                    answer = self.qr_signed_in_rpc(name, body)
                 if answer is None:
                     answer = self.account_rpc(name, body)
             if answer is None:

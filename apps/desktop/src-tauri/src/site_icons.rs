@@ -7,14 +7,15 @@
 //! from a site reaches the UI as it was sent.
 //!
 //! Icons are kept in the local database, encrypted with a key derived from
-//! the account key. Rows are named by a keyed hash of the host, so the file
-//! does not reveal the sites either. Icons never leave this device and are
-//! fetched again by each one.
+//! the account key (see `keyless_core::site_icons`, shared with the phone).
+//! Rows are named by a keyed hash of the host, so the file does not reveal
+//! the sites either. Icons never leave this device and are fetched again by
+//! each one.
 
 use std::{
     collections::HashMap,
     io::Cursor,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -23,13 +24,13 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use hkdf::Hkdf;
-use keyless_core::{account::UnlockedAccount, crypto::SymmetricKey, item::Category};
+use keyless_core::{
+    item::Category,
+    site_icons::{ICON_SIZE as SIZE, IconKeys, allowed_host, icon_links, is_public},
+};
 use serde::Serialize;
-use sha2::Sha256;
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
-use zeroize::Zeroizing;
 
 use crate::{
     api::now_secs,
@@ -40,8 +41,6 @@ use crate::{
 
 pub const EVENT_CHANGED: &str = "keyless://site-icons-changed";
 
-/// Largest side of a stored icon, in pixels.
-const SIZE: u32 = 64;
 /// A page is read up to the end of its head, where icons are declared.
 const MAX_PAGE: usize = 2 * 1024 * 1024;
 /// `.ico` files often hold several sizes.
@@ -62,48 +61,9 @@ pub struct SiteIcon {
     pub padded: bool,
 }
 
-// ----- keys -------------------------------------------------------------------
-
-struct Keys {
-    seal: SymmetricKey,
-    ids: Hkdf<Sha256>,
-}
-
-impl Keys {
-    fn new(account: &UnlockedAccount) -> AppResult<Self> {
-        let hkdf = Hkdf::<Sha256>::new(Some(b"keyless/site-icons/v1"), account.user_key().as_bytes());
-        let mut seal = Zeroizing::new([0u8; 32]);
-        hkdf.expand(b"seal", seal.as_mut()).map_err(|_| AppError::Server("site icon key".into()))?;
-        let seal = SymmetricKey::from_slice(seal.as_ref())?;
-        Ok(Self { seal, ids: hkdf })
-    }
-
-    /// Row id: a keyed hash of the host, so the database does not name it.
-    fn id(&self, host: &str) -> String {
-        let mut id = [0u8; 16];
-        let _ = self.ids.expand(format!("host:{host}").as_bytes(), &mut id);
-        hex::encode(id)
-    }
-
-    fn context(id: &str) -> Vec<u8> {
-        keyless_core::crypto::context("site-icon", &[id])
-    }
-
-    /// First byte: 1 when the icon is opaque; then the PNG.
-    fn seal(&self, id: &str, icon: Option<&(Vec<u8>, bool)>) -> AppResult<String> {
-        let mut plain = Zeroizing::new(Vec::new());
-        if let Some((png, opaque)) = icon {
-            plain.push(u8::from(*opaque));
-            plain.extend_from_slice(png);
-        }
-        Ok(self.seal.seal(&plain, &Self::context(id))?)
-    }
-
-    fn open(&self, id: &str, data: &str) -> Option<SiteIcon> {
-        let plain = self.seal.open(data, &Self::context(id)).ok()?;
-        let (&opaque, png) = plain.split_first()?;
-        Some(SiteIcon { src: format!("data:image/png;base64,{}", STANDARD.encode(png)), padded: opaque == 0 })
-    }
+/// The icon as the UI shows it.
+fn to_view((png, opaque): (Vec<u8>, bool)) -> SiteIcon {
+    SiteIcon { src: format!("data:image/png;base64,{}", STANDARD.encode(png)), padded: !opaque }
 }
 
 /// Normalized host for an address or host typed by the user.
@@ -117,7 +77,7 @@ pub fn lookup(state: &AppState, session: &Session, sites: &[String]) -> HashMap<
     if !state.settings().site_icons {
         return found;
     }
-    let Ok(keys) = Keys::new(&session.account) else { return found };
+    let Ok(keys) = IconKeys::new(session.account.user_key()) else { return found };
     let store = state.store();
     for site in sites {
         let Some(host) = host_of(site) else { continue };
@@ -125,7 +85,7 @@ pub fn lookup(state: &AppState, session: &Session, sites: &[String]) -> HashMap<
         if let Ok(Some((data, true, _))) = store.site_icon(&id)
             && let Some(icon) = keys.open(&id, &data)
         {
-            found.insert(site.clone(), icon);
+            found.insert(site.clone(), to_view(icon));
         }
     }
     found
@@ -182,7 +142,7 @@ async fn run(app: &AppHandle) -> AppResult<()> {
             .collect();
         hosts.sort();
         hosts.dedup();
-        (Keys::new(&session.account)?, hosts)
+        (IconKeys::new(session.account.user_key())?, hosts)
     };
 
     let now = now_secs();
@@ -221,7 +181,7 @@ async fn run(app: &AppHandle) -> AppResult<()> {
             tasks.abort_all();
             break;
         }
-        let data = keys.seal(&id, icon.as_ref())?;
+        let data = keys.seal(&id, icon.as_ref().map(|(png, opaque)| (png.as_slice(), *opaque)))?;
         state.store().save_site_icon(&id, &data, icon.is_some(), now_secs())?;
         if icon.is_some() {
             stored += 1;
@@ -312,92 +272,6 @@ async fn get(client: &reqwest::Client, url: Url, body: Body, accept: &str) -> Op
     Some((url, data))
 }
 
-/// Icons a page declares, the best first: the one closest to (and at
-/// least) our size. SVG is skipped: it can carry scripts and we do not
-/// render it.
-fn icon_links(html: &str, base: &Url) -> Vec<Url> {
-    let lower = html.to_ascii_lowercase();
-    let mut found: Vec<(u32, Url)> = Vec::new();
-    let mut from = 0;
-    while let Some(offset) = lower[from..].find("<link") {
-        let start = from + offset + "<link".len();
-        let Some(length) = lower[start..].find('>') else { break };
-        from = start + length;
-        let attrs = attributes(&html[start..from]);
-        let attr = |name: &str| attrs.get(name).map(String::as_str).unwrap_or("");
-        let rel = attr("rel").to_ascii_lowercase();
-        let touch = rel.split_whitespace().any(|r| r.starts_with("apple-touch-icon"));
-        if !touch && !rel.split_whitespace().any(|r| r == "icon") {
-            continue;
-        }
-        let href = attr("href").trim().replace("&amp;", "&");
-        if href.is_empty() || href.starts_with("data:") || attr("type").contains("svg") {
-            continue;
-        }
-        let Ok(url) = base.join(&href) else { continue };
-        if url.scheme() != "https" || url.path().to_ascii_lowercase().ends_with(".svg") {
-            continue;
-        }
-        let size = attr("sizes")
-            .split_whitespace()
-            .filter_map(|s| s.to_ascii_lowercase().split_once('x').and_then(|(w, _)| w.parse::<u32>().ok()))
-            .max()
-            .unwrap_or(if touch { 180 } else { 32 });
-        found.push((size, url));
-    }
-    found.sort_by_key(|(size, _)| if *size >= SIZE { size - SIZE } else { 10_000 + SIZE - size });
-    found.into_iter().map(|(_, url)| url).collect()
-}
-
-/// Attributes of a tag (`name="value"`, `name='value'`, `name=value`).
-fn attributes(tag: &str) -> HashMap<String, String> {
-    let bytes = tag.as_bytes();
-    let mut attrs = HashMap::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        while i < bytes.len() && (bytes[i].is_ascii_whitespace() || bytes[i] == b'/') {
-            i += 1;
-        }
-        let name_start = i;
-        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && !matches!(bytes[i], b'=' | b'/') {
-            i += 1;
-        }
-        if name_start == i {
-            i += 1;
-            continue;
-        }
-        let name = tag[name_start..i].to_ascii_lowercase();
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        let mut value = String::new();
-        if i < bytes.len() && bytes[i] == b'=' {
-            i += 1;
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-                i += 1;
-            }
-            if i < bytes.len() && matches!(bytes[i], b'"' | b'\'') {
-                let quote = bytes[i];
-                i += 1;
-                let value_start = i;
-                while i < bytes.len() && bytes[i] != quote {
-                    i += 1;
-                }
-                value = tag[value_start..i].to_string();
-                i += 1;
-            } else {
-                let value_start = i;
-                while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
-                    i += 1;
-                }
-                value = tag[value_start..i].to_string();
-            }
-        }
-        attrs.entry(name).or_insert(value);
-    }
-    attrs
-}
-
 /// Decodes an icon (PNG, ICO, JPEG, GIF, WebP, BMP) with size limits and
 /// re-encodes it as a PNG of at most `SIZE` pixels.
 fn to_png(bytes: &[u8]) -> Option<(Vec<u8>, bool)> {
@@ -426,52 +300,6 @@ fn to_png(bytes: &[u8]) -> Option<(Vec<u8>, bool)> {
 
 // ----- what may be contacted ---------------------------------------------------------
 
-/// A public internet name: not an IP address, not a local or private name,
-/// and under a known public suffix.
-fn allowed_host(host: &str) -> bool {
-    const LOCAL: [&str; 8] = [".local", ".lan", ".internal", ".home", ".home.arpa", ".localhost", ".corp", ".intranet"];
-    let host = host.trim_end_matches('.').to_ascii_lowercase();
-    !host.contains(':')
-        && host.parse::<IpAddr>().is_err()
-        && host != "localhost"
-        && !LOCAL.iter().any(|suffix| host.ends_with(suffix))
-        && psl::domain(host.as_bytes()).is_some_and(|domain| domain.suffix().is_known())
-}
-
-/// Addresses on the internet, not on this computer or its networks.
-fn is_public(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            let [a, b, c, _] = v4.octets();
-            !(v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_broadcast()
-                || v4.is_unspecified()
-                || v4.is_documentation()
-                || v4.is_multicast()
-                || a == 0
-                || a >= 240
-                || (a == 100 && (b & 0xc0) == 64)
-                || (a == 192 && b == 0 && c == 0)
-                || (a == 198 && (b & 0xfe) == 18))
-        }
-        IpAddr::V6(v6) => {
-            if let Some(v4) = v6.to_ipv4_mapped() {
-                return is_public(IpAddr::V4(v4));
-            }
-            let s = v6.segments();
-            !(v6.is_loopback()
-                || v6.is_unspecified()
-                || v6.is_multicast()
-                || (s[0] & 0xfe00) == 0xfc00
-                || (s[0] & 0xffc0) == 0xfe80
-                || (s[0] == 0x2001 && s[1] == 0x0db8)
-                || (s[0] == 0x64 && s[1] == 0xff9b))
-        }
-    }
-}
-
 /// DNS that only returns public addresses, so a site cannot point its name
 /// (or a redirect) at the local network. The connection uses exactly these
 /// addresses.
@@ -493,54 +321,6 @@ impl reqwest::dns::Resolve for PublicOnly {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn only_public_names_are_contacted() {
-        assert!(allowed_host("instagram.com"));
-        assert!(allowed_host("accounts.google.com"));
-        assert!(!allowed_host("localhost"));
-        assert!(!allowed_host("router.lan"));
-        assert!(!allowed_host("printer.local"));
-        assert!(!allowed_host("192.168.0.1"));
-        assert!(!allowed_host("10.0.0.1"));
-        assert!(!allowed_host("::1"));
-        assert!(!allowed_host("intranet"));
-        assert!(!allowed_host("nas.home.arpa"));
-    }
-
-    #[test]
-    fn private_addresses_are_refused() {
-        for ip in ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.1.1", "100.64.0.1", "0.0.0.0", "::1", "fd00::1", "fe80::1", "::ffff:192.168.0.1"] {
-            assert!(!is_public(ip.parse().unwrap()), "{ip}");
-        }
-        for ip in ["142.250.78.4", "157.240.12.174", "2a03:2880:f12f:83:face:b00c:0:25de"] {
-            assert!(is_public(ip.parse().unwrap()), "{ip}");
-        }
-    }
-
-    #[test]
-    fn finds_the_best_icon_link() {
-        let base = Url::parse("https://www.example.com/login").unwrap();
-        let html = r#"<html><head>
-            <link rel="icon" href="/favicon-16.png" sizes="16x16">
-            <LINK REL='shortcut icon' href=/favicon.ico>
-            <link rel="mask-icon" href="/mask.svg">
-            <link rel="icon" type="image/svg+xml" href="/icon.svg">
-            <link rel="apple-touch-icon" sizes="180x180" href="https://cdn.example.com/touch.png?v=1&amp;x=2">
-            <link rel="icon" sizes="96x96" href="/favicon-96.png">
-            <link rel="icon" href="http://insecure.example.com/i.png" sizes="64x64">
-        </head></html>"#;
-        let links: Vec<String> = icon_links(html, &base).into_iter().map(String::from).collect();
-        assert_eq!(
-            links,
-            [
-                "https://www.example.com/favicon-96.png",
-                "https://cdn.example.com/touch.png?v=1&x=2",
-                "https://www.example.com/favicon.ico",
-                "https://www.example.com/favicon-16.png",
-            ]
-        );
-    }
 
     #[test]
     fn icons_are_reencoded_and_bounded() {

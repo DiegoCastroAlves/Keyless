@@ -1100,6 +1100,23 @@ pub async fn cancel_device_setup(app: AppHandle) -> AppResult<()> {
     Ok(())
 }
 
+/// A QR code for a signed-in phone to read: its request id and SVG.
+#[tauri::command]
+pub async fn start_qr_sign_in(app: AppHandle) -> AppResult<crate::device_setup::SignInQr> {
+    crate::device_setup::qr_start(&app).await
+}
+
+#[tauri::command]
+pub async fn poll_qr_sign_in(app: AppHandle, id: String) -> AppResult<crate::device_setup::SetupProgress> {
+    crate::device_setup::qr_poll(&app, &id).await
+}
+
+#[tauri::command]
+pub async fn cancel_qr_sign_in(app: AppHandle, id: String) -> AppResult<()> {
+    crate::device_setup::qr_cancel(&app, &id).await;
+    Ok(())
+}
+
 /// A pasted setup link; returns its email.
 #[tauri::command]
 pub fn use_setup_link(state: State<'_, AppState>, link: String) -> AppResult<String> {

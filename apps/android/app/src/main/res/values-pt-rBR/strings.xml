@@ -56,7 +56,10 @@
     <string name="biometric_unlock">Desbloquear com biometria</string>
     <string name="biometric_unlock_hint">Depois da senha mestra, desbloqueie com a digital ou o rosto. A senha mestra volta a ser pedida quando o celular reinicia.</string>
     <string name="auto_lock">Bloquear depois de</string>
-    <string name="minutes">%1$d minutos</string>
+    <plurals name="minutes">
+        <item quantity="one">%1$d minuto</item>
+        <item quantity="other">%1$d minutos</item>
+    </plurals>
     <string name="autofill">Preenchimento automático</string>
     <string name="autofill_hint">Preencha seus logins em apps e navegadores. O Android pede para escolher o Keyless como serviço de preenchimento.</string>
     <string name="autofill_enable">Usar o Keyless para preencher</string>

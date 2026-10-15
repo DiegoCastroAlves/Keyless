@@ -25,4 +25,9 @@
     <!-- Pressed and selected rows, as the desktop's hover. -->
     <color name="press">#14121820</color>
     <color name="scrim">#66000000</color>
+    <!-- The phone's layers: screens on `screen`, groups on `panel` over it,
+         the search pill and the bottom bar above both. -->
+    <color name="screen">#EEF1F4</color>
+    <color name="nav_bar">#FFFFFF</color>
+    <color name="search_pill">#FFFFFF</color>
 </resources>

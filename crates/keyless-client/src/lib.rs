@@ -21,6 +21,7 @@ mod recovery;
 mod search;
 mod sentinel;
 mod shares;
+mod site_icons;
 mod store;
 pub mod transfer;
 mod writes;
@@ -34,6 +35,7 @@ use keyless_core::{
     item::{Category, Field, FieldKind, FieldPurpose, ItemDetails, ItemOverview, ItemUrl, PasswordHistoryEntry, new_field_id, same_write, stamp_version},
     keys::{KdfParams, SecretKey, derive_account_keys},
     passkey_login::{self, PasskeyBundle, PasskeyKeys},
+    qr_sign_in::{SignInLink, SignInRequest},
     setup_code,
     totp::Totp,
     vault::{VaultKey, VaultMeta},
@@ -129,6 +131,8 @@ pub struct Client {
     unlocked: Option<Unlocked>,
     pending: Option<Pending>,
     setup: Option<SetupRequest>,
+    /// This device's QR code sign-in, while it waits for a phone.
+    sign_in: Option<SignInRequest>,
     approvals: devices::Approvals,
     files: attachments::PendingFiles,
     recovery: Option<recovery::Recovery>,
@@ -338,6 +342,16 @@ impl Client {
             "passkeyOpen" => self.passkey_open(json),
             "setupCode" => self.setup_code(json),
             "setupOpen" => self.setup_open(json),
+            "signInStart" => self.sign_in_start(),
+            "signInOpen" => self.sign_in_open(json),
+            "signInLink" => sign_in_link(json),
+            "signInSeal" => self.sign_in_seal(json),
+            "siteIconHosts" => self.site_icon_hosts(),
+            "siteIconSeal" => self.site_icon_seal(json),
+            "siteIconOpen" => self.site_icon_open(json),
+            "siteIconLinks" => site_icons::site_icon_links(json),
+            "siteIconAllowed" => site_icons::site_icon_allowed(json),
+            "publicAddress" => site_icons::public_address(json),
             "sentinelLists" => Ok(sentinel::lists()),
             "sentinelParseList" => sentinel::parse_list(json),
             "sentinelReport" => self.sentinel_report(json),
@@ -358,6 +372,7 @@ impl Client {
         self.unlocked = None;
         self.pending = None;
         self.setup = None;
+        self.sign_in = None;
         self.approvals = Default::default();
         self.files = Default::default();
         self.recovery = None;
@@ -1090,6 +1105,49 @@ impl Client {
         SecretKey::parse(&secret_key).map_err(|_| Failure::new("device_setup_failed"))?;
         Ok(json!({ "email": email, "secretKey": secret_key.as_str() }))
     }
+
+    /// A QR code sign-in (`keyless_core::qr_sign_in`): the request's id and
+    /// secret for `start_qr_sign_in`, and the link its QR code shows.
+    fn sign_in_start(&mut self) -> Outcome<Value> {
+        let request = SignInRequest::new()?;
+        let answer = json!({ "id": request.id(), "secret": request.poll_secret(), "link": request.link().as_str() });
+        self.sign_in = Some(request);
+        Ok(answer)
+    }
+
+    /// The phone approved (`qr_sign_in_status`): the email and Secret Key it sent.
+    fn sign_in_open(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            approver_key: String,
+            payload: String,
+        }
+        let a: A = args(json)?;
+        let request = self.sign_in.take().ok_or(Failure::new("device_setup_expired"))?;
+        let SetupPayload { email, secret_key } = request.open(&a.approver_key, &a.payload).map_err(|_| Failure::new("device_setup_failed"))?;
+        SecretKey::parse(&secret_key).map_err(|_| Failure::new("device_setup_failed"))?;
+        Ok(json!({ "email": email, "secretKey": secret_key.as_str() }))
+    }
+
+    /// Seals this account's email and Secret Key for the device whose QR
+    /// code was read: its request id, this side's key and the payload, for
+    /// `approve_qr_sign_in`.
+    fn sign_in_seal(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            text: Zeroizing<String>,
+            secret_key: Zeroizing<String>,
+        }
+        let a: A = args(json)?;
+        self.unlocked()?;
+        let link = SignInLink::parse(&a.text).map_err(|_| Failure::new("sign_in_code_invalid"))?;
+        let secret_key = SecretKey::parse(&a.secret_key)?;
+        let payload = SetupPayload { email: self.store.email.clone(), secret_key: secret_key.to_display() };
+        let (approver_key, envelope) = link.seal(&payload).map_err(|_| Failure::new("device_setup_failed"))?;
+        Ok(json!({ "id": link.id(), "approverKey": approver_key, "payload": envelope }))
+    }
 }
 
 fn field(label: &str, kind: FieldKind, value: &str, purpose: Option<FieldPurpose>) -> Field {
@@ -1160,6 +1218,17 @@ fn parse_setup_link(json: &str) -> Outcome<Value> {
     let a: A = args(json)?;
     let (email, key) = setup_code::parse_setup_link(&a.text).map_err(|_| Failure::new("setup_code_invalid"))?;
     Ok(json!({ "email": email, "secretKey": key.to_display().as_str() }))
+}
+
+/// The request id in a QR code sign-in link (whether a scanned code is one).
+fn sign_in_link(json: &str) -> Outcome<Value> {
+    #[derive(Deserialize)]
+    struct A {
+        text: Zeroizing<String>,
+    }
+    let a: A = args(json)?;
+    let link = SignInLink::parse(&a.text).map_err(|_| Failure::new("sign_in_code_invalid"))?;
+    Ok(json!({ "id": link.id() }))
 }
 
 #[cfg(test)]

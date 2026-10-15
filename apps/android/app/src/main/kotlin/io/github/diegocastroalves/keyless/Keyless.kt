@@ -93,6 +93,7 @@ object Keyless {
     fun lock() {
         Native.run("lock")
         clearCache()
+        SiteIcons.forget()
     }
 
     private fun clearCache() {
@@ -351,6 +352,7 @@ object Keyless {
         clearCache()
         snapshotFile().delete()
         SentinelData.forget(app)
+        SiteIcons.clear(app)
         SecureStore.clear(app)
     }
 
@@ -557,5 +559,74 @@ object Keyless {
         } catch (e: KeylessException) {
             // Gone already.
         }
+    }
+
+    // ----- signing in with a QR code (keyless_core::qr_sign_in) ------------------
+
+    /** This phone's QR code: `link` is what it shows, `secret` what it asks the server with. */
+    class QrSignIn(val id: String, val secret: String, val link: String)
+
+    fun startQrSignIn(): QrSignIn {
+        val started = Native.obj("signInStart")
+        val request = QrSignIn(started.getString("id"), started.getString("secret"), started.getString("link"))
+        val answer = JSONObject(
+            try {
+                Server.rpc("start_qr_sign_in", JSONObject().put("p_id", request.id).put("p_secret", request.secret).put("p_platform", "android"))
+            } catch (e: KeylessException) {
+                throw if (e.key == "missing_function") KeylessException("device_setup_unavailable") else e
+            },
+        )
+        if (answer.has("error")) throw KeylessException(answer.getString("error"))
+        return request
+    }
+
+    /** "waiting", "approved" (with email and Secret Key), "denied" or "expired". */
+    fun pollQrSignIn(request: QrSignIn): JSONObject {
+        val state = JSONObject(Server.rpc("qr_sign_in_status", JSONObject().put("p_id", request.id).put("p_secret", request.secret)))
+        return when (state.optString("status")) {
+            "approved" -> {
+                val opened = Native.obj("signInOpen", JSONObject().put("approverKey", state.getString("approver_key")).put("payload", state.getString("payload")))
+                JSONObject().put("status", "approved").put("email", opened.getString("email")).put("secretKey", opened.getString("secretKey"))
+            }
+            "waiting" -> JSONObject().put("status", "waiting")
+            "denied" -> JSONObject().put("status", "denied")
+            else -> JSONObject().put("status", "expired")
+        }
+    }
+
+    fun cancelQrSignIn(request: QrSignIn) {
+        try {
+            Server.rpc("cancel_qr_sign_in", JSONObject().put("p_id", request.id).put("p_secret", request.secret))
+        } catch (e: KeylessException) {
+            // Gone already.
+        }
+    }
+
+    /** Where the device whose QR code was read asks from; null once it is gone or answered. */
+    fun qrSignInRequest(link: String): JSONObject? {
+        val id = Native.obj("signInLink", JSONObject().put("text", link)).getString("id")
+        val text = try {
+            Server.rpc("qr_sign_in_request", JSONObject().put("p_id", id), token())
+        } catch (e: KeylessException) {
+            throw if (e.key == "missing_function") KeylessException("device_setup_unavailable") else e
+        }
+        return if (text.trim() == "null" || text.isBlank()) null else JSONObject(text)
+    }
+
+    /** Sends the email and Secret Key, sealed for the device whose QR code was read. */
+    fun approveQrSignIn(link: String) {
+        val secretKey = SecureStore.get(app, "secret_key") ?: throw KeylessException("secret_key_invalid")
+        val sealed = Native.obj("signInSeal", JSONObject().put("text", link).put("secretKey", secretKey))
+        val approved = Server.rpc(
+            "approve_qr_sign_in",
+            JSONObject().put("p_id", sealed.getString("id")).put("p_approver_key", sealed.getString("approverKey")).put("p_enc_payload", sealed.getString("payload")),
+            token(),
+        ).trim() == "true"
+        if (!approved) throw KeylessException("device_setup_expired")
+    }
+
+    fun denyQrSignIn(link: String) {
+        val id = Native.obj("signInLink", JSONObject().put("text", link)).getString("id")
+        Server.rpc("deny_qr_sign_in", JSONObject().put("p_id", id), token())
     }
 }

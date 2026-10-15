@@ -80,6 +80,13 @@ itens compartilhados com esse endereço.
   como em qualquer download, eles veem o endereço IP do pedido. Cada lista
   pode ser desligada no Sentinela: ela deixa de ser baixada, e a cópia no
   seu dispositivo é apagada.
+- **Os sites dos seus logins** fornecem os próprios ícones: os apps de
+  computador e de Android baixam o ícone do site de cada login do próprio
+  site (nunca por um serviço que saberia quais sites você tem), guardam o
+  ícone cifrado no dispositivo e pedem de novo uma vez por mês. O site vê o
+  endereço IP do pedido, como quando você o visita. Dá para desligar nas
+  configurações do app ("Mostrar ícones dos sites"); os ícones guardados são
+  apagados.
 
 O Keyless não tem anúncios, análise de uso nem rastreamento, e nunca vende
 nem compartilha seus dados.

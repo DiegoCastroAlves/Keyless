@@ -513,6 +513,66 @@ fn approves_a_new_device_and_lists_devices() {
     assert_eq!(list[1]["name"], "");
 }
 
+#[test]
+fn signs_in_with_a_qr_code() {
+    let server = server();
+    let mut phone = signed_in(&server);
+    let mut asker = Client::new();
+    let started = ok(asker.call("signInStart", ""));
+    let link = started["link"].as_str().unwrap();
+    assert!(link.starts_with("keyless://sign-in#"));
+    assert!(!link.contains(started["secret"].as_str().unwrap()));
+    // A signed-out or locked phone reads the code but cannot answer it.
+    assert_eq!(ok(Client::new().call("signInLink", &json!({ "text": link }).to_string()))["id"], started["id"]);
+    assert_eq!(error(Client::new().call("signInSeal", &json!({ "text": link, "secretKey": server.secret_key }).to_string())), "locked");
+    assert_eq!(error(phone.call("signInLink", &json!({ "text": "keyless://setup#email=a" }).to_string())), "sign_in_code_invalid");
+
+    let sealed = ok(phone.call("signInSeal", &json!({ "text": link, "secretKey": server.secret_key }).to_string()));
+    assert_eq!(sealed["id"], started["id"]);
+    let opened = ok(asker.call("signInOpen", &json!({ "approverKey": sealed["approverKey"], "payload": sealed["payload"] }).to_string()));
+    assert_eq!(opened["email"], "me@example.com");
+    assert_eq!(opened["secretKey"], json!(server.secret_key));
+    // Opened once.
+    assert_eq!(error(asker.call("signInOpen", &json!({ "approverKey": sealed["approverKey"], "payload": sealed["payload"] }).to_string())), "device_setup_expired");
+
+    // An answer for another request does not open.
+    ok(asker.call("signInStart", ""));
+    assert_eq!(error(asker.call("signInOpen", &json!({ "approverKey": sealed["approverKey"], "payload": sealed["payload"] }).to_string())), "device_setup_failed");
+}
+
+#[test]
+fn keeps_site_icons_sealed() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    let server = server();
+    let mut client = signed_in(&server);
+    assert_eq!(error(Client::new().call("siteIconHosts", "")), "locked");
+    const A: &str = "33333333-3333-4333-8333-333333333333";
+    const B: &str = "44444444-4444-4444-8444-444444444444";
+    let items = json!([row(&server, A, 5, 1, &login("GitHub", "https://www.github.com/login", "pw1", 1)), row(&server, B, 6, 1, &login("Bank", "https://bank.example", "pw2", 1))]);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": items }).to_string()));
+    // Only public names (bank.example is not one), named by a hash.
+    let hosts = ok(client.call("siteIconHosts", ""));
+    assert_eq!(hosts.as_array().unwrap().len(), 1);
+    assert_eq!(hosts[0]["host"], "github.com");
+    let id = hosts[0]["id"].as_str().unwrap().to_string();
+    assert!(!id.contains("github"));
+
+    let sealed = ok(client.call("siteIconSeal", &json!({ "id": id, "png": STANDARD.encode(b"a png"), "opaque": false }).to_string()));
+    let opened = ok(client.call("siteIconOpen", &json!({ "id": id, "data": sealed }).to_string()));
+    assert_eq!(opened["png"], STANDARD.encode(b"a png"));
+    assert_eq!(opened["padded"], true);
+    let none = ok(client.call("siteIconSeal", &json!({ "id": id }).to_string()));
+    assert_eq!(ok(client.call("siteIconOpen", &json!({ "id": id, "data": none }).to_string())), Value::Null);
+
+    let links = ok(client.call("siteIconLinks", &json!({ "html": "<head><link rel=icon href=/a.png sizes=64x64></head>", "url": "https://github.com/" }).to_string()));
+    assert_eq!(links, json!(["https://github.com/a.png"]));
+    assert_eq!(ok(Client::new().call("siteIconAllowed", &json!({ "host": "router.lan" }).to_string())), json!(false));
+    assert_eq!(ok(Client::new().call("siteIconAllowed", &json!({ "host": "github.com" }).to_string())), json!(true));
+    for (ip, public) in [("10.0.0.1", false), ("[::1]", false), ("192.168.1.10", false), ("140.82.112.3", true)] {
+        assert_eq!(ok(Client::new().call("publicAddress", &json!({ "ip": ip }).to_string())), json!(public), "{ip}");
+    }
+}
+
 /// A public list as the host downloads it: `sites`, and enough others to
 /// read as the real one.
 fn list_body(kind: &str, sites: &[&str]) -> String {

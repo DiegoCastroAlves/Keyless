@@ -352,7 +352,9 @@ def main():
     type_into(PACKAGE, 2, password)
     hide_keyboard()
     tap_text("Sign in")
-    # Their rows in the list (a small screen shows only some of the filters).
+    # Their rows in the list of every item (Items > All items).
+    wait_tap("Items", PACKAGE, seconds=120)
+    wait_tap("All items", PACKAGE, seconds=20)
     end = time.time() + 120
     synced = False
     while time.time() < end and not synced:
@@ -427,7 +429,9 @@ def main():
 
     # Passwords through Credential Manager, Keyless locked first.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
-    if wait_tap("Lock", PACKAGE, seconds=20):
+    if wait_tap("Account", PACKAGE, seconds=20):
+        time.sleep(1)
+        wait_tap("Lock", PACKAGE, seconds=10)
         check("locks", "Keyless is locked", 20)
     start("LoginActivity")
     check("the form app is back", "Get password", 30)

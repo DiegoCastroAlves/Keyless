@@ -17,7 +17,7 @@ async function load(entry, plugins = []) {
 // The desktop's texts the app shows as they are, in its three languages.
 const SECTIONS = [
   "fieldLabels", "fieldKinds", "categories", "categoriesPlural", "sentinel", "strength",
-  "common", "errors", "list", "filters", "share", "itemHistory", "item", "sshKey", "largeType", "importer", "recovery",
+  "common", "errors", "list", "filters", "share", "itemHistory", "item", "sshKey", "largeType", "importer", "recovery", "sidebar",
 ];
 
 const out = {};

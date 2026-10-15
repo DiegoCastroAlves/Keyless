@@ -51,6 +51,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="keyless" android:host="setup" />
             </intent-filter>
+            <!-- A new device's sign-in code, read by the phone's camera: keyless://sign-in#id=…&key=…&token=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="keyless" android:host="sign-in" />
+            </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />

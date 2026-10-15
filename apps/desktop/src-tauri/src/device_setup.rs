@@ -4,6 +4,9 @@
 //!   device leaves a request for the account; a signed-in device shows it,
 //!   the user types there the code the new device shows, and the email and
 //!   Secret Key come back encrypted for the new device.
+//! - **With a QR code** (see `keyless_core::qr_sign_in`): the new device
+//!   shows one, a signed-in phone reads it and sends the email and Secret
+//!   Key back, encrypted for the new device.
 //! - **With a setup code** (see `keyless_core::setup_code`): the QR code a
 //!   signed-in device shows ("Set up another device") or the Emergency Kit
 //!   prints, read from the screen, a picture or the Kit's PDF; or the
@@ -19,6 +22,7 @@ use keyless_core::{
     crypto::random_array,
     device_setup::{SetupApproval, SetupPayload, SetupRequest},
     keys::SecretKey,
+    qr_sign_in::SignInRequest,
     setup_code,
 };
 use serde::{Deserialize, Serialize};
@@ -64,6 +68,10 @@ struct Outgoing {
 pub struct SetupState {
     received: Mutex<Option<Received>>,
     outgoing: tokio::sync::Mutex<Option<Outgoing>>,
+    /// This device's QR code, while it waits for a phone to read it.
+    qr: tokio::sync::Mutex<Option<SignInRequest>>,
+    /// Counts QR code starts: one that finishes after a newer one began is dropped.
+    qr_starts: std::sync::atomic::AtomicU64,
     /// Requests this device answered: its key, and the wrong codes typed.
     approvals: Mutex<HashMap<String, (SetupApproval, u32)>>,
     /// Requests already announced with a notification.
@@ -198,6 +206,7 @@ fn answer_error(answer: &Value) -> Option<AppError> {
     match answer.get("error").and_then(Value::as_str) {
         None => None,
         Some("device_setup_throttled") => Some(invalid("device_setup_throttled")),
+        Some("qr_sign_in_throttled") => Some(invalid("qr_sign_in_throttled")),
         Some(_) => Some(invalid("invalid_request")),
     }
 }
@@ -294,6 +303,108 @@ pub async fn cancel(app: &AppHandle) {
     let result: AppResult<Value> = state.api.rpc(None, "cancel_device_setup", json!({ "p_id": outgoing.id, "p_secret": outgoing.secret })).await;
     if let Err(err) = result {
         log::info!("could not cancel the device setup request: {err}");
+    }
+}
+
+// ----- the new device, with a QR code ---------------------------------------
+
+#[derive(Deserialize)]
+struct QrStatus {
+    status: String,
+    approver_key: Option<String>,
+    payload: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SignInQr {
+    /// The request, for polling and cancelling it.
+    pub id: String,
+    pub svg: String,
+}
+
+async fn cancel_request(state: &AppState, request: &SignInRequest) {
+    let result: AppResult<Value> = state.api.rpc(None, "cancel_qr_sign_in", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await;
+    if let Err(err) = result {
+        log::info!("could not cancel the QR code sign-in: {err}");
+    }
+}
+
+/// Leaves a request on the server and returns the QR code (SVG) a signed-in
+/// phone reads to answer it. Only the newest start counts (a screen shown
+/// twice starts twice): an older one that finishes later is taken back.
+pub async fn qr_start(app: &AppHandle) -> AppResult<SignInQr> {
+    use std::sync::atomic::Ordering;
+    let state = app.state::<AppState>();
+    let start = state.setup.qr_starts.fetch_add(1, Ordering::SeqCst) + 1;
+    let request = SignInRequest::new()?;
+    let answer: Value = state
+        .api
+        .rpc(None, "start_qr_sign_in", json!({ "p_id": request.id(), "p_secret": request.poll_secret(), "p_platform": devices::platform() }))
+        .await
+        .map_err(|err| if devices::is_missing_function(&err) { invalid("device_setup_unavailable") } else { err })?;
+    if let Some(err) = answer_error(&answer) {
+        return Err(err);
+    }
+    let qr = SignInQr { id: request.id().to_string(), svg: crate::items::qr_svg(&request.link())? };
+    let mut slot = state.setup.qr.lock().await;
+    if state.setup.qr_starts.load(Ordering::SeqCst) != start {
+        drop(slot);
+        cancel_request(&state, &request).await;
+        return Err(AppError::Cancelled);
+    }
+    let previous = slot.replace(request);
+    drop(slot);
+    if let Some(previous) = previous {
+        cancel_request(&state, &previous).await;
+    }
+    Ok(qr)
+}
+
+/// Whether a phone answered QR code `id`; keeps the email and Secret Key it
+/// sent for the sign-in form.
+pub async fn qr_poll(app: &AppHandle, id: &str) -> AppResult<SetupProgress> {
+    let state = app.state::<AppState>();
+    let mut slot = state.setup.qr.lock().await;
+    let request = slot.as_ref().filter(|r| r.id() == id).ok_or_else(|| invalid("device_setup_expired"))?;
+    let status: QrStatus = state.api.rpc(None, "qr_sign_in_status", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await?;
+    let progress = |status: &'static str, email: Option<String>| SetupProgress { status, code: None, email };
+    match status.status.as_str() {
+        "waiting" => Ok(progress("waiting", None)),
+        "approved" => {
+            let request = slot.take().ok_or_else(|| invalid("device_setup_expired"))?;
+            let (Some(key), Some(payload)) = (status.approver_key, status.payload) else {
+                return Err(invalid("device_setup_failed"));
+            };
+            let SetupPayload { email, secret_key } = request.open(&key, &payload).map_err(|_| invalid("device_setup_failed"))?;
+            let email = normalize_email(&email).map_err(|_| invalid("device_setup_failed"))?;
+            if let Some(existing) = state.store().account()?
+                && !existing.email.eq_ignore_ascii_case(&email)
+            {
+                return Err(AppError::Invalid(Msg::new("device_other_account").with("email", &existing.email)));
+            }
+            let secret_key = SecretKey::parse(&secret_key).map_err(|_| invalid("device_setup_failed"))?;
+            Ok(progress("approved", Some(receive(&state, email, secret_key))))
+        }
+        "denied" => {
+            *slot = None;
+            Ok(progress("denied", None))
+        }
+        _ => {
+            *slot = None;
+            Ok(progress("expired", None))
+        }
+    }
+}
+
+/// Takes QR code `id` off the server.
+pub async fn qr_cancel(app: &AppHandle, id: &str) {
+    let state = app.state::<AppState>();
+    let request = {
+        let mut slot = state.setup.qr.lock().await;
+        if slot.as_ref().is_some_and(|r| r.id() == id) { slot.take() } else { None }
+    };
+    if let Some(request) = request {
+        cancel_request(&state, &request).await;
     }
 }
 

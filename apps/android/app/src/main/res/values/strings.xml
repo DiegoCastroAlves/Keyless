@@ -57,7 +57,10 @@
     <string name="biometric_unlock">Unlock with biometrics</string>
     <string name="biometric_unlock_hint">After the master password, unlock with your fingerprint or face. The master password is still asked after a restart of the phone.</string>
     <string name="auto_lock">Lock after</string>
-    <string name="minutes">%1$d minutes</string>
+    <plurals name="minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
     <string name="autofill">Autofill</string>
     <string name="autofill_hint">Fill your logins in apps and browsers. Android asks you to choose Keyless as its autofill service.</string>
     <string name="autofill_enable">Use Keyless for autofill</string>
@@ -98,4 +101,5 @@
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>
     <string name="select_item">Select an item to see its details</string>
+    <string name="privacy_url" translatable="false">https://keyless.diegoalves.dev/privacy/</string>
 </resources>

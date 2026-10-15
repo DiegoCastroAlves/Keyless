@@ -8,7 +8,8 @@ Results are printed as GitHub annotations.
 Usage: full_run.py <keyless-mock.apk> <formtest.apk> <fixture.json> <writes.jsonl> [requester]
 
 `requester` is crates/keyless-client's example of a new device asking to
-sign in; with it, approving a new device from the phone is tested too.
+sign in; with it, signing in with a QR code and approving a new device
+from the phone (by its code or its QR code) are tested too.
 """
 
 import base64
@@ -232,7 +233,7 @@ def item_extras(writes_path):
 
 def files_and_search(writes_path):
     """Attaching a file to GitHub, saving it back and removing it; searching inside items."""
-    tap_text("GitHub")
+    open_item("GitHub")
     check("opens GitHub", "octo", 20)
     uploads = writes(writes_path, "object")
     tap_text("More")
@@ -266,8 +267,9 @@ def files_and_search(writes_path):
     while time.time() < end and "notes.txt" in texts():
         time.sleep(1)
     time.sleep(1)
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    check("back to the list for search", "All items", 15)
+    outcome("back to Home for search", back_home())
+    tap_text(HOME)
+    time.sleep(1)
     # The fixture's logins say "Made up for tests." in their notes only.
     type_into(PACKAGE, 0, "made%sup")
     hide_keyboard()
@@ -275,14 +277,14 @@ def files_and_search(writes_path):
     check("finds items by their notes", "Bank", 15)
     replace_text(PACKAGE, 0, "")
     hide_keyboard()
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back to Home after searching", HOME, 15)
 
 
 def import_export(fixture, writes_path):
     """Settings: importing a CSV file, and exporting one."""
-    tap_text("More")
-    tap_last("Settings")
-    check("the settings open again", "Lock when the screen turns off", 15)
-    tap_scrolled("Import")
+    open_settings("Import and export")
+    tap_text("Import")
     check("lists what can be imported", "CSV file", 15)
     inserts = writes(writes_path, "insert")
     tap_below("CSV file", "Choose file…")
@@ -292,10 +294,9 @@ def import_export(fixture, writes_path):
     check("imports it", "Imported 1 item", 60)
     outcome("uploads the imported item", wait_write(writes_path, "insert", inserts))
     tap_last("Done")
-    check("the list has the imported item", "Imported One", 20)
-    tap_text("More")
-    tap_last("Settings")
-    tap_scrolled("Export")
+    outcome("Home has the imported item", scroll_to("Imported One"))
+    open_settings("Import and export")
+    tap_text("Export")
     check("offers the exports", "Encrypted backup", 15)
     tap_scrolled("I understand that this file is not protected and I will delete it after use.")
     tap_scrolled("Export unencrypted…")
@@ -312,11 +313,15 @@ def import_export(fixture, writes_path):
     # The master password's keyboard may still be up: Back would only close it.
     hide_keyboard()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    check("back in the settings after exporting", "Lock when the screen turns off", 15)
+    check("back in the settings after exporting", "Export", 15)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back in the settings list", "Security", 15)
 
 
 def recovery_key(fixture, writes_path):
-    """Settings: making a recovery key. Returns it."""
+    """Settings > Account: making a recovery key. Returns it."""
+    tap_text("Account")
+    time.sleep(1)
     outcome("lists the passkeys for signing in", scroll_to("No passkeys yet."))
     tap_scrolled("Recovery key")
     check("says there is no recovery key", "You don't have a recovery key yet", 30)
@@ -330,16 +335,16 @@ def recovery_key(fixture, writes_path):
     tap_text("I saved the recovery key somewhere safe")
     tap_last("Done")
     check("says when the key was made", "Created on", 30)
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    check("back to the list after the key", "All items", 15)
+    for _ in range(3):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(1)
+    check("back to Home after the key", HOME, 15)
     return key
 
 
 def recover_account(fixture, key):
     """Signed out: the recovery key opens the account with a new master password and Secret Key."""
-    tap_text("More")
-    tap_last("Settings")
+    open_settings("Account")
     tap_scrolled("Sign out")
     time.sleep(1)
     tap_last("Sign out")
@@ -401,22 +406,100 @@ def wait_mock(path, test, seconds=60):
     return None
 
 
+HOME = "Search Keyless"
+
+
+def open_item(name):
+    """Opens an item through the search (on Home, New item floats over the last rows)."""
+    tap_text(HOME)
+    time.sleep(1)
+    type_into(PACKAGE, 0, name)
+    hide_keyboard()
+    time.sleep(1)
+    # The last node with the name: the result, under the field that holds it too.
+    tap_last(name)
+
+
+def back_home():
+    """Back from an item opened through the search: the search, then Home."""
+    for _ in range(3):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(1)
+        if HOME in texts():
+            return True
+    return False
+
+
+def account_menu(choice):
+    """The account's menu (its letter, at the top of the tabs)."""
+    tap_text("Account")
+    time.sleep(1)
+    tap_last(choice)
+
+
+def open_settings(page=None):
+    """Settings, from the account's menu, and one of its pages."""
+    account_menu("Settings")
+    check("the settings list opens", "Security", 15)
+    if page:
+        tap_text(page)
+        time.sleep(1)
+
+
 def reopen_list():
-    """Goes to the settings and back: the list looks for new devices asking to sign in."""
-    tap_text("More")
-    tap_last("Settings")
+    """Goes to the settings and back: Home looks for new devices asking to sign in."""
+    account_menu("Settings")
     time.sleep(1)
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
 
 
-def approve_new_device(fixture, requester_path):
-    asker = subprocess.Popen([requester_path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+def start_requester(path):
+    """The requester example, and a function sending it a command (its answer, or None)."""
+    asker = subprocess.Popen([path], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
 
     def ask(command):
         asker.stdin.write(json.dumps(command) + "\n")
         asker.stdin.flush()
-        return json.loads(asker.stdout.readline())["ok"]
+        return json.loads(asker.stdout.readline()).get("ok")
 
+    return asker, ask
+
+
+def qr_sign_in(fixture, requester_path):
+    """Signing in with a QR code: refused once, then the code read from the
+    screen (the emulator's own capture: the app blocks screenshots) and
+    answered as a signed-in phone would, which fills the Secret Key."""
+    asker, ask = start_requester(requester_path)
+    tap_scrolled("Sign in with a QR code")
+    check("shows a QR code to sign in with", "Waiting for your other phone", 30)
+    first = wait_mock("/test/qr_sign_in", lambda rows: any(r["status"] == "waiting" for r in rows), 20)
+    outcome("leaves the QR code's request on the server", first is not None)
+    if first:
+        mock(f"/test/qr_sign_in/{first[0]['id']}/deny", {})
+        check("says when the phone refused it", "The code was refused", 20)
+        tap_text("Show a new code")
+    second = wait_mock("/test/qr_sign_in", lambda rows: any(r["status"] == "waiting" for r in rows), 20)
+    outcome("shows a new code", second is not None)
+    time.sleep(2)
+    shot = os.path.join(tempfile.mkdtemp(), "qr.png")
+    adb("emu", "screenrecord", "screenshot", shot, check=False)
+    found = (ask({"op": "scanPng", "path": shot}) or []) if os.path.exists(shot) else []
+    link = next((f for f in found if f.startswith("keyless://sign-in")), None)
+    outcome("the QR code holds the sign-in link", link is not None, f"found {found}")
+    if link:
+        sealed = ask({"op": "qrSeal", "link": link, "email": fixture["email"], "secretKey": fixture["secretKey"]})
+        mock(f"/test/qr_sign_in/{sealed['id']}/approve", {"approver_key": sealed["approverKey"], "enc_payload": sealed["payload"]})
+        check("the phone's answer fills the Secret Key", "Secret Key received", 30)
+        check("and the email", fixture["email"], 5)
+        tap_text("Type it instead")
+    else:
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    asker.kill()
+    check("back on the sign-in form", "Sign in to Keyless", 15)
+
+
+def approve_new_device(fixture, requester_path):
+    asker, ask = start_requester(requester_path)
     started = ask({"op": "start"})
     mock("/test/device_request", {"id": "r1", "public_key": started["publicKey"], "commitment": started["commitment"], "platform": "linux", "ip": "198.51.100.7", "country": "BR"})
     reopen_list()
@@ -440,6 +523,30 @@ def approve_new_device(fixture, requester_path):
         opened = ask({"op": "open", "requestId": "r1", "approverKey": answered["approver_key"], "approverNonce": answered["approver_nonce"], "payload": approved["enc_payload"]})
         outcome("the new device gets the email and Secret Key", opened["email"] == fixture["email"] and opened["secretKey"] == fixture["secretKey"])
     asker.kill()
+
+
+def approve_qr_code(fixture, requester_path):
+    """"Sign in on another device": the phone reads a new device's QR code (a
+    picture here), says where it asks from, and sends what opens on it."""
+    asker, ask = start_requester(requester_path)
+    started = ask({"op": "qrStart"})
+    mock("/test/qr_sign_in", {"id": started["id"], "platform": "windows", "ip": "198.51.100.20", "country": "PT"})
+    local = os.path.join(tempfile.mkdtemp(), "qr-sign-in.bmp")
+    with open(local, "wb") as out:
+        out.write(base64.b64decode(started["bmp"]))
+    adb("push", local, "/sdcard/Download/qr-sign-in.bmp")
+    account_menu("Sign in on another device")
+    scan_picture("qr-sign-in.bmp")
+    check("asks before signing in on another device", "Sign in on another device?", 30)
+    check("and says where it asks from", "198.51.100.20", 5)
+    tap_last("Approve")
+    approved = wait_mock(f"/test/qr_sign_in/{started['id']}", lambda r: r["status"] == "approved", 30)
+    outcome("approves the QR code", approved is not None)
+    if approved:
+        opened = ask({"op": "qrOpen", "approverKey": approved["approver_key"], "payload": approved["enc_payload"]})
+        outcome("the device showing the QR code gets the email and Secret Key", bool(opened) and opened["email"] == fixture["email"] and opened["secretKey"] == fixture["secretKey"])
+    asker.kill()
+    check("back to Home after the QR code", HOME, 15)
 
 
 def fields(package):
@@ -489,6 +596,8 @@ def main():
     # Sign in.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
     check("starts on the sign-in screen", "Sign in to Keyless", 60)
+    if requester:
+        qr_sign_in(fixture, requester)
     # The Emergency Kit's QR code gives the email and Secret Key.
     tap_text("Scan your Emergency Kit")
     scan_picture("qr-setup.bmp")
@@ -497,30 +606,30 @@ def main():
     type_into(PACKAGE, 1, fixture["masterPassword"].replace(" ", "%s"))
     hide_keyboard()
     tap_text("Sign in")
-    check("signs in and syncs the items", "GitHub", 120)
-    check("lists every item", "Bank", 10)
+    # Home lists the items added last (on a small screen, some below the fold).
+    check("signs in and syncs the items", "Bank", 120)
+    check("Home lists the items added last", "Recently added", 10)
 
     # An item.
-    tap_text("GitHub")
+    open_item("GitHub")
     check("opens an item", "octo", 20)
     check("hides the password", "••••••••••••", 5)
     tap_text("Show")
     check("shows the password", "github-pass-123", 10)
     hide_keyboard()
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    check("back to the list", "GitHub", 10)
+    outcome("back to Home", back_home())
 
     # Lock and unlock.
-    tap_text("Lock")
+    account_menu("Lock")
     check("locks", "Keyless is locked", 20)
     type_into(PACKAGE, 0, fixture["masterPassword"].replace(" ", "%s"))
     hide_keyboard()
     tap_text("Unlock")
-    check("unlocks with the master password", "GitHub", 60)
+    check("unlocks with the master password", HOME, 60)
 
     # Adding and changing items.
     tap_text("New item")
-    check("offers the categories for a new item", "What do you want to save?", 15)
+    check("offers the categories for a new item", "Show more", 15)
     tap_text("Login")
     check("opens the editor with the login's fields", "Add field", 15)
     type_into(PACKAGE, 0, "Editor%stest")
@@ -560,8 +669,10 @@ def main():
 
     tap_text("More")
     tap_last("Move to Recently Deleted")
-    check("moves it to Recently Deleted", "Recently Deleted", 20)
-    tap_text("Recently Deleted")
+    check("moves it to Recently Deleted", HOME, 20)
+    tap_text("Items")
+    check("the Items tab opens", "All items", 15)
+    tap_scrolled("Recently Deleted")
     check("lists it in Recently Deleted", "Edited item", 15)
     tap_text("Edited item")
     check("offers to restore it", "Restore", 15)
@@ -570,14 +681,15 @@ def main():
     time.sleep(1)
     tap_last("Delete permanently")
     outcome("deletes it for good", wait_write(writes_path, "delete", deletes))
-    check("back to the list", "All items", 20)
-    tap_text("All items")
+    time.sleep(2)
+    adb("shell", "input", "keyevent", "KEYCODE_BACK")
+    check("back to the Items tab", "All items", 20)
+    tap_text("Home")
+    check("back to Home", HOME, 15)
 
     # This phone in the account's devices, and signing another one out.
     mock("/test/device", {"id": "d2"})
-    tap_text("More")
-    tap_last("Settings")
-    check("the settings open", "Lock when the screen turns off", 15)
+    open_settings("Account")
     tap_scrolled("Signed-in devices")
     check("lists this phone among the devices", "This device", 30)
     check("and the other device", "203.0.113.9", 10)
@@ -585,16 +697,17 @@ def main():
     tap_last("Sign out")
     signed_out = wait_mock("/test/device/d2", lambda d: d["revoked_at"] is not None, 20)
     outcome("signs the other device out", signed_out is not None)
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    check("back to the list again", "All items", 15)
+    for _ in range(3):
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        time.sleep(1)
+    check("back to Home again", HOME, 15)
 
     if requester:
         approve_new_device(fixture, requester)
+        approve_qr_code(fixture, requester)
 
     # Sentinel: the lists and the password check come from the fake server.
-    tap_text("More")
-    tap_last("Sentinel")
+    tap_text("Sentinel")
     check("opens Sentinel", "Password health", 30)
     tap_text("Check online")
     check("finds the breached password", "Breached passwords", 60)
@@ -603,7 +716,7 @@ def main():
     check("names the item with the breached password", "GitHub", 15)
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
-    check("the list shows Sentinel's summary", "serious alert", 30)
+    check("Home shows Sentinel's summary", "serious alert", 30)
 
     files_and_search(writes_path)
     import_export(fixture, writes_path)
@@ -671,11 +784,11 @@ def main():
     # Last: it changes the account's master password and Secret Key.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
     if recovery:
-        if not check("the app is unlocked again", "All items", 20):
+        if not check("the app is unlocked again", HOME, 20):
             type_into(PACKAGE, 0, fixture["masterPassword"].replace(" ", "%s"))
             hide_keyboard()
             tap_text("Unlock")
-            check("unlocks before recovering", "All items", 60)
+            check("unlocks before recovering", HOME, 60)
         recover_account(fixture, recovery)
 
     failed = [r for r in results if not r[1]]

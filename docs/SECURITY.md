@@ -192,6 +192,31 @@ Like 1Password's "Sign in with another device", but the server only relays
 - What is sent is what an Emergency Kit holds: the master password is still
   needed on the new device.
 
+### Signing in with a QR code
+
+The new device shows a QR code that a signed-in phone reads (see
+`keyless_core::qr_sign_in` and the `qr_sign_in` migration):
+
+- The code is a `keyless://sign-in#id=…&key=…&token=…` link: a random
+  request id, an X25519 public key and a 16-byte token. The new device leaves
+  only the id, the hash of a secret it polls with, and its platform on the
+  server; the key and the token travel only through the camera.
+- The phone shows where the request comes from (platform, country, address)
+  and asks before answering. It then seals the email and Secret Key with a
+  key derived from a fresh X25519 exchange and the token (HKDF, salt
+  `keyless/v1/qr-sign-in`, info: both public keys and the token), bound to
+  the request id, and leaves its public key and the ciphertext on the
+  server. The new device takes them once.
+- The server sees neither the new device's key nor the token, so it can
+  neither read the answer nor replace it with one of its own. Someone else
+  who sees the QR code can at most send the new device another account
+  (whose email it shows) or refuse the request; polling needs the secret,
+  which is not in the code. Requests last 10 minutes, and the server takes
+  20 an hour per address.
+- As with another device, only what an Emergency Kit holds is sent: the
+  master password is still typed on the new device. The phone warns never
+  to read a code someone else sent.
+
 ### Setup codes
 
 A setup code is the account's email and Secret Key as a

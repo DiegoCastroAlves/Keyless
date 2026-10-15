@@ -143,26 +143,25 @@ fun Context.topBar(title: CharSequence?, onBack: (() -> Unit)?, vararg actions: 
         for (action in actions) addView(action)
     }
 
-/** A group of rows, as the desktop's: a hairline around, and between them. */
+/** A group of rows (an item's fields): a rounded surface over the screen, a hairline between rows from their text on. */
 fun Context.card(): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
-    background = shape(getColor(R.color.panel), 12f, getColor(R.color.line))
-    dividerDrawable = GradientDrawable().apply {
+    background = shape(getColor(R.color.panel), 16f)
+    dividerDrawable = android.graphics.drawable.InsetDrawable(GradientDrawable().apply {
         setColor(getColor(R.color.line))
         setSize(0, dp(1).coerceAtLeast(1))
-    }
+    }, dp(16), 0, 0, 0)
     showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
     // Rows' touch feedback stays inside the corners.
     outlineProvider = ViewOutlineProvider.BACKGROUND
     clipToOutline = true
 }
 
-/** A group's title: small capitals in the subtle color. */
+/** A group's title, over it: semibold, as a list's heading. */
 fun Context.sectionTitle(text: String): TextView = TextView(this).apply {
-    this.text = text.uppercase()
-    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-    letterSpacing = 0.06f
-    setTextColor(getColor(R.color.subtle))
+    this.text = text
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+    setTextColor(getColor(R.color.fg))
     weight(600)
     setPadding(dp(4), 0, dp(4), 0)
 }
@@ -212,12 +211,32 @@ fun Context.categoryIcon(category: String, size: Int = 20): ImageView {
 }
 
 /**
- * An item's icon, as on the desktop: a login gets a letter on its website's
- * color, anything else its category's icon on a tint of its color.
+ * An item's icon, as on the desktop: a login gets its website's icon, or a
+ * letter on its website's color, anything else its category's icon on a
+ * tint of its color.
  */
 fun Context.itemIcon(category: String, title: String, url: String? = null, size: Int = 40): View {
     val radius = size / 4f
     val isLogin = category == "login" || category == "password"
+    // The website's own icon, when Keyless has it (see SiteIcons).
+    val site = if (isLogin && !url.isNullOrEmpty()) SiteIcons.of(hostOf(url)) else null
+    if (site != null) {
+        return ImageView(this).apply {
+            setImageBitmap(site.bitmap)
+            if (site.padded) {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                val pad = (size * 0.14f).toInt()
+                setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+                background = shape(Color.WHITE, radius)
+            } else {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = shape(Color.TRANSPARENT, radius)
+            }
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            clipToOutline = true
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+    }
     if (isLogin && (!url.isNullOrEmpty() || title.isNotEmpty())) {
         val seed = if (!url.isNullOrEmpty()) hostOf(url) else title
         val letter = Regex("[\\p{L}\\p{N}]").find(title.ifEmpty { seed })?.value?.uppercase() ?: "?"
@@ -350,9 +369,9 @@ fun Context.searchField(hint: String): EditText = EditText(this).apply {
     compoundDrawablePadding = dp(8)
 }
 
-/** A screen's background (the desktop's panels are white, or dark gray). */
+/** A screen's background, under its groups. */
 fun View.onPanel(): View {
-    setBackgroundColor(context.getColor(R.color.panel))
+    setBackgroundColor(context.getColor(R.color.screen))
     return this
 }
 
@@ -360,7 +379,7 @@ fun Context.colorDrawable(id: Int): ColorDrawable = ColorDrawable(getColor(id))
 
 /** For a screen built as an Activity: the theme's colors on its window. */
 fun Activity.panelWindow() {
-    window.setBackgroundDrawable(colorDrawable(R.color.panel))
+    window.setBackgroundDrawable(colorDrawable(R.color.screen))
 }
 
 /** The top of the sign-in and unlock screens, as the desktop's lock screen: the app's icon, a title and a line. */
@@ -440,4 +459,274 @@ fun Context.passwordText(secret: String): CharSequence {
         text.setSpan(android.text.style.ForegroundColorSpan(getColor(color)), i, i + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
     return text
+}
+
+// ----- the phone's own structure -----------------------------------------------------
+//
+// Screens on `screen`, groups of rows on `panel` over it without lines, a
+// search pill and the account at the top, tabs at the bottom and the main
+// action floating over the content: how phone apps are laid out, in the
+// desktop's colors, font and icons.
+
+/** A color family: the 500 shade under an icon, and the icon's color in light and dark. */
+class Hue(val base: Long, val light: Long, val dark: Long)
+
+object Hues {
+    val amber = Hue(0xFFF59E0B, 0xFFD97706, 0xFFFCD34D)
+    val cyan = Hue(0xFF06B6D4, 0xFF0891B2, 0xFF67E8F9)
+    val green = Hue(0xFF10B981, 0xFF059669, 0xFF6EE7B7)
+    val blue = Hue(0xFF3B82F6, 0xFF2563EB, 0xFF93C5FD)
+    val violet = Hue(0xFF8B5CF6, 0xFF7C3AED, 0xFFC4B5FD)
+    val slate = Hue(0xFF64748B, 0xFF475569, 0xFFCBD5E1)
+    val rose = Hue(0xFFF43F5E, 0xFFE11D48, 0xFFFDA4AF)
+    val indigo = Hue(0xFF6366F1, 0xFF4F46E5, 0xFFA5B4FC)
+    val teal = Hue(0xFF14B8A6, 0xFF0D9488, 0xFF5EEAD4)
+    val orange = Hue(0xFFF97316, 0xFFEA580C, 0xFFFDBA74)
+    val red = Hue(0xFFEF4444, 0xFFDC2626, 0xFFFCA5A5)
+}
+
+/** `hue`'s icon color in this theme. */
+fun Context.hueColor(hue: Hue): Int = (if (isDark) hue.dark else hue.light).toInt()
+
+/** An icon on a round tint of its color: the start of a row, or of a group's title. */
+fun Context.roundIcon(res: Int, hue: Hue, size: Int = 40): ImageView = ImageView(this).apply {
+    val base = hue.base.toInt()
+    setImageDrawable(iconDrawable(res, hueColor(hue)))
+    scaleType = ImageView.ScaleType.CENTER_INSIDE
+    val pad = (size * 0.27f).toInt()
+    setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+    background = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(Color.argb(if (isDark) 46 else 36, Color.red(base), Color.green(base), Color.blue(base)))
+    }
+    layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+}
+
+/** Rows that belong together, on a rounded surface over the screen: no lines around or between them. */
+fun Context.group(): LinearLayout = LinearLayout(this).apply {
+    orientation = LinearLayout.VERTICAL
+    background = shape(getColor(R.color.panel), 16f)
+    setPadding(0, dp(6), 0, dp(6))
+    outlineProvider = ViewOutlineProvider.BACKGROUND
+    clipToOutline = true
+}
+
+/** A group's title row: its icon, the name, and a chevron that folds it (when `open` is given). */
+fun Context.groupHeader(icon: View?, title: String, open: Boolean? = null, onToggle: (() -> Unit)? = null, vararg actions: View): LinearLayout =
+    LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        minimumHeight = dp(60)
+        setPadding(dp(16), dp(8), dp(8), dp(8))
+        if (icon != null) addView(icon)
+        addView(TextView(context).apply {
+            text = title
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+            setTextColor(getColor(R.color.fg))
+            weight(600)
+            setSingleLine(true)
+            ellipsize = TextUtils.TruncateAt.END
+            setPadding(if (icon != null) dp(14) else 0, 0, dp(8), 0)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        for (action in actions) addView(action)
+        if (open != null && onToggle != null) {
+            val chevron = iconButton(if (open) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down, getString(if (open) R.string.fold else R.string.unfold), accent()) { onToggle() }
+            addView(chevron)
+            background = pressable(null, 0f)
+            setOnClickListener { onToggle() }
+        }
+    }
+
+/** A section's name over the groups that follow it (bold, as a list's heading). */
+fun Context.heading(text: String, trailing: View? = null): LinearLayout = LinearLayout(this).apply {
+    orientation = LinearLayout.HORIZONTAL
+    gravity = Gravity.CENTER_VERTICAL
+    minimumHeight = dp(44)
+    setPadding(dp(4), 0, 0, 0)
+    addView(TextView(context).apply {
+        this.text = text
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextColor(getColor(R.color.fg))
+        weight(600)
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    if (trailing != null) addView(trailing)
+}
+
+/** A row of a group that opens something: a round icon, a title (and a line under it), and what is at the end. */
+fun Context.groupRow(icon: View?, title: CharSequence, subtitle: CharSequence? = null, trailing: View? = null, onClick: (() -> Unit)? = null): LinearLayout =
+    listRow(icon, title, subtitle, trailing).apply {
+        minimumHeight = dp(if (subtitle.isNullOrEmpty()) 56 else 64)
+        if (onClick != null) setOnClickListener { onClick() } else background = null
+    }
+
+/** Lets a row's subtitle (from listRow or groupRow) take up to `lines` lines. */
+fun LinearLayout.wrapSubtitle(lines: Int = 3): LinearLayout = apply {
+    val texts = (0 until childCount).map { getChildAt(it) }.firstOrNull { it is LinearLayout } as? LinearLayout ?: return@apply
+    (texts.getChildAt(1) as? TextView)?.apply {
+        setSingleLine(false)
+        maxLines = lines
+    }
+}
+
+/** A count at the end of a row ("12"). */
+fun Context.countText(count: Int): TextView = TextView(this).apply {
+    text = count.toString()
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+    setTextColor(getColor(R.color.subtle))
+    setPadding(dp(8), 0, dp(4), 0)
+}
+
+/** The search at the top of the main tabs: a pill that opens the search screen. */
+fun Context.searchPill(hint: String, onClick: () -> Unit): LinearLayout = LinearLayout(this).apply {
+    orientation = LinearLayout.HORIZONTAL
+    gravity = Gravity.CENTER_VERTICAL
+    minimumHeight = dp(52)
+    setPadding(dp(18), 0, dp(18), 0)
+    background = pressable(shape(getColor(R.color.search_pill), 26f), 26f)
+    if (!isDark) elevation = dpf(1.5f)
+    addView(icon(R.drawable.ic_search, getColor(R.color.muted), 20))
+    addView(TextView(context).apply {
+        text = hint
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+        setTextColor(getColor(R.color.muted))
+        setSingleLine(true)
+        ellipsize = TextUtils.TruncateAt.END
+        setPadding(dp(12), 0, 0, 0)
+    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    contentDescription = hint
+    isFocusable = true
+    setOnClickListener { onClick() }
+}
+
+/** The account's letter on its color (the email's, as the desktop's avatars): opens the account menu; named `description`. */
+fun Context.accountButton(email: String, description: String, onClick: (() -> Unit)?): android.widget.FrameLayout = android.widget.FrameLayout(this).apply {
+    background = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(avatarColor(email))
+    }
+    foreground = if (onClick != null) pressable(null, 20f) else null
+    contentDescription = description
+    addView(TextView(context).apply {
+        text = Regex("[\\p{L}\\p{N}]").find(email)?.value?.uppercase() ?: "?"
+        gravity = Gravity.CENTER
+        setTextColor(Color.WHITE)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
+        weight(600)
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }, android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+    if (onClick != null) {
+        tooltipText = description
+        setOnClickListener { onClick() }
+    } else {
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }
+}
+
+/** A tab of the bottom bar: its id, icon and name. */
+class Tab(val id: String, val icon: Int, val name: String)
+
+/** The bottom bar: each tab's icon (on a pill when it is the one shown) over its name. */
+fun Context.bottomBar(tabs: List<Tab>, selected: String, onSelect: (String) -> Unit): LinearLayout = LinearLayout(this).apply {
+    orientation = LinearLayout.HORIZONTAL
+    setBackgroundColor(getColor(R.color.nav_bar))
+    elevation = dpf(8f)
+    outlineProvider = ViewOutlineProvider.BOUNDS
+    setPadding(0, dp(10), 0, dp(12))
+    for (tab in tabs) {
+        val chosen = tab.id == selected
+        val cell = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            contentDescription = tab.name
+            isSelected = chosen
+            setOnClickListener { onSelect(tab.id) }
+        }
+        val pill = ImageView(context).apply {
+            setImageDrawable(iconDrawable(tab.icon, getColor(if (chosen) R.color.accent else R.color.muted)))
+            scaleType = ImageView.ScaleType.CENTER
+            background = if (chosen) shape(getColor(R.color.accent_soft), 16f) else pressable(null, 16f)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        cell.addView(pill, LinearLayout.LayoutParams(dp(64), dp(32)))
+        cell.addView(TextView(context).apply {
+            text = tab.name
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(getColor(if (chosen) R.color.fg else R.color.muted))
+            weight(if (chosen) 600 else 500)
+            gravity = Gravity.CENTER
+            setSingleLine(true)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) })
+        addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+    }
+}
+
+/** The main action, floating at the bottom end: a plus and its name, folded to the plus while the content scrolls. */
+class Fab(context: Context, text: String, onClick: () -> Unit) : LinearLayout(context) {
+    private val name: TextView
+
+    init {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER
+        minimumHeight = context.dp(56)
+        minimumWidth = context.dp(56)
+        setPadding(context.dp(16), 0, context.dp(16), 0)
+        background = context.pressable(context.shape(context.getColor(R.color.accent), 16f), 16f)
+        elevation = context.dpf(6f)
+        contentDescription = text
+        addView(context.icon(R.drawable.ic_plus, context.getColor(R.color.accent_fg), 24))
+        name = TextView(context).apply {
+            this.text = text
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            setTextColor(context.getColor(R.color.accent_fg))
+            weight(600)
+            setPadding(context.dp(10), 0, context.dp(4), 0)
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        addView(name)
+        setOnClickListener { onClick() }
+    }
+
+    /** Only the plus (while scrolling down), or the plus and the name. */
+    fun fold(folded: Boolean) {
+        name.visibility = if (folded) View.GONE else View.VISIBLE
+    }
+}
+
+/** A category to start a new item with: its icon, a plus, and its name under them. */
+fun Context.categoryTile(category: String, name: String, onClick: () -> Unit): LinearLayout = LinearLayout(this).apply {
+    orientation = LinearLayout.VERTICAL
+    minimumHeight = dp(108)
+    setPadding(dp(16), dp(14), dp(12), dp(14))
+    background = pressable(shape(getColor(R.color.panel), 16f), 16f)
+    contentDescription = name
+    val top = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.TOP
+    }
+    top.addView(itemIcon(category, "", null, 40))
+    top.addView(View(context), LinearLayout.LayoutParams(0, 1, 1f))
+    top.addView(icon(R.drawable.ic_plus, getColor(R.color.muted), 20))
+    addView(top)
+    addView(TextView(context).apply {
+        text = name
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+        setTextColor(getColor(R.color.fg))
+        weight(500)
+        maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
+        importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) })
+    setOnClickListener { onClick() }
+}
+
+/** A small rounded tag at the end of a row or title ("2 steps left"). */
+fun Context.badge(text: String): TextView = TextView(this).apply {
+    this.text = text
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+    setTextColor(getColor(R.color.accent_fg))
+    weight(600)
+    setPadding(dp(10), dp(4), dp(10), dp(4))
+    background = shape(getColor(R.color.accent), 12f)
 }

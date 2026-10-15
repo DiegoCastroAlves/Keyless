@@ -196,11 +196,11 @@ fun LinearLayout.add(view: View, top: Int = 0, width: Int = ViewGroup.LayoutPara
     return this
 }
 
-/** A group of fields and texts: a hairline card (see card() for rows). */
+/** A group of fields and texts: a rounded surface (see card() for rows). */
 fun Context.panel(): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
-    setPadding(dp(16), dp(10), dp(16), dp(10))
-    background = shape(getColor(R.color.panel), 12f, getColor(R.color.line))
+    setPadding(dp(16), dp(12), dp(16), dp(12))
+    background = shape(getColor(R.color.panel), 16f)
 }
 
 /** An error, in the user's language. */

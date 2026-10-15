@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The main tabs (home, items), the account menu, setting up the phone and the settings' groups. -->
+<resources>
+    <string name="tab_home">Home</string>
+    <string name="tab_items">Items</string>
+    <string name="search_keyless">Search Keyless</string>
+    <string name="account_menu">Account</string>
+    <string name="fold">Fold</string>
+    <string name="unfold">Unfold</string>
+    <string name="recently_used">Recently used</string>
+    <string name="recently_added">Recently added</string>
+    <string name="home_empty_favorites">Mark items as favorites to find them here.</string>
+    <string name="customize_home">Customize home</string>
+    <string name="customize_home_hint">Show what matters to you and hide the rest.</string>
+    <string name="setup_title">Finish setting up</string>
+    <string name="setup_screen_title">Set up this phone</string>
+    <string name="setup_hint">Each step takes a moment and makes Keyless easier to use here.</string>
+    <string name="step_biometric">Unlock with biometrics</string>
+    <string name="step_biometric_hint">Open Keyless with your fingerprint or face.</string>
+    <string name="step_autofill">Fill in apps and browsers</string>
+    <string name="step_autofill_hint">Android asks you to choose Keyless as its autofill service.</string>
+    <string name="step_passkeys">Passkeys</string>
+    <string name="step_passkeys_hint">Turn Keyless on as a passkey provider.</string>
+    <string name="step_on">On</string>
+    <string name="turn_on">Turn on</string>
+    <string name="hide_setup">Hide</string>
+    <string name="show_more">Show more</string>
+    <string name="show_less">Show less</string>
+    <string name="settings_general">General</string>
+    <string name="settings_security">Security</string>
+    <string name="settings_transfer">Import and export</string>
+    <string name="settings_about">About</string>
+    <string name="about_licenses">Open-source licenses</string>
+    <string name="privacy_policy">Privacy policy</string>
+    <string name="site_icons">Show website icons</string>
+    <string name="site_icons_hint">Keyless downloads each site\'s icon from the site itself and keeps it encrypted on this phone.</string>
+    <string name="no_results">Nothing found.</string>
+    <string name="recent_searches_clear">Clear</string>
+    <plurals name="setup_steps_left">
+        <item quantity="one">%d step left</item>
+        <item quantity="other">%d steps left</item>
+    </plurals>
+</resources>

@@ -75,6 +75,12 @@ than the items shared with that address.
   Nothing about your items is sent to them; like any download, they see the
   request's IP address. Each list can be turned off in Sentinel: it is then
   not downloaded, and the copy on your device is deleted.
+- **The websites of your logins** give their own icons: the desktop and
+  Android apps download each login's website icon from that website
+  (never through a service that would learn which sites you have), keep it
+  encrypted on the device, and ask again once a month. The website sees the
+  request's IP address, as when you visit it. Turn this off in the app's
+  settings ("Show website icons"); the icons kept are then deleted.
 
 Keyless has no ads, no analytics or tracking, and never sells or shares your
 data.

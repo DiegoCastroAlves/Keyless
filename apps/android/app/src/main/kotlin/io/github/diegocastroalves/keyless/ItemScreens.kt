@@ -369,12 +369,12 @@ private fun MainActivity.saveAttachmentAs(id: String, file: JSONObject) {
 
 // ----- QR codes and large type ------------------------------------------------------------
 
-/** A QR code drawn from its modules ('1' dark), with its quiet zone, as large as it fits. */
-class QrView(context: Context, private val modules: List<String>) : View(context) {
+/** A QR code drawn from its modules ('1' dark), with its quiet zone, as large as it fits (up to `maxSide` pixels). */
+class QrView(context: Context, private val modules: List<String>, private val maxSide: Int = Int.MAX_VALUE) : View(context) {
     private val dark = Paint().apply { color = Color.BLACK }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val side = MeasureSpec.getSize(widthMeasureSpec)
+        val side = minOf(MeasureSpec.getSize(widthMeasureSpec), maxSide)
         setMeasuredDimension(side, side)
     }
 
