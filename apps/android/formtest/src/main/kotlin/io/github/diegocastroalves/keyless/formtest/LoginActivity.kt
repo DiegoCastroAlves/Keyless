@@ -8,6 +8,7 @@ import android.view.autofill.AutofillManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.content.ClipboardManager
 import androidx.credentials.CreateCredentialResponse
@@ -32,7 +33,7 @@ class LoginActivity : Activity() {
         super.onCreate(savedInstanceState)
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(48, 160, 48, 48)
+            padded()
         }
         val username = EditText(this).apply {
             hint = "Username"
@@ -63,17 +64,19 @@ class LoginActivity : Activity() {
         val more = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         more.addView(Button(this).apply { text = "Save password"; setOnClickListener { savePassword(username.text.toString(), password.text.toString(), status) } })
         more.addView(Button(this).apply { text = "Get password"; setOnClickListener { getPassword(username, password, status) } })
-        more.addView(Button(this).apply { text = "Paste"; setOnClickListener { paste(status) } })
         column.addView(more)
+        val clipboard = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        clipboard.addView(Button(this).apply { text = "Paste"; setOnClickListener { paste(status) } })
         // A clipboard keyboards show nothing from (their chips go first).
-        column.addView(Button(this).apply {
+        clipboard.addView(Button(this).apply {
             text = "Clear clipboard"
             setOnClickListener {
                 getSystemService(ClipboardManager::class.java)?.clearPrimaryClip()
                 status.text = "Clipboard cleared"
             }
         })
-        setContentView(column)
+        column.addView(clipboard)
+        setContentView(ScrollView(this).apply { addView(column) })
     }
 
     private fun savePassword(id: String, secret: String, status: TextView) {

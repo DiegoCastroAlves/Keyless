@@ -21,10 +21,16 @@ private fun Activity.field(hint: String, type: Int, vararg autofill: String): Ed
         if (autofill.isNotEmpty()) setAutofillHints(*autofill)
     }
 
+/** Room around a form, in dp: the CI's emulator has a small screen. */
+internal fun LinearLayout.padded() {
+    val dp = resources.displayMetrics.density
+    setPadding((16 * dp).toInt(), (24 * dp).toInt(), (16 * dp).toInt(), (16 * dp).toInt())
+}
+
 private fun Activity.form(title: String, views: List<View>, submit: String): View {
     val column = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(48, 160, 48, 48)
+        padded()
     }
     val status = TextView(this)
     column.addView(TextView(this).apply { text = title; textSize = 22f })

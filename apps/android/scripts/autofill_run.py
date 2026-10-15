@@ -122,14 +122,59 @@ def wait_tap(text, package=None, other_than=None, seconds=30):
     return False
 
 
-def scroll_to(text, tries=6):
-    """Scrolls down until `text` shows."""
+_size = []
+
+
+def screen_size():
+    if not _size:
+        found = re.findall(r"(\d+)x(\d+)", adb("shell", "wm", "size", check=False))
+        _size.extend(map(int, found[-1]) if found else (1080, 1920))
+    return _size
+
+
+_density = []
+
+
+def density():
+    """Pixels per inch, as Android counts them (160: one pixel per dp)."""
+    if not _density:
+        found = re.findall(r"density: (\d+)", adb("shell", "wm", "density", check=False))
+        _density.append(int(found[-1]) if found else 420)
+    return _density[0]
+
+
+def scroll_to(text, tries=8):
+    """Scrolls down until `text` shows above the screen's lower fifth (the
+    CI's emulator has a small screen; a node at its very edge may not take a tap)."""
+    w, h = screen_size()
     for _ in range(tries):
-        if text in texts():
+        ys = [y for t, _, (_, y), _ in screen() if text in t]
+        if ys and min(ys) < h * 4 // 5:
             return True
-        adb("shell", "input", "swipe", "540", "1800", "540", "700", "400")
+        adb("shell", "input", "swipe", str(w // 2), str(h * 3 // 4), str(w // 2), str(h * 2 // 5), "400")
         time.sleep(1)
     return text in texts()
+
+
+def check_form(name, fragments, seconds=20):
+    """As check, for a form taller than the screen (the CI's is small): the
+    keyboard hidden, what the form shows read while scrolling down."""
+    w, h = screen_size()
+    end = time.time() + seconds
+    seen = ""
+    while time.time() < end:
+        hide_keyboard()
+        for _ in range(4):
+            seen += " | " + texts()
+            if all(f in seen for f in fragments):
+                return record(name, True)
+            adb("shell", "input", "swipe", str(w // 2), str(h * 3 // 4), str(w // 2), str(h * 2 // 5), "400")
+            time.sleep(1)
+        # Back to the top, for the next look.
+        adb("shell", "input", "swipe", str(w // 2), str(h * 2 // 7), str(w // 2), str(h * 3 // 4), "100")
+        time.sleep(2)
+    missing = [f for f in fragments if f not in seen]
+    return record(name, False, f"missing {missing} in: {seen}")
 
 
 def fields(package):
@@ -169,7 +214,8 @@ def open_check_screen():
     # Not stopped first: Keyless would lock.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.AutofillCheckActivity")
     time.sleep(1)
-    adb("shell", "input", "swipe", "540", "700", "540", "1800", "200")
+    w, h = screen_size()
+    adb("shell", "input", "swipe", str(w // 2), str(h * 2 // 7), str(w // 2), str(h * 3 // 4), "200")
 
 
 def pick_from_list(name, text, field_index=0, seconds=30):
@@ -206,11 +252,11 @@ def pick_chip(name, field_index=0, seconds=30):
         return False
     time.sleep(2)
     top = keyboard_top()
-    width = int(re.search(r"(\d+)x\d+", adb("shell", "wm", "size")).group(1))
+    width = screen_size()[0]
     if top is None:
         return record(f"{name}: keyboard found", False, "no keyboard window")
-    # Gboard: a button at the left, then the chips, about 58 px below its top.
-    tap(int(width * 0.31), top + 58)
+    # Gboard: a button at the left, then the chips, about 22 dp below its top.
+    tap(int(width * 0.31), top + 22 * density() // 160)
     return True
 
 
@@ -322,14 +368,14 @@ def main():
     start("CardActivity")
     check("the payment form opens", "Payment", 30)
     if pick_chip("Keyless suggests the card"):
-        check("fills the card from the chip", ["4111111111111111", "07/31", "TESS TESTER", "•••"], 20)
+        check_form("fills the card from the chip", ["4111111111111111", "07/31", "TESS TESTER", "•••"], 20)
     hide_keyboard()
 
     # An identity in an address form, from a chip.
     start("AddressActivity")
     check("the address form opens", "Shipping address", 30)
     if pick_chip("Keyless suggests the identity"):
-        check("fills the identity from the chip", ["Tess", "Tester", "tess@example.test", "+5511987654321", "Rua das Flores 123", "Springfield", "SP", "01234-567", "Brasil"], 20)
+        check_form("fills the identity from the chip", ["Tess", "Tester", "tess@example.test", "+5511987654321", "Rua das Flores 123", "Springfield", "SP", "01234-567", "Brasil"], 20)
     hide_keyboard()
 
     open_check_screen()

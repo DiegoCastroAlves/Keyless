@@ -238,9 +238,13 @@ def files_and_search(writes_path):
     tap_last("Attach file")
     pick_download("notes.txt")
     outcome("uploads the file encrypted", wait_write(writes_path, "object", uploads, 60))
-    check("lists the attached file", "notes.txt", 30)
+    # Files are listed under the notes: below the fold on small screens.
+    end = time.time() + 30
+    while time.time() < end and not scroll_to("notes.txt", 2):
+        time.sleep(1)
+    check("lists the attached file", "notes.txt", 10)
     before = downloads("notes")
-    tap_text("Save as…")
+    tap_scrolled("Save as…")
     time.sleep(3)
     tap_last("Save")
     end = time.time() + 30
@@ -252,7 +256,7 @@ def files_and_search(writes_path):
     contents = adb("shell", "cat", f"'/sdcard/Download/{saved[0]}'", check=False).encode() if saved else b""
     outcome("saves the file decrypted", contents == ATTACHED, f"{saved} {len(contents)} bytes")
     deleted = writes(writes_path, "objects_deleted")
-    tap_text("✕")
+    tap_scrolled("✕")
     time.sleep(1)
     tap_last("Delete")
     outcome("removes the file from the server", wait_write(writes_path, "objects_deleted", deleted))
@@ -265,8 +269,9 @@ def files_and_search(writes_path):
     check("back to the list for search", "All items", 15)
     # The fixture's logins say "Made up for tests." in their notes only.
     type_into(PACKAGE, 0, "made%sup")
-    check("finds items by their notes", "GitHub", 15)
     hide_keyboard()
+    # Bank's title and username do not have the words: its notes do.
+    check("finds items by their notes", "Bank", 15)
     replace_text(PACKAGE, 0, "")
     hide_keyboard()
 
