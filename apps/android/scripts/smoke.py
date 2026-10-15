@@ -63,11 +63,17 @@ def check(name, fragment, seconds=30):
     return ok
 
 
-def tap_text(text):
-    for t, _, (x, y) in screen():
-        if t == text:
-            adb("shell", "input", "tap", str(x), str(y))
-            return True
+def tap_text(text, tries=5):
+    """Taps the node with this text, scrolling down to it (the CI's screen is small)."""
+    for _ in range(tries):
+        for t, _, (x, y) in screen():
+            if t == text:
+                adb("shell", "input", "tap", str(x), str(y))
+                return True
+        found = re.findall(r"(\d+)x(\d+)", adb("shell", "wm", "size", check=False))
+        w, h = map(int, found[-1]) if found else (1080, 1920)
+        adb("shell", "input", "swipe", str(w // 2), str(h * 3 // 4), str(w // 2), str(h * 2 // 5), "400")
+        time.sleep(1)
     return False
 
 
@@ -78,6 +84,8 @@ def type_into(index, value):
     time.sleep(0.5)
     adb("shell", "input", "text", value)
     time.sleep(0.5)
+    # On a small screen the keyboard covers the next fields.
+    hide_keyboard()
 
 
 def hide_keyboard():

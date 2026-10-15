@@ -72,7 +72,8 @@ def screen():
             bounds = re.findall(r"\d+", node.get("bounds", ""))
             if len(bounds) == 4:
                 x1, y1, x2, y2 = map(int, bounds)
-                nodes.append((node.get("text", ""), node.get("class", ""), ((x1 + x2) // 2, (y1 + y2) // 2), node.get("package", "")))
+                # An icon button goes by its description (as a screen reader says it).
+                nodes.append((node.get("text", "") or node.get("content-desc", ""), node.get("class", ""), ((x1 + x2) // 2, (y1 + y2) // 2), node.get("package", "")))
     return nodes
 
 
@@ -187,6 +188,8 @@ def type_into(package, index, value):
     time.sleep(0.6)
     adb("shell", "input", "text", value)
     time.sleep(0.4)
+    # On a small screen the keyboard covers the next fields.
+    hide_keyboard()
 
 
 def hide_keyboard():
@@ -349,7 +352,14 @@ def main():
     type_into(PACKAGE, 2, password)
     hide_keyboard()
     tap_text("Sign in")
-    check("signs in and syncs the card and the identity", ["Credit Cards", "Identities"], 120)
+    # Their rows in the list (a small screen shows only some of the filters).
+    end = time.time() + 120
+    synced = False
+    while time.time() < end and not synced:
+        synced = scroll_to("Test Visa", tries=3) and scroll_to("Tess Tester", tries=3)
+        if not synced:
+            time.sleep(2)
+    record("signs in and syncs the card and the identity", synced, texts())
 
     # The autofill check screen (also the gear in Android's autofill settings).
     open_check_screen()

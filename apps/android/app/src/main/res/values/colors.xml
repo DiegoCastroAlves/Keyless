@@ -1,7 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The desktop app's colors (apps/desktop/src/styles.css), light; dark ones
+     in values-night. Names follow its roles. -->
 <resources>
+    <color name="app_bg">#EEF1F4</color>
+    <color name="panel">#FFFFFF</color>
+    <color name="panel_2">#F6F7F9</color>
+    <color name="panel_3">#ECEFF3</color>
+    <color name="line">#E3E7EC</color>
+    <color name="line_strong">#CFD5DD</color>
+    <color name="fg">#121820</color>
+    <color name="muted">#5D6877</color>
+    <color name="subtle">#8C96A3</color>
     <color name="accent">#0D9488</color>
-    <color name="danger">#DC2626</color>
-    <color name="muted">#808A97</color>
-    <color name="panel">#14808A97</color>
+    <color name="accent_pressed">#0F766E</color>
+    <color name="accent_soft">#1A0D9488</color>
+    <color name="accent_fg">#FFFFFF</color>
+    <color name="danger">#D92D20</color>
+    <color name="danger_soft">#14D92D20</color>
+    <color name="warning">#B54708</color>
+    <color name="warning_soft">#1FF79009</color>
+    <color name="success">#079455</color>
+    <color name="digit">#2563EB</color>
+    <color name="symbol">#C2410C</color>
+    <!-- Pressed and selected rows, as the desktop's hover. -->
+    <color name="press">#14121820</color>
+    <color name="scrim">#66000000</color>
 </resources>

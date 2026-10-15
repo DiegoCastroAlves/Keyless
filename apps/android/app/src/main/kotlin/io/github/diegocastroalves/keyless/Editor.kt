@@ -56,9 +56,21 @@ internal fun MainActivity.newItem(favorite: Boolean) {
     }
     val templates = Labels.templates(this)
     val names = templates.map { Labels.category(this, it.getString("id")) }.toTypedArray()
+    // Each category with its icon, as the desktop's New item menu.
+    val rows = object : android.widget.BaseAdapter() {
+        override fun getCount(): Int = templates.size
+        override fun getItem(position: Int): Any = names[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View =
+            listRow(itemIcon(templates[position].getString("id"), "", null, 36), names[position], null).apply {
+                minimumHeight = dp(56)
+                setPadding(dp(24), dp(6), dp(16), dp(6))
+                background = null
+            }
+    }
     AlertDialog.Builder(this)
         .setTitle(R.string.choose_category)
-        .setItems(names) { _, which ->
+        .setAdapter(rows) { _, which ->
             val category = templates[which].getString("id")
             val fields = Labels.templateFields(this, category)
             if (category == "login") prefillUsername(fields)
@@ -125,7 +137,7 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
 
         val bar = row()
         bar.add(plainButton(getString(R.string.cancel)) { leave() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        bar.add(View(this), width = 0, weight = 1f)
+        bar.add(android.widget.Space(this), width = 0, weight = 1f)
         lateinit var save: Button
         save = primaryButton(getString(R.string.save)) {
             save.isEnabled = false
@@ -153,9 +165,11 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
 
         page.add(label(Labels.category(this, category), 13f, muted = true), top = 8)
         page.add(EditText(this).apply {
+            fieldLook()
             hint = getString(R.string.title_hint)
             setSingleLine(true)
             textSize = 22f
+            weight(600)
             setText(draft.optString("title"))
             onChange { draft.put("title", it) }
         })
@@ -213,15 +227,16 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
             val section = sections.getJSONObject(i)
             val head = row()
             head.add(EditText(this).apply {
+                fieldLook()
                 hint = getString(R.string.section_title)
                 setSingleLine(true)
                 setText(section.optString("title"))
                 onChange { section.put("title", it) }
             }, width = 0, weight = 1f)
-            head.add(plainButton("✕") {
+            head.add(iconButton(R.drawable.ic_close, getString(R.string.remove)) {
                 sections.remove(i)
                 render()
-            }.apply { contentDescription = getString(R.string.remove) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
             page.add(head, top = 16)
             page.add(fieldList(section.optJSONArray("fields") ?: JSONArray().also { section.put("fields", it) }), top = 4)
         }
@@ -232,22 +247,23 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
 
         val urls = draft.optJSONArray("urls") ?: JSONArray().also { draft.put("urls", it) }
         if (hasWebsite || urls.length() > 0) {
-            page.add(label(getString(R.string.websites).uppercase(), 12f, bold = true, muted = true), top = 16)
+            page.add(sectionTitle(getString(R.string.websites)), top = 16)
             val panel = panel()
             for (i in 0 until urls.length()) {
                 val url = urls.getJSONObject(i)
                 val line = row()
                 line.add(EditText(this).apply {
+                    fieldLook()
                     hint = getString(R.string.website_hint)
                     setSingleLine(true)
                     inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
                     setText(url.optString("href"))
                     onChange { url.put("href", it) }
                 }, width = 0, weight = 1f)
-                line.add(plainButton("✕") {
+                line.add(iconButton(R.drawable.ic_close, getString(R.string.remove)) {
                     urls.remove(i)
                     render()
-                }.apply { contentDescription = getString(R.string.remove) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+                }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
                 panel.add(line)
             }
             panel.add(plainButton("+ " + getString(R.string.add_website)) {
@@ -257,8 +273,9 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
             page.add(panel, top = 6)
         }
 
-        page.add(label(getString(R.string.notes).uppercase(), 12f, bold = true, muted = true), top = 16)
+        page.add(sectionTitle(getString(R.string.notes)), top = 16)
         page.add(EditText(this).apply {
+            fieldLook()
             hint = getString(R.string.notes_hint)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             minLines = 3
@@ -267,6 +284,7 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
         }, top = 4)
 
         page.add(EditText(this).apply {
+            fieldLook()
             hint = getString(R.string.tags_hint)
             setSingleLine(true)
             val tags = draft.optJSONArray("tags") ?: JSONArray()
@@ -342,14 +360,20 @@ private fun MainActivity.fieldEditor(field: JSONObject, itemId: String?, afterCh
     }
     val head = row()
     head.add(EditText(this).apply {
+        fieldLook()
+        // The name: small and without a box, over the value, as the desktop's editor.
+        background = null
+        minHeight = dp(30)
+        setPadding(dp(4), dp(4), dp(4), 0)
         hint = getString(R.string.field_label)
         setSingleLine(true)
         textSize = 12f
-        setTextColor(getColor(R.color.muted))
+        weight(500)
+        setTextColor(getColor(R.color.subtle))
         setText(Labels.field(this@fieldEditor, field.optString("label")))
         onChange { field.put("label", it) }
     }, width = 0, weight = 1f)
-    head.add(plainButton("✕", onRemove).apply { contentDescription = getString(R.string.remove) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    head.add(iconButton(R.drawable.ic_close, getString(R.string.remove)) { onRemove() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
     box.add(head)
 
     val kind = field.optString("kind", "text")
@@ -360,7 +384,10 @@ private fun MainActivity.fieldEditor(field: JSONObject, itemId: String?, afterCh
     }
     val secret = kind in SECRET_KINDS || field.optString("purpose") == "password"
     val value = EditText(this).apply {
+        fieldLook()
         setText(field.optString("value"))
+        // Before the type: it would replace a password's mask.
+        if (kind != "multiline") setSingleLine(true)
         inputType = when (kind) {
             "pin" -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
             "card_number" -> InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
@@ -371,7 +398,7 @@ private fun MainActivity.fieldEditor(field: JSONObject, itemId: String?, afterCh
             "totp" -> InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
             else -> if (secret) TEXT_PASSWORD else InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
         }
-        if (kind != "multiline") setSingleLine(true) else minLines = 2
+        if (kind == "multiline") minLines = 2
         if (secret || kind == "totp") typeface = Typeface.MONOSPACE
         when (kind) {
             "totp" -> hint = getString(R.string.totp_hint)
@@ -397,8 +424,8 @@ private fun MainActivity.fieldEditor(field: JSONObject, itemId: String?, afterCh
     line.add(value, width = 0, weight = 1f)
     if (secret) {
         var shown = false
-        lateinit var toggle: Button
-        toggle = plainButton(getString(R.string.show)) {
+        lateinit var toggle: android.widget.ImageButton
+        toggle = iconButton(R.drawable.ic_eye, getString(R.string.show)) {
             shown = !shown
             val start = value.selectionStart
             value.inputType = if (shown) {
@@ -408,7 +435,8 @@ private fun MainActivity.fieldEditor(field: JSONObject, itemId: String?, afterCh
             }
             value.typeface = Typeface.MONOSPACE
             value.setSelection(start.coerceIn(0, value.text.length))
-            toggle.text = getString(if (shown) R.string.hide else R.string.show)
+            toggle.setImageDrawable(iconDrawable(if (shown) R.drawable.ic_eye_off else R.drawable.ic_eye, getColor(R.color.muted)))
+            toggle.contentDescription = getString(if (shown) R.string.hide else R.string.show)
         }
         line.add(toggle, width = ViewGroup.LayoutParams.WRAP_CONTENT)
     }

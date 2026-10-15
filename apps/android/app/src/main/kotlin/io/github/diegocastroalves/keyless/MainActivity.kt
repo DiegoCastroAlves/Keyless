@@ -23,6 +23,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.PopupMenu
@@ -41,7 +42,10 @@ import kotlin.concurrent.thread
  * The app's one screen at a time: signing in (with the Secret Key, a setup
  * link or another device), unlocking, the items, an item, and settings.
  */
-class MainActivity : Activity() {
+/** A secret's value until it is shown. */
+private const val HIDDEN = "••••••••••••"
+
+class MainActivity : KeylessActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var root: FrameLayout
     internal var screen = "none"
@@ -116,11 +120,6 @@ class MainActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // The theme setting: as the system, light or dark.
-        when (getSharedPreferences("keyless", MODE_PRIVATE).getString("theme", "system")) {
-            "light" -> setTheme(R.style.Theme_Keyless_Light)
-            "dark" -> setTheme(R.style.Theme_Keyless_Dark)
-        }
         super.onCreate(savedInstanceState)
         takeAction(intent)
         // No screenshots, and no previews of the vault in the recent apps.
@@ -219,7 +218,13 @@ class MainActivity : Activity() {
         (listPage?.parent as? ViewGroup)?.removeView(listPage)
         // Locked or signed out: the list (and its titles) goes.
         if (name in listOf("signin", "unlock", "device", "recover")) listPage = null
-        val content = if (scroll) ScrollView(this).apply { addView(view) } else view
+        // The desktop's panels: white (or dark gray) screens; the lock screens on the page's gray.
+        val auth = name in listOf("signin", "unlock", "device", "recover")
+        root.setBackgroundColor(getColor(if (auth) R.color.app_bg else R.color.panel))
+        val content = if (scroll) ScrollView(this).apply {
+            isFillViewport = true
+            addView(view)
+        } else view
         val list = listPage
         val beside = wide && list != null && (name == "list" || name == "item" || name == "history" || name == "editor")
         if (beside && list != null) {
@@ -254,8 +259,7 @@ class MainActivity : Activity() {
         val secretKey = field("K1-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX", TEXT_KEY, secret = true)
         val password = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = View.AUTOFILL_HINT_PASSWORD)
         val errorLine = label(error ?: "", 14f).apply { setTextColor(getColor(R.color.danger)) }
-        form.add(label(getString(R.string.sign_in_title), 22f, bold = true))
-        form.add(label(getString(R.string.sign_in_intro), 14f, muted = true), top = 6)
+        form.add(brandHeader(getString(R.string.sign_in_title), getString(R.string.sign_in_intro)))
         notice?.let { form.add(label(it, 14f).apply { setTextColor(accent()) }, top = 12) }
         form.add(email, top = 20)
         val current = received
@@ -323,6 +327,7 @@ class MainActivity : Activity() {
                         notice = null
                         notePasswordTyped()
                         showList()
+                        offerBiometric()
                     } else {
                         submit.isEnabled = true
                         submit.text = getString(R.string.sign_in)
@@ -332,13 +337,13 @@ class MainActivity : Activity() {
             }
         }
         form.add(submit, top = 8)
-        form.add(plainButton(getString(R.string.with_passkey)) {
+        form.add(secondaryButton(getString(R.string.with_passkey)) {
             passkeySignIn(errorLine) {
                 received = null
                 notice = null
                 showList()
             }
-        }, top = 4)
+        }, top = 8)
         form.add(plainButton(getString(R.string.use_other_device)) {
             val address = email.text.toString().trim().lowercase()
             if (!address.contains("@")) {
@@ -346,18 +351,17 @@ class MainActivity : Activity() {
             } else {
                 showDevice(address)
             }
-        }, top = 4)
-        form.add(plainButton(Labels.t(this, "recovery.forgot")) { showRecover() }, top = 4)
+        }, top = 12)
+        form.addCentered(quietButton(Labels.t(this, "recovery.forgot")) { showRecover() }, top = 4)
         show("signin", form)
     }
 
     private fun showDevice(email: String) {
         val form = column()
-        val status = label(getString(R.string.device_waiting), 15f, muted = true)
-        form.add(label(getString(R.string.use_other_device), 22f, bold = true))
-        form.add(label(getString(R.string.device_body, email), 14f, muted = true), top = 6)
-        form.add(status, top = 24)
-        form.add(plainButton(getString(R.string.cancel)) {
+        val status = label(getString(R.string.device_waiting), 15f, muted = true).apply { gravity = android.view.Gravity.CENTER }
+        form.add(brandHeader(getString(R.string.use_other_device), getString(R.string.device_body, email)))
+        form.add(panel().apply { add(status) }, top = 24)
+        form.add(secondaryButton(getString(R.string.cancel)) {
             deviceRequest?.let { request -> thread { Keyless.cancelDeviceSetup(request) } }
             deviceRequest = null
             showSignIn()
@@ -412,7 +416,17 @@ class MainActivity : Activity() {
     // ----- unlocking --------------------------------------------------------------
 
     private fun showUnlock() {
-        show("unlock", unlockForm(onUnlocked = { showList() }, onSignOut = { signOut() }))
+        show(
+            "unlock",
+            unlockForm(
+                onUnlocked = {
+                    showList()
+                    // Not after a biometric unlock: it is on then.
+                    offerBiometric()
+                },
+                onSignOut = { signOut() },
+            ),
+        )
     }
 
     private fun signOut() {
@@ -431,21 +445,18 @@ class MainActivity : Activity() {
     internal fun showList() {
         if (!Keyless.isUnlocked) return route()
         val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val header = row().apply { setPadding(dp(16), dp(8), dp(8), dp(4)) }
-        header.add(label("Keyless", 20f, bold = true), width = 0, weight = 1f)
+        page.onPanel()
         val status = label("", 12f, muted = true)
+        val actions = mutableListOf<View>()
         if (Keyless.writableVaults().isNotEmpty()) {
-            header.add(plainButton("+") { newItem(favorite = filter == "favorites") }.apply {
-                textSize = 22f
-                contentDescription = getString(R.string.new_item)
-            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            actions.add(iconButton(R.drawable.ic_plus, getString(R.string.new_item), getColor(R.color.fg)) { newItem(favorite = filter == "favorites") })
         }
-        header.add(plainButton(getString(R.string.lock)) {
+        actions.add(iconButton(R.drawable.ic_lock, getString(R.string.lock), getColor(R.color.fg)) {
             Keyless.lock()
             route()
-        }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        lateinit var more: Button
-        more = plainButton("⋮") {
+        })
+        lateinit var more: View
+        more = iconButton(R.drawable.ic_more, getString(R.string.more), getColor(R.color.fg)) {
             val menu = PopupMenu(this, more)
             menu.menu.add(0, 1, 0, R.string.sync)
             menu.menu.add(0, 4, 1, Labels.t(this, "sentinel.title"))
@@ -461,23 +472,22 @@ class MainActivity : Activity() {
                 true
             }
             menu.show()
-        }.apply { contentDescription = getString(R.string.more) }
-        header.add(more, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        page.add(header)
-        val search = EditText(this).apply {
-            hint = getString(R.string.search)
-            setSingleLine(true)
-            setText(query)
         }
+        actions.add(more)
+        // The title is what the list shows (All items, a category...), as the desktop's.
+        val bar = topBar(getString(R.string.all_items), null, *actions.toTypedArray())
+        val title = bar.getChildAt(0) as TextView
+        page.add(bar)
+        val search = searchField(getString(R.string.search)).apply { setText(query) }
         // The search, with the Filter menu and the order beside it.
-        val searchLine = row().apply { setPadding(dp(16), 0, dp(8), 0) }
+        val searchLine = row().apply { setPadding(dp(16), 0, dp(4), 0) }
         searchLine.add(search, width = 0, weight = 1f)
-        val filterButton = plainButton(Labels.t(this, "filters.title")) {}
+        val filterButton = iconButton(R.drawable.ic_filter, Labels.t(this, "filters.title")) {}
         searchLine.add(filterButton, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        val sortButton = plainButton("⇅") {}.apply { contentDescription = Labels.t(this@MainActivity, "list.sort.title") }
+        val sortButton = iconButton(R.drawable.ic_sort, Labels.t(this, "list.sort.title")) {}
         searchLine.add(sortButton, width = ViewGroup.LayoutParams.WRAP_CONTENT)
         page.add(searchLine)
-        val filters = row().apply { setPadding(dp(12), dp(4), dp(12), dp(4)) }
+        val filters = row().apply { setPadding(dp(16), dp(8), dp(16), dp(8)) }
         page.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(filters) })
         val recent = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -497,7 +507,11 @@ class MainActivity : Activity() {
         }
         page.add(sentinel)
         sentinelCard(sentinel)
-        val list = ListView(this)
+        page.addView(divider())
+        val list = ListView(this).apply {
+            divider = null
+            selector = pressable(colorDrawable(android.R.color.transparent))
+        }
         val adapter = ItemsAdapter()
         list.adapter = adapter
         page.addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -525,19 +539,19 @@ class MainActivity : Activity() {
             adapter.update()
             filters.removeAllViews()
             val active = vaultFilter != null || tagFilter != null || passkeyFilter
-            filterButton.text = (if (active) "● " else "") + Labels.t(this, "filters.title")
+            filterButton.setImageDrawable(iconDrawable(R.drawable.ic_filter, getColor(if (active) R.color.accent else R.color.muted)))
+            filterButton.background = if (active) pressable(shape(getColor(R.color.accent_soft), 10f), 10f) else pressable(null)
             val choices = mutableListOf("all" to getString(R.string.all_items), "favorites" to getString(R.string.favorites))
             Keyless.items.map { it.category }.distinct().sortedBy { Labels.categoryPlural(this, it) }.forEach { choices.add("category:$it" to Labels.categoryPlural(this, it)) }
             if (Keyless.archived.isNotEmpty() || filter == "archive") choices.add("archive" to getString(R.string.archived_items))
             if (Keyless.trashed.isNotEmpty() || filter == "trash") choices.add("trash" to getString(R.string.trash))
             for ((id, name) in choices) {
-                val chip = plainButton(name) {
+                if (id == filter) title.text = name
+                val chip = chip(name, id == filter) {
                     filter = id
                     refresh()
                 }
-                if (id == filter) chip.setTextColor(getColor(android.R.color.white))
-                if (id == filter) chip.backgroundTintList = android.content.res.ColorStateList.valueOf(accent())
-                filters.addView(chip)
+                filters.addView(chip, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(8) })
             }
         }
         search.addTextChangedListener(object : TextWatcher {
@@ -753,16 +767,10 @@ class MainActivity : Activity() {
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val item = shown[position]
-            val line = row().apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }
-            line.addView(avatar(item.title), LinearLayout.LayoutParams(dp(38), dp(38)))
-            val texts = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), 0, 0, 0)
-            }
-            texts.addView(label(item.title, 16f).apply { setSingleLine(true) })
-            if (item.subtitle.isNotEmpty()) texts.addView(label(item.subtitle, 13f, muted = true).apply { setSingleLine(true) })
-            line.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            return line
+            val url = item.overview.optJSONArray("urls")?.optJSONObject(0)?.optString("href")
+            val star = if (item.favorite) icon(R.drawable.ic_star, getColor(R.color.warning), 16).apply { setPadding(0, 0, dp(4), 0) } else null
+            // The list draws the touch feedback (its selector).
+            return listRow(itemIcon(item.category, item.title, url), item.title, item.subtitle, star).apply { background = null }
         }
     }
 
@@ -786,23 +794,17 @@ class MainActivity : Activity() {
         val archived = overview.optBoolean("archived")
         val writable = Keyless.canWrite(item.optString("vaultId"))
         val title = overview.optString("title")
-        val page = column(20)
-        val bar = row()
-        bar.add(plainButton("← " + getString(R.string.back)) { showList() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        bar.add(View(this), width = 0, weight = 1f)
+        val actions = mutableListOf<View>()
         if (writable && !trashed) {
             val favorite = overview.optBoolean("favorite")
-            bar.add(plainButton(if (favorite) "★" else "☆") {
-                act({ Keyless.setFavorite(id, !favorite) }) { showItem(id) }
-            }.apply {
-                textSize = 20f
-                contentDescription = getString(if (favorite) R.string.unfavorite else R.string.favorite)
-            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-            bar.add(plainButton(getString(R.string.edit)) { editItem(id) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            val star = if (favorite) iconButton(R.drawable.ic_star_filled, getString(R.string.unfavorite), getColor(R.color.warning)) {} else iconButton(R.drawable.ic_star, getString(R.string.favorite), getColor(R.color.fg)) {}
+            star.setOnClickListener { act({ Keyless.setFavorite(id, !favorite) }) { showItem(id) } }
+            actions.add(star)
+            actions.add(iconButton(R.drawable.ic_edit, getString(R.string.edit), getColor(R.color.fg)) { editItem(id) })
         }
         if (!trashed) {
-            lateinit var more: Button
-            more = plainButton("⋮") {
+            lateinit var more: View
+            more = iconButton(R.drawable.ic_more, getString(R.string.more), getColor(R.color.fg)) {
                 val menu = PopupMenu(this, more)
                 if (writable) {
                     menu.menu.add(0, 1, 0, R.string.duplicate)
@@ -829,10 +831,27 @@ class MainActivity : Activity() {
                     true
                 }
                 menu.show()
-            }.apply { contentDescription = getString(R.string.more) }
-            bar.add(more, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            actions.add(more)
         }
-        page.add(bar)
+        val screen = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        screen.onPanel()
+        screen.add(topBar(null, { showList() }, *actions.toTypedArray()))
+        val page = column(20).apply { setPadding(dp(20), dp(4), dp(20), dp(28)) }
+        screen.add(page)
+        // The header, as the desktop's: the item's icon, its title, its category and vault.
+        val firstUrl = overview.optJSONArray("urls")?.optJSONObject(0)?.optString("href")
+        val header = row().apply { gravity = android.view.Gravity.TOP }
+        header.addView(itemIcon(overview.optString("category"), title, firstUrl, 56))
+        val names = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(2), 0, 0)
+        }
+        names.add(label(title, 22f, bold = true).apply { setTextIsSelectable(true) })
+        val vaultName = (0 until Keyless.vaults.length()).map { Keyless.vaults.getJSONObject(it) }.firstOrNull { it.optString("id") == item.optString("vaultId") }?.optString("name")
+        names.add(label(listOfNotNull(Labels.category(this, overview.optString("category")), vaultName?.ifEmpty { null }).joinToString("  ·  "), 14f, muted = true), top = 2)
+        header.addView(names, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        page.add(header)
         if (trashed) {
             val since = DateFormat.getDateInstance().format(Date(overview.optLong("trashed_at") * 1000))
             page.add(label(getString(R.string.trashed_note, since), 13f, muted = true), top = 8)
@@ -854,22 +873,17 @@ class MainActivity : Activity() {
         } else if (archived) {
             page.add(label(getString(R.string.archived_note), 13f, muted = true), top = 8)
         }
-        page.add(label(Labels.category(this, overview.optString("category")), 13f, muted = true), top = 8)
-        page.add(label(overview.optString("title"), 24f, bold = true), top = 2)
         val updaters = mutableListOf<() -> Unit>()
 
         fun group(fields: org.json.JSONArray?) {
             if (fields == null) return
-            val panel = panel()
-            var count = 0
+            val card = card()
             for (i in 0 until fields.length()) {
                 val f = fields.getJSONObject(i)
-                val value = f.optString("value")
-                if (value.isEmpty()) continue
-                panel.add(fieldView(f, updaters), top = if (count == 0) 0 else 4)
-                count++
+                if (f.optString("value").isEmpty()) continue
+                card.add(fieldView(f, updaters))
             }
-            if (count > 0) page.add(panel, top = 16)
+            if (card.childCount > 0) page.add(card, top = 12)
         }
 
         group(details.optJSONArray("fields"))
@@ -877,45 +891,53 @@ class MainActivity : Activity() {
         if (sections != null) for (i in 0 until sections.length()) {
             val section = sections.getJSONObject(i)
             val title = section.optString("title")
-            if (title.isNotEmpty()) page.add(label(title.uppercase(), 12f, bold = true, muted = true), top = 20)
+            if (title.isNotEmpty()) page.add(sectionTitle(title), top = 20)
             group(section.optJSONArray("fields"))
         }
         val urls = overview.optJSONArray("urls")
         if (urls != null && urls.length() > 0) {
-            page.add(label(getString(R.string.websites).uppercase(), 12f, bold = true, muted = true), top = 20)
-            val panel = panel()
+            page.add(sectionTitle(getString(R.string.websites)), top = 20)
+            val card = card()
             for (i in 0 until urls.length()) {
                 val href = urls.getJSONObject(i).optString("href")
                 if (href.isEmpty()) continue
-                val line = row()
-                line.add(label(href, 15f).apply { setTextIsSelectable(true) }, width = 0, weight = 1f)
                 val target = if (href.startsWith("http://") || href.startsWith("https://")) href else "https://$href"
-                line.add(plainButton(getString(R.string.open)) {
+                val open = iconButton(R.drawable.ic_external, getString(R.string.open)) {
                     try {
                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(target)))
                     } catch (e: Exception) {
                         // No browser.
                     }
-                }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-                panel.add(line)
+                }
+                val copyUrl = iconButton(R.drawable.ic_copy, getString(R.string.copy)) { copy(getString(R.string.websites), href) }
+                card.add(fieldRow(urls.getJSONObject(i).optString("label").ifEmpty { Labels.field(this, "website") }, label(href, 16f, muted = false).apply { setTextColor(accent()) }, copyUrl, open))
             }
-            page.add(panel, top = 6)
+            page.add(card, top = 8)
         }
         val notes = details.optString("notes")
         if (notes.isNotEmpty()) {
-            page.add(label(getString(R.string.notes).uppercase(), 12f, bold = true, muted = true), top = 20)
-            page.add(panel().apply { add(label(notes, 15f).apply { setTextIsSelectable(true) }) }, top = 6)
+            page.add(sectionTitle(getString(R.string.notes)), top = 20)
+            page.add(card().apply { add(label(notes, 15f).apply { setTextIsSelectable(true); setPadding(dp(16), dp(14), dp(16), dp(14)); setLineSpacing(0f, 1.25f) }) }, top = 8)
         }
         attachmentsSection(page, id, writable && !trashed)
         val tags = overview.optJSONArray("tags")
         if (tags != null && tags.length() > 0) {
-            page.add(label(getString(R.string.tags).uppercase(), 12f, bold = true, muted = true), top = 20)
-            page.add(label((0 until tags.length()).joinToString(" · ") { tags.getString(it) }, 14f), top = 4)
+            page.add(sectionTitle(getString(R.string.tags)), top = 20)
+            val chips = row()
+            for (i in 0 until tags.length()) {
+                chips.addView(label(tags.getString(i), 13f).apply {
+                    setTextColor(getColor(R.color.muted))
+                    weight(500)
+                    background = shape(getColor(R.color.panel_3), 8f)
+                    setPadding(dp(10), dp(4), dp(10), dp(4))
+                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) })
+            }
+            page.add(HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, top = 8)
         }
         val updated = overview.optLong("updated_at")
-        if (updated > 0) page.add(label(getString(R.string.modified, DateFormat.getDateTimeInstance().format(Date(updated * 1000))), 12f, muted = true), top = 20)
+        if (updated > 0) page.add(label(getString(R.string.modified, DateFormat.getDateTimeInstance().format(Date(updated * 1000))), 12f, muted = true).apply { setTextColor(getColor(R.color.subtle)) }, top = 24)
         if (!writable) page.add(label(getString(R.string.vault_read_only_note), 12f, muted = true), top = 4)
-        show("item", page)
+        show("item", screen)
         if (updaters.isNotEmpty()) {
             val tick = object : Runnable {
                 override fun run() {
@@ -929,54 +951,62 @@ class MainActivity : Activity() {
     }
 
     private fun fieldView(field: JSONObject, updaters: MutableList<() -> Unit>): View {
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(6), 0, dp(6))
-        }
         val name = fieldName(field.optString("label"))
-        box.add(label(name, 12f, muted = true))
-        val line = row()
-        val value = label("", 16f)
-        line.add(value, width = 0, weight = 1f)
         val kind = field.optString("kind")
         val secret = field.optString("value")
+        val value = label("", 16f)
+        var shownValue: View = value
+        var toCopy = { secret }
+        val actions = mutableListOf<View>()
         when (kind) {
             "totp" -> {
-                value.typeface = android.graphics.Typeface.MONOSPACE
+                // The code as the desktop shows it: large, in the accent, red when it is about to change.
+                value.typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                value.textSize = 21f
+                value.letterSpacing = 0.08f
+                val remaining = label("", 13f, muted = true)
+                val line = row()
+                line.add(value, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+                line.addView(remaining, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(12) })
+                shownValue = line
                 var code = ""
                 val update = {
                     try {
                         val answer = Keyless.totp(secret)
                         code = answer.getString("code")
-                        value.text = code.chunked((code.length + 1) / 2).joinToString(" ") + "   ·  " + answer.getInt("remaining") + "s"
+                        val left = answer.getInt("remaining")
+                        value.text = code.chunked((code.length + 1) / 2).joinToString(" ")
+                        value.setTextColor(getColor(if (left <= 5) R.color.danger else R.color.accent))
+                        remaining.text = getString(R.string.seconds_left, left)
                     } catch (e: KeylessException) {
                         value.text = "—"
                     }
                 }
                 update()
                 updaters.add(update)
-                line.add(plainButton(getString(R.string.copy)) { copy(name, code) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+                toCopy = { code }
             }
             "concealed", "pin", "card_number", "security_question" -> {
                 value.typeface = android.graphics.Typeface.MONOSPACE
-                value.text = "••••••••••••"
+                value.text = HIDDEN
                 var shown = false
-                lateinit var toggle: Button
-                toggle = plainButton(getString(R.string.show)) {
+                lateinit var toggle: android.widget.ImageButton
+                toggle = iconButton(R.drawable.ic_eye, getString(R.string.show)) {
                     shown = !shown
-                    value.text = if (shown) secret else "••••••••••••"
-                    toggle.text = getString(if (shown) R.string.hide else R.string.show)
+                    value.text = if (!shown) HIDDEN else if (kind == "concealed") passwordText(secret) else secret
+                    toggle.setImageDrawable(iconDrawable(if (shown) R.drawable.ic_eye_off else R.drawable.ic_eye, getColor(R.color.muted)))
+                    toggle.contentDescription = getString(if (shown) R.string.hide else R.string.show)
+                    toggle.tooltipText = toggle.contentDescription
                 }
-                line.add(toggle, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-                line.add(plainButton(getString(R.string.copy)) { copy(name, secret) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+                actions.add(toggle)
             }
             else -> {
                 value.text = secret
                 value.setTextIsSelectable(true)
-                line.add(plainButton(getString(R.string.copy)) { copy(name, secret) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
             }
         }
-        box.add(line)
+        actions.add(iconButton(R.drawable.ic_copy, getString(R.string.copy)) { copy(name, toCopy()) })
+        val box = fieldRow(name, shownValue, *actions.toTypedArray())
         if (kind != "totp") {
             box.setOnLongClickListener {
                 val menu = PopupMenu(this, box)
@@ -1019,9 +1049,13 @@ class MainActivity : Activity() {
     internal fun showSettings() {
         if (!Keyless.isUnlocked) return route()
         val page = column(20)
-        page.add(plainButton("← " + getString(R.string.back)) { showList() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        page.addBack { showList() }
         page.add(label(getString(R.string.settings), 24f, bold = true), top = 8)
 
+        // Each group in a card under its title, as the desktop's settings.
+        page.add(sectionTitle(getString(R.string.settings_unlocking)), top = 24)
+        val unlocking = panel()
+        page.add(unlocking, top = 8)
         if (biometricAvailable()) {
             val toggle = Switch(this).apply {
                 text = getString(R.string.biometric_unlock)
@@ -1032,26 +1066,18 @@ class MainActivity : Activity() {
                     SecureStore.disableBiometric(this)
                     return@setOnCheckedChangeListener
                 }
-                val cipher = try {
-                    SecureStore.biometricEncryptCipher()
-                } catch (e: Exception) {
-                    toggle.isChecked = false
-                    Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
-                    return@setOnCheckedChangeListener
-                }
-                biometric(getString(R.string.biometric_enable_title), cipher) { authenticated ->
-                    if (authenticated == null) {
-                        toggle.isChecked = false
-                    } else {
-                        SecureStore.saveBiometric(this, authenticated, Keyless.exportUserKey())
-                    }
-                }
+                enableBiometric { on -> if (!on) toggle.isChecked = false }
             }
-            page.add(toggle, top = 20)
-            page.add(label(getString(R.string.biometric_unlock_hint), 13f, muted = true), top = 2)
+            unlocking.add(toggle)
+            unlocking.add(label(getString(R.string.biometric_unlock_hint), 13f, muted = true), top = 2)
         }
+        unlocking.add(Switch(this).apply {
+            text = getString(R.string.lock_on_screen_off)
+            isChecked = Keyless.lockOnScreenOff
+            setOnCheckedChangeListener { _, checked -> Keyless.lockOnScreenOff = checked }
+        }, top = if (unlocking.childCount > 0) 12 else 0)
 
-        page.add(label(getString(R.string.auto_lock), 16f, bold = true), top = 24)
+        page.add(sectionTitle(getString(R.string.auto_lock)), top = 24)
         val minutes = RadioGroup(this)
         for (m in listOf(1, 5, 10, 30)) {
             minutes.addView(RadioButton(this).apply {
@@ -1061,15 +1087,10 @@ class MainActivity : Activity() {
                 setOnClickListener { Keyless.autoLockMinutes = m }
             })
         }
-        page.add(minutes, top = 4)
-        page.add(Switch(this).apply {
-            text = getString(R.string.lock_on_screen_off)
-            isChecked = Keyless.lockOnScreenOff
-            setOnCheckedChangeListener { _, checked -> Keyless.lockOnScreenOff = checked }
-        }, top = 8)
+        page.add(panel().apply { add(minutes) }, top = 8)
 
         if (biometricAvailable()) {
-            page.add(label(getString(R.string.master_password_every), 16f, bold = true), top = 24)
+            page.add(sectionTitle(getString(R.string.master_password_every)), top = 24)
             val days = RadioGroup(this)
             for (d in listOf(1, 7, 14, 30)) {
                 days.addView(RadioButton(this).apply {
@@ -1079,11 +1100,13 @@ class MainActivity : Activity() {
                     setOnClickListener { Keyless.masterPasswordDays = d }
                 })
             }
-            page.add(days, top = 4)
-            page.add(label(getString(R.string.master_password_every_hint), 13f, muted = true), top = 2)
+            page.add(panel().apply {
+                add(days)
+                add(label(getString(R.string.master_password_every_hint), 13f, muted = true), top = 4)
+            }, top = 8)
         }
 
-        page.add(label(getString(R.string.theme), 16f, bold = true), top = 24)
+        page.add(sectionTitle(getString(R.string.theme)), top = 24)
         val themes = RadioGroup(this)
         val prefs = getSharedPreferences("keyless", MODE_PRIVATE)
         for ((value, name) in listOf("system" to R.string.theme_system, "light" to R.string.theme_light, "dark" to R.string.theme_dark)) {
@@ -1100,15 +1123,17 @@ class MainActivity : Activity() {
                 }
             })
         }
-        page.add(themes, top = 4)
+        page.add(panel().apply { add(themes) }, top = 8)
 
-        page.add(label(getString(R.string.autofill), 16f, bold = true), top = 24)
+        page.add(sectionTitle(getString(R.string.autofill)), top = 24)
+        val fill = panel()
+        page.add(fill, top = 8)
         val autofill = getSystemService(AutofillManager::class.java)
         if (autofill?.hasEnabledAutofillServices() == true) {
-            page.add(label(getString(R.string.autofill_on), 14f).apply { setTextColor(accent()) }, top = 4)
+            fill.add(label("✓ " + getString(R.string.autofill_on), 14f).apply { setTextColor(getColor(R.color.success)) })
         } else {
-            page.add(label(getString(R.string.autofill_hint), 13f, muted = true), top = 4)
-            page.add(primaryButton(getString(R.string.autofill_enable)) {
+            fill.add(label(getString(R.string.autofill_hint), 13f, muted = true))
+            fill.add(primaryButton(getString(R.string.autofill_enable)) {
                 try {
                     startActivity(Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE).setData(Uri.parse("package:$packageName")))
                 } catch (e: Exception) {
@@ -1118,9 +1143,11 @@ class MainActivity : Activity() {
         }
 
         if (Build.VERSION.SDK_INT >= 34) {
-            page.add(label(getString(R.string.passkeys), 16f, bold = true), top = 24)
-            page.add(label(getString(R.string.passkeys_hint), 13f, muted = true), top = 4)
-            page.add(primaryButton(getString(R.string.passkeys_enable)) {
+            page.add(sectionTitle(getString(R.string.passkeys)), top = 24)
+            val keys = panel()
+            page.add(keys, top = 8)
+            keys.add(label(getString(R.string.passkeys_hint), 13f, muted = true))
+            keys.add(secondaryButton(getString(R.string.passkeys_enable)) {
                 try {
                     startActivity(Intent("android.settings.CREDENTIAL_PROVIDER").setData(Uri.parse("package:$packageName")))
                 } catch (e: Exception) {
@@ -1131,26 +1158,32 @@ class MainActivity : Activity() {
 
         signInPasskeysSection(page)
 
-        page.add(label(getString(R.string.account), 16f, bold = true), top = 24)
-        page.add(label(Keyless.email, 14f, muted = true), top = 4)
-        page.add(plainButton(getString(R.string.devices)) { showDevices() }, width = ViewGroup.LayoutParams.WRAP_CONTENT, top = 4)
-        page.add(plainButton(Labels.t(this, "recovery.title")) { showRecoveryKey() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        page.add(plainButton(Labels.t(this, "importer.title")) { showImport() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        page.add(plainButton(Labels.t(this, "importer.exportDialogTitle")) { showExport() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        page.add(plainButton(getString(R.string.sign_out)) {
+        page.add(sectionTitle(getString(R.string.account)), top = 24)
+        val account = card()
+        account.add(listRow(icon(R.drawable.ic_user, getColor(R.color.muted), 20), Keyless.email, null).apply { background = null; minimumHeight = dp(56) })
+        account.add(navRow(R.drawable.ic_smartphone, getString(R.string.devices)) { showDevices() })
+        account.add(navRow(R.drawable.ic_shield, Labels.t(this, "recovery.title")) { showRecoveryKey() })
+        account.add(navRow(R.drawable.ic_file_down, Labels.t(this, "importer.title")) { showImport() })
+        account.add(navRow(R.drawable.ic_file_up, Labels.t(this, "importer.exportDialogTitle")) { showExport() })
+        account.add(navRow(R.drawable.ic_log_out, getString(R.string.sign_out)) {
             android.app.AlertDialog.Builder(this)
                 .setTitle(R.string.sign_out)
                 .setMessage(R.string.sign_out_body)
                 .setPositiveButton(R.string.sign_out) { _, _ -> signOut() }
                 .setNegativeButton(R.string.cancel, null)
                 .show()
-        }, width = ViewGroup.LayoutParams.WRAP_CONTENT, top = 4)
+        }.apply {
+            val texts = getChildAt(1) as LinearLayout
+            (texts.getChildAt(0) as TextView).setTextColor(getColor(R.color.danger))
+            (getChildAt(0) as ImageView).setImageDrawable(iconDrawable(R.drawable.ic_log_out, getColor(R.color.danger)))
+        })
+        page.add(account, top = 8)
         val version = try {
             packageManager.getPackageInfo(packageName, 0).versionName ?: ""
         } catch (e: Exception) {
             ""
         }
-        page.add(label(getString(R.string.version, version), 12f, muted = true), top = 24)
+        page.addCentered(label(getString(R.string.version, version), 12f, muted = true).apply { setTextColor(getColor(R.color.subtle)) }, top = 24)
         show("settings", page)
     }
 

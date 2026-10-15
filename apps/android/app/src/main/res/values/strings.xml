@@ -26,6 +26,10 @@
     <string name="unlock_biometric">Unlock with biometrics</string>
     <string name="biometric_title">Unlock Keyless</string>
     <string name="biometric_enable_title">Turn on biometric unlock</string>
+    <string name="biometric_offer_title">Unlock with biometrics?</string>
+    <string name="biometric_offer_body">Next time, unlock Keyless with your fingerprint or face instead of typing the master password. It is still asked after the phone restarts, and from time to time (Settings).</string>
+    <string name="biometric_offer_yes">Turn on</string>
+    <string name="not_now">Not now</string>
     <string name="sign_out">Sign out</string>
     <string name="sign_out_body">Keyless removes your account and its data from this phone. You will need your Secret Key and master password to sign in again.</string>
     <string name="search">Search</string>
@@ -49,6 +53,7 @@
     <string name="modified">Modified %1$s</string>
     <string name="read_only">Change items in the Keyless app on your computer.</string>
     <string name="back">Back</string>
+    <string name="settings_unlocking">Unlocking</string>
     <string name="biometric_unlock">Unlock with biometrics</string>
     <string name="biometric_unlock_hint">After the master password, unlock with your fingerprint or face. The master password is still asked after a restart of the phone.</string>
     <string name="auto_lock">Lock after</string>

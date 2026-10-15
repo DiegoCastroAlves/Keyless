@@ -32,7 +32,7 @@ private fun MainActivity.platformName(platform: String): String = when (platform
 /** The account's signed-in devices, with signing one out. */
 internal fun MainActivity.showDevices() {
     val page = column(20)
-    page.add(plainButton("← " + getString(R.string.back)) { showSettings() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    page.addBack { showSettings() }
     page.add(label(getString(R.string.devices), 24f, bold = true), top = 8)
     page.add(label(getString(R.string.devices_hint), 13f, muted = true), top = 4)
     val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -170,6 +170,7 @@ private fun MainActivity.waitForCode(id: String, done: () -> Unit) {
 
 private fun MainActivity.askCode(id: String, nonce: String, done: () -> Unit) {
     val code = EditText(this).apply {
+        fieldLook()
         inputType = InputType.TYPE_CLASS_NUMBER
         hint = "000 000"
         textSize = 24f

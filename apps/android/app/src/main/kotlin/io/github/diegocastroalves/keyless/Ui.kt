@@ -27,6 +27,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import kotlin.concurrent.thread
 
 fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -37,8 +38,10 @@ fun Context.label(text: CharSequence, size: Float = 15f, bold: Boolean = false, 
     TextView(this).apply {
         this.text = text
         setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
-        if (bold) typeface = Typeface.DEFAULT_BOLD
-        if (muted) setTextColor(getColor(R.color.muted))
+        // Titles semibold, as the desktop's.
+        if (bold) weight(600)
+        setTextColor(getColor(if (muted) R.color.muted else R.color.fg))
+        if (size >= 20f) letterSpacing = -0.01f
     }
 
 /**
@@ -54,6 +57,7 @@ fun Context.field(hint: String, type: Int, secret: Boolean = false, autofill: St
         // Before the type: it would replace a password's mask.
         setSingleLine(true)
         inputType = type
+        fieldLook()
         when {
             autofill != null -> {
                 setAutofillHints(autofill)
@@ -115,20 +119,62 @@ const val TEXT_PASSWORD = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIA
 // Not a password type: password managers would take it for the master password's field.
 const val TEXT_KEY = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
+/** The desktop's text field: a hairline that turns the accent while typing. */
+fun EditText.fieldLook() {
+    val idle = context.shape(context.getColor(R.color.panel), 10f, context.getColor(R.color.line_strong))
+    val typing = context.shape(context.getColor(R.color.panel), 10f, context.getColor(R.color.accent), 2f)
+    background = android.graphics.drawable.StateListDrawable().apply {
+        addState(intArrayOf(android.R.attr.state_focused), typing)
+        addState(intArrayOf(), idle)
+    }
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+    // Also for passwords, which Android writes in a monospace font otherwise.
+    typeface = context.inter(400)
+    setTextColor(context.getColor(R.color.fg))
+    setHintTextColor(context.getColor(R.color.subtle))
+    minHeight = context.dp(48)
+    setPadding(context.dp(14), context.dp(10), context.dp(14), context.dp(10))
+}
+
+private fun Button.buttonLook(fill: Int?, stroke: Int?, text: Int, weight: Int) {
+    isAllCaps = false
+    stateListAnimator = null
+    elevation = 0f
+    setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+    weight(weight)
+    setTextColor(text)
+    minHeight = context.dp(48)
+    minimumHeight = context.dp(48)
+    minWidth = 0
+    minimumWidth = 0
+    setPadding(context.dp(18), 0, context.dp(18), 0)
+    background = context.pressable(if (fill == null && stroke == null) null else context.shape(fill ?: Color.TRANSPARENT, 10f, stroke), 10f)
+}
+
+/** The main action: filled with the accent. */
 fun Context.primaryButton(text: String, onClick: () -> Unit): Button =
     Button(this).apply {
         this.text = text
-        isAllCaps = false
-        backgroundTintList = ColorStateList.valueOf(accent())
-        setTextColor(Color.WHITE)
+        buttonLook(accent(), null, getColor(R.color.accent_fg), 600)
         setOnClickListener { onClick() }
     }
 
+/** Another action beside it: outlined. */
+fun Context.secondaryButton(text: String, onClick: () -> Unit): Button =
+    Button(this).apply {
+        this.text = text
+        buttonLook(getColor(R.color.panel), getColor(R.color.line_strong), getColor(R.color.fg), 500)
+        setOnClickListener { onClick() }
+    }
+
+/** A link-like action, in the accent color. */
 fun Context.plainButton(text: String, onClick: () -> Unit): Button =
     Button(this, null, android.R.attr.borderlessButtonStyle).apply {
         this.text = text
-        isAllCaps = false
-        setTextColor(accent())
+        buttonLook(null, null, accent(), 500)
+        minHeight = dp(44)
+        minimumHeight = dp(44)
+        setPadding(dp(12), 0, dp(12), 0)
         setOnClickListener { onClick() }
     }
 
@@ -150,27 +196,11 @@ fun LinearLayout.add(view: View, top: Int = 0, width: Int = ViewGroup.LayoutPara
     return this
 }
 
-/** A rounded panel behind a group of fields. */
+/** A group of fields and texts: a hairline card (see card() for rows). */
 fun Context.panel(): LinearLayout = LinearLayout(this).apply {
     orientation = LinearLayout.VERTICAL
-    setPadding(dp(14), dp(6), dp(14), dp(6))
-    background = GradientDrawable().apply {
-        cornerRadius = dp(12).toFloat()
-        setColor(getColor(R.color.panel))
-    }
-}
-
-/** A round letter for an item without an icon. */
-fun Context.avatar(title: String): TextView = TextView(this).apply {
-    text = title.trim().take(1).uppercase().ifEmpty { "?" }
-    gravity = Gravity.CENTER
-    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-    typeface = Typeface.DEFAULT_BOLD
-    setTextColor(accent())
-    background = GradientDrawable().apply {
-        cornerRadius = dp(10).toFloat()
-        setColor(getColor(R.color.panel))
-    }
+    setPadding(dp(16), dp(10), dp(16), dp(10))
+    background = shape(getColor(R.color.panel), 12f, getColor(R.color.line))
 }
 
 /** An error, in the user's language. */
@@ -256,6 +286,37 @@ fun Context.notePasswordTyped() {
     getSharedPreferences("keyless", Context.MODE_PRIVATE).edit().putInt("password_boot", bootCount()).putLong("password_at", System.currentTimeMillis()).apply()
 }
 
+/** Turns biometric unlock on: biometrics checked, then the user key kept for it; `done(true)` once on. */
+fun Activity.enableBiometric(done: (Boolean) -> Unit) {
+    val cipher = try {
+        SecureStore.biometricEncryptCipher()
+    } catch (e: Exception) {
+        Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
+        return done(false)
+    }
+    biometric(getString(R.string.biometric_enable_title), cipher) { authenticated ->
+        if (authenticated != null) SecureStore.saveBiometric(this, authenticated, Keyless.exportUserKey())
+        done(authenticated != null)
+    }
+}
+
+/**
+ * Right after the master password opened the app: offers biometric unlock,
+ * once (asked again after the next sign-in), when the phone has biometrics
+ * and it is off. Settings still turn it on or off.
+ */
+fun Activity.offerBiometric() {
+    val prefs = getSharedPreferences("keyless", Context.MODE_PRIVATE)
+    if (!biometricAvailable() || SecureStore.biometricEnabled(this) || prefs.getBoolean("biometric_offered", false)) return
+    prefs.edit().putBoolean("biometric_offered", true).apply()
+    AlertDialog.Builder(this)
+        .setTitle(R.string.biometric_offer_title)
+        .setMessage(getString(R.string.biometric_offer_body))
+        .setPositiveButton(R.string.biometric_offer_yes) { _, _ -> enableBiometric {} }
+        .setNegativeButton(R.string.not_now, null)
+        .show()
+}
+
 /** Asks for biometrics with `cipher`, then calls `done` with the authenticated cipher (on the main thread). */
 fun Activity.biometric(title: String, cipher: javax.crypto.Cipher, done: (javax.crypto.Cipher?) -> Unit) {
     val prompt = BiometricPrompt.Builder(this)
@@ -308,9 +369,8 @@ fun Activity.unlockForm(onUnlocked: () -> Unit, onSignOut: (() -> Unit)?): View 
             }
         }
     }
-    form.add(label(getString(R.string.unlock_title), 22f, bold = true))
-    form.add(label(Keyless.email, 14f, muted = true), top = 4)
-    form.add(password, top = 20)
+    form.add(brandHeader(getString(R.string.unlock_title), Keyless.email))
+    form.add(password, top = 24)
     form.add(error, top = 6)
     form.add(unlock, top = 8)
     if (biometricUsable()) {
@@ -333,18 +393,20 @@ fun Activity.unlockForm(onUnlocked: () -> Unit, onSignOut: (() -> Unit)?): View 
                 }
             }
         }
-        form.add(plainButton(getString(R.string.unlock_biometric)) { tryBiometric() }, top = 4)
+        form.add(secondaryButton(getString(R.string.unlock_biometric)) { tryBiometric() }.apply {
+            setCompoundDrawablesRelative(iconDrawable(R.drawable.ic_fingerprint, getColor(R.color.fg)).apply { setBounds(0, 0, dp(18), dp(18)) }, null, null, null)
+        }, top = 8)
         form.post { tryBiometric() }
     }
     if (onSignOut != null) {
-        form.add(plainButton(getString(R.string.sign_out)) {
+        form.addCentered(quietButton(getString(R.string.sign_out), R.drawable.ic_log_out) {
             AlertDialog.Builder(this)
                 .setTitle(R.string.sign_out)
                 .setMessage(R.string.sign_out_body)
                 .setPositiveButton(R.string.sign_out) { _, _ -> onSignOut() }
                 .setNegativeButton(R.string.cancel, null)
                 .show()
-        }, top = 24)
+        }, top = 20)
     }
     return form
 }

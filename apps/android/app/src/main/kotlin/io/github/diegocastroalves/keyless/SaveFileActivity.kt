@@ -16,7 +16,7 @@ import kotlin.concurrent.thread
  * Document item (as the desktop's Document template), encrypted before it
  * leaves the phone.
  */
-class SaveFileActivity : Activity() {
+class SaveFileActivity : KeylessActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)

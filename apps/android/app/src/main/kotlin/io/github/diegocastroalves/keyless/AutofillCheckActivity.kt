@@ -74,7 +74,7 @@ object AutofillCheck {
  * with a button to each setting. Nothing in it is secret: it needs no
  * unlocking.
  */
-class AutofillCheckActivity : Activity() {
+class AutofillCheckActivity : KeylessActivity() {
     private lateinit var root: FrameLayout
 
     /** The scroll a drawing has yet to restore (it waits for its layout). */
@@ -140,7 +140,7 @@ class AutofillCheckActivity : Activity() {
 
     private fun render() {
         val page = column(20)
-        page.add(plainButton("← " + getString(R.string.back)) { finish() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+        page.addBack { finish() }
         page.add(label(getString(R.string.check_title), 24f, bold = true), top = 8)
         page.add(label(getString(R.string.check_intro), 14f, muted = true), top = 4)
         val packageUri = Uri.parse("package:$packageName")

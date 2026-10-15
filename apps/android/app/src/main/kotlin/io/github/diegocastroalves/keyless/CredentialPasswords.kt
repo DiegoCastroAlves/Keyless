@@ -77,7 +77,7 @@ object CredentialPasswords {
 
 /** Answers Credential Manager with a password, or saves a new one, once Keyless is unlocked. */
 @RequiresApi(34)
-class PasswordCredentialActivity : Activity() {
+class PasswordCredentialActivity : KeylessActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)

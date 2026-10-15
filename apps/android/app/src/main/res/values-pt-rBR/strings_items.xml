@@ -70,4 +70,5 @@
     <string name="err_field_too_long">O campo “%1$s” é longo demais.</string>
     <string name="err_item_too_large">Este item é grande demais para salvar.</string>
     <string name="err_not_found">Este item não existe mais.</string>
+    <string name="seconds_left">%1$d s</string>
 </resources>

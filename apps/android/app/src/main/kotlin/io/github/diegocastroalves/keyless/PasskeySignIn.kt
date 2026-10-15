@@ -181,10 +181,12 @@ private fun MainActivity.createSignInPasskey(name: String, done: () -> Unit) {
 
 /** Settings: the passkeys that sign in to Keyless, to add or remove. */
 internal fun MainActivity.signInPasskeysSection(page: LinearLayout) {
-    page.add(label(getString(R.string.signin_passkeys), 16f, bold = true), top = 24)
-    page.add(label(getString(R.string.signin_passkeys_body), 13f, muted = true), top = 4)
+    page.add(sectionTitle(getString(R.string.signin_passkeys)), top = 24)
+    val box = panel()
+    page.add(box, top = 8)
+    box.add(label(getString(R.string.signin_passkeys_body), 13f, muted = true))
     val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-    page.add(list, top = 4)
+    box.add(list, top = 4)
     fun load() {
         thread {
             val rows = try {
@@ -213,8 +215,9 @@ internal fun MainActivity.signInPasskeysSection(page: LinearLayout) {
         }
     }
     load()
-    page.add(plainButton(getString(R.string.add_passkey)) {
+    box.add(secondaryButton(getString(R.string.add_passkey)) {
         val name = EditText(this).apply {
+            fieldLook()
             hint = getString(R.string.passkey_name)
             setSingleLine(true)
             setText(android.os.Build.MODEL)
@@ -226,5 +229,5 @@ internal fun MainActivity.signInPasskeysSection(page: LinearLayout) {
             .setNegativeButton(R.string.cancel, null)
             .show()
     }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
-    page.add(label(getString(R.string.passkeys_changed), 12f, muted = true), top = 2)
+    box.add(label(getString(R.string.passkeys_changed), 12f, muted = true), top = 6)
 }

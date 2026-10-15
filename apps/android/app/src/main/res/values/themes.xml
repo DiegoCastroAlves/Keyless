@@ -1,32 +1,40 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Keyless" parent="@android:style/Theme.DeviceDefault.DayNight">
+    <!-- The desktop app's look: its colors (colors.xml, light and dark), Inter,
+         and the platform's widgets tinted with them. Light or dark follows
+         the system or the theme setting (KeylessActivity). -->
+    <style name="Base.Keyless" parent="@android:style/Theme.DeviceDefault.DayNight">
         <item name="android:windowActionBar">false</item>
         <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/app_bg</item>
+        <item name="android:colorBackground">@color/panel</item>
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:colorPrimary">@color/accent</item>
+        <item name="android:colorControlActivated">@color/accent</item>
+        <item name="android:colorControlNormal">@color/subtle</item>
+        <item name="android:colorControlHighlight">@color/press</item>
+        <item name="android:textColorPrimary">@color/fg</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+        <item name="android:textColorHint">@color/subtle</item>
+        <item name="android:textColorLink">@color/accent</item>
+        <item name="android:textColorHighlight">@color/accent_soft</item>
+        <item name="android:fontFamily">@font/inter_family</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:alertDialogTheme">@style/Keyless.Dialog</item>
     </style>
 
-    <!-- The theme setting's choices (Settings > Theme), the same otherwise. -->
-    <style name="Theme.Keyless.Light" parent="@android:style/Theme.DeviceDefault.Light">
-        <item name="android:windowActionBar">false</item>
-        <item name="android:windowNoTitle">true</item>
-        <item name="android:colorAccent">@color/accent</item>
-        <item name="android:colorPrimary">@color/accent</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+    <style name="Theme.Keyless" parent="Base.Keyless">
         <item name="android:windowLightStatusBar">true</item>
         <item name="android:windowLightNavigationBar">true</item>
     </style>
 
-    <style name="Theme.Keyless.Dark" parent="@android:style/Theme.DeviceDefault">
-        <item name="android:windowActionBar">false</item>
-        <item name="android:windowNoTitle">true</item>
+    <style name="Keyless.Dialog" parent="@android:style/Theme.DeviceDefault.Light.Dialog.Alert">
+        <item name="android:colorBackground">@color/panel</item>
         <item name="android:colorAccent">@color/accent</item>
-        <item name="android:colorPrimary">@color/accent</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:colorControlActivated">@color/accent</item>
+        <item name="android:textColorPrimary">@color/fg</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+        <item name="android:fontFamily">@font/inter_family</item>
     </style>
 </resources>

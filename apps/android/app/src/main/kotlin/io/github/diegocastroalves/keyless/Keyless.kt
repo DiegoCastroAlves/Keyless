@@ -124,6 +124,8 @@ object Keyless {
         SecureStore.put(app, "secret_key", secretKey.trim().uppercase())
         SecureStore.put(app, "refresh_token", signed.refreshToken)
         SecureStore.disableBiometric(app)
+        // A new sign-in: biometric unlock is offered again.
+        app.getSharedPreferences("keyless", Context.MODE_PRIVATE).edit().remove("biometric_offered").apply()
         touch()
         save()
         try {

@@ -54,7 +54,7 @@ internal fun Activity.progressDialog(title: String): Pair<AlertDialog, Progress>
 
 internal fun MainActivity.showHistory(id: String, writable: Boolean) {
     val page = column(20)
-    page.add(plainButton("← " + t("common.back")) { showItem(id) }, width = WRAP)
+    page.addBack { showItem(id) }
     page.add(label(t("itemHistory.title"), 24f, bold = true), top = 8)
     page.add(label(t("itemHistory.note"), 13f, muted = true), top = 4)
     val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -264,18 +264,14 @@ internal fun MainActivity.attachmentsSection(page: LinearLayout, id: String, wri
         JSONArray()
     }
     if (files.length() == 0 && !writable) return
-    page.add(label(t("item.attachments").uppercase(), 12f, bold = true, muted = true), top = 20)
-    val panel = panel()
+    page.add(sectionTitle(t("item.attachments")), top = 20)
+    val card = card()
     for (i in 0 until files.length()) {
         val file = files.getJSONObject(i)
-        val line = row()
-        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        texts.add(label(file.optString("name"), 15f))
-        texts.add(label(Formatter.formatShortFileSize(this, file.optLong("size")), 12f, muted = true))
-        line.add(texts, width = 0, weight = 1f)
-        line.add(plainButton(t("item.attachmentSave")) { saveAttachmentAs(id, file) }, width = WRAP)
+        val actions = row()
+        actions.addView(iconButton(R.drawable.ic_download, t("item.attachmentSave")) { saveAttachmentAs(id, file) })
         if (writable) {
-            line.add(plainButton("✕") {
+            actions.addView(iconButton(R.drawable.ic_trash, t("common.delete")) {
                 AlertDialog.Builder(this)
                     .setMessage(t("item.attachmentDeleteConfirm"))
                     .setPositiveButton(t("common.delete")) { _, _ ->
@@ -286,12 +282,22 @@ internal fun MainActivity.attachmentsSection(page: LinearLayout, id: String, wri
                     }
                     .setNegativeButton(t("common.cancel"), null)
                     .show()
-            }.apply { contentDescription = t("common.delete") }, width = WRAP)
+            })
         }
-        panel.add(line, top = if (i == 0) 0 else 4)
+        val clip = icon(R.drawable.ic_paperclip, getColor(R.color.muted), 20)
+        card.add(listRow(clip, file.optString("name"), Formatter.formatShortFileSize(this, file.optLong("size")), actions).apply {
+            minimumHeight = dp(56)
+            background = null
+        })
     }
-    if (writable) panel.add(plainButton(t("item.attach")) { attachFile(id) }, width = WRAP, top = if (files.length() == 0) 0 else 4)
-    page.add(panel, top = 6)
+    if (writable) {
+        card.add(listRow(icon(R.drawable.ic_plus, accent(), 20), t("item.attach"), null).apply {
+            minimumHeight = dp(52)
+            ((getChildAt(1) as LinearLayout).getChildAt(0) as TextView).setTextColor(accent())
+            setOnClickListener { attachFile(id) }
+        })
+    }
+    page.add(card, top = 8)
 }
 
 /** The name and size of a file the user picked. */

@@ -15,7 +15,7 @@ import kotlin.concurrent.thread
  * Unlocks Keyless for autofill, then answers with the logins for the
  * fields, or saves the login that was typed.
  */
-class AutofillAuthActivity : Activity() {
+class AutofillAuthActivity : KeylessActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)

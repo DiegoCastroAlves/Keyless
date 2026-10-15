@@ -25,6 +25,10 @@
     <string name="unlock_biometric">Desbloquear con biometría</string>
     <string name="biometric_title">Desbloquear Keyless</string>
     <string name="biometric_enable_title">Activar el desbloqueo con biometría</string>
+    <string name="biometric_offer_title">¿Desbloquear con biometría?</string>
+    <string name="biometric_offer_body">La próxima vez, desbloquea Keyless con tu huella o tu cara sin escribir la contraseña maestra. Se sigue pidiendo al reiniciar el teléfono y cada cierto tiempo (Ajustes).</string>
+    <string name="biometric_offer_yes">Activar</string>
+    <string name="not_now">Ahora no</string>
     <string name="sign_out">Cerrar sesión</string>
     <string name="sign_out_body">Keyless quita tu cuenta y sus datos de este teléfono. Para volver a entrar necesitarás tu Clave Secreta y tu contraseña maestra.</string>
     <string name="search">Buscar</string>
@@ -48,6 +52,7 @@
     <string name="modified">Modificado el %1$s</string>
     <string name="read_only">Para cambiar elementos, usa Keyless en tu ordenador.</string>
     <string name="back">Volver</string>
+    <string name="settings_unlocking">Desbloqueo</string>
     <string name="biometric_unlock">Desbloquear con biometría</string>
     <string name="biometric_unlock_hint">Tras la contraseña maestra, desbloquea con tu huella o tu cara. La contraseña maestra se vuelve a pedir cuando el teléfono se reinicia.</string>
     <string name="auto_lock">Bloquear tras</string>

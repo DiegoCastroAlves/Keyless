@@ -195,7 +195,7 @@ internal fun MainActivity.sentinelCard(holder: LinearLayout) {
 /** Sentinel: the score, each alert's items, the strength levels and the settings. */
 internal fun MainActivity.showSentinel(vaultId: String?) {
     val page = column(20)
-    page.add(plainButton("← " + getString(R.string.back)) { showList() }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    page.addBack { showList() }
     page.add(label(st("title"), 24f, bold = true), top = 8)
     page.add(label(st("subtitle"), 13f, muted = true), top = 4)
     val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -286,7 +286,7 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     // How many passwords at each strength level.
     val strengths = summary.optJSONArray("strengths")
     if (strengths != null && summary.optInt("checked") > 0) {
-        body.add(label(st("strengthTitle"), 16f, bold = true), top = 20)
+        body.add(sectionTitle(st("strengthTitle")), top = 24)
         body.add(label(st("strengthHint"), 12f, muted = true), top = 2)
         val total = (0 until strengths.length()).sumOf { strengths.optInt(it) }.coerceAtLeast(1)
         for (level in 0 until strengths.length()) {
@@ -312,7 +312,7 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     val ignored = report.optJSONArray("ignored")
     if (ignored != null && ignored.length() > 0) {
         val stale = report.optJSONArray("stale")?.let { s -> (0 until s.length()).map { s.getJSONArray(it).let { p -> p.getString(0) to p.getString(1) } }.toSet() } ?: emptySet()
-        body.add(label(st("ignoredTitle"), 16f, bold = true), top = 20)
+        body.add(sectionTitle(st("ignoredTitle")), top = 24)
         for (i in 0 until ignored.length()) {
             val pair = ignored.getJSONArray(i)
             val (id, alert) = pair.getString(0) to pair.getString(1)
@@ -328,7 +328,7 @@ private fun MainActivity.sentinelOverview(body: LinearLayout, report: JSONObject
     }
 
     // What Sentinel downloads.
-    body.add(label(st("listsTitle"), 16f, bold = true), top = 20)
+    body.add(sectionTitle(st("listsTitle")), top = 24)
     body.add(label(st("breachPrivacy"), 12f, muted = true), top = 2)
     body.add(Switch(this).apply {
         text = st("autoCheck")
@@ -352,7 +352,7 @@ private fun MainActivity.showSentinelAlert(alert: String, key: String, report: J
     val list = report.getJSONObject("summary").getJSONObject("issues").optJSONArray(alert) ?: JSONArray()
     val httpsReady = report.optJSONArray("httpsReady")?.let { r -> (0 until r.length()).map { r.getString(it) }.toSet() } ?: emptySet()
     val page = column(20)
-    page.add(plainButton("← " + st("overview")) { showSentinel(vaultId) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    page.addBack { showSentinel(vaultId) }
     page.add(label(st(key), 22f, bold = true), top = 8)
     page.add(label(st(key + "Hint"), 13f, muted = true), top = 4)
     for (i in 0 until list.length()) {
@@ -411,7 +411,7 @@ private fun MainActivity.showSentinelAlert(alert: String, key: String, report: J
 private fun MainActivity.showSentinelLevel(level: Int, report: JSONObject, vaultId: String?) {
     val levels = report.optJSONObject("levels") ?: JSONObject()
     val page = column(20)
-    page.add(plainButton("← " + st("overview")) { showSentinel(vaultId) }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+    page.addBack { showSentinel(vaultId) }
     page.add(label(Labels.t(this, "strength.$level"), 22f, bold = true), top = 8)
     for (item in Keyless.items) {
         if (levels.optInt(item.id, -1) != level) continue

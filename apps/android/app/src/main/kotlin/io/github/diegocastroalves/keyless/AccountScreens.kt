@@ -60,7 +60,7 @@ private fun MainActivity.copyLine(name: String, value: String): View {
 
 internal fun MainActivity.showRecoveryKey() {
     val page = column(20)
-    page.add(plainButton("← " + t("common.back")) { showSettings() }, width = WRAP)
+    page.addBack { showSettings() }
     page.add(label(t("recovery.title"), 24f, bold = true), top = 8)
     page.add(label(t("recovery.settingsBody"), 13f, muted = true), top = 4)
     val status = label(t("itemHistory.loading"), 14f, muted = true)
@@ -284,7 +284,7 @@ private fun MainActivity.readPicked(uri: android.net.Uri): ByteArray {
 
 internal fun MainActivity.showImport() {
     val page = column(20)
-    page.add(plainButton("← " + t("common.back")) { showSettings() }, width = WRAP)
+    page.addBack { showSettings() }
     page.add(label(t("importer.title"), 24f, bold = true), top = 8)
     for (format in importFormats()) {
         val panel = panel()
@@ -309,11 +309,11 @@ internal fun MainActivity.showImport() {
             }
             panel.add(choose, width = WRAP, top = 2)
         }
-        panel.add(primaryButton(t("importer.choose")) {
+        panel.add(secondaryButton(t("importer.choose")) {
             val typed = password?.text?.toString()
             if (format.passwordRequired && typed.isNullOrEmpty()) {
                 password?.error = t("errors.backup_password_required")
-                return@primaryButton
+                return@secondaryButton
             }
             startForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")) { result, data ->
                 val uri = data?.data
@@ -406,7 +406,7 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
 
 internal fun MainActivity.showExport() {
     val page = column(20)
-    page.add(plainButton("← " + t("common.back")) { showSettings() }, width = WRAP)
+    page.addBack { showSettings() }
     page.add(label(t("importer.exportDialogTitle"), 24f, bold = true), top = 8)
 
     // The encrypted backup.

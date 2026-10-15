@@ -25,7 +25,7 @@ import kotlin.concurrent.thread
  * passkey kept in the site's login.
  */
 @RequiresApi(34)
-class PasskeyActivity : Activity() {
+class PasskeyActivity : KeylessActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)

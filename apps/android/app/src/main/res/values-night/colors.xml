@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The desktop app's dark colors (apps/desktop/src/styles.css, .dark). -->
+<resources>
+    <color name="app_bg">#0F1216</color>
+    <color name="panel">#161A20</color>
+    <color name="panel_2">#1C2128</color>
+    <color name="panel_3">#232932</color>
+    <color name="line">#262C35</color>
+    <color name="line_strong">#353D48</color>
+    <color name="fg">#E7EAEE</color>
+    <color name="muted">#9AA3AE</color>
+    <color name="subtle">#6B7480</color>
+    <color name="accent">#2DD4BF</color>
+    <color name="accent_pressed">#5EEAD4</color>
+    <color name="accent_soft">#1F2DD4BF</color>
+    <color name="accent_fg">#052E2B</color>
+    <color name="danger">#F97066</color>
+    <color name="danger_soft">#1FF97066</color>
+    <color name="warning">#FDB022</color>
+    <color name="warning_soft">#1FFDB022</color>
+    <color name="success">#47CD89</color>
+    <color name="digit">#7CB4FF</color>
+    <color name="symbol">#FF9F6B</color>
+    <color name="press">#1FE7EAEE</color>
+    <color name="scrim">#99000000</color>
+</resources>

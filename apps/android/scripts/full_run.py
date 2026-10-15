@@ -47,7 +47,8 @@ def screen():
             bounds = re.findall(r"\d+", node.get("bounds", ""))
             if len(bounds) == 4:
                 x1, y1, x2, y2 = map(int, bounds)
-                nodes.append((node.get("text", ""), node.get("class", ""), ((x1 + x2) // 2, (y1 + y2) // 2), node.get("package", "")))
+                # An icon button goes by its description (as a screen reader says it).
+                nodes.append((node.get("text", "") or node.get("content-desc", ""), node.get("class", ""), ((x1 + x2) // 2, (y1 + y2) // 2), node.get("package", "")))
     return nodes
 
 
@@ -209,7 +210,7 @@ def downloads(prefix):
 
 def item_extras(writes_path):
     """On the item just edited: its history (restoring a version) and a share link."""
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Item history")
     check("shows the item's earlier versions", "Restore this version", 30)
     updates = writes(writes_path, "update")
@@ -219,7 +220,7 @@ def item_extras(writes_path):
     outcome("restores a version", wait_write(writes_path, "update", updates))
     check("back on the item", "Edited item", 20)
     shared = writes(writes_path, "share")
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Share…")
     check("offers to share the item", "Create link", 15)
     tap_last("Create link")
@@ -234,7 +235,7 @@ def files_and_search(writes_path):
     tap_text("GitHub")
     check("opens GitHub", "octo", 20)
     uploads = writes(writes_path, "object")
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Attach file")
     pick_download("notes.txt")
     outcome("uploads the file encrypted", wait_write(writes_path, "object", uploads, 60))
@@ -256,7 +257,7 @@ def files_and_search(writes_path):
     contents = adb("shell", "cat", f"'/sdcard/Download/{saved[0]}'", check=False).encode() if saved else b""
     outcome("saves the file decrypted", contents == ATTACHED, f"{saved} {len(contents)} bytes")
     deleted = writes(writes_path, "objects_deleted")
-    tap_scrolled("✕")
+    tap_scrolled("Delete")
     time.sleep(1)
     tap_last("Delete")
     outcome("removes the file from the server", wait_write(writes_path, "objects_deleted", deleted))
@@ -278,7 +279,7 @@ def files_and_search(writes_path):
 
 def import_export(fixture, writes_path):
     """Settings: importing a CSV file, and exporting one."""
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Settings")
     check("the settings open again", "Lock when the screen turns off", 15)
     tap_scrolled("Import")
@@ -292,7 +293,7 @@ def import_export(fixture, writes_path):
     outcome("uploads the imported item", wait_write(writes_path, "insert", inserts))
     tap_last("Done")
     check("the list has the imported item", "Imported One", 20)
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Settings")
     tap_scrolled("Export")
     check("offers the exports", "Encrypted backup", 15)
@@ -337,14 +338,15 @@ def recovery_key(fixture, writes_path):
 
 def recover_account(fixture, key):
     """Signed out: the recovery key opens the account with a new master password and Secret Key."""
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Settings")
     tap_scrolled("Sign out")
     time.sleep(1)
     tap_last("Sign out")
     check("signed out for the recovery", "Sign in to Keyless", 30)
+    scroll_to("Sign in with a passkey")
     check("offers to sign in with a passkey", "Sign in with a passkey", 5)
-    tap_text("Forgot your master password or lost your Secret Key?")
+    tap_scrolled("Forgot your master password or lost your Secret Key?")
     check("opens the recovery", "Recover your account", 15)
     type_into(PACKAGE, 0, fixture["email"])
     type_into(PACKAGE, 1, key)
@@ -401,7 +403,7 @@ def wait_mock(path, test, seconds=60):
 
 def reopen_list():
     """Goes to the settings and back: the list looks for new devices asking to sign in."""
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Settings")
     time.sleep(1)
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
@@ -517,7 +519,7 @@ def main():
     check("unlocks with the master password", "GitHub", 60)
 
     # Adding and changing items.
-    tap_text("+")
+    tap_text("New item")
     check("offers the categories for a new item", "What do you want to save?", 15)
     tap_text("Login")
     check("opens the editor with the login's fields", "Add field", 15)
@@ -551,12 +553,12 @@ def main():
     check("saves the change", "Edited item", 30)
     outcome("uploads the change", wait_write(writes_path, "update", updates))
     updates = writes(writes_path, "update")
-    tap_text("☆")
-    check("marks it a favorite", "★", 20)
+    tap_text("Favorite")
+    check("marks it a favorite", "Remove from favorites", 20)
     outcome("uploads the favorite", wait_write(writes_path, "update", updates))
     item_extras(writes_path)
 
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Move to Recently Deleted")
     check("moves it to Recently Deleted", "Recently Deleted", 20)
     tap_text("Recently Deleted")
@@ -573,7 +575,7 @@ def main():
 
     # This phone in the account's devices, and signing another one out.
     mock("/test/device", {"id": "d2"})
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Settings")
     check("the settings open", "Lock when the screen turns off", 15)
     tap_scrolled("Signed-in devices")
@@ -591,7 +593,7 @@ def main():
         approve_new_device(fixture, requester)
 
     # Sentinel: the lists and the password check come from the fake server.
-    tap_text("⋮")
+    tap_text("More")
     tap_last("Sentinel")
     check("opens Sentinel", "Password health", 30)
     tap_text("Check online")

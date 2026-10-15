@@ -25,6 +25,10 @@
     <string name="unlock_biometric">Desbloquear com biometria</string>
     <string name="biometric_title">Desbloquear o Keyless</string>
     <string name="biometric_enable_title">Ativar o desbloqueio com biometria</string>
+    <string name="biometric_offer_title">Desbloquear com biometria?</string>
+    <string name="biometric_offer_body">Da próxima vez, desbloqueie o Keyless com sua digital ou seu rosto, sem digitar a senha mestra. Ela ainda é pedida depois que o celular reinicia e de tempos em tempos (Configurações).</string>
+    <string name="biometric_offer_yes">Ativar</string>
+    <string name="not_now">Agora não</string>
     <string name="sign_out">Sair</string>
     <string name="sign_out_body">O Keyless remove sua conta e os dados dela deste celular. Para entrar de novo você vai precisar da Chave Secreta e da senha mestra.</string>
     <string name="search">Buscar</string>
@@ -48,6 +52,7 @@
     <string name="modified">Modificado em %1$s</string>
     <string name="read_only">Para alterar itens, use o Keyless no computador.</string>
     <string name="back">Voltar</string>
+    <string name="settings_unlocking">Desbloqueio</string>
     <string name="biometric_unlock">Desbloquear com biometria</string>
     <string name="biometric_unlock_hint">Depois da senha mestra, desbloqueie com a digital ou o rosto. A senha mestra volta a ser pedida quando o celular reinicia.</string>
     <string name="auto_lock">Bloquear depois de</string>

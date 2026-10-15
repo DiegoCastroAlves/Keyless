@@ -39,7 +39,7 @@ import kotlin.concurrent.thread
  * Frames are read in memory and decoded by the Rust core; nothing is kept.
  * Answers RESULT_OK with the code's content in `EXTRA_CONTENT`.
  */
-class QrScanActivity : Activity() {
+class QrScanActivity : KeylessActivity() {
     companion object {
         const val EXTRA_WANTED = "wanted"
         const val EXTRA_CONTENT = "content"

@@ -42,7 +42,7 @@ fun Activity.showGenerator(onUse: ((String) -> Unit)?, copy: (String) -> Unit) {
         } catch (e: Exception) {
             ""
         }
-        shown.text = password
+        shown.text = passwordText(password)
         prefs.edit().putString("generator", options.toString()).apply()
     }
 

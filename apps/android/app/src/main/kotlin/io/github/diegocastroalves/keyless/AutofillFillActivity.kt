@@ -16,7 +16,7 @@ import android.widget.ScrollView
  * paste on the next screen. It has no screen of its own unless Keyless
  * locked meanwhile and must be unlocked first.
  */
-class AutofillFillActivity : Activity() {
+class AutofillFillActivity : KeylessActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
