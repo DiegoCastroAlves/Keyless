@@ -6,6 +6,7 @@
 // the arrows move, Enter fills, Escape clears the search and then closes.
 
 import { avatar, hostOf } from "./avatar";
+import { markupNodes } from "./markup";
 import { renderMarkdown } from "./markdown";
 import { providerName } from "./providers";
 import { tutorialUrl, type Settings } from "./settings";
@@ -25,7 +26,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string,
 
 function svg(markup: string): SVGElement {
   const box = document.createElement("span");
-  box.innerHTML = markup;
+  box.append(...markupNodes(markup));
   return box.firstElementChild as SVGElement;
 }
 

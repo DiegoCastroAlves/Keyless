@@ -16,6 +16,7 @@
 // the content script reports what the page did to the menu.
 
 import { avatar } from "./avatar";
+import { markupNodes } from "./markup";
 import { providerName } from "./providers";
 import type { AlertView, FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
@@ -121,7 +122,7 @@ window.addEventListener(
 
 function svg(markup: string): HTMLElement {
   const span = el("span", { className: "svg" });
-  span.innerHTML = markup;
+  span.append(...markupNodes(markup));
   return span;
 }
 

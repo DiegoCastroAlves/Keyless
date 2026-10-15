@@ -59,6 +59,7 @@ import {
   wantsPasskey,
   type FormControl,
 } from "./fields";
+import { markupNodes } from "./markup";
 import { providerOf } from "./providers";
 import type { Credentials, FieldInfo, FormKind, PageState, Status } from "./types";
 
@@ -280,12 +281,14 @@ let below = new Set<Element>();
 if (topLayer) host.popover = "manual";
 setOwnElement(host);
 const root = host.attachShadow({ mode: "closed" });
-root.innerHTML = `<style>${STYLE}</style>`;
+const style = document.createElement("style");
+style.textContent = STYLE;
+root.append(style);
 const button = document.createElement("button");
 button.className = "btn";
 button.type = "button";
 button.title = "Keyless";
-button.innerHTML = LOGO;
+button.append(...markupNodes(LOGO));
 button.title = "Keyless";
 button.style.display = "none";
 root.append(button);
@@ -334,7 +337,7 @@ function renderButton(kind: ButtonKind) {
   if (kind === buttonKind) return;
   buttonKind = kind;
   button.className = kind === "plain" ? "btn" : "btn pill";
-  button.innerHTML = (kind === "locked" ? LOCK : kind === "logins" ? CHEVRON : "") + LOGO;
+  button.replaceChildren(...markupNodes((kind === "locked" ? LOCK : kind === "logins" ? CHEVRON : "") + LOGO));
   button.title = kind === "locked" ? t("unlockApp") : kind === "logins" ? t("showLogins") : "Keyless";
   place();
 }

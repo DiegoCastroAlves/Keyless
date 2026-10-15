@@ -62,8 +62,10 @@ const targets = {
     // The websites' own sign-in dialogs (see background.ts).
     permissions: [...base.permissions, "webRequest", "webRequestBlocking"],
     // Mozilla asks every new extension what data it collects: none leaves the
-    // computer (it goes to the Keyless app only; see docs/PRIVACY.md).
-    browser_specific_settings: { gecko: { id: FIREFOX_ID, strict_min_version: "130.0", data_collection_permissions: { required: ["none"] } } },
+    // computer (it goes to the Keyless app only; see docs/PRIVACY.md). That
+    // key needs Firefox 140 (142 on Android, where the extension cannot reach
+    // the app, but whose version addons.mozilla.org checks too).
+    browser_specific_settings: { gecko: { id: FIREFOX_ID, strict_min_version: "140.0", data_collection_permissions: { required: ["none"] } }, gecko_android: { strict_min_version: "142.0" } },
   },
 };
 
