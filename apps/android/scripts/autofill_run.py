@@ -235,10 +235,10 @@ def keyboard_top():
     return int(found.group(2)) if found else None
 
 
-def pick_chip(name, field_index=0, seconds=30):
+def pick_chip(name, filled, field_index=0, seconds=30):
     """Taps a field of the form, waits until Android sends Keyless's
     suggestions to the keyboard as chips, and taps the first chip (at the
-    start of the keyboard's suggestion strip)."""
+    start of the keyboard's suggestion strip) until the field shows `filled`."""
     adb("logcat", "-c", check=False)
     x, y = fields(FORM)[field_index]
     tap(x, y)
@@ -250,13 +250,22 @@ def pick_chip(name, field_index=0, seconds=30):
         time.sleep(1)
     if not record(f"{name}: chips sent to the keyboard", sent is not None, "no inline response in the log"):
         return False
-    time.sleep(2)
-    top = keyboard_top()
     width = screen_size()[0]
+    # The keyboard opened for the first time may still be settling (as on
+    # the CI's emulator): tapped again while the field is empty.
+    for _ in range(3):
+        time.sleep(2)
+        top = keyboard_top()
+        if top is None:
+            continue
+        # Gboard: a button at the left, then the chips, about 22 dp below its top.
+        tap(int(width * 0.31), top + 22 * density() // 160)
+        time.sleep(2)
+        if filled in texts():
+            break
+        print(f"  {name}: the chip at {top} filled nothing, again", flush=True)
     if top is None:
         return record(f"{name}: keyboard found", False, "no keyboard window")
-    # Gboard: a button at the left, then the chips, about 22 dp below its top.
-    tap(int(width * 0.31), top + 22 * density() // 160)
     return True
 
 
@@ -367,14 +376,14 @@ def main():
     # A credit card in a payment form, from a chip in the keyboard.
     start("CardActivity")
     check("the payment form opens", "Payment", 30)
-    if pick_chip("Keyless suggests the card"):
+    if pick_chip("Keyless suggests the card", "4111111111111111"):
         check_form("fills the card from the chip", ["4111111111111111", "07/31", "TESS TESTER", "•••"], 20)
     hide_keyboard()
 
     # An identity in an address form, from a chip.
     start("AddressActivity")
     check("the address form opens", "Shipping address", 30)
-    if pick_chip("Keyless suggests the identity"):
+    if pick_chip("Keyless suggests the identity", "Tess"):
         check_form("fills the identity from the chip", ["Tess", "Tester", "tess@example.test", "+5511987654321", "Rua das Flores 123", "Springfield", "SP", "01234-567", "Brasil"], 20)
     hide_keyboard()
 
