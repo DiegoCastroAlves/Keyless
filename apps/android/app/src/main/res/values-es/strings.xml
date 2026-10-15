@@ -37,6 +37,8 @@
     <string name="syncing">Sincronizando…</string>
     <string name="show">Mostrar</string>
     <string name="hide">Ocultar</string>
+    <string name="show_password">Mostrar la contraseña</string>
+    <string name="hide_password">Ocultar la contraseña</string>
     <string name="copy">Copiar</string>
     <string name="copied">%1$s copiado. Se borra del portapapeles en 90 segundos.</string>
     <string name="open">Abrir</string>

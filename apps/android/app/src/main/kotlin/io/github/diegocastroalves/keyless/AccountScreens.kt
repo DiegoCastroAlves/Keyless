@@ -35,7 +35,7 @@ private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
 /** Asks for the master password, then calls `then` with it. */
 internal fun Activity.askMasterPassword(title: String, message: String? = null, then: (String) -> Unit) {
-    val input = field(getString(R.string.master_password), TEXT_PASSWORD, secret = true)
+    val input = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = View.AUTOFILL_HINT_PASSWORD)
     AlertDialog.Builder(this)
         .setTitle(title)
         .setMessage(message)
@@ -144,7 +144,7 @@ internal fun MainActivity.showRecover() {
     val form = column()
     form.add(label(t("recovery.recoverTitle"), 22f, bold = true))
     form.add(label(t("recovery.recoverBody"), 14f, muted = true), top = 6)
-    val email = field(getString(R.string.email), TEXT_EMAIL)
+    val email = field(getString(R.string.email), TEXT_EMAIL, autofill = View.AUTOFILL_HINT_EMAIL_ADDRESS)
     val key = field("KLRK-XXXX-XXXX-…", TEXT_KEY, secret = true)
     val error = label("", 14f).apply { setTextColor(getColor(R.color.danger)) }
     form.add(email, top = 20)
@@ -184,8 +184,9 @@ private fun MainActivity.showRecoverPassword(email: String) {
     val form = column()
     form.add(label(t("recovery.newPasswordTitle"), 22f, bold = true))
     form.add(label(t("recovery.newPasswordBody", mapOf("email" to email)), 14f, muted = true), top = 6)
-    val password = field(getString(R.string.master_password), TEXT_PASSWORD, secret = true)
-    val again = field(getString(R.string.master_password), TEXT_PASSWORD, secret = true)
+    // The new master password, for the user's password manager to keep.
+    val password = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = NEW_PASSWORD)
+    val again = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = NEW_PASSWORD)
     val error = label("", 14f).apply { setTextColor(getColor(R.color.danger)) }
     form.add(password, top = 20)
     form.add(again, top = 8)

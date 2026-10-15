@@ -38,6 +38,8 @@
     <string name="syncing">Syncing…</string>
     <string name="show">Show</string>
     <string name="hide">Hide</string>
+    <string name="show_password">Show password</string>
+    <string name="hide_password">Hide password</string>
     <string name="copy">Copy</string>
     <string name="copied">%1$s copied. It is cleared from the clipboard in 90 seconds.</string>
     <string name="open">Open</string>

@@ -249,10 +249,10 @@ class MainActivity : Activity() {
 
     private fun showSignIn(error: String? = null) {
         val form = column()
-        val email = field(getString(R.string.email), TEXT_EMAIL)
+        val email = field(getString(R.string.email), TEXT_EMAIL, autofill = View.AUTOFILL_HINT_EMAIL_ADDRESS)
         email.setText(received?.first ?: "")
         val secretKey = field("K1-XXXXXX-XXXXXX-XXXXX-XXXXX-XXXXX", TEXT_KEY, secret = true)
-        val password = field(getString(R.string.master_password), TEXT_PASSWORD, secret = true)
+        val password = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = View.AUTOFILL_HINT_PASSWORD)
         val errorLine = label(error ?: "", 14f).apply { setTextColor(getColor(R.color.danger)) }
         form.add(label(getString(R.string.sign_in_title), 22f, bold = true))
         form.add(label(getString(R.string.sign_in_intro), 14f, muted = true), top = 6)

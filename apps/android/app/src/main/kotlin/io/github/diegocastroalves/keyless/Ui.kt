@@ -1,5 +1,6 @@
 package io.github.diegocastroalves.keyless
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
@@ -10,13 +11,18 @@ import android.graphics.drawable.GradientDrawable
 import android.hardware.biometrics.BiometricManager
 import android.hardware.biometrics.BiometricPrompt
 import android.os.Build
+import android.os.Bundle
 import android.os.CancellationSignal
 import android.provider.Settings
 import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -35,18 +41,79 @@ fun Context.label(text: CharSequence, size: Float = 15f, bold: Boolean = false, 
         if (muted) setTextColor(getColor(R.color.muted))
     }
 
-fun Context.field(hint: String, type: Int, secret: Boolean = false): EditText =
+/**
+ * A one-line field. `secret`: never offered to an autofill service (the
+ * Secret Key, recovery keys, passwords of files). `autofill`: what the field
+ * is for one (the account's email and master password, which the user's
+ * password manager may fill; Keyless's own service skips Keyless). Passwords
+ * start hidden, with an eye to show them.
+ */
+fun Context.field(hint: String, type: Int, secret: Boolean = false, autofill: String? = null): EditText =
     EditText(this).apply {
         this.hint = hint
-        inputType = type
+        // Before the type: it would replace a password's mask.
         setSingleLine(true)
-        // Keyless's own secrets are never offered to an autofill service.
-        if (secret) importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        inputType = type
+        when {
+            autofill != null -> {
+                setAutofillHints(autofill)
+                importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_YES
+            }
+            secret -> importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+        }
+        val password = type and InputType.TYPE_MASK_VARIATION == InputType.TYPE_TEXT_VARIATION_PASSWORD
+        // The keyboard learns nothing typed here.
+        if (secret || password) imeOptions = imeOptions or EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+        if (password) withEye()
     }
+
+/** An eye at the end of a password field: shows or hides what it holds (hidden first). */
+@SuppressLint("ClickableViewAccessibility")
+private fun EditText.withEye() {
+    val show = context.getDrawable(R.drawable.ic_eye)!!.mutate().apply { setTint(context.getColor(R.color.muted)) }
+    val hide = context.getDrawable(R.drawable.ic_eye_off)!!.mutate().apply { setTint(context.getColor(R.color.muted)) }
+    val shown = { transformationMethod !is PasswordTransformationMethod }
+    fun draw() = setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, if (shown()) hide else show, null)
+    fun toggle() {
+        val start = selectionStart
+        val end = selectionEnd
+        transformationMethod = if (shown()) PasswordTransformationMethod.getInstance() else null
+        if (start >= 0) setSelection(start, end)
+        draw()
+    }
+    draw()
+    compoundDrawablePadding = (8 * resources.displayMetrics.density).toInt()
+    setOnTouchListener { _, event ->
+        // The eye, its padding and the field's own, at the end.
+        val reach = totalPaddingEnd
+        val onEye = if (layoutDirection == View.LAYOUT_DIRECTION_RTL) event.x <= reach else event.x >= width - reach
+        if (!onEye) return@setOnTouchListener false
+        if (event.action == MotionEvent.ACTION_UP) toggle()
+        true
+    }
+    // Screen readers: the eye as an action of the field.
+    accessibilityDelegate = object : View.AccessibilityDelegate() {
+        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfo) {
+            super.onInitializeAccessibilityNodeInfo(host, info)
+            val label = context.getString(if (shown()) R.string.hide_password else R.string.show_password)
+            info.addAction(AccessibilityNodeInfo.AccessibilityAction(R.id.toggle_password, label))
+        }
+
+        override fun performAccessibilityAction(host: View, action: Int, args: Bundle?): Boolean {
+            if (action != R.id.toggle_password) return super.performAccessibilityAction(host, action, args)
+            toggle()
+            return true
+        }
+    }
+}
+
+/** Android's hint for a new password (androidx's HintConstants, not in the platform). */
+const val NEW_PASSWORD = "newPassword"
 
 const val TEXT_EMAIL = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
 const val TEXT_PASSWORD = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-const val TEXT_KEY = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+// Not a password type: password managers would take it for the master password's field.
+const val TEXT_KEY = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
 
 fun Context.primaryButton(text: String, onClick: () -> Unit): Button =
     Button(this).apply {
@@ -214,7 +281,7 @@ fun Activity.biometric(title: String, cipher: javax.crypto.Cipher, done: (javax.
 /** The unlock form: master password, or biometrics when on. */
 fun Activity.unlockForm(onUnlocked: () -> Unit, onSignOut: (() -> Unit)?): View {
     val form = column()
-    val password = field(getString(R.string.master_password), TEXT_PASSWORD, secret = true)
+    val password = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = View.AUTOFILL_HINT_PASSWORD)
     val error = label("", 14f).apply { setTextColor(getColor(R.color.danger)) }
     lateinit var unlock: Button
     unlock = primaryButton(getString(R.string.unlock)) {

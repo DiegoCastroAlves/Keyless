@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The accessibility action of a password field's eye. -->
+    <item name="toggle_password" type="id" />
+</resources>
