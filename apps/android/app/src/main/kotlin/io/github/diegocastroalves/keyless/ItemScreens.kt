@@ -381,10 +381,16 @@ class QrView(context: Context, private val modules: List<String>, private val ma
     override fun onDraw(canvas: Canvas) {
         canvas.drawColor(Color.WHITE)
         val count = modules.size + 8
-        val cell = width.toFloat() / count
+        // Whole pixels per module, centered: cells of a fractional size leave
+        // seams between them on low-density screens, which readers trip on.
+        val cell = maxOf(1, width / count)
+        val offset = ((width - cell * count) / 2).toFloat()
         for ((y, line) in modules.withIndex()) {
             for ((x, module) in line.withIndex()) {
-                if (module == '1') canvas.drawRect((x + 4) * cell, (y + 4) * cell, (x + 5) * cell, (y + 5) * cell, dark)
+                if (module != '1') continue
+                val left = offset + (x + 4) * cell
+                val top = offset + (y + 4) * cell
+                canvas.drawRect(left, top, left + cell, top + cell, dark)
             }
         }
     }
