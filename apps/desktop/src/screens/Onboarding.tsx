@@ -933,9 +933,7 @@ function QrSignIn({ onBack, onReceived }: { onBack: () => void; onReceived: (ema
         setPhase("showing");
         timer = window.setTimeout(poll, 2000);
       })
-      .catch((err) => {
-        if (!isCancelled(err)) fail(err);
-      });
+      .catch(fail);
     return () => {
       live = false;
       window.clearTimeout(timer);

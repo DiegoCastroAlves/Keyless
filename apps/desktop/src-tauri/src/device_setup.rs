@@ -68,10 +68,9 @@ struct Outgoing {
 pub struct SetupState {
     received: Mutex<Option<Received>>,
     outgoing: tokio::sync::Mutex<Option<Outgoing>>,
-    /// This device's QR code, while it waits for a phone to read it.
-    qr: tokio::sync::Mutex<Option<SignInRequest>>,
-    /// Counts QR code starts: one that finishes after a newer one began is dropped.
-    qr_starts: std::sync::atomic::AtomicU64,
+    /// This device's QR codes waiting for a phone, by request id: each sign-in
+    /// screen polls and cancels its own (a screen shown twice starts twice).
+    qr: tokio::sync::Mutex<HashMap<String, SignInRequest>>,
     /// Requests this device answered: its key, and the wrong codes typed.
     approvals: Mutex<HashMap<String, (SetupApproval, u32)>>,
     /// Requests already announced with a notification.
@@ -330,12 +329,10 @@ async fn cancel_request(state: &AppState, request: &SignInRequest) {
 }
 
 /// Leaves a request on the server and returns the QR code (SVG) a signed-in
-/// phone reads to answer it. Only the newest start counts (a screen shown
-/// twice starts twice): an older one that finishes later is taken back.
+/// phone reads to answer it, with the request's id for polling and
+/// cancelling it.
 pub async fn qr_start(app: &AppHandle) -> AppResult<SignInQr> {
-    use std::sync::atomic::Ordering;
     let state = app.state::<AppState>();
-    let start = state.setup.qr_starts.fetch_add(1, Ordering::SeqCst) + 1;
     let request = SignInRequest::new()?;
     let answer: Value = state
         .api
@@ -346,17 +343,7 @@ pub async fn qr_start(app: &AppHandle) -> AppResult<SignInQr> {
         return Err(err);
     }
     let qr = SignInQr { id: request.id().to_string(), svg: crate::items::qr_svg(&request.link())? };
-    let mut slot = state.setup.qr.lock().await;
-    if state.setup.qr_starts.load(Ordering::SeqCst) != start {
-        drop(slot);
-        cancel_request(&state, &request).await;
-        return Err(AppError::Cancelled);
-    }
-    let previous = slot.replace(request);
-    drop(slot);
-    if let Some(previous) = previous {
-        cancel_request(&state, &previous).await;
-    }
+    state.setup.qr.lock().await.insert(qr.id.clone(), request);
     Ok(qr)
 }
 
@@ -364,14 +351,14 @@ pub async fn qr_start(app: &AppHandle) -> AppResult<SignInQr> {
 /// sent for the sign-in form.
 pub async fn qr_poll(app: &AppHandle, id: &str) -> AppResult<SetupProgress> {
     let state = app.state::<AppState>();
-    let mut slot = state.setup.qr.lock().await;
-    let request = slot.as_ref().filter(|r| r.id() == id).ok_or_else(|| invalid("device_setup_expired"))?;
+    let mut requests = state.setup.qr.lock().await;
+    let request = requests.get(id).ok_or_else(|| invalid("device_setup_expired"))?;
     let status: QrStatus = state.api.rpc(None, "qr_sign_in_status", json!({ "p_id": request.id(), "p_secret": request.poll_secret() })).await?;
     let progress = |status: &'static str, email: Option<String>| SetupProgress { status, code: None, email };
     match status.status.as_str() {
         "waiting" => Ok(progress("waiting", None)),
         "approved" => {
-            let request = slot.take().ok_or_else(|| invalid("device_setup_expired"))?;
+            let request = requests.remove(id).ok_or_else(|| invalid("device_setup_expired"))?;
             let (Some(key), Some(payload)) = (status.approver_key, status.payload) else {
                 return Err(invalid("device_setup_failed"));
             };
@@ -386,11 +373,11 @@ pub async fn qr_poll(app: &AppHandle, id: &str) -> AppResult<SetupProgress> {
             Ok(progress("approved", Some(receive(&state, email, secret_key))))
         }
         "denied" => {
-            *slot = None;
+            requests.remove(id);
             Ok(progress("denied", None))
         }
         _ => {
-            *slot = None;
+            requests.remove(id);
             Ok(progress("expired", None))
         }
     }
@@ -399,10 +386,7 @@ pub async fn qr_poll(app: &AppHandle, id: &str) -> AppResult<SetupProgress> {
 /// Takes QR code `id` off the server.
 pub async fn qr_cancel(app: &AppHandle, id: &str) {
     let state = app.state::<AppState>();
-    let request = {
-        let mut slot = state.setup.qr.lock().await;
-        if slot.as_ref().is_some_and(|r| r.id() == id) { slot.take() } else { None }
-    };
+    let request = state.setup.qr.lock().await.remove(id);
     if let Some(request) = request {
         cancel_request(&state, &request).await;
     }
