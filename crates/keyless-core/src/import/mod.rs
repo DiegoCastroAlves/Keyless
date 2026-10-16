@@ -10,6 +10,7 @@ pub mod keeper;
 pub mod keyless;
 pub mod onepif;
 pub mod onepux;
+pub mod reconcile;
 
 use std::io::{Read, Seek};
 
@@ -91,6 +92,14 @@ pub struct ImportSummary {
     pub files: usize,
     pub file_bytes: u64,
     pub warnings: Vec<ImportWarning>,
+    /// Next to the account's items (see `reconcile`); all new until compared.
+    #[serde(flatten)]
+    pub counts: reconcile::Counts,
+    /// New items in each of `vaults`.
+    pub vault_new: Vec<usize>,
+    /// The account's vault that has most of each of `vaults`' items already
+    /// (`reconcile::Plan::homes`): where its new items go by default.
+    pub vault_home: Vec<Option<String>>,
 }
 
 impl ImportResult {
@@ -132,7 +141,15 @@ impl ImportResult {
             files: files().count(),
             file_bytes: files().map(|f| f.size).sum(),
             warnings: self.warnings.clone(),
+            counts: reconcile::Counts { new_items: self.vaults.iter().map(|v| v.items.len()).sum(), ..Default::default() },
+            vault_new: self.vaults.iter().map(|v| v.items.len()).collect(),
+            vault_home: vec![None; self.vaults.len()],
         }
+    }
+
+    /// The summary, with what `plan` found among the account's items.
+    pub fn summary_with(&self, plan: &reconcile::Plan) -> ImportSummary {
+        ImportSummary { counts: plan.counts(), vault_new: plan.new_by_vault(), vault_home: plan.homes.clone(), ..self.summary() }
     }
 }
 

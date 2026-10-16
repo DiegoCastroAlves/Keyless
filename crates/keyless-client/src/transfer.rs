@@ -27,7 +27,9 @@ use keyless_core::{
     import::{
         ImportArchive, ImportResult, ImportedFile, bitwarden, csv::parse_csv, csv::parse_keeper_csv, dashlane::parse_dashlane_zip, kdbx::parse_kdbx, keeper,
         keyless::parse_keyless_export, onepif::parse_1pif, onepux::parse_1pux,
+        reconcile::{self, Existing, Outcome as Found, Plan},
     },
+    item::{ItemDetails, ItemOverview},
     item::stamp_version,
     keys::normalize_master_password,
     vault::{VaultKey, VaultMeta},
@@ -52,6 +54,10 @@ pub(crate) struct PendingImport {
     /// Attachments made for its files: by attachment id, the file, and
     /// where in the result its item is (vault, item).
     files: HashMap<String, (ImportedFile, Attachment, String, (usize, usize))>,
+    /// What each item is next to the account's (new, the same, changed...).
+    plan: Plan,
+    /// The ids of the account's items the plan points to.
+    existing_ids: Vec<String>,
 }
 
 /// An export being made.
@@ -108,42 +114,73 @@ impl Client {
             other => other.into(),
         };
         let file = Arc::new(file);
-        let (result, archive) = match a.format {
+        // With the name of its format, kept in each item so that importing
+        // it again finds what it brought (`reconcile`).
+        let (mut result, archive, origin) = match a.format {
             Format::Json => {
                 let json: Value = serde_json::from_slice(&file).map_err(|_| Failure::new("import_unknown_json"))?;
-                let result = if keyless_core::cxf::detect(&json) {
-                    keyless_core::cxf::parse_cxf(&json)?
+                if keyless_core::cxf::detect(&json) {
+                    (keyless_core::cxf::parse_cxf(&json)?, None, "cxf")
                 } else if bitwarden::detect(&json) {
-                    bitwarden::parse_bitwarden_json(&json, password, name).map_err(wrong_password)?
+                    (bitwarden::parse_bitwarden_json(&json, password, name).map_err(wrong_password)?, None, "bitwarden")
                 } else if keeper::detect(&json) {
-                    keeper::parse_keeper_json(&json, name)?
+                    (keeper::parse_keeper_json(&json, name)?, None, "keeper")
                 } else {
                     return Err(Failure::new("import_unknown_json"));
-                };
-                (result, None)
+                }
             }
-            Format::Kdbx => (parse_kdbx(&file, password, key_file.as_ref().map(|k| k.as_slice()), name).map_err(wrong_password)?, None),
-            Format::OnePif => (parse_1pif(&String::from_utf8_lossy(&file), name)?, None),
-            Format::KeeperCsv => (parse_keeper_csv(file.as_slice(), name)?, None),
-            Format::Csv => (parse_csv(file.as_slice(), name)?, None),
-            Format::DashlaneZip => (parse_dashlane_zip(Cursor::new(file.as_slice()), "Dashlane")?, None),
-            Format::OnePux => (parse_1pux(Cursor::new(file.as_slice()))?, Some(file)),
-            Format::KeylessExport => (parse_keyless_export(Cursor::new(file.as_slice()))?, Some(file)),
+            Format::Kdbx => (parse_kdbx(&file, password, key_file.as_ref().map(|k| k.as_slice()), name).map_err(wrong_password)?, None, "keepass"),
+            Format::OnePif => (parse_1pif(&String::from_utf8_lossy(&file), name)?, None, "1password"),
+            Format::KeeperCsv => (parse_keeper_csv(file.as_slice(), name)?, None, "keeper"),
+            Format::Csv => (parse_csv(file.as_slice(), name)?, None, "csv"),
+            Format::DashlaneZip => (parse_dashlane_zip(Cursor::new(file.as_slice()), "Dashlane")?, None, "dashlane"),
+            Format::OnePux => (parse_1pux(Cursor::new(file.as_slice()))?, Some(file), "1password"),
+            Format::KeylessExport => (parse_keyless_export(Cursor::new(file.as_slice()))?, Some(file), "keyless"),
             Format::KeylessBackup => {
                 let password = password.ok_or(Failure::new("backup_password_required"))?;
                 match open_backup(password, Cursor::new(file.as_slice())) {
-                    Ok(backup) => (backup.into_import(), Some(file)),
+                    Ok(backup) => (backup.into_import(), Some(file), "keyless"),
                     Err(keyless_core::Error::Decryption) => return Err(Failure::new("backup_wrong_password")),
                     Err(err) => return Err(err.into()),
                 }
             }
         };
-        let summary = result.summary();
-        if summary.total_items == 0 {
+        if result.vaults.iter().all(|v| v.items.is_empty()) {
             return Err(Failure::new("import_empty"));
         }
-        self.import = Some(PendingImport { result, archive, files: HashMap::new() });
+        reconcile::mark_sources(&mut result, origin);
+        let owned = self.existing_items()?;
+        let existing: Vec<Existing> = owned.iter().map(|(id, vault_id, overview, details)| Existing { id, vault_id, overview, details }).collect();
+        let plan = reconcile::reconcile(&result, &existing);
+        let existing_ids = owned.iter().map(|(id, ..)| id.clone()).collect();
+        let summary = result.summary_with(&plan);
+        self.import = Some(PendingImport { result, archive, files: HashMap::new(), plan, existing_ids });
         Ok(serde_json::to_value(summary)?)
+    }
+
+    /// The account's items outside Recently Deleted, decrypted, for an
+    /// import to compare its items with: id, vault, overview and details.
+    fn existing_items(&self) -> Outcome<Vec<(String, String, ItemOverview, ItemDetails)>> {
+        let mut out = Vec::new();
+        for (id, row) in &self.store.items {
+            if row.deleted {
+                continue;
+            }
+            let Ok((vault_id, overview, details)) = self.open_item(id) else { continue };
+            if overview.trashed_at.is_none() {
+                out.push((id.clone(), vault_id, overview, details));
+            }
+        }
+        Ok(out)
+    }
+
+    /// The account's item an import changed, with its new version (the
+    /// file's content over what only Keyless has).
+    fn import_update(&self, item_id: &str, item: &keyless_core::import::ImportedItem, now: i64) -> Outcome<(String, ItemOverview, ItemDetails)> {
+        let (vault_id, overview, details) = self.open_item(item_id)?;
+        let existing = Existing { id: item_id, vault_id: &vault_id, overview: &overview, details: &details };
+        let (overview, details) = reconcile::merged(&existing, item, now);
+        Ok((vault_id, overview, details))
     }
 
     /// The vault each of the import's vaults goes to, checked.
@@ -153,8 +190,9 @@ impl Client {
             return Err(Failure::new("invalid_request"));
         }
         let unlocked = self.unlocked()?;
-        for (target, vault) in targets.iter().zip(&pending.result.vaults) {
-            if vault.items.is_empty() {
+        let fresh = pending.plan.new_by_vault();
+        for (v, target) in targets.iter().enumerate() {
+            if fresh.get(v).copied().unwrap_or(0) == 0 {
                 continue;
             }
             let open = unlocked.vaults.get(target).ok_or(Failure::new("not_found"))?;
@@ -170,12 +208,38 @@ impl Client {
     /// uploads with `import_file`. `stored` is what the server will count.
     pub(crate) fn import_files(&mut self, json: &str) -> Outcome<Value> {
         #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct A {
             targets: Vec<String>,
             now: i64,
+            /// Whether changed items are updated (their new files go too).
+            #[serde(default = "yes")]
+            update_changed: bool,
         }
         let a: A = args(json)?;
         self.import_targets(&a.targets)?;
+        // Where each item's files go, with the files (name, size) it has
+        // there already: the target for new items, the item's own vault for
+        // changed ones (only the files it lacks).
+        type Place = (String, Vec<(String, u64)>);
+        let mut places: HashMap<(usize, usize), Place> = HashMap::new();
+        {
+            let pending = self.import.as_ref().ok_or(Failure::new("import_no_file"))?;
+            for (v, outcomes) in pending.plan.outcomes.iter().enumerate() {
+                for (i, outcome) in outcomes.iter().enumerate() {
+                    match outcome {
+                        Found::New => {
+                            places.insert((v, i), (a.targets[v].clone(), Vec::new()));
+                        }
+                        Found::Changed(index) if a.update_changed => {
+                            let (vault_id, _, details) = self.open_item(&pending.existing_ids[*index])?;
+                            places.insert((v, i), (vault_id, details.attachments.iter().map(|f| (f.name.clone(), f.size)).collect()));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         let pending = self.import.as_mut().ok_or(Failure::new("import_no_file"))?;
         pending.files.clear();
         let mut list = Vec::new();
@@ -184,9 +248,9 @@ impl Client {
         }
         for (v, vault) in pending.result.vaults.iter().enumerate() {
             for (i, item) in vault.items.iter().enumerate() {
-                for file in &item.files {
+                let Some((vault_id, has)) = places.get(&(v, i)) else { continue };
+                for file in item.files.iter().filter(|f| !has.contains(&(f.name.clone(), f.size))) {
                     let attachment = Attachment::new(&file.name, file.size, a.now)?;
-                    let vault_id = &a.targets[v];
                     let objects: Vec<String> = (0..attachment.chunks()).map(|n| attachment.object_name(vault_id, n)).collect();
                     list.push(json!({
                         "id": attachment.id,
@@ -218,56 +282,85 @@ impl Client {
     /// vault. Files that did not upload are left out.
     pub(crate) fn import_commit(&mut self, json: &str) -> Outcome<Value> {
         #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
         struct A {
             targets: Vec<String>,
             #[serde(default)]
             uploaded: Vec<String>,
             now: i64,
+            #[serde(default = "yes")]
+            update_changed: bool,
         }
         let a: A = args(json)?;
         self.import_targets(&a.targets)?;
-        let PendingImport { result, files, .. } = self.import.take().ok_or(Failure::new("import_no_file"))?;
+        let PendingImport { result, files, plan, existing_ids, .. } = self.import.take().ok_or(Failure::new("import_no_file"))?;
         let mut attached: HashMap<(usize, usize), Vec<Attachment>> = HashMap::new();
         let uploaded: HashSet<&String> = a.uploaded.iter().collect();
         let (mut files_added, mut files_failed) = (0, 0);
-        for (id, (_, attachment, vault_id, at)) in files {
-            if uploaded.contains(&id) && a.targets[at.0] == vault_id {
+        for (id, (_, attachment, _, at)) in files {
+            if uploaded.contains(&id) {
                 attached.entry(at).or_default().push(attachment);
                 files_added += 1;
             } else {
                 files_failed += 1;
             }
         }
-        let unlocked = self.unlocked()?;
         let mut rows = Vec::new();
+        let mut updates = Vec::new();
         for (v, vault) in result.vaults.into_iter().enumerate() {
-            let vault_id = &a.targets[v];
-            let Some(open) = unlocked.vaults.get(vault_id) else { continue };
             for (i, item) in vault.items.into_iter().enumerate() {
-                let (mut overview, mut details) = (item.overview, item.details);
-                if overview.created_at == 0 {
-                    overview.created_at = a.now;
-                }
-                if overview.updated_at == 0 {
-                    overview.updated_at = a.now;
-                }
-                if overview.subtitle.is_empty() {
-                    overview.subtitle = draft::subtitle(overview.category, &details);
-                }
                 let mut files = attached.remove(&(v, i)).unwrap_or_default();
                 files.sort_by(|x, y| x.name.cmp(&y.name));
-                details.attachments.extend(files);
-                stamp_version(&mut overview, &mut details, 1);
-                rows.push(json!({
-                    "id": item.id,
-                    "vaultId": vault_id,
-                    "encOverview": open.key.seal_overview(vault_id, &item.id, &overview)?,
-                    "encDetails": open.key.seal_details(vault_id, &item.id, &details)?,
-                    "baseRevision": null,
-                }));
+                match plan.outcomes.get(v).and_then(|o| o.get(i)).copied().unwrap_or(Found::New) {
+                    Found::New => {
+                        let vault_id = &a.targets[v];
+                        let unlocked = self.unlocked()?;
+                        let Some(open) = unlocked.vaults.get(vault_id) else { continue };
+                        let (mut overview, mut details) = (item.overview, item.details);
+                        if overview.created_at == 0 {
+                            overview.created_at = a.now;
+                        }
+                        if overview.updated_at == 0 {
+                            overview.updated_at = a.now;
+                        }
+                        if overview.subtitle.is_empty() {
+                            overview.subtitle = draft::subtitle(overview.category, &details);
+                        }
+                        details.attachments.extend(files);
+                        stamp_version(&mut overview, &mut details, 1);
+                        rows.push(json!({
+                            "id": item.id,
+                            "vaultId": vault_id,
+                            "encOverview": open.key.seal_overview(vault_id, &item.id, &overview)?,
+                            "encDetails": open.key.seal_details(vault_id, &item.id, &details)?,
+                            "baseRevision": null,
+                        }));
+                    }
+                    Found::Changed(index) if a.update_changed => {
+                        let item_id = &existing_ids[index];
+                        let Ok((vault_id, mut overview, mut details)) = self.import_update(item_id, &item, a.now) else { continue };
+                        let Some(row) = self.store.items.get(item_id) else { continue };
+                        let unlocked = self.unlocked()?;
+                        let Some(open) = unlocked.vaults.get(&vault_id) else { continue };
+                        if !can_write(&open.role) {
+                            continue;
+                        }
+                        overview.subtitle = draft::subtitle(overview.category, &details);
+                        details.attachments.extend(files);
+                        stamp_version(&mut overview, &mut details, row.version + 1);
+                        updates.push(json!({
+                            "id": item_id,
+                            "vaultId": vault_id,
+                            "encOverview": open.key.seal_overview(&vault_id, item_id, &overview)?,
+                            "encDetails": open.key.seal_details(&vault_id, item_id, &details)?,
+                            "baseRevision": row.revision,
+                        }));
+                    }
+                    _ => {}
+                }
             }
         }
-        Ok(json!({ "items": rows, "files": files_added, "filesFailed": files_failed }))
+        Ok(json!({ "items": rows, "updates": updates, "files": files_added, "filesFailed": files_failed }))
     }
 
     pub(crate) fn import_cancel(&mut self) -> Outcome<Value> {
@@ -493,4 +586,8 @@ impl ImportFile {
         })?;
         Ok(())
     }
+}
+
+fn yes() -> bool {
+    true
 }

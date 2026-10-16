@@ -369,6 +369,11 @@ pub struct ItemDetails {
     /// the overview, whose size the server limits).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub icon: String,
+    /// Where an imported item came from: its format and its id in the file
+    /// ("1password:<uuid>"), so importing the same file again finds it (see
+    /// `import::reconcile`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub import_source: String,
     #[serde(flatten)]
     pub unknown: Unknown,
 }

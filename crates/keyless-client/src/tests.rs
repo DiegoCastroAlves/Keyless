@@ -1032,7 +1032,15 @@ fn exports_and_imports_like_the_desktop() {
     assert_eq!(client.export_chunk(&file_id, 0, &raw[1..]).unwrap_err().key, "attachment_damaged");
     client.export_chunk(&file_id, 0, &raw).unwrap();
     let zip = client.export_finish().unwrap();
+    // Into the same account, the item is found again: nothing new.
+    let summary = ok(client.import_parse(&json!({ "format": "keyless_export", "name": "x" }).to_string(), zip.clone(), None));
+    assert_eq!((summary["new_items"].as_u64(), summary["same_items"].as_u64(), summary["vault_new"].clone()), (Some(0), Some(1), json!([0])));
+    ok(client.call("importCancel", ""));
+    // Once it is in Recently Deleted, it comes back as a new item.
+    let sealed = ok(client.call("setFlags", &json!({ "id": "i1", "trashed": true, "now": 250 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 3, 7)] }).to_string()));
     let summary = ok(client.import_parse(&json!({ "format": "keyless_export", "name": "x" }).to_string(), zip, None));
+    assert_eq!(summary["new_items"], 1);
     assert_eq!((summary["total_items"].as_u64(), summary["files"].as_u64()), (Some(1), Some(1)));
     assert_eq!(error(client.call("importFiles", &json!({ "targets": [], "now": 300 }).to_string())), "invalid_request");
     let files = ok(client.call("importFiles", &json!({ "targets": [VAULT], "now": 300 }).to_string()));
@@ -1049,12 +1057,14 @@ fn exports_and_imports_like_the_desktop() {
     assert!(item["baseRevision"].is_null());
     let item_id = item["id"].as_str().unwrap().to_string();
     assert_ne!(item_id, "i1");
-    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(item, 1, 7)] }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(item, 1, 8)] }).to_string()));
     assert_eq!(*client.attachment_open(&item_id, &new_id, 0, &chunks[0].1).unwrap(), b"hello".to_vec());
     let imported = ok(client.call("item", &json!({ "id": item_id }).to_string()));
     assert_eq!(imported["overview"]["title"], "Bank");
     assert_eq!(imported["details"]["fields"][1]["value"], "pw");
     assert_eq!(error(client.call("importCommit", &json!({ "targets": [VAULT], "now": 300 }).to_string())), "import_no_file");
+    let sealed = ok(client.call("setFlags", &json!({ "id": "i1", "trashed": false, "now": 350 }).to_string()));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(&sealed, 4, 9)] }).to_string()));
 
     // An encrypted backup, which needs a strong password.
     assert_eq!(error(client.call("exportStart", &password(json!({ "format": "backup", "password": "password1234" })))), "backup_password_weak");
@@ -1078,4 +1088,41 @@ fn exports_and_imports_like_the_desktop() {
     assert_eq!(vault["p_id"].as_str().unwrap().len(), 36);
     assert!(vault["p_enc_meta"].is_string() && vault["p_enc_vault_key"].is_string());
     assert_eq!(error(client.call("vaultNew", &json!({ "name": " " }).to_string())), "vault_name_required");
+}
+
+#[test]
+fn imports_again_only_new_and_changed_items() {
+    const A: &str = "33333333-3333-4333-8333-333333333333";
+    const B: &str = "44444444-4444-4444-8444-444444444444";
+    let server = server();
+    let mut client = signed_in(&server);
+    let items = json!([row(&server, A, 5, 1, &login("GitHub", "https://github.com", "pw1", 1)), row(&server, B, 6, 1, &login("Bank", "https://bank.example", "pw2", 1))]);
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": items }).to_string()));
+    // GitHub as it is (its code, only in Keyless, does not count), Bank with
+    // a new password, and a new login.
+    let csv = "title,url,username,password\nGitHub,https://github.com,me,pw1\nBank,https://bank.example,me,pw-new\nShop,https://shop.example,me,shop\n";
+    let summary = ok(client.import_parse(&json!({ "format": "csv", "name": "Imported" }).to_string(), Zeroizing::new(csv.as_bytes().to_vec()), None));
+    assert_eq!(
+        (summary["new_items"].as_u64(), summary["same_items"].as_u64(), summary["changed_items"].as_u64(), summary["kept_items"].as_u64()),
+        (Some(1), Some(1), Some(1), Some(0))
+    );
+    assert_eq!(summary["vault_new"], json!([1]));
+    // Shop goes where GitHub and Bank are, by default.
+    assert_eq!(summary["vault_home"], json!([VAULT]));
+    let committed = ok(client.call("importCommit", &json!({ "targets": [VAULT], "now": 500 }).to_string()));
+    assert_eq!(committed["items"].as_array().unwrap().len(), 1);
+    assert_eq!(committed["items"][0]["baseRevision"], Value::Null);
+    let update = &committed["updates"][0];
+    assert_eq!((update["id"].as_str(), update["baseRevision"].as_i64()), (Some(B), Some(1)));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored(update, 2, 7)] }).to_string()));
+    let bank = ok(client.call("item", &json!({ "id": B }).to_string()));
+    let fields = bank["details"]["fields"].as_array().unwrap();
+    assert_eq!(fields.iter().map(|f| f["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["u", "p", "t"]);
+    assert_eq!(fields[1]["value"], "pw-new");
+    assert_eq!(bank["details"]["password_history"][0]["value"], "pw2");
+
+    // Without updating, only the new one goes.
+    ok(client.import_parse(&json!({ "format": "csv", "name": "Imported" }).to_string(), Zeroizing::new(csv.replace("pw-new", "pw-3").into_bytes()), None));
+    let committed = ok(client.call("importCommit", &json!({ "targets": [VAULT], "now": 600, "updateChanged": false }).to_string()));
+    assert_eq!((committed["items"].as_array().unwrap().len(), committed["updates"].as_array().unwrap().len()), (1, 0));
 }
