@@ -90,6 +90,9 @@ object Keyless {
         lastActivity = SystemClock.elapsedRealtime()
     }
 
+    /** A sync finished since unlocking (an empty Home syncs until then). */
+    @Volatile var synced = false
+
     fun lock() {
         Native.run("lock")
         clearCache()
@@ -97,6 +100,7 @@ object Keyless {
     }
 
     private fun clearCache() {
+        synced = false
         items = emptyList()
         archived = emptyList()
         trashed = emptyList()
@@ -187,6 +191,7 @@ object Keyless {
         }
         save()
         refreshCache()
+        synced = true
     }
 
     internal fun refreshCache() {

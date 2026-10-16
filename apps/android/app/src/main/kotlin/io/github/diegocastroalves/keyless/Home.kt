@@ -167,10 +167,10 @@ internal fun MainActivity.showHome(sync: Boolean = false, synced: Boolean = fals
 
     tabScreen("home", page, withNewItem = true)
     SiteIcons.refresh(this)
-    // An empty account syncs on opening (its items may be on the way), once:
-    // still empty after that sync, it would sync and draw Home again for
-    // ever, closing menus and losing taps.
-    if (sync || (items.isEmpty() && !synced)) sync(status) { if (screen == "home") showHome(synced = true) }
+    // An empty account syncs on opening (its items may be on the way), once
+    // after unlocking: syncing each time Home is drawn would draw it again a
+    // second later (for ever, still empty), closing menus and losing taps.
+    if (sync || (items.isEmpty() && !synced && !Keyless.synced)) sync(status) { if (screen == "home") showHome(synced = true) }
     runPending()
 }
 
