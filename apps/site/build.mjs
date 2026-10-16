@@ -6,7 +6,8 @@
 // web vault (/vault/, with the WebAssembly client in vendor/). Static files
 // only, served by Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { policyArticles } from "./policy.mjs";
 
 // The same public project values as the app (see apps/desktop config.rs).
@@ -96,6 +97,21 @@ await build({
   outdir: "dist",
   legalComments: "none",
 });
+
+// The pages ask for their scripts and styles with the version in the address
+// (?v=<hash of the file>): Cloudflare tells browsers to keep them for hours,
+// and a browser that kept an old script ran it against a new page (the
+// email confirmation's session stayed in the address bar). Pages themselves
+// are checked again on every visit.
+const versioned = new Map();
+const version = (path) => {
+  if (!versioned.has(path)) versioned.set(path, createHash("sha256").update(readFileSync(`dist${path}`)).digest("hex").slice(0, 10));
+  return versioned.get(path);
+};
+for (const page of readdirSync("dist", { recursive: true }).filter((name) => name.endsWith(".html"))) {
+  const html = readFileSync(`dist/${page}`, "utf8");
+  writeFileSync(`dist/${page}`, html.replace(/((?:src|href)=")(\/[^"?]+\.(?:js|css))"/g, (_, attr, path) => `${attr}${path}?v=${version(path)}"`));
+}
 
 // Only this site's own files run, nothing can frame it, and links never
 // tell the next site where they came from. Each page may connect only where
