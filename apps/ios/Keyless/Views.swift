@@ -203,6 +203,8 @@ struct ItemsView: View {
                             }
                         }
                     }
+                    // Held down: what can be copied without opening it (as Android's menu).
+                    .contextMenu { ItemMenu(id: item.id) }
                 }
             }
             .searchable(text: $query, prompt: Texts.t("search"))
@@ -227,6 +229,44 @@ struct ItemsView: View {
         } catch {
             vault.syncError = error.localizedDescription
         }
+    }
+}
+
+/// An item held down in the list: its username, password or code to copy.
+struct ItemMenu: View {
+    let id: String
+    @EnvironmentObject var vault: Vault
+
+    var body: some View {
+        let fields = Self.fields((try? vault.item(id))?["details"] as? [String: Any] ?? [:])
+        let username = fields.first(where: { $0["purpose"] as? String == "username" })?["value"] as? String ?? ""
+        let password = fields.first(where: { $0["purpose"] as? String == "password" })?["value"] as? String ?? ""
+        let totp = fields.first(where: { $0["kind"] as? String == "totp" })?["value"] as? String ?? ""
+        if !username.isEmpty {
+            Button { copy(username) } label: { Label(Texts.t("copyUsername"), systemImage: "person") }
+        }
+        if !password.isEmpty {
+            Button { copy(password) } label: { Label(Texts.t("copyPassword"), systemImage: "key") }
+        }
+        if !totp.isEmpty {
+            Button {
+                if let code = vault.totp(totp) { copy(code.code) }
+            } label: { Label(Texts.t("copyCode"), systemImage: "clock") }
+        }
+    }
+
+    private func copy(_ text: String) {
+        copySecret(text)
+        vault.touch()
+    }
+
+    /// The item's fields that have a value, in its sections too.
+    static func fields(_ details: [String: Any]) -> [[String: Any]] {
+        var all = details["fields"] as? [[String: Any]] ?? []
+        for section in details["sections"] as? [[String: Any]] ?? [] {
+            all += section["fields"] as? [[String: Any]] ?? []
+        }
+        return all.filter { !($0["value"] as? String ?? "").isEmpty }
     }
 }
 

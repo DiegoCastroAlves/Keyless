@@ -19,6 +19,7 @@ import android.view.ViewGroup
 import android.webkit.MimeTypeMap
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -252,6 +253,93 @@ private fun MainActivity.loadShareLinks(id: String, holder: LinearLayout) {
             }
         }
     }
+}
+
+// ----- an item held down in a list -----------------------------------------------------
+
+/**
+ * What can be done with an item without opening it, as the desktop's menu on
+ * a right click: copying its username, password or code, marking it, editing,
+ * sharing, archiving or deleting it. In Recently Deleted: restoring it, or
+ * deleting it for good.
+ */
+internal fun MainActivity.itemActions(id: String, anchor: View) {
+    val item = try {
+        Keyless.item(id)
+    } catch (e: KeylessException) {
+        return
+    }
+    val overview = item.getJSONObject("overview")
+    val details = item.getJSONObject("details")
+    val title = overview.optString("title")
+    val writable = Keyless.canWrite(item.optString("vaultId"))
+    val trashed = overview.has("trashed_at") && !overview.isNull("trashed_at")
+    val fields = mutableListOf<JSONObject>()
+    fun collect(list: JSONArray?) {
+        if (list != null) for (i in 0 until list.length()) fields.add(list.getJSONObject(i))
+    }
+    collect(details.optJSONArray("fields"))
+    val sections = details.optJSONArray("sections")
+    if (sections != null) for (i in 0 until sections.length()) collect(sections.getJSONObject(i).optJSONArray("fields"))
+    fun value(test: (JSONObject) -> Boolean) = fields.firstOrNull { test(it) && it.optString("value").isNotEmpty() }?.optString("value").orEmpty()
+    val username = value { it.optString("purpose") == "username" }
+    val password = value { it.optString("purpose") == "password" }
+    val totp = value { it.optString("kind") == "totp" }
+    // After a change: the list in place, or the tab drawn again.
+    val redraw = { if (screen == "list") listRefresh?.invoke() ?: showMain() else showMain() }
+    val done = { message: String -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show() }
+
+    val menu = PopupMenu(this, anchor)
+    val actions = mutableListOf<() -> Unit>()
+    fun add(text: String, run: () -> Unit) {
+        menu.menu.add(0, actions.size, actions.size, text)
+        actions.add(run)
+    }
+    if (trashed) {
+        if (writable) {
+            add(t("common.restore")) { act({ Keyless.setTrashed(id, false) }) { done(t("item.restored")); redraw() } }
+            add(getString(R.string.delete_forever)) {
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.delete_forever)
+                    .setMessage(getString(R.string.delete_forever_body, title))
+                    .setPositiveButton(R.string.delete_forever) { _, _ -> act({ Keyless.deleteForGood(id) }) { redraw() } }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            }
+        }
+    } else {
+        if (username.isNotEmpty()) add(t("item.copyUsername")) { copy(t("item.username"), username) }
+        if (password.isNotEmpty()) add(t("item.copyPassword")) { copy(t("item.password"), password) }
+        if (totp.isNotEmpty()) {
+            add(t("item.copyCode")) {
+                try {
+                    copy(t("item.code"), Keyless.totp(totp).getString("code"))
+                } catch (e: KeylessException) {
+                    Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        val favorite = overview.optBoolean("favorite")
+        add(t(if (favorite) "item.unfavorite" else "item.favorite")) { act({ Keyless.setFavorite(id, !favorite) }) { redraw() } }
+        if (writable) add(t("common.edit")) { editItem(id) }
+        add(t("share.action")) { shareItem(id, title) }
+        if (writable) {
+            val archived = overview.optBoolean("archived")
+            add(t(if (archived) "item.unarchive" else "item.archive")) {
+                act({ Keyless.setArchived(id, !archived) }) {
+                    if (!archived) done(t("item.archived"))
+                    redraw()
+                }
+            }
+            add(t("item.moveToTrash")) { act({ Keyless.setTrashed(id, true) }) { done(t("item.movedToTrash")); redraw() } }
+        }
+    }
+    if (actions.isEmpty()) return
+    menu.setOnMenuItemClickListener { choice ->
+        actions[choice.itemId]()
+        true
+    }
+    menu.show()
 }
 
 // ----- passkeys ------------------------------------------------------------------------

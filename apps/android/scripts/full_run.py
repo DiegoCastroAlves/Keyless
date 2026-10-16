@@ -272,11 +272,24 @@ def files_and_search(writes_path):
     outcome("back to Home for search", back_home())
     tap_text(HOME)
     time.sleep(1)
-    # The fixture's logins say "Made up for tests." in their notes only.
+    # The fixture's logins say "Made up for tests by Mãe." in their notes only.
     type_into(PACKAGE, 0, "made%sup")
     hide_keyboard()
     # Bank's title and username do not have the words: its notes do.
     check("finds items by their notes", "Bank", 15)
+    # Typed without accents: the notes' "Mãe", and Bank's tag "Família".
+    replace_text(PACKAGE, 0, "by%smae")
+    hide_keyboard()
+    check("finds the notes without their accents", "Bank", 15)
+    replace_text(PACKAGE, 0, "familia")
+    hide_keyboard()
+    check("finds a tag without its accent", "Bank", 15)
+    # Held down, an item gives its menu.
+    long_press("Bank")
+    check("holding an item gives its menu", "Copy password", 10)
+    check("with its username to copy", "Copy username", 2)
+    tap_last("Copy password")
+    check("the list is back after copying", "Bank", 10)
     replace_text(PACKAGE, 0, "")
     hide_keyboard()
     adb("shell", "input", "keyevent", "KEYCODE_BACK")
@@ -611,6 +624,15 @@ def type_into(package, index, value):
     time.sleep(0.6)
     adb("shell", "input", "text", value)
     time.sleep(0.4)
+
+
+def long_press(text):
+    """Holds the last node with this text down (a list's row under the field that holds it too)."""
+    hits = [(x, y) for t, _, (x, y), _ in screen() if t == text]
+    if hits:
+        x, y = hits[-1]
+        adb("shell", "input", "swipe", str(x), str(y), str(x), str(y), "900")
+        time.sleep(1)
 
 
 def hide_keyboard():

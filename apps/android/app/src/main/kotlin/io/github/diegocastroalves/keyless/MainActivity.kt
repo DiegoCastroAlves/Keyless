@@ -717,6 +717,11 @@ class MainActivity : KeylessActivity() {
             if (query.trim().length >= 2) rememberSearch(query.trim())
             showItem(adapter.shown[position].id)
         }
+        // Held down: the item's menu (ItemScreens.kt).
+        list.setOnItemLongClickListener { _, row, position, _ ->
+            itemActions(adapter.shown[position].id, row)
+            true
+        }
 
         fun refresh() {
             adapter.update()
@@ -764,7 +769,7 @@ class MainActivity : KeylessActivity() {
         }
     }
 
-    private var listRefresh: (() -> Unit)? = null
+    internal var listRefresh: (() -> Unit)? = null
 
     /** The settings page open (where its screens go back to). */
     internal var settingsPage = ""

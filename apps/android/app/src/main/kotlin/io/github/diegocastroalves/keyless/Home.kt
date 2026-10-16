@@ -121,7 +121,13 @@ internal fun Context.openedIds(): List<String> = try {
 /** A row for an item: its icon, title and subtitle; opens it. */
 internal fun MainActivity.itemRow(item: Summary): LinearLayout {
     val url = item.overview.optJSONArray("urls")?.optJSONObject(0)?.optString("href")
-    return groupRow(itemIcon(item.category, item.title, url), item.title, item.subtitle) { showItem(item.id) }
+    return groupRow(itemIcon(item.category, item.title, url), item.title, item.subtitle) { showItem(item.id) }.apply {
+        // Held down: the item's menu (ItemScreens.kt).
+        setOnLongClickListener { row ->
+            itemActions(item.id, row)
+            true
+        }
+    }
 }
 
 /** Home; `sync` syncs first, `synced`: drawn again after a sync. */
