@@ -24,8 +24,9 @@ use keyless_core::{
     backup::{BackupData, BackupItem, BackupVault, BackupWriter, open_backup},
     export::{ExportZip, ZipLayout},
     import::{
-        ImportArchive, ImportResult, ImportSummary, ImportedFile, bitwarden, csv::parse_csv, csv::parse_keeper_csv, dashlane::parse_dashlane_zip, kdbx::parse_kdbx,
-        keeper, keyless::parse_keyless_export, onepif::parse_1pif, onepux::parse_1pux,
+        ImportArchive, ImportResult, ImportSummary, ImportedFile, ImportedItem, bitwarden, csv::parse_csv, csv::parse_keeper_csv, dashlane::parse_dashlane_zip,
+        kdbx::parse_kdbx, keeper, keyless::parse_keyless_export, onepif::parse_1pif, onepux::parse_1pux,
+        reconcile::{self, Existing, Outcome, Plan},
     },
     vault::VaultMeta,
 };
@@ -93,6 +94,10 @@ pub struct PendingImport {
     result: ImportResult,
     /// The file it came from, which holds its attached files.
     file: Option<PathBuf>,
+    /// What each item is next to the account's (new, the same, changed...).
+    plan: Plan,
+    /// The ids of the account's items the plan points to.
+    existing_ids: Vec<String>,
 }
 
 /// Bytes of attached files done, out of `total`.
@@ -189,7 +194,9 @@ pub async fn pick_and_parse(
         .ok_or(AppError::Cancelled)?;
     let path = picked.into_path().map_err(|_| AppError::Invalid(Msg::new("file_unreadable")))?;
 
-    let pending = tauri::async_runtime::spawn_blocking(move || -> AppResult<PendingImport> {
+    // The file, read; with the name of its format, kept in each item so
+    // that importing it again finds what it brought (`reconcile`).
+    let (mut result, file, origin) = tauri::async_runtime::spawn_blocking(move || -> AppResult<(ImportResult, Option<PathBuf>, &'static str)> {
         let unreadable = |e: std::io::Error| AppError::Invalid(Msg::new("file_unreadable").with("detail", e));
         let mut file = File::open(&path).map_err(unreadable)?;
         // The vault for a file without vaults of its own: named after it.
@@ -199,16 +206,15 @@ pub async fn pick_and_parse(
             ImportFormat::Json => {
                 let contents = read_all(&mut file)?;
                 let json: serde_json::Value = serde_json::from_slice(&contents).map_err(|_| AppError::Invalid(Msg::new("import_unknown_json")))?;
-                let result = if keyless_core::cxf::detect(&json) {
-                    keyless_core::cxf::parse_cxf(&json)?
+                if keyless_core::cxf::detect(&json) {
+                    Ok((keyless_core::cxf::parse_cxf(&json)?, None, "cxf"))
                 } else if bitwarden::detect(&json) {
-                    bitwarden::parse_bitwarden_json(&json, password, &name).map_err(locked_file)?
+                    Ok((bitwarden::parse_bitwarden_json(&json, password, &name).map_err(locked_file)?, None, "bitwarden"))
                 } else if keeper::detect(&json) {
-                    keeper::parse_keeper_json(&json, &name)?
+                    Ok((keeper::parse_keeper_json(&json, &name)?, None, "keeper"))
                 } else {
-                    return Err(AppError::Invalid(Msg::new("import_unknown_json")));
-                };
-                Ok(PendingImport { result, file: None })
+                    Err(AppError::Invalid(Msg::new("import_unknown_json")))
+                }
             }
             ImportFormat::Kdbx => {
                 let contents = read_all(&mut file)?;
@@ -216,28 +222,27 @@ pub async fn pick_and_parse(
                     Some(key_path) => Some(read_all(&mut File::open(key_path).map_err(unreadable)?)?),
                     None => None,
                 };
-                let result = parse_kdbx(&contents, password, key.as_ref().map(|k| k.as_slice()), &name).map_err(locked_file)?;
-                Ok(PendingImport { result, file: None })
+                Ok((parse_kdbx(&contents, password, key.as_ref().map(|k| k.as_slice()), &name).map_err(locked_file)?, None, "keepass"))
             }
             ImportFormat::OnePif => {
                 let contents = read_all(&mut file)?;
-                Ok(PendingImport { result: parse_1pif(&String::from_utf8_lossy(&contents), &name)?, file: None })
+                Ok((parse_1pif(&String::from_utf8_lossy(&contents), &name)?, None, "1password"))
             }
             ImportFormat::KeeperCsv => {
                 let contents = read_all(&mut file)?;
-                Ok(PendingImport { result: parse_keeper_csv(contents.as_slice(), &name)?, file: None })
+                Ok((parse_keeper_csv(contents.as_slice(), &name)?, None, "keeper"))
             }
-            ImportFormat::DashlaneZip => Ok(PendingImport { result: parse_dashlane_zip(BufReader::new(file), "Dashlane")?, file: None }),
-            ImportFormat::OnePux => Ok(PendingImport { result: parse_1pux(BufReader::new(file))?, file: Some(path) }),
-            ImportFormat::KeylessExport => Ok(PendingImport { result: parse_keyless_export(BufReader::new(file))?, file: Some(path) }),
+            ImportFormat::DashlaneZip => Ok((parse_dashlane_zip(BufReader::new(file), "Dashlane")?, None, "dashlane")),
+            ImportFormat::OnePux => Ok((parse_1pux(BufReader::new(file))?, Some(path), "1password")),
+            ImportFormat::KeylessExport => Ok((parse_keyless_export(BufReader::new(file))?, Some(path), "keyless")),
             ImportFormat::Csv => {
                 let contents = read_all(&mut file)?;
-                Ok(PendingImport { result: parse_csv(contents.as_slice(), &name)?, file: None })
+                Ok((parse_csv(contents.as_slice(), &name)?, None, "csv"))
             }
             ImportFormat::KeylessBackup => {
                 let password = password.ok_or_else(|| AppError::Invalid(Msg::new("backup_password_required")))?;
                 match open_backup(password, BufReader::new(file)) {
-                    Ok(backup) => Ok(PendingImport { result: backup.into_import(), file: Some(path) }),
+                    Ok(backup) => Ok((backup.into_import(), Some(path), "keyless")),
                     Err(keyless_core::Error::Decryption) => Err(AppError::Invalid(Msg::new("backup_wrong_password"))),
                     Err(err) => Err(err.into()),
                 }
@@ -246,11 +251,22 @@ pub async fn pick_and_parse(
     })
     .await
     .map_err(|e| AppError::Store(e.to_string()))??;
-
-    let summary = pending.result.summary();
-    if summary.total_items == 0 {
+    if result.vaults.iter().all(|v| v.items.is_empty()) {
         return Err(AppError::Invalid(Msg::new("import_empty")));
     }
+    reconcile::mark_sources(&mut result, origin);
+
+    // What the account has already.
+    let (plan, existing_ids) = {
+        let guard = state.session.lock().await;
+        let session = guard.as_ref().ok_or(AppError::Locked)?;
+        let owned = items::existing_items(&state, session);
+        let existing: Vec<Existing> = owned.iter().map(|(id, vault_id, overview, details)| Existing { id, vault_id, overview, details }).collect();
+        let plan = reconcile::reconcile(&result, &existing);
+        (plan, owned.iter().map(|(id, ..)| id.clone()).collect::<Vec<_>>())
+    };
+    let summary = result.summary_with(&plan);
+    let pending = PendingImport { result, file, plan, existing_ids };
     *state.pending_import.lock().unwrap_or_else(|e| e.into_inner()) = Some(pending);
     Ok(summary)
 }
@@ -260,37 +276,127 @@ pub async fn pick_and_parse(
 #[serde(rename_all = "camelCase")]
 pub struct ImportOutcome {
     items: usize,
+    /// Items the account had that the file changed, updated.
+    updated: usize,
     files: usize,
     /// Attached files that could not be added (no room, damaged, offline).
     files_failed: usize,
 }
 
-pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<ImportOutcome> {
+/// Imports what is pending: the new items into `target`, and, with
+/// `update_changed`, the changed ones as new versions of the account's items
+/// where they are. Items the account has the same, and those it edited after
+/// the file's version, stay as they are.
+pub async fn commit(app: &AppHandle, target: ImportTarget, update_changed: bool) -> AppResult<ImportOutcome> {
     let state = app.state::<AppState>();
-    let PendingImport { result, file } = state
+    let PendingImport { result, file, plan, existing_ids } = state
         .pending_import
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take()
         .ok_or_else(|| AppError::Invalid(Msg::new("import_no_file")))?;
 
-    let progress = Progress::new(app, result.summary().file_bytes);
+    // Each vault's new items, and the changed ones with the item they update.
+    let mut fresh: Vec<(String, Option<String>, Vec<ImportedItem>)> = Vec::new();
+    let mut changed: Vec<(String, ImportedItem)> = Vec::new();
+    for (v, vault) in result.vaults.into_iter().enumerate() {
+        let mut items = Vec::new();
+        for (i, item) in vault.items.into_iter().enumerate() {
+            match plan.outcomes.get(v).and_then(|o| o.get(i)).copied().unwrap_or(Outcome::New) {
+                Outcome::New => items.push(item),
+                Outcome::Changed(index) if update_changed => changed.push((existing_ids[index].clone(), item)),
+                _ => {}
+            }
+        }
+        fresh.push((vault.name, plan.homes.get(v).cloned().flatten(), items));
+    }
+    let bytes = fresh.iter().flat_map(|(_, _, items)| items).chain(changed.iter().map(|(_, item)| item)).flat_map(|i| &i.files).map(|f| f.size).sum();
+    let progress = Progress::new(app, bytes);
     // Room for the files: the server checks a whole chunk ahead.
     let mut space = match progress.total {
         0 => None,
         _ => attachments::space(&state).await.ok().flatten(),
     };
     let mut outcome = ImportOutcome::default();
-    // The vault of ImportTarget::NewVault, once made.
+
+    // Files go up first, each into the vault of the item that keeps it.
+    macro_rules! attach {
+        ($vault_id:expr, $details:expr, $files:expr, $uploaded:expr) => {
+            for imported in $files {
+                let start = progress.done();
+                let size = imported.size;
+                let needed = size + imported_chunks(size) * CHUNK_OVERHEAD as u64;
+                let room = space.as_ref().is_none_or(|s| s.used + needed + (CHUNK_SIZE + CHUNK_OVERHEAD) as u64 <= s.quota);
+                let added = match &file {
+                    Some(path) if room => upload_imported(app, $vault_id, path, imported, &progress).await,
+                    Some(_) => Err(AppError::Invalid(Msg::new("attachment_space_full"))),
+                    None => Err(AppError::Invalid(Msg::new("file_unreadable"))),
+                };
+                match added {
+                    Ok(attachment) => {
+                        if let Some(space) = space.as_mut() {
+                            space.used += needed;
+                        }
+                        $uploaded.push(Gone::of($vault_id, &attachment));
+                        $details.attachments.push(attachment);
+                        outcome.files += 1;
+                    }
+                    Err(AppError::Locked) => {
+                        attachments::forget(app, $uploaded);
+                        return Err(AppError::Locked);
+                    }
+                    Err(err) => {
+                        log::warn!("import: an attached file was not added: {err}");
+                        outcome.files_failed += 1;
+                        progress.skip_file(start, size);
+                    }
+                }
+            }
+        };
+    }
+
+    // The changed items: a new version of each, where it is.
+    let now = now_secs();
+    for (item_id, item) in changed {
+        let (vault_id, mut overview, mut details) = {
+            let guard = state.session.lock().await;
+            let session = guard.as_ref().ok_or(AppError::Locked)?;
+            let Some(cached) = session.items.get(&item_id) else { continue };
+            let vault_id = cached.vault_id.clone();
+            let old_overview = cached.overview.clone();
+            let Ok((_, old_details)) = items::load_details(&state, session, &item_id) else { continue };
+            let existing = Existing { id: &item_id, vault_id: &vault_id, overview: &old_overview, details: &old_details };
+            let (overview, details) = reconcile::merged(&existing, &item, now);
+            (vault_id, overview, details)
+        };
+        // Its files that the item does not have yet.
+        let missing: Vec<ImportedFile> =
+            item.files.iter().filter(|f| !details.attachments.iter().any(|a| a.name == f.name && a.size == f.size)).cloned().collect();
+        let mut uploaded = Vec::new();
+        attach!(&vault_id, details, missing, uploaded);
+        overview.subtitle.clear();
+        match items::update_imported(&state, &item_id, overview, details).await {
+            Ok(()) => outcome.updated += 1,
+            Err(err) => {
+                attachments::forget(app, uploaded);
+                return Err(err);
+            }
+        }
+    }
+
+    // The new items, into `target`.
     let mut new_vault: Option<String> = None;
-    for vault in result.vaults {
-        if vault.items.is_empty() {
+    for (name, home, items) in fresh {
+        if items.is_empty() {
             continue;
         }
         let vault_id = match &target {
-            ImportTarget::NewVaults => {
-                items::create_vault(app, VaultMeta { name: vault.name.clone(), ..Default::default() }).await?
-            }
+            // Where the file's other items are, or a vault of the same name
+            // from an earlier import, gets them.
+            ImportTarget::NewVaults => match items::import_home(&state, home.as_deref(), &name).await {
+                Some(id) => id,
+                None => items::create_vault(app, VaultMeta { name: name.clone(), ..Default::default() }).await?,
+            },
             ImportTarget::Vault { vault_id } => vault_id.clone(),
             ImportTarget::NewVault { name } => match &new_vault {
                 Some(id) => id.clone(),
@@ -309,40 +415,11 @@ pub async fn commit(app: &AppHandle, target: ImportTarget) -> AppResult<ImportOu
             }
         }
 
-        let mut batch = Vec::with_capacity(vault.items.len());
+        let mut batch = Vec::with_capacity(items.len());
         let mut uploaded = Vec::new();
-        for item in vault.items {
+        for item in items {
             let mut details = item.details;
-            for imported in item.files {
-                let start = progress.done();
-                let size = imported.size;
-                let needed = size + imported_chunks(size) * CHUNK_OVERHEAD as u64;
-                let room = space.as_ref().is_none_or(|s| s.used + needed + (CHUNK_SIZE + CHUNK_OVERHEAD) as u64 <= s.quota);
-                let added = match &file {
-                    Some(path) if room => upload_imported(app, &vault_id, path, imported, &progress).await,
-                    Some(_) => Err(AppError::Invalid(Msg::new("attachment_space_full"))),
-                    None => Err(AppError::Invalid(Msg::new("file_unreadable"))),
-                };
-                match added {
-                    Ok(attachment) => {
-                        if let Some(space) = space.as_mut() {
-                            space.used += needed;
-                        }
-                        uploaded.push(Gone::of(&vault_id, &attachment));
-                        details.attachments.push(attachment);
-                        outcome.files += 1;
-                    }
-                    Err(AppError::Locked) => {
-                        attachments::forget(app, uploaded);
-                        return Err(AppError::Locked);
-                    }
-                    Err(err) => {
-                        log::warn!("import: an attached file was not added: {err}");
-                        outcome.files_failed += 1;
-                        progress.skip_file(start, size);
-                    }
-                }
-            }
+            attach!(&vault_id, details, item.files, uploaded);
             batch.push((item.id, item.overview, details));
         }
         match items::insert_imported(&state, &vault_id, batch).await {

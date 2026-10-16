@@ -1255,6 +1255,50 @@ pub async fn purge_old_trash(app: &AppHandle) -> AppResult<()> {
 /// Creates items in bulk (imports). Does not upload; the caller syncs.
 /// Saves imported items, with the ids the import gave them (their links to
 /// one another use those).
+/// The account's items outside Recently Deleted, decrypted, for an import to
+/// compare its items with (see `keyless_core::import::reconcile`): id, vault,
+/// overview and details. Items that do not open are left out.
+pub fn existing_items(state: &AppState, session: &Session) -> Vec<(String, String, ItemOverview, ItemDetails)> {
+    let mut out = Vec::with_capacity(session.items.len());
+    for (id, cached) in &session.items {
+        if cached.overview.trashed_at.is_some() {
+            continue;
+        }
+        match load_details(state, session, id) {
+            Ok((_, details)) => out.push((id.clone(), cached.vault_id.clone(), cached.overview.clone(), details)),
+            Err(err) => log::warn!("import: an item to compare with did not open: {err}"),
+        }
+    }
+    out
+}
+
+/// An import's update of item `item_id`: its next version, where it is.
+pub async fn update_imported(state: &AppState, item_id: &str, mut overview: ItemOverview, mut details: ItemDetails) -> AppResult<()> {
+    let mut guard = state.session.lock().await;
+    let session = unlocked(&mut guard)?;
+    let local = state.store().item(item_id)?.ok_or(AppError::NotFound)?;
+    if !session.vault(&local.vault_id)?.can_write() {
+        return Err(AppError::Invalid(Msg::new("vault_read_only")));
+    }
+    if overview.subtitle.is_empty() {
+        overview.subtitle = compute_subtitle(overview.category, &details);
+    }
+    write_local_item(state, session, item_id, &local.vault_id.clone(), local.revision, local.version + 1, &mut overview, &mut details)
+}
+
+/// Where an import's vault goes again, if this account can write to it:
+/// `home` (the vault with most of the items the account has from it), or
+/// a vault named `name` (any case), from an earlier import.
+pub async fn import_home(state: &AppState, home: Option<&str>, name: &str) -> Option<String> {
+    let guard = state.session.lock().await;
+    let session = guard.as_ref()?;
+    if let Some(id) = home.filter(|id| session.vaults.get(*id).is_some_and(|v| v.can_write())) {
+        return Some(id.to_string());
+    }
+    let name = name.trim().to_lowercase();
+    session.vaults.iter().find(|(_, v)| v.can_write() && v.meta.name.trim().to_lowercase() == name).map(|(id, _)| id.clone())
+}
+
 pub async fn insert_imported(state: &AppState, vault_id: &str, items: Vec<(String, ItemOverview, ItemDetails)>) -> AppResult<usize> {
     let mut guard = state.session.lock().await;
     let session = unlocked(&mut guard)?;

@@ -63,6 +63,8 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
   /** The file imported was encrypted (a backup, a KeePass database, a
    * password-protected export): no need to tell to delete it. */
   const [protectedFile, setProtectedFile] = useState(false);
+  /** Changed items (in the file since the last import) are updated. */
+  const [updateChanged, setUpdateChanged] = useState(true);
   const percent = useFilesProgress(busy === "commit");
 
   const pick = async (format: ImportFormat, password?: string, key?: string) => {
@@ -74,7 +76,11 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
       setFilePassword("");
       setKeyFile(null);
       setSummary(result);
+      setUpdateChanged(true);
       setMode(result.vaults.length > 1 ? "new_vaults" : "vault");
+      // An import again: its new items go where its other items are.
+      const home = result.vault_home[0];
+      if (result.vaults.length === 1 && home && writable.some((v) => v.id === home)) setVaultId(home);
       setNewVaultName(result.vaults.length === 1 ? result.vaults[0][0] : t("importer.newVaultDefault"));
     } catch (err) {
       // A protected file chosen without its password: the password box.
@@ -145,9 +151,15 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
     try {
       const outcome = await api.importCommit(
         mode === "new_vaults" ? { mode: "new_vaults" } : mode === "new_vault" ? { mode: "new_vault", name: newVaultName } : { mode: "vault", vaultId },
+        updateChanged,
       );
-      const files = outcome.files > 0 ? ` · ${t("importer.filesAdded", { count: outcome.files })}` : "";
-      toast.success(t("importer.done", { count: outcome.items }) + files);
+      // Only what happened: an import again may add nothing and update some.
+      const said = [
+        outcome.items > 0 && t("importer.done", { count: outcome.items }),
+        outcome.updated > 0 && t("importer.updated", { count: outcome.updated }),
+        outcome.files > 0 && t("importer.filesAdded", { count: outcome.files }),
+      ].filter(Boolean);
+      toast.success(said.length > 0 ? said.join(" · ") : t("importer.upToDate"));
       if (outcome.filesFailed > 0) toast.error(t("importer.filesFailed", { count: outcome.filesFailed }));
       setSummary(null);
       await useApp.getState().loadData();
@@ -236,6 +248,11 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
     );
   }
 
+  // An import again: some items are in the account already.
+  const known = summary.same_items + summary.changed_items + summary.kept_items;
+  const willUpdate = updateChanged ? summary.changed_items : 0;
+  const work = summary.new_items + willUpdate;
+
   return (
     <div className="space-y-5">
       <div>
@@ -259,8 +276,26 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           </ul>
         </div>
       )}
+      {known > 0 && (
+        <div className="rounded-xl border border-line bg-panel-2 p-3.5">
+          <div className="text-[13px] font-medium">{t("importer.compareTitle")}</div>
+          <ul className="mt-2 space-y-1 text-[13px]">
+            <li className={summary.new_items > 0 ? "font-medium text-accent" : "text-muted"}>{t("importer.compareNew", { count: summary.new_items })}</li>
+            {summary.same_items > 0 && <li className="text-muted">{t("importer.compareSame", { count: summary.same_items })}</li>}
+            {summary.changed_items > 0 && <li>{t("importer.compareChanged", { count: summary.changed_items })}</li>}
+            {summary.kept_items > 0 && <li className="text-muted">{t("importer.compareKept", { count: summary.kept_items })}</li>}
+          </ul>
+          {summary.changed_items > 0 && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-[13px] leading-relaxed">
+              <input type="checkbox" checked={updateChanged} onChange={(e) => setUpdateChanged(e.target.checked)} className="mt-0.5 size-4 accent-[var(--accent)]" />
+              {t("importer.updateChanged")}
+            </label>
+          )}
+        </div>
+      )}
+      {summary.new_items > 0 && (
       <div>
-        <div className="mb-2 text-[13px] font-medium">{t("importer.target")}</div>
+        <div className="mb-2 text-[13px] font-medium">{t(known > 0 ? "importer.newTarget" : "importer.target")}</div>
         <div className="space-y-2">
           <label className="flex cursor-pointer items-center gap-2.5 text-sm">
             <input type="radio" checked={mode === "new_vaults"} onChange={() => setMode("new_vaults")} className="accent-[var(--accent)]" />
@@ -291,6 +326,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           )}
         </div>
       </div>
+      )}
       {!protectedFile && <p className="text-xs text-warning">{t("importer.deleteExport")}</p>}
       <FilesProgressLine percent={percent} />
       <div className="flex justify-end gap-2">
@@ -306,9 +342,13 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
           variant="primary"
           onClick={commit}
           loading={busy === "commit"}
-          disabled={(mode === "vault" && !vaultId) || (mode === "new_vault" && !newVaultName.trim())}
+          disabled={work === 0 || (summary.new_items > 0 && ((mode === "vault" && !vaultId) || (mode === "new_vault" && !newVaultName.trim())))}
         >
-          {t("importer.run", { count: summary.total_items })}
+          {work === 0
+            ? t("importer.nothingToDo")
+            : willUpdate > 0
+              ? t("importer.runUpdate", { count: work })
+              : t("importer.run", { count: work })}
         </Button>
       </div>
     </div>

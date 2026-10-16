@@ -671,11 +671,22 @@ export interface ImportSummary {
   file_bytes: number;
   /** `code` names a translation (importer.warn_<code>); `n` is its count. */
   warnings: { code: string; n: number }[];
+  /** Next to the account's items: new, the same (left alone), changed in
+   * the file, and changed in Keyless after the file's version (kept). */
+  new_items: number;
+  same_items: number;
+  changed_items: number;
+  kept_items: number;
+  /** For each of `vaults`, the account's vault with most of its items
+   * already (an import again): where its new items go by default. */
+  vault_home: (string | null)[];
 }
 
 /** What an import added. */
 export interface ImportOutcome {
   items: number;
+  /** Items the account had that the file changed, updated. */
+  updated: number;
   files: number;
   /** Attached files that could not be added. */
   filesFailed: number;
@@ -956,7 +967,7 @@ export const api = {
   importPickKeyFile: () => invoke<string | null>("import_pick_key_file", { dialog: dialogText("keyFile") }),
   exportPlain: (masterPassword: string, format: PlainExportFormat) =>
     invoke<ExportOutcome>("export_plain", { masterPassword, format, dialog: dialogText("export") }),
-  importCommit: (target: ImportTarget) => invoke<ImportOutcome>("import_commit", { target }),
+  importCommit: (target: ImportTarget, updateChanged: boolean) => invoke<ImportOutcome>("import_commit", { target, updateChanged }),
   importCancel: () => invoke<void>("import_cancel"),
 };
 

@@ -906,9 +906,9 @@ pub async fn export_plain(
 }
 
 #[tauri::command]
-pub async fn import_commit(app: AppHandle, state: State<'_, AppState>, target: ImportTarget) -> AppResult<import::ImportOutcome> {
+pub async fn import_commit(app: AppHandle, state: State<'_, AppState>, target: ImportTarget, update_changed: bool) -> AppResult<import::ImportOutcome> {
     state.touch();
-    import::commit(&app, target).await
+    import::commit(&app, target, update_changed).await
 }
 
 #[tauri::command]
