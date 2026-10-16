@@ -355,7 +355,18 @@ attachments a vault has and their sizes (not their names or contents).
   nothing from an import is written until the user confirms; the imported
   items are then encrypted like any other. Links between imported items
   (related items, "sign in with" accounts) are kept by giving each item its
-  Keyless id while reading.
+  Keyless id while reading. Each imported item keeps where it came from (the
+  format and its id in the file, such as `1password:<uuid>`) inside its
+  encrypted details, so importing the same file again compares it with the
+  account's decrypted items in memory: what is already there is left alone,
+  and an item changed in the file updates its copy only when the user leaves
+  that option on and the copy was not edited in Keyless after the file's
+  version. An update never removes anything the copy had (fields,
+  files, passkeys, tags); a replaced password goes to the item's password
+  history.
+- On Android, "Import from another app" receives the other app's items through
+  the system's Credential Exchange: the user picks the app and confirms in it,
+  and the items arrive as CXF JSON, read in memory like a CXF file.
 - Optional unlock with the computer password (Linux packages, via a polkit
   action with `auth_self`: the user's own password or fingerprint, never
   cached, active local session only) or Windows Hello (the system's user
