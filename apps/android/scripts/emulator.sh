@@ -19,4 +19,9 @@ server=$!
 sleep 2
 python3 apps/android/scripts/autofill_run.py apk-test/keyless-mock.apk apk-test/formtest.apk apk-test/fixture.json writes.jsonl || full=1
 kill $server
+if [ $(( smoke || full )) -ne 0 ]; then
+  # What the system said (a process ended, a crash...), for the CI to publish.
+  mkdir -p captures
+  adb logcat -d -v time > captures/logcat.txt 2>&1
+fi
 exit $(( smoke || full ))

@@ -90,7 +90,15 @@ class MainActivity : KeylessActivity() {
         val content = data?.getStringExtra(QrScanActivity.EXTRA_CONTENT)
         val callback = onScanned
         onScanned = null
-        if (resultCode == RESULT_OK && content != null) callback?.invoke(content)
+        if (resultCode != RESULT_OK || content == null) return
+        if (callback != null) return callback(content)
+        // Android ended Keyless while the scanner (or its file picker) was
+        // open, and the callback with it: a new device's code waits for the
+        // vault, as when its link is opened.
+        if (content.lowercase().startsWith("keyless://sign-in") && Keyless.hasAccount) {
+            pendingSignInLink = content
+            if (Keyless.isUnlocked) runPending() else route()
+        }
     }
 
     /** The email and Secret Key from a setup link or another device. */

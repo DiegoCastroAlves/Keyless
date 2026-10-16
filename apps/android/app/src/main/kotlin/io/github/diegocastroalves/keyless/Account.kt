@@ -171,10 +171,15 @@ private fun MainActivity.showQrApproval(link: String, request: JSONObject) {
             showMain()
         }
     }
-    page.add(android.widget.Space(this), top = 0, weight = 1f)
-    page.add(primaryButton(getString(R.string.approve)) { answer({ Keyless.approveQrSignIn(link) }, R.string.qr_approved, Toast.LENGTH_LONG) }, top = 28)
-    page.add(secondaryButton(getString(R.string.deny)) { answer({ Keyless.denyQrSignIn(link) }, R.string.denied, Toast.LENGTH_SHORT) }, top = 10)
-    show("qr-approve", page)
+    // The answers stay at the bottom, over what scrolls (a small screen
+    // would hide them under the fold).
+    val buttons = column(20).apply { setPadding(dp(20), dp(12), dp(20), dp(16)) }
+    buttons.add(primaryButton(getString(R.string.approve)) { answer({ Keyless.approveQrSignIn(link) }, R.string.qr_approved, Toast.LENGTH_LONG) })
+    buttons.add(secondaryButton(getString(R.string.deny)) { answer({ Keyless.denyQrSignIn(link) }, R.string.denied, Toast.LENGTH_SHORT) }, top = 10)
+    val screen = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+    screen.addView(android.widget.ScrollView(this).apply { addView(page) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+    screen.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    show("qr-approve", screen, scroll = false)
 }
 
 /** Shows `banner` when a new device asks to sign in to this account. */
