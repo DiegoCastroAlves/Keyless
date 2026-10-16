@@ -604,9 +604,10 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, lim
         Query::Url(url) => Some(Page::parse(url).ok_or("bad_request")?),
         Query::Text(_) => None,
     };
-    let needle = match &query {
-        Query::Text(text) => text.trim().to_lowercase(),
-        Query::Url(_) => String::new(),
+    // Each word typed, wherever it is (folded: case and accents aside).
+    let words: Vec<String> = match &query {
+        Query::Text(text) => keyless_core::search::fold(text).split_whitespace().map(String::from).collect(),
+        Query::Url(_) => Vec::new(),
     };
 
     // Logins used most recently come first, like the last one used here.
@@ -620,11 +621,8 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, lim
         let score = match &page {
             Some(page) => o.urls.iter().map(|u| match_score(page, u)).max().unwrap_or(0),
             None => {
-                let hit = needle.is_empty()
-                    || o.title.to_lowercase().contains(&needle)
-                    || o.subtitle.to_lowercase().contains(&needle)
-                    || o.urls.iter().any(|u| u.href.to_lowercase().contains(&needle));
-                u8::from(hit)
+                let text = keyless_core::search::fold(&[o.title.as_str(), o.subtitle.as_str()].into_iter().chain(o.urls.iter().map(|u| u.href.as_str())).collect::<Vec<_>>().join(" "));
+                u8::from(words.iter().all(|w| text.contains(w.as_str())))
             }
         };
         if score == 0 {

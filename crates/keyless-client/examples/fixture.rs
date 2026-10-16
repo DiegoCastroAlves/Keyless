@@ -20,12 +20,13 @@ use serde_json::json;
 const USER: &str = "aaaaaaaa-0000-4000-8000-000000000001";
 const VAULT: &str = "bbbbbbbb-0000-4000-8000-000000000001";
 
-fn login(title: &str, url: &str, username: &str, password: &str) -> (ItemOverview, ItemDetails) {
+fn login(title: &str, url: &str, username: &str, password: &str, tags: &[&str]) -> (ItemOverview, ItemDetails) {
     let mut overview = ItemOverview {
         title: title.into(),
         subtitle: username.into(),
         category: Category::Login,
         urls: vec![ItemUrl { href: url.into(), ..Default::default() }],
+        tags: tags.iter().map(|t| t.to_string()).collect(),
         created_at: 1_790_000_000,
         updated_at: 1_790_000_000,
         ..Default::default()
@@ -35,7 +36,8 @@ fn login(title: &str, url: &str, username: &str, password: &str) -> (ItemOvervie
     details.fields.push(field("u", "username", FieldKind::Text, username, Some(FieldPurpose::Username)));
     details.fields.push(field("p", "password", FieldKind::Concealed, password, Some(FieldPurpose::Password)));
     details.fields.push(field("t", "one-time password", FieldKind::Totp, "otpauth://totp/test?secret=JBSWY3DPEHPK3PXP", None));
-    details.notes = "Made up for tests.".into();
+    // Accents for the search without them ("by mae", "familia").
+    details.notes = "Made up for tests by Mãe.".into();
     stamp_version(&mut overview, &mut details, 1);
     (overview, details)
 }
@@ -60,9 +62,9 @@ fn main() {
     let vault_key = VaultKey::generate().unwrap();
     let meta = VaultMeta { name: "Personal".into(), icon: "user".into(), ..Default::default() };
     let logins = [
-        ("cccccccc-0000-4000-8000-000000000001", login("Form test", "android://io.github.diegocastroalves.keyless.formtest", "tester", "s3cret-form-pass")),
-        ("cccccccc-0000-4000-8000-000000000002", login("GitHub", "https://github.com", "octo", "github-pass-123")),
-        ("cccccccc-0000-4000-8000-000000000003", login("Bank", "https://bank.example", "client", "bank-pass-456")),
+        ("cccccccc-0000-4000-8000-000000000001", login("Form test", "android://io.github.diegocastroalves.keyless.formtest", "tester", "s3cret-form-pass", &[])),
+        ("cccccccc-0000-4000-8000-000000000002", login("GitHub", "https://github.com", "octo", "github-pass-123", &[])),
+        ("cccccccc-0000-4000-8000-000000000003", login("Bank", "https://bank.example", "client", "bank-pass-456", &["Família"])),
     ];
     // For autofill_run.py (POST /test/items): full_run.py's list stays as it was.
     let forms = [

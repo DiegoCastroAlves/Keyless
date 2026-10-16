@@ -1029,7 +1029,7 @@ pub(crate) fn branded_qr_svg(text: &str) -> AppResult<String> {
 /// codes and answers are never searched). The details are decrypted for
 /// the search and wiped right after.
 pub async fn search_details(state: &AppState, query: &str) -> AppResult<Vec<String>> {
-    let query = query.trim().to_lowercase();
+    let query = keyless_core::search::fold(query.trim());
     if query.chars().count() < 2 {
         return Ok(Vec::new());
     }

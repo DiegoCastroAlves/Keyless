@@ -938,7 +938,8 @@ class MainActivity : KeylessActivity() {
         var shown: List<Summary> = emptyList()
 
         fun update() {
-            val words = query.lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+            // Each word anywhere, case and accents aside (see Search.kt).
+            val words = searchWords(query)
             val source = when (filter) {
                 "archive" -> Keyless.archived
                 "trash" -> Keyless.trashed
@@ -962,12 +963,10 @@ class MainActivity : KeylessActivity() {
                     else -> {
                         val urls = item.overview.optJSONArray("urls")
                         val tags = item.overview.optJSONArray("tags")
-                        val text = buildString {
-                            append(item.title).append(' ').append(item.subtitle)
-                            if (urls != null) for (i in 0 until urls.length()) append(' ').append(urls.getJSONObject(i).optString("href"))
-                            if (tags != null) for (i in 0 until tags.length()) append(' ').append(tags.optString(i))
-                        }.lowercase()
-                        words.all { text.contains(it) } || item.id in inDetails
+                        val texts = mutableListOf(item.title, item.subtitle)
+                        if (urls != null) for (i in 0 until urls.length()) texts.add(urls.getJSONObject(i).optString("href"))
+                        if (tags != null) for (i in 0 until tags.length()) texts.add(tags.optString(i))
+                        hasWords(words, texts) || item.id in inDetails
                     }
                 }
             }

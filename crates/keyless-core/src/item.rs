@@ -379,11 +379,11 @@ pub struct ItemDetails {
 }
 
 impl ItemDetails {
-    /// Whether the details hold `query` (lowercase): notes, labels, section
-    /// titles, file names and the values that are not secret (passwords,
-    /// card numbers, codes and answers are never searched).
+    /// Whether the details hold `query` (folded: see `search::fold`): notes,
+    /// labels, section titles, file names and the values that are not secret
+    /// (passwords, card numbers, codes and answers are never searched).
     pub fn matches(&self, query: &str) -> bool {
-        let has = |text: &str| text.to_lowercase().contains(query);
+        let has = |text: &str| crate::search::fold(text).contains(query);
         if has(&self.notes) {
             return true;
         }

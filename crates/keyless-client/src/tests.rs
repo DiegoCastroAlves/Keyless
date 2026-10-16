@@ -866,7 +866,7 @@ fn searches_inside_items_but_not_secrets() {
     let draft = json!({
         "vaultId": VAULT, "title": "Router", "category": "wireless_router", "notes": "Family plan",
         "fields": [
-            { "id": "", "label": "network name", "kind": "text", "value": "Casa" },
+            { "id": "", "label": "network name", "kind": "text", "value": "Casa da Mãe" },
             { "id": "", "label": "wireless password", "kind": "concealed", "value": "hunter22", "purpose": "password" }
         ]
     });
@@ -876,6 +876,9 @@ fn searches_inside_items_but_not_secrets() {
     let search = |client: &mut Client, query: &str| ok(client.call("searchDetails", &json!({ "query": query }).to_string()));
     assert_eq!(search(&mut client, "FAMILY"), json!([id]));
     assert_eq!(search(&mut client, "casa"), json!([id]));
+    // Case and accents aside, both ways.
+    assert_eq!(search(&mut client, "da mae"), json!([id]));
+    assert_eq!(search(&mut client, "MÃE"), json!([id]));
     assert_eq!(search(&mut client, "hunter"), json!([]));
     assert_eq!(search(&mut client, "c"), json!([]));
     let qr = ok(client.call("wifiQr", &json!({ "id": id }).to_string()));

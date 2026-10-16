@@ -398,11 +398,11 @@ internal fun MainActivity.showNewItem(favorite: Boolean, all: Boolean = false, t
 
     fun fill() {
         grid.removeAllViews()
-        val words = search.text.toString().trim().lowercase()
+        val words = fold(search.text.toString().trim())
         val shown = templates.map { it.getString("id") }
             .filter { words.isNotEmpty() || all || it in FIRST_CATEGORIES }
             .sortedBy { if (it in FIRST_CATEGORIES) FIRST_CATEGORIES.indexOf(it) else 100 }
-            .filter { words.isEmpty() || Labels.category(this, it).lowercase().contains(words) }
+            .filter { words.isEmpty() || fold(Labels.category(this, it)).contains(words) }
         more.visibility = if (words.isEmpty()) View.VISIBLE else View.GONE
         for (pair in shown.chunked(2)) {
             val line = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }

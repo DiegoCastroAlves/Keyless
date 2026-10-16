@@ -165,12 +165,12 @@ struct ItemsView: View {
     @State private var showSettings = false
 
     private var shown: [Item] {
-        let words = query.lowercased().split(separator: " ").map(String.init)
+        // Each word anywhere, case and accents aside (see Search.swift).
+        let words = Search.words(query)
         return vault.items.filter { item in
             if filter == "favorites" && !item.favorite { return false }
             if filter.hasPrefix("category:") && item.category != String(filter.dropFirst("category:".count)) { return false }
-            let text = ([item.title, item.subtitle] + item.urls).joined(separator: " ").lowercased()
-            return words.allSatisfy { text.contains($0) }
+            return Search.has(words, in: [item.title, item.subtitle] + item.urls)
         }
     }
 

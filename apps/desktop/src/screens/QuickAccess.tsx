@@ -6,6 +6,7 @@ import { ItemIcon, Logo } from "../components/common";
 import { Kbd, cx } from "../components/ui";
 import { applyLanguage } from "../i18n";
 import { api, errorCode, errorMessage, events, type AppStatus, type ItemSummary } from "../lib/api";
+import { fold, hasWords, searchWords } from "../lib/search";
 import { sortItems } from "../lib/store";
 import { useTheme } from "../lib/theme";
 
@@ -28,7 +29,7 @@ function hostOf(url: string): string {
 /** Items matching the query, best matches and most used first. */
 function search(items: ItemSummary[], query: string): ItemSummary[] {
   const active = items.filter((i) => i.trashedAt === null && !i.archived);
-  const q = query.trim().toLowerCase();
+  const q = fold(query.trim());
   if (!q) {
     const used = active.filter((i) => i.uses > 0);
     return (used.length ? sortItems(used, { sort: "frequent", desc: true }) : sortItems(active, { sort: "modified", desc: true })).slice(
@@ -37,20 +38,15 @@ function search(items: ItemSummary[], query: string): ItemSummary[] {
     );
   }
   const rank = (item: ItemSummary) => {
-    const title = item.title.toLowerCase();
+    const title = fold(item.title);
     if (title.startsWith(q)) return 0;
     if (title.includes(q)) return 1;
-    if (item.urls.some((u) => hostOf(u).toLowerCase().includes(q))) return 2;
+    if (item.urls.some((u) => fold(hostOf(u)).includes(q))) return 2;
     return 3;
   };
+  const words = searchWords(query);
   return active
-    .filter(
-      (i) =>
-        i.title.toLowerCase().includes(q) ||
-        i.subtitle.toLowerCase().includes(q) ||
-        i.urls.some((u) => u.toLowerCase().includes(q)) ||
-        i.tags.some((t) => t.toLowerCase().includes(q)),
-    )
+    .filter((i) => hasWords(words, [i.title, i.subtitle, ...i.urls, ...i.tags]))
     .sort((a, b) => rank(a) - rank(b) || b.uses - a.uses || a.title.localeCompare(b.title, undefined, { sensitivity: "base" }))
     .slice(0, MAX_RESULTS);
 }

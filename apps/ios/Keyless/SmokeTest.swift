@@ -1,10 +1,11 @@
 import Foundation
 
 /// What works without an account, run by CI on the simulator
-/// (`--smoke`): the Rust client answers, a setup link is read, a mistyped
-/// Secret Key is refused, and a well-formed one goes through key derivation
-/// to the server, which refuses the made-up account. Prints one line per
-/// check and quits (1 if one failed).
+/// (`--smoke`): the Rust client answers, a setup link is read, the search
+/// folds text as the other apps do, a mistyped Secret Key is refused, and a
+/// well-formed one goes through key derivation to the server, which refuses
+/// the made-up account. Prints one line per check and quits (1 if one
+/// failed).
 enum SmokeTest {
     /// A well-formed Secret Key of no account (made for this test only).
     static let key = "K1-D0NPNM-CYKQXE-NYFN0-HMDYM-7S6MG"
@@ -21,6 +22,11 @@ enum SmokeTest {
         check("the Rust client answers", status?["unlocked"] as? Bool == false)
         let parsed = try? Native.object("parseSetupLink", ["text": "keyless://setup#email=\(email)&key=\(key)"])
         check("a setup link is read", parsed?["secretKey"] as? String == key)
+        // The search's rule, as keyless-core's search::fold.
+        check("the search folds case and accents", Search.fold("Mãe AÇÃO José") == "mae acao jose")
+        check("the search spells out letters", Search.fold("Straße Æble Łódź ﬁle²") == "strasse aeble lodz file2")
+        check("the search plains quotes and dashes", Search.fold("d’água – e‑mail") == "d'agua - e-mail")
+        check("the search finds each word", Search.has(Search.words("conta MAE"), in: ["Mãe", "conta@x.com"]))
         do {
             _ = try Native.object("derive", ["email": email, "masterPassword": "x", "secretKey": "K1-AAAAAA-BBBBBB-CCCCC-DDDDD-EEEEE"])
             check("a mistyped Secret Key is refused", false)

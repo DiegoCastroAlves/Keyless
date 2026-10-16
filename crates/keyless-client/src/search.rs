@@ -16,7 +16,7 @@ impl Client {
             query: String,
         }
         let a: A = args(json)?;
-        let query = a.query.trim().to_lowercase();
+        let query = keyless_core::search::fold(a.query.trim());
         if query.chars().count() < 2 {
             return Ok(json!([]));
         }

@@ -18,6 +18,7 @@
 import { avatar } from "./avatar";
 import { markupNodes } from "./markup";
 import { providerName } from "./providers";
+import { hasWords, searchWords } from "./search";
 import type { AlertView, FieldInfo, FormItems, InlineState, Login, PasskeyEntry, SaveState } from "./types";
 
 const t = (key: string, ...subs: string[]) => chrome.i18n.getMessage(key, subs) || key;
@@ -568,8 +569,9 @@ function renderSearch(current: InlineState) {
   show(current.logins);
 
   input.addEventListener("input", () => {
-    const words = input.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    show(current.logins.filter((login) => words.every((word) => `${login.title} ${login.username} ${login.url}`.toLowerCase().includes(word))));
+    // Each word anywhere, case and accents aside.
+    const words = searchWords(input.value);
+    show(current.logins.filter((login) => hasWords(words, [login.title, login.username, login.url])));
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {

@@ -29,6 +29,7 @@ pub mod qr;
 pub mod qr_sign_in;
 pub mod password_rules;
 pub mod recovery;
+pub mod search;
 pub mod setup_code;
 pub mod share;
 pub mod time;

@@ -17,6 +17,7 @@ import {
   type UpdateInfo,
   type Vault,
 } from "./api";
+import { hasWords, searchWords } from "./search";
 import { ALERT_TITLE } from "./sentinel";
 
 export type View =
@@ -347,7 +348,7 @@ export function filterItems(
   extras: ListExtras = {},
 ): ItemSummary[] {
   const f = extras.filters ?? {};
-  const q = search.trim().toLowerCase();
+  const words = searchWords(search);
   const filtered = items.filter((item) => {
     if (only && !only.has(item.id)) return false;
     if (view.kind === "trash") {
@@ -380,14 +381,9 @@ export function filterItems(
     if (f.untagged && item.tags.length > 0) return false;
     if (f.passkey && !extras.passkeyItems?.has(item.id)) return false;
     if (f.strength !== undefined && extras.levels?.[item.id] !== f.strength) return false;
-    if (!q) return true;
-    return (
-      item.title.toLowerCase().includes(q) ||
-      item.subtitle.toLowerCase().includes(q) ||
-      item.urls.some((u) => u.toLowerCase().includes(q)) ||
-      item.tags.some((t) => t.toLowerCase().includes(q)) ||
-      !!extras.detailMatches?.has(item.id)
-    );
+    if (words.length === 0) return true;
+    // Each word anywhere (case and accents aside), or the details hold the search.
+    return hasWords(words, [item.title, item.subtitle, ...item.urls, ...item.tags]) || !!extras.detailMatches?.has(item.id);
   });
   return sortItems(filtered, order, extras.levels);
 }
