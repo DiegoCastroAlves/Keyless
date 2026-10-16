@@ -254,6 +254,36 @@ private fun MainActivity.loadShareLinks(id: String, holder: LinearLayout) {
     }
 }
 
+// ----- passkeys ------------------------------------------------------------------------
+
+/** The item's passkeys, as on the desktop: the site and account, and a way to delete one. */
+internal fun MainActivity.passkeysSection(page: LinearLayout, id: String, passkeys: JSONArray?, writable: Boolean) {
+    if (passkeys == null || passkeys.length() == 0) return
+    val card = card()
+    for (i in 0 until passkeys.length()) {
+        val passkey = passkeys.getJSONObject(i)
+        val user = passkey.optString("userName")
+        val value = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        value.addView(label(passkey.optString("rpId") + if (user.isNotEmpty()) " · $user" else "", 16f))
+        val created = passkey.optLong("createdAt")
+        if (created > 0) value.addView(label(t("item.passkeyCreated", mapOf("date" to DateFormat.getDateInstance().format(Date(created * 1000)))), 12f, muted = true))
+        val delete = iconButton(R.drawable.ic_trash, t("common.delete")) {
+            AlertDialog.Builder(this)
+                .setMessage(t("item.passkeyDeleteConfirm"))
+                .setPositiveButton(t("common.delete")) { _, _ ->
+                    act({ Keyless.removePasskey(id, passkey.getString("credentialId")) }) {
+                        Toast.makeText(this, t("item.passkeyDeleted"), Toast.LENGTH_SHORT).show()
+                        showItem(id)
+                    }
+                }
+                .setNegativeButton(t("common.cancel"), null)
+                .show()
+        }
+        card.add(if (writable) fieldRow(t("item.passkey"), value, delete) else fieldRow(t("item.passkey"), value))
+    }
+    page.add(card, top = 16)
+}
+
 // ----- attached files -----------------------------------------------------------------
 
 /** The item's files, to save or remove, and a button to attach more. */

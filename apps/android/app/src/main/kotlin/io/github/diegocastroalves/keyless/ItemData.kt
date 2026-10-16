@@ -181,6 +181,11 @@ fun Keyless.saveAttachment(itemId: String, attachmentId: String, out: OutputStre
 }
 
 /** Removes an attached file from its item, then from the server. */
+/** Removes one of an item's passkeys: the site then asks for another way to sign in. */
+fun Keyless.removePasskey(itemId: String, credentialId: String) {
+    upload(Native.obj("passkeyRemove", JSONObject().put("itemId", itemId).put("credentialId", credentialId).put("now", now())))
+}
+
 fun Keyless.removeAttachment(itemId: String, attachmentId: String) {
     val sealed = Native.obj("attachmentRemove", JSONObject().put("itemId", itemId).put("attachmentId", attachmentId).put("now", now()))
     val objects = sealed.getJSONArray("objects")

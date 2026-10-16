@@ -312,6 +312,16 @@ fn makes_and_uses_passkeys_for_android() {
     message.extend_from_slice(&Sha256::digest(client_data.as_bytes()));
     let signature = DerSignature::try_from(URL_SAFE_NO_PAD.decode(signed["signature"].as_str().unwrap()).unwrap().as_slice()).unwrap();
     key.verify(&message, &signature).unwrap();
+
+    // The item shows it (without its private key), and it can be removed.
+    let shown = ok(client.call("item", &json!({ "id": item["id"] }).to_string()));
+    assert_eq!(shown["details"]["passkeys"][0]["rpId"], "example.com");
+    assert!(shown["details"]["passkeys"][0].get("key").is_none());
+    let removed = ok(client.call("passkeyRemove", &json!({ "itemId": item["id"], "credentialId": made["credentialId"], "now": 20 }).to_string()));
+    assert_eq!(removed["baseRevision"], 1);
+    let details = server.vault_key.open_details(VAULT, item["id"].as_str().unwrap(), removed["encDetails"].as_str().unwrap()).unwrap();
+    assert!(details.passkeys.is_empty());
+    assert_eq!(error(client.call("passkeyRemove", &json!({ "itemId": item["id"], "credentialId": "other", "now": 20 }).to_string())), "not_found");
 }
 
 #[test]

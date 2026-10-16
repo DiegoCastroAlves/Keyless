@@ -173,6 +173,23 @@ impl Client {
         Ok(sealed)
     }
 
+    /// An item without one of its passkeys (`credentialId`), sealed for the
+    /// host to upload; the site then asks for another way to sign in.
+    pub(crate) fn passkey_remove(&mut self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            item_id: String,
+            credential_id: String,
+            now: i64,
+        }
+        let a: A = args(json)?;
+        let (vault_id, overview, mut details) = self.open_item(&a.item_id)?;
+        let at = details.passkeys.iter().position(|p| p.credential_id == a.credential_id).ok_or(Failure::new("not_found"))?;
+        details.passkeys.remove(at);
+        self.seal_item(&json!({ "vaultId": vault_id, "id": a.item_id, "overview": overview, "details": details, "now": a.now }).to_string())
+    }
+
     /// Forgets a file whose upload was given up.
     pub(crate) fn attachment_forget(&mut self, json: &str) -> Outcome<Value> {
         #[derive(Deserialize)]

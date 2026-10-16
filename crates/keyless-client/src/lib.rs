@@ -312,6 +312,7 @@ impl Client {
             "attachmentForget" => self.attachment_forget(json),
             "searchDetails" => self.search_details(json),
             "itemsWithPasskeys" => self.items_with_passkeys(),
+            "passkeyRemove" => self.passkey_remove(json),
             "wifiQr" => self.wifi_qr(json),
             "qrModules" => search::qr_modules(json),
             "qrArt" => search::qr_art(json),

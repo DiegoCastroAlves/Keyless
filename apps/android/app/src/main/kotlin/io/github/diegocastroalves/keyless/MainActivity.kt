@@ -1128,6 +1128,7 @@ class MainActivity : KeylessActivity() {
             }
             page.add(card, top = 8)
         }
+        passkeysSection(page, id, details.optJSONArray("passkeys"), writable && !trashed)
         val notes = details.optString("notes")
         if (notes.isNotEmpty()) {
             page.add(sectionTitle(getString(R.string.notes)), top = 24)

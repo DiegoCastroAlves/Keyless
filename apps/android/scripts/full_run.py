@@ -832,6 +832,17 @@ def main():
         used = drive_sheet(["Signed in with passkey", "Sign-in failed", "No signature"], ["Continue", "tester", "Sign in", "Use passkey", "Keyless"])
         results.append(("signs in with the passkey", "Signed in with passkey" in used, used))
         print(f"{'PASS' if 'Signed in with passkey' in used else 'FAIL'} signs in with the passkey: {used}", flush=True)
+        # The item shows its passkey: the site and the account.
+        adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+        time.sleep(2)
+        if HOME not in texts():
+            type_into(PACKAGE, 0, fixture["masterPassword"].replace(" ", "%s"))
+            hide_keyboard()
+            tap_text("Unlock")
+        if check("Keyless is open for the passkey's item", HOME, 60):
+            open_item("Passkey test")
+            check("the item shows its passkey", "passkey.example.test · tester", 15)
+            outcome("back to Home after the passkey", back_home())
 
     # Last: it changes the account's master password and Secret Key.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
