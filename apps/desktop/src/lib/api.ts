@@ -669,6 +669,8 @@ export interface ImportSummary {
   /** Attached files, and their bytes. */
   files: number;
   file_bytes: number;
+  /** Passkeys in the items. */
+  passkeys: number;
   /** `code` names a translation (importer.warn_<code>); `n` is its count. */
   warnings: { code: string; n: number }[];
   /** Next to the account's items: new, the same (left alone), changed in

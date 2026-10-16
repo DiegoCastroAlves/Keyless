@@ -262,6 +262,7 @@ export function ImportPanel({ onDone }: { onDone: () => void }) {
             <li key={name}>{t("importer.vaultLine", { name, count })}</li>
           ))}
           {summary.files > 0 && <li>{t("importer.filesLine", { count: summary.files, size: formatBytes(summary.file_bytes) })}</li>}
+          {summary.passkeys > 0 && <li>{t("importer.passkeysLine", { count: summary.passkeys })}</li>}
         </ul>
       </div>
       {summary.warnings.length > 0 && (

@@ -127,8 +127,9 @@ fn decode(text: &str) -> String {
 }
 
 /// Reads one credential into the item; returns the kind of item it says
-/// the item is.
-fn read_credential(raw: &Value, details: &mut ItemDetails) -> Option<Category> {
+/// the item is. A passkey without its id, website or key counts in
+/// `unreadable` (told as a warning, not left out unsaid).
+fn read_credential(raw: &Value, details: &mut ItemDetails, unreadable: &mut usize) -> Option<Category> {
     let kind = raw.get("type").and_then(Value::as_str).unwrap_or("");
     match kind {
         "basic-auth" => {
@@ -172,6 +173,8 @@ fn read_credential(raw: &Value, details: &mut ItemDetails) -> Option<Category> {
             };
             if !passkey.credential_id.is_empty() && !passkey.rp_id.is_empty() && !passkey.key.is_empty() {
                 details.passkeys.push(passkey);
+            } else {
+                *unreadable += 1;
             }
             Some(Category::Login)
         }
@@ -294,6 +297,7 @@ pub fn parse_cxf(json: &Value) -> Result<ImportResult> {
     }
     let mut vaults = Vec::new();
     let mut skipped = 0;
+    let mut passkeys_unreadable = 0;
     for account in json.get("accounts").and_then(Value::as_array).into_iter().flatten() {
         // Collections: tags for the items in them.
         let mut tags: HashMap<String, Vec<String>> = HashMap::new();
@@ -317,7 +321,7 @@ pub fn parse_cxf(json: &Value) -> Result<ImportResult> {
             let mut details = ItemDetails::default();
             let mut kinds = Vec::new();
             for credential in raw.get("credentials").and_then(Value::as_array).into_iter().flatten() {
-                kinds.extend(read_credential(credential, &mut details));
+                kinds.extend(read_credential(credential, &mut details, &mut passkeys_unreadable));
             }
             let title = value(raw.get("title"));
             let urls: Vec<ItemUrl> = raw
@@ -361,6 +365,9 @@ pub fn parse_cxf(json: &Value) -> Result<ImportResult> {
     let mut warnings = Vec::new();
     if skipped > 0 {
         warnings.push(ImportWarning::new("item_skipped", skipped));
+    }
+    if passkeys_unreadable > 0 {
+        warnings.push(ImportWarning::new("passkey_skipped", passkeys_unreadable));
     }
     Ok(ImportResult { vaults, warnings }.link())
 }
@@ -665,5 +672,18 @@ mod tests {
         assert_eq!(item.overview.category, Category::Login);
         assert_eq!(item.details.passkeys.len(), 1);
         assert_eq!(item.details.passkeys[0].rp_id, "example.com");
+        assert_eq!(result.summary().passkeys, 1);
+        assert!(result.warnings.is_empty());
+    }
+
+    #[test]
+    fn tells_of_passkeys_it_cannot_read() {
+        // One without its private key: a warning, not a passkey gone unsaid.
+        let document = json!({"version": {"major": 1, "minor": 0}, "accounts": [{"id": "a", "items": [{"id": "i", "title": "Example",
+            "credentials": [{"type": "passkey", "credentialId": "Y3JlZA", "rpId": "example.com", "username": "me"},
+                {"type": "basic-auth", "username": {"fieldType": "string", "value": "me"}}]}]}]});
+        let result = parse_cxf(&document).unwrap();
+        assert_eq!(result.summary().passkeys, 0);
+        assert_eq!(result.warnings, vec![ImportWarning::new("passkey_skipped", 1)]);
     }
 }

@@ -411,6 +411,8 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
     for (v in sources) box.add(label(t("importer.vaultLine", mapOf("name" to v.optString(0), "count" to v.optInt(1))), 13f, muted = true), top = 2)
     val files = summary.optInt("files")
     if (files > 0) box.add(label(t("importer.filesLine", mapOf("count" to files, "size" to Formatter.formatShortFileSize(this, summary.optLong("file_bytes")))), 13f, muted = true), top = 2)
+    val passkeys = summary.optInt("passkeys")
+    if (passkeys > 0) box.add(label(t("importer.passkeysLine", mapOf("count" to passkeys)), 13f, muted = true), top = 2)
     val warnings = summary.optJSONArray("warnings")
     if (warnings != null && warnings.length() > 0) {
         box.add(label(t("importer.warnings"), 14f, bold = true), top = 8)

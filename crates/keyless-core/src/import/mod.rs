@@ -91,6 +91,8 @@ pub struct ImportSummary {
     pub total_items: usize,
     pub files: usize,
     pub file_bytes: u64,
+    /// Passkeys in the items.
+    pub passkeys: usize,
     pub warnings: Vec<ImportWarning>,
     /// Next to the account's items (see `reconcile`); all new until compared.
     #[serde(flatten)]
@@ -140,6 +142,7 @@ impl ImportResult {
             total_items: self.vaults.iter().map(|v| v.items.len()).sum(),
             files: files().count(),
             file_bytes: files().map(|f| f.size).sum(),
+            passkeys: self.vaults.iter().flat_map(|v| &v.items).map(|i| i.details.passkeys.len()).sum(),
             warnings: self.warnings.clone(),
             counts: reconcile::Counts { new_items: self.vaults.iter().map(|v| v.items.len()).sum(), ..Default::default() },
             vault_new: self.vaults.iter().map(|v| v.items.len()).collect(),
