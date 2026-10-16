@@ -20,6 +20,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -219,28 +220,13 @@ fun Context.itemIcon(category: String, title: String, url: String? = null, size:
     val radius = size / 4f
     val isLogin = category == "login" || category == "password"
     // The website's own icon, when Keyless has it (see SiteIcons).
-    val site = if (isLogin && !url.isNullOrEmpty()) SiteIcons.of(hostOf(url)) else null
-    if (site != null) {
-        return ImageView(this).apply {
-            setImageBitmap(site.bitmap)
-            if (site.padded) {
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                val pad = (size * 0.14f).toInt()
-                setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
-                background = shape(Color.WHITE, radius)
-            } else {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                background = shape(Color.TRANSPARENT, radius)
-            }
-            outlineProvider = ViewOutlineProvider.BACKGROUND
-            clipToOutline = true
-            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
-        }
-    }
+    val host = if (isLogin && !url.isNullOrEmpty()) hostOf(url) else null
+    val site = host?.let { SiteIcons.of(it) }
+    if (site != null) return siteIconView(site, size)
     if (isLogin && (!url.isNullOrEmpty() || title.isNotEmpty())) {
-        val seed = if (!url.isNullOrEmpty()) hostOf(url) else title
+        val seed = host ?: title
         val letter = Regex("[\\p{L}\\p{N}]").find(title.ifEmpty { seed })?.value?.uppercase() ?: "?"
-        return TextView(this).apply {
+        val tile = TextView(this).apply {
             text = letter
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -248,6 +234,13 @@ fun Context.itemIcon(category: String, title: String, url: String? = null, size:
             weight(600)
             background = shape(avatarColor(seed), radius)
             layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+        }
+        if (host == null) return tile
+        // The website's icon takes the letter's place when it arrives (fillSiteIcons).
+        return FrameLayout(this).apply {
+            tag = SiteIconSlot(host, size)
+            layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+            addView(tile, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
     }
     val look = CATEGORY_LOOK[category] ?: CATEGORY_LOOK.getValue("other")
@@ -260,6 +253,44 @@ fun Context.itemIcon(category: String, title: String, url: String? = null, size:
         background = shape(Color.argb(38, Color.red(base), Color.green(base), Color.blue(base)), radius)
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
     }
+}
+
+/** A login's letter waiting for its website's icon (see fillSiteIcons). */
+private class SiteIconSlot(val host: String, val size: Int)
+
+/** A website's icon, `size` dp: transparent ones on a white tile. */
+private fun Context.siteIconView(site: SiteIcons.Icon, size: Int): ImageView = ImageView(this).apply {
+    val radius = size / 4f
+    setImageBitmap(site.bitmap)
+    if (site.padded) {
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        val pad = (size * 0.14f).toInt()
+        setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+        background = shape(Color.WHITE, radius)
+    } else {
+        scaleType = ImageView.ScaleType.CENTER_CROP
+        background = shape(Color.TRANSPARENT, radius)
+    }
+    outlineProvider = ViewOutlineProvider.BACKGROUND
+    clipToOutline = true
+    layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+}
+
+/**
+ * Puts the website icons that arrived into the letters waiting for them,
+ * under this view. Drawing the screen again instead would close its menus
+ * and lose a tap in progress, many times while the icons come in.
+ */
+fun View.fillSiteIcons() {
+    val slot = tag as? SiteIconSlot
+    if (slot != null && this is FrameLayout) {
+        val site = SiteIcons.of(slot.host) ?: return
+        tag = null
+        removeAllViews()
+        addView(context.siteIconView(site, slot.size), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        return
+    }
+    if (this is ViewGroup) for (i in 0 until childCount) getChildAt(i).fillSiteIcons()
 }
 
 /** A website's host, as the desktop shows it ("github.com"). */

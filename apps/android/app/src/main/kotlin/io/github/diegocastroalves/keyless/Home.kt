@@ -124,7 +124,8 @@ internal fun MainActivity.itemRow(item: Summary): LinearLayout {
     return groupRow(itemIcon(item.category, item.title, url), item.title, item.subtitle) { showItem(item.id) }
 }
 
-internal fun MainActivity.showHome(sync: Boolean = false) {
+/** Home; `sync` syncs first, `synced`: drawn again after a sync. */
+internal fun MainActivity.showHome(sync: Boolean = false, synced: Boolean = false) {
     if (!Keyless.isUnlocked) return route()
     val page = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
     val status = label("", 12f, muted = true).apply { visibility = View.GONE }
@@ -166,7 +167,10 @@ internal fun MainActivity.showHome(sync: Boolean = false) {
 
     tabScreen("home", page, withNewItem = true)
     SiteIcons.refresh(this)
-    if (sync || items.isEmpty()) sync(status) { if (screen == "home") showHome() }
+    // An empty account syncs on opening (its items may be on the way), once:
+    // still empty after that sync, it would sync and draw Home again for
+    // ever, closing menus and losing taps.
+    if (sync || (items.isEmpty() && !synced)) sync(status) { if (screen == "home") showHome(synced = true) }
     runPending()
 }
 

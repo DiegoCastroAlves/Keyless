@@ -156,16 +156,9 @@ class MainActivity : KeylessActivity() {
             insets
         }
         setContentView(root)
-        // New website icons: the screens that show items draw them.
-        SiteIcons.changed = {
-            runOnUiThread {
-                when (screen) {
-                    "home" -> showHome()
-                    "items" -> showItemsTab()
-                    "list" -> listRefresh?.invoke()
-                }
-            }
-        }
+        // New website icons: into the letters on screen waiting for them, in
+        // place (drawing the screen again would close a menu, lose a tap).
+        SiteIcons.changed = { runOnUiThread { root.fillSiteIcons() } }
         handleLink(intent)
         val reopen = reopenSettings
         if (reopen != null && Keyless.isUnlocked) {
