@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Importing from another app on the phone (Credential Exchange). -->
+<resources>
+    <string name="import_from_app">Import from another app</string>
+    <string name="import_from_app_hint">1Password, Google Password Manager, Bitwarden and other apps on this phone hand over their items directly, passkeys included.</string>
+    <string name="import_from_app_choose">Choose the app</string>
+    <string name="import_from_app_none">No app on this phone offered its items. Check that the other app is up to date and signed in.</string>
+    <string name="import_from_app_unavailable">This phone cannot transfer between apps yet: it needs Google Play services up to date.</string>
+    <string name="import_from_app_failed">The other app did not hand over its items (%1$s).</string>
+</resources>

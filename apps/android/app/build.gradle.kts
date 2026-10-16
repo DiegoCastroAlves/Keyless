@@ -76,5 +76,9 @@ android {
 
 dependencies {
     // Passkeys through Android's Credential Manager (KeylessCredentialService).
-    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials:1.6.0")
+    // Importing from another app on the phone (1Password, Google...) through
+    // the Credential Exchange standard (AccountScreens.kt, importFromApp).
+    implementation("androidx.credentials.providerevents:providerevents:1.0.0-beta01")
+    implementation("androidx.credentials.providerevents:providerevents-play-services:1.0.0-beta01")
 }

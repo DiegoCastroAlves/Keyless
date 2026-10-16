@@ -5,6 +5,7 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Typeface
+import android.os.CancellationSignal
 import android.text.format.Formatter
 import android.view.View
 import android.view.ViewGroup
@@ -19,6 +20,15 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.Switch
 import android.widget.Toast
+import androidx.credentials.CredentialManagerCallback
+import androidx.credentials.providerevents.ProviderEventsManager
+import androidx.credentials.providerevents.exception.ImportCredentialsCancellationException
+import androidx.credentials.providerevents.exception.ImportCredentialsException
+import androidx.credentials.providerevents.exception.ImportCredentialsNoExportOptionException
+import androidx.credentials.providerevents.exception.ImportCredentialsProviderConfigurationException
+import androidx.credentials.providerevents.transfer.CredentialTypes
+import androidx.credentials.providerevents.transfer.ImportCredentialsRequest
+import androidx.credentials.providerevents.transfer.ProviderImportCredentialsResponse
 import org.json.JSONObject
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -286,6 +296,12 @@ internal fun MainActivity.showImport() {
     val page = column(20)
     page.addBack { showSettingsPage("transfer") }
     page.add(label(t("importer.title"), 24f, bold = true), top = 8)
+    // Straight from another app on the phone, passkeys included.
+    val fromApp = panel()
+    fromApp.add(label(getString(R.string.import_from_app), 16f, bold = true))
+    fromApp.add(label(getString(R.string.import_from_app_hint), 13f, muted = true), top = 2)
+    fromApp.add(primaryButton(getString(R.string.import_from_app_choose)) { importFromApp() }, top = 6)
+    page.add(fromApp, top = 12)
     for (format in importFormats()) {
         val panel = panel()
         panel.add(label(t(format.name), 16f, bold = true))
@@ -330,6 +346,62 @@ internal fun MainActivity.showImport() {
     show("transfer", page)
 }
 
+/**
+ * "Import from another app": Android lists the apps on this phone that hand
+ * over their items (the Credential Exchange standard: 1Password, Google
+ * Password Manager...); the one chosen sends them as CXF, read as any import.
+ */
+private fun MainActivity.importFromApp() {
+    val request = ImportCredentialsRequest(
+        setOf(
+            CredentialTypes.CREDENTIAL_TYPE_BASIC_AUTH,
+            CredentialTypes.CREDENTIAL_TYPE_PUBLIC_KEY,
+            CredentialTypes.CREDENTIAL_TYPE_TOTP,
+            CredentialTypes.CREDENTIAL_TYPE_NOTE,
+            CredentialTypes.CREDENTIAL_TYPE_CREDIT_CARD,
+            CredentialTypes.CREDENTIAL_TYPE_ADDRESS,
+            CredentialTypes.CREDENTIAL_TYPE_API_KEY,
+            CredentialTypes.CREDENTIAL_TYPE_WIFI,
+            CredentialTypes.CREDENTIAL_TYPE_CUSTOM_FIELDS,
+            CredentialTypes.CREDENTIAL_TYPE_SSH_KEY,
+            CredentialTypes.CREDENTIAL_TYPE_PERSON_NAME,
+            CredentialTypes.CREDENTIAL_TYPE_DRIVERS_LICENSE,
+            CredentialTypes.CREDENTIAL_TYPE_PASSPORT,
+            CredentialTypes.CREDENTIAL_TYPE_IDENTITY_DOCUMENT,
+        ),
+        emptySet(),
+    )
+    val callback = object : CredentialManagerCallback<ProviderImportCredentialsResponse, ImportCredentialsException> {
+        override fun onResult(result: ProviderImportCredentialsResponse) {
+            val json = result.response.responseJson
+            val from = result.callingAppInfo.packageName.let { name ->
+                try {
+                    packageManager.getApplicationLabel(packageManager.getApplicationInfo(name, 0)).toString()
+                } catch (e: Exception) {
+                    name
+                }
+            }
+            var summary: JSONObject? = null
+            act({ summary = Keyless.importParse("json", json.toByteArray(), null, null, "Imported ($from)") }) { summary?.let { confirmImport(it) } }
+        }
+
+        override fun onError(e: ImportCredentialsException) {
+            val message = when (e) {
+                is ImportCredentialsCancellationException -> return
+                is ImportCredentialsNoExportOptionException -> getString(R.string.import_from_app_none)
+                is ImportCredentialsProviderConfigurationException -> getString(R.string.import_from_app_unavailable)
+                else -> getString(R.string.import_from_app_failed, e.errorMessage ?: e.type)
+            }
+            Toast.makeText(this@importFromApp, message, Toast.LENGTH_LONG).show()
+        }
+    }
+    try {
+        ProviderEventsManager.create(this).importCredentialsAsync(this, request, CancellationSignal(), mainExecutor, callback)
+    } catch (e: Exception) {
+        Toast.makeText(this, getString(R.string.import_from_app_unavailable), Toast.LENGTH_LONG).show()
+    }
+}
+
 private fun MainActivity.confirmImport(summary: JSONObject) {
     val total = summary.optInt("total_items")
     val box = column(20)
@@ -347,7 +419,29 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
             box.add(label(t("importer.warn_${w.optString("code")}", mapOf("count" to w.optInt("n"))), 13f, muted = true), top = 2)
         }
     }
-    box.add(label(t("importer.target"), 14f, bold = true), top = 12)
+    // An import again: some items are in the account already.
+    val fresh = summary.optInt("new_items", total)
+    val same = summary.optInt("same_items")
+    val changed = summary.optInt("changed_items")
+    val kept = summary.optInt("kept_items")
+    val known = same + changed + kept
+    val updateChanged = CheckBox(this).apply {
+        text = t("importer.updateChanged")
+        isChecked = true
+    }
+    if (known > 0) {
+        val compare = panel()
+        compare.add(label(t("importer.compareTitle"), 14f, bold = true))
+        compare.add(label(t("importer.compareNew", mapOf("count" to fresh)), 13f).apply { if (fresh > 0) setTextColor(accent()) }, top = 4)
+        if (same > 0) compare.add(label(t("importer.compareSame", mapOf("count" to same)), 13f, muted = true), top = 2)
+        if (changed > 0) compare.add(label(t("importer.compareChanged", mapOf("count" to changed)), 13f), top = 2)
+        if (kept > 0) compare.add(label(t("importer.compareKept", mapOf("count" to kept)), 13f, muted = true), top = 2)
+        if (changed > 0) compare.add(updateChanged, top = 6)
+        box.add(compare, top = 12)
+    }
+    val newCounts = summary.optJSONArray("vault_new")
+    val targetTitle = label(t(if (known > 0) "importer.newTarget" else "importer.target"), 14f, bold = true)
+    box.add(targetTitle, top = 12)
     val choice = RadioGroup(this)
     val existing = RadioButton(this).apply { text = t("importer.existingVault"); id = View.generateViewId() }
     val newVault = RadioButton(this).apply { text = t("importer.newVault"); id = View.generateViewId() }
@@ -359,38 +453,77 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
     (if (writable.isNotEmpty()) existing else newVault).isChecked = true
     box.add(choice, top = 2)
     val spinner = Spinner(this).apply { adapter = ArrayAdapter(this@confirmImport, android.R.layout.simple_spinner_dropdown_item, writable.map { it.optString("name") }) }
+    // An import again: the vault with most of each of its vaults' items.
+    val homes = summary.optJSONArray("vault_home")
+    val home = { v: Int -> if (homes == null || homes.isNull(v)) null else homes.optString(v) }
+    val firstHome = sources.indices.firstNotNullOfOrNull { home(it) }
+    writable.indexOfFirst { it.optString("id") == firstHome }.takeIf { it >= 0 }?.let { spinner.setSelection(it) }
     val name = EditText(this).apply { setSingleLine(true); setText(t("importer.newVaultDefault")) }
     box.add(spinner, top = 2)
     box.add(name, top = 2)
     fun update() {
-        spinner.visibility = if (existing.isChecked) View.VISIBLE else View.GONE
-        name.visibility = if (newVault.isChecked) View.VISIBLE else View.GONE
+        spinner.visibility = if (existing.isChecked && fresh > 0) View.VISIBLE else View.GONE
+        name.visibility = if (newVault.isChecked && fresh > 0) View.VISIBLE else View.GONE
+    }
+    // Where the new items go: only when there are new items.
+    if (fresh == 0) {
+        targetTitle.visibility = View.GONE
+        choice.visibility = View.GONE
     }
     choice.setOnCheckedChangeListener { _, _ -> update() }
     update()
-    AlertDialog.Builder(this)
+    fun work() = fresh + if (updateChanged.isChecked) changed else 0
+    fun runLabel() = when {
+        work() == 0 -> t("common.done")
+        updateChanged.isChecked && changed > 0 -> t("importer.runUpdate", mapOf("count" to work()))
+        else -> t("importer.run", mapOf("count" to work()))
+    }
+    val confirm = AlertDialog.Builder(this)
         .setView(ScrollView(this).apply { addView(box) })
-        .setPositiveButton(t("importer.run", mapOf("count" to total))) { _, _ ->
+        .setPositiveButton(runLabel()) { _, _ ->
+            if (work() == 0) {
+                thread { Keyless.importCancel() }
+                Toast.makeText(this, t("importer.upToDate"), Toast.LENGTH_LONG).show()
+                return@setPositiveButton
+            }
             val (dialog, progress) = progressDialog(t("importer.title"))
             var outcome: JSONObject? = null
             act({
                 try {
+                    // New items per vault (all of them, before comparing).
+                    val newIn = { v: Int -> newCounts?.optInt(v) ?: sources[v].optInt(1) }
+                    val anyWritable = writable.firstOrNull()?.getString("id") ?: ""
                     val targets = when {
+                        fresh == 0 -> List(sources.size) { anyWritable }
                         existing.isChecked -> List(sources.size) { writable[spinner.selectedItemPosition.coerceAtLeast(0)].getString("id") }
                         newVault.isChecked -> Keyless.createVault(name.text.toString().ifBlank { t("importer.newVaultDefault") }).let { id -> List(sources.size) { id } }
                         else -> {
-                            val made = sources.map { v -> if (v.optInt(1) > 0) Keyless.createVault(v.optString(0).ifBlank { t("importer.newVaultDefault") }) else "" }
-                            val any = made.first { it.isNotEmpty() }
+                            // Where the file's other items are, or a vault of the same
+                            // name from an earlier import, gets them.
+                            val made = sources.mapIndexed { v, source ->
+                                val vaultName = source.optString(0).ifBlank { t("importer.newVaultDefault") }
+                                val open = Keyless.writableVaults()
+                                if (newIn(v) == 0) {
+                                    ""
+                                } else {
+                                    open.firstOrNull { it.optString("id") == home(v) }?.getString("id")
+                                        ?: open.firstOrNull { it.optString("name").trim().equals(vaultName.trim(), ignoreCase = true) }?.getString("id")
+                                        ?: Keyless.createVault(vaultName)
+                                }
+                            }
+                            val any = made.firstOrNull { it.isNotEmpty() } ?: anyWritable
                             made.map { it.ifEmpty { any } }
                         }
                     }
-                    outcome = Keyless.importRun(targets, progress)
+                    outcome = Keyless.importRun(targets, updateChanged.isChecked, progress)
                 } finally {
                     runOnUiThread { dialog.dismiss() }
                 }
             }) {
                 val done = outcome ?: return@act
-                val lines = mutableListOf(t("importer.done", mapOf("count" to done.optInt("items"))))
+                val lines = mutableListOf<String>()
+                if (done.optInt("items") > 0) lines.add(t("importer.done", mapOf("count" to done.optInt("items"))))
+                if (done.optInt("updated") > 0) lines.add(t("importer.updated", mapOf("count" to done.optInt("updated"))))
                 if (done.optInt("files") > 0) lines.add(t("importer.filesAdded", mapOf("count" to done.optInt("files"))))
                 if (done.optInt("filesFailed") > 0) lines.add(t("importer.filesFailed", mapOf("count" to done.optInt("filesFailed"))))
                 lines.add(t("importer.deleteExport"))
@@ -400,6 +533,7 @@ private fun MainActivity.confirmImport(summary: JSONObject) {
         .setNegativeButton(t("common.cancel")) { _, _ -> thread { Keyless.importCancel() } }
         .setCancelable(false)
         .show()
+    updateChanged.setOnCheckedChangeListener { _, _ -> confirm.getButton(AlertDialog.BUTTON_POSITIVE)?.text = runLabel() }
 }
 
 // ----- exporting -------------------------------------------------------------------------

@@ -87,7 +87,8 @@ fun Keyless.createVault(name: String): String {
  * Reads an import file of `format` (the desktop's: one_pux, csv,
  * keyless_backup, keyless_export, json, kdbx, one_pif, keeper_csv,
  * dashlane_zip); the counts to confirm: total_items, vaults [[name, count]],
- * files, file_bytes, warnings.
+ * files, file_bytes, warnings, and next to the account's items new_items,
+ * same_items, changed_items, kept_items and vault_new (new ones per vault).
  */
 fun Keyless.importParse(format: String, file: ByteArray, password: String?, keyFile: ByteArray?, name: String): JSONObject {
     val args = JSONObject().put("format", format).put("name", name)
@@ -96,13 +97,15 @@ fun Keyless.importParse(format: String, file: ByteArray, password: String?, keyF
 }
 
 /**
- * Imports what `importParse` read into `targets` (a vault for each of the
- * file's vaults): uploads the attached files, then the items. Answers how
- * many items and files were added, and how many files were not.
+ * Imports what `importParse` read: the new items into `targets` (a vault for
+ * each of the file's vaults) and, with `updateChanged`, the changed ones as
+ * new versions of the account's items. Uploads the attached files, then the
+ * items. Answers how many items were added and updated, and how many files
+ * were added and not.
  */
-fun Keyless.importRun(targets: List<String>, progress: Progress): JSONObject {
+fun Keyless.importRun(targets: List<String>, updateChanged: Boolean, progress: Progress): JSONObject {
     val targetsJson = JSONArray(targets)
-    val files = Native.arr("importFiles", JSONObject().put("targets", targetsJson).put("now", now()))
+    val files = Native.arr("importFiles", JSONObject().put("targets", targetsJson).put("now", now()).put("updateChanged", updateChanged))
     val total = (0 until files.length()).sumOf { files.getJSONObject(it).optLong("size") }
     val space = if (files.length() > 0) Server.attachmentSpace(token()) else null
     var used = space?.optLong("used") ?: 0L
@@ -150,7 +153,7 @@ fun Keyless.importRun(targets: List<String>, progress: Progress): JSONObject {
         done = start + file.optLong("size")
         progress(done, total)
     }
-    val committed = Native.obj("importCommit", JSONObject().put("targets", targetsJson).put("uploaded", uploaded).put("now", now()))
+    val committed = Native.obj("importCommit", JSONObject().put("targets", targetsJson).put("uploaded", uploaded).put("now", now()).put("updateChanged", updateChanged))
     val items = committed.getJSONArray("items")
     // In batches, each vault's rows applied as the server answers them.
     val byVault = (0 until items.length()).map { items.getJSONObject(it) }.groupBy { it.getString("vaultId") }
@@ -167,8 +170,16 @@ fun Keyless.importRun(targets: List<String>, progress: Progress): JSONObject {
         }
     }
     save()
+    // The changed items: each a new version, as an edit is saved (an item
+    // changed meanwhile is settled the same way).
+    val updates = committed.optJSONArray("updates") ?: JSONArray()
+    var updated = 0
+    for (i in 0 until updates.length()) {
+        upload(updates.getJSONObject(i))
+        updated++
+    }
     refreshCache()
-    return JSONObject().put("items", added).put("files", committed.optInt("files")).put("filesFailed", committed.optInt("filesFailed"))
+    return JSONObject().put("items", added).put("updated", updated).put("files", committed.optInt("files")).put("filesFailed", committed.optInt("filesFailed"))
 }
 
 fun Keyless.importCancel() {

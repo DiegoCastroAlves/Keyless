@@ -53,7 +53,8 @@ def mock(path, body):
 
 
 def adb(*args, check=True):
-    return subprocess.run(["adb", *args], check=check, capture_output=True, text=True).stdout
+    # Bounded: when the emulator dies, adb waits for it for ever.
+    return subprocess.run(["adb", *args], check=check, capture_output=True, text=True, timeout=300).stdout
 
 
 def screen():

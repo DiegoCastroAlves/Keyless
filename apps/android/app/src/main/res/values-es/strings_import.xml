@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Importing from another app on the phone (Credential Exchange). -->
+<resources>
+    <string name="import_from_app">Importar desde otra app</string>
+    <string name="import_from_app_hint">1Password, el Gestor de contraseñas de Google, Bitwarden y otras apps de este teléfono entregan sus elementos directamente, llaves de acceso incluidas.</string>
+    <string name="import_from_app_choose">Elegir la app</string>
+    <string name="import_from_app_none">Ninguna app de este teléfono ofreció sus elementos. Comprueba que la otra app esté actualizada y con la sesión iniciada.</string>
+    <string name="import_from_app_unavailable">Este teléfono aún no transfiere entre apps: necesita los servicios de Google Play actualizados.</string>
+    <string name="import_from_app_failed">La otra app no entregó sus elementos (%1$s).</string>
+</resources>

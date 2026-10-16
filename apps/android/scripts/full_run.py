@@ -30,7 +30,8 @@ results = []
 
 
 def adb(*args, check=True):
-    return subprocess.run(["adb", *args], check=check, capture_output=True, text=True).stdout
+    # Bounded: when the emulator dies, adb waits for it for ever.
+    return subprocess.run(["adb", *args], check=check, capture_output=True, text=True, timeout=300).stdout
 
 
 def screen():
@@ -296,6 +297,19 @@ def import_export(fixture, writes_path):
     outcome("uploads the imported item", wait_write(writes_path, "insert", inserts))
     tap_last("Done")
     outcome("Home has the imported item", scroll_to("Imported One"))
+    # The same file again: the item is found, nothing is imported twice.
+    open_settings("Import and export")
+    tap_text("Import")
+    check("lists what can be imported again", "CSV file", 15)
+    inserts = writes(writes_path, "insert")
+    tap_below("CSV file", "Choose file…")
+    pick_download("import.csv")
+    check("compares the file with the account", "Compared with what Keyless already has", 30)
+    check("finds the item it imported", "1 the same, left as it is", 5)
+    tap_last("Done")
+    time.sleep(3)
+    outcome("imports nothing twice", writes(writes_path, "insert") == inserts)
+    outcome("back to Home after importing again", back_home())
     open_settings("Import and export")
     tap_text("Export")
     check("offers the exports", "Encrypted backup", 15)

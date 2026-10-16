@@ -39,7 +39,8 @@ object Labels {
 
     /**
      * A desktop text by its path ("sentinel.weak"), with `{{name}}` filled
-     * from `vars` and, given a `count`, its plural form (`_one`, `_other`).
+     * from `vars` and, given a `count`, its plural form (`_one`, `_other`,
+     * and `_zero` where the text has one, as i18next does).
      */
     fun t(context: Context, path: String, vars: Map<String, Any> = emptyMap()): String {
         var node: Any? = names(context)
@@ -48,7 +49,8 @@ object Labels {
         for ((i, part) in parts.withIndex()) {
             val obj = node as? JSONObject ?: return path
             node = if (i == parts.lastIndex && count != null && !obj.has(part)) {
-                obj.opt(if (count == 1L) "${part}_one" else "${part}_other") ?: obj.opt("${part}_other")
+                (if (count == 0L) obj.opt("${part}_zero") else null)
+                    ?: obj.opt(if (count == 1L) "${part}_one" else "${part}_other") ?: obj.opt("${part}_other")
             } else {
                 obj.opt(part)
             }
