@@ -6,6 +6,34 @@
 
 import { prefsMenu } from "./prefs";
 
+declare const __SUPABASE_URL__: string;
+declare const __SUPABASE_KEY__: string;
+
+// The link that confirms a new account's email leads here (Supabase Auth's
+// site address), with a session in the fragment, or an error when it expired
+// or was used. Nobody signs in from this site: the session comes out of the
+// address bar and the history at once, is ended on the server (it could read
+// nothing anyway; see docs/SECURITY.md), and the visitor goes on to
+// /email-confirmed/, which says how it went.
+(function leaveAuthLink() {
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const token = fragment.get("access_token");
+  const failed = fragment.has("error") || fragment.has("error_code");
+  if (!token && !failed) return;
+  history.replaceState(null, "", "/");
+  const signUp = fragment.get("type") === "signup";
+  const next = () => {
+    if (failed) location.replace("/email-confirmed/?failed");
+    else if (signUp) location.replace("/email-confirmed/");
+  };
+  if (!token) return next();
+  const ended = fetch(`${__SUPABASE_URL__}/auth/v1/logout?scope=local`, {
+    method: "POST",
+    headers: { apikey: __SUPABASE_KEY__, Authorization: `Bearer ${token}` },
+  }).catch(() => undefined);
+  void Promise.race([ended, new Promise((done) => setTimeout(done, 3000))]).then(next);
+})();
+
 type Lang = "pt-BR" | "en" | "es";
 const LANGS: Lang[] = ["pt-BR", "en", "es"];
 const REPO = "DiegoCastroAlves/Keyless";

@@ -14,7 +14,10 @@ It has these pages:
 - `/privacy/`, the privacy policy, built from `docs/PRIVACY.md` and its
   translations (`docs/PRIVACY.pt-BR.md`, `docs/PRIVACY.es.md`) by
   `policy.mjs`: change the policy there, in the three languages;
-- `/email-changed/`;
+- `/email-changed/`, where the links confirming an email change lead;
+- `/email-confirmed/`, what a new account sees once its email is confirmed
+  (the confirmation link leads to the home page, which ends the session it
+  brings and comes here);
 - `/vault/`, the web vault, which is off.
 
 `pnpm build` runs `build.mjs`, which writes `dist/` and its `_headers`

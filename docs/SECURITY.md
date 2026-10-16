@@ -131,6 +131,13 @@ codes) would give a session without either, so they are refused twice:
 Even with a stolen session, an attacker cannot read anything, and the
 integrity checks above stop them from destroying data.
 
+The link that confirms a new account's email gives such a session (a
+one-time code's), in the fragment of the address it leads to: the site's
+home page. The page takes it out of the address bar and the history at
+once, ends it on the server (`/auth/v1/logout`) and moves on to
+`/email-confirmed/`, which only says how it went. Nothing on the site signs
+in with it.
+
 ### Google
 
 The apps no longer offer signing in or creating an account with Google (it

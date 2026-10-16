@@ -1,7 +1,8 @@
 // Builds the public site (keyless.diegoalves.dev) into dist/: the home
 // page, the page that opens share links (/share/), the browser extension's
 // tutorial (/tutorial/), the privacy policy (/privacy/), where the links
-// confirming an email change lead (/email-changed/) and, when it is on, the
+// confirming an email change lead (/email-changed/), what a new account sees
+// once its email is confirmed (/email-confirmed/) and, when it is on, the
 // web vault (/vault/, with the WebAssembly client in vendor/). Static files
 // only, served by Cloudflare Pages with the headers in dist/_headers.
 import { build } from "esbuild";
@@ -72,7 +73,7 @@ const fonts = {
 for (const [name, from] of Object.entries(fonts)) cpSync(`node_modules/${from}`, `dist/fonts/${name}`);
 
 await build({
-  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts", 404: "src/not-found.ts", ...(WEB_VAULT ? { "vault/app": "src/vault/app.ts" } : {}) },
+  entryPoints: { "share/app": "src/share.ts", home: "src/home.ts", "tutorial/app": "src/tutorial.ts", "privacy/app": "src/privacy.ts", "email-changed/app": "src/email-changed.ts", "email-confirmed/app": "src/email-confirmed.ts", 404: "src/not-found.ts", ...(WEB_VAULT ? { "vault/app": "src/vault/app.ts" } : {}) },
   bundle: true,
   minify: true,
   format: "esm",
@@ -99,7 +100,8 @@ await build({
 // Only this site's own files run, nothing can frame it, and links never
 // tell the next site where they came from. Each page may connect only where
 // it needs: the share page to the Keyless server, the home page to GitHub
-// (for the newest release). The rules for pages do not overlap, since
+// (for the newest release) and to the server's sign-out (to end the session
+// an email confirmation link brings). The rules for pages do not overlap, since
 // Cloudflare would join two policies for one page. The fonts may also load
 // from elsewhere: the account emails use them (supabase/templates).
 const csp = (connect, script = "'self'") =>
@@ -124,9 +126,9 @@ writeFileSync(
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains
 /
-  Content-Security-Policy: ${csp("https://api.github.com")}
+  Content-Security-Policy: ${csp(`https://api.github.com ${SUPABASE_URL}`)}
 /index.html
-  Content-Security-Policy: ${csp("https://api.github.com")}
+  Content-Security-Policy: ${csp(`https://api.github.com ${SUPABASE_URL}`)}
 /404.html
   Content-Security-Policy: ${csp("'none'")}
 /tutorial/*
@@ -134,6 +136,8 @@ writeFileSync(
 /privacy/*
   Content-Security-Policy: ${csp("'none'")}
 /email-changed/*
+  Content-Security-Policy: ${csp("'none'")}
+/email-confirmed/*
   Content-Security-Policy: ${csp("'none'")}
 ${
   WEB_VAULT
