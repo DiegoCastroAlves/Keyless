@@ -21,8 +21,8 @@ android {
         applicationId = "io.github.diegocastroalves.keyless"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.9"
+        versionCode = 2
+        versionName = "0.1.10"
         buildConfigField("String", "SERVER", "\"$server\"")
         buildConfigField("String", "ASSET_LINKS", "\"$assetLinks\"")
         buildConfigField("String", "SENTINEL", "\"$sentinel\"")

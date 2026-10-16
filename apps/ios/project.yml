@@ -14,8 +14,8 @@ targets:
       path: Keyless/Info.plist
       properties:
         CFBundleDisplayName: Keyless
-        CFBundleShortVersionString: "0.1.9"
-        CFBundleVersion: "1"
+        CFBundleShortVersionString: "0.1.10"
+        CFBundleVersion: "2"
         UILaunchScreen: {}
         NSFaceIDUsageDescription: Unlock Keyless with Face ID.
         ITSAppUsesNonExemptEncryption: false
