@@ -39,9 +39,10 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 /// Native messaging host name registered with browsers.
 pub const HOST_NAME: &str = "io.github.diegocastroalves.keyless";
-/// Chrome/Chromium id of the extension (derived from the public key in its
-/// manifest).
-pub const CHROME_EXTENSION_IDS: &[&str] = &["mdafhkgmgciicpdegfgkblolngnhebca"];
+/// Chrome/Chromium ids of the extension: the builds loaded by hand (derived
+/// from the public key in their manifest) and the one from the Chrome Web
+/// Store, which gives its own id (the store refuses the manifest's key).
+pub const CHROME_EXTENSION_IDS: &[&str] = &["mdafhkgmgciicpdegfgkblolngnhebca", "hcmaplniiophbidhkclpbicbpleonhja"];
 /// Firefox add-on id.
 pub const FIREFOX_EXTENSION_ID: &str = "keyless@diegocastroalves.github.io";
 

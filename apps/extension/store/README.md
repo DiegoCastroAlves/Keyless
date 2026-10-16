@@ -37,8 +37,9 @@ The version comes from `package.json`; raise it before each new upload.
 The store gives the extension an id of its own (shown in the dashboard).
 The app only lets known extensions connect: add the id to
 `CHROME_EXTENSION_IDS` in `apps/desktop/src-tauri/src/bridge/mod.rs`, next to
-the one of the builds loaded by hand, and release the app. Same for Edge,
-which gives yet another id. Until users have that app version, the extension
+the one of the builds loaded by hand, and release the app. The Chrome Web
+Store's id, `hcmaplniiophbidhkclpbicbpleonhja`, is there (added after
+0.1.10). Same for Edge, which gives yet another id. Until users have that app version, the extension
 from the store cannot connect (the popup says the app is missing).
 
 ## 4. Edge Add-ons

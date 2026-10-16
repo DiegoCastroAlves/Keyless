@@ -149,6 +149,9 @@ mod tests {
     fn detects_browser_invocations() {
         let chrome = vec!["keyless".into(), "chrome-extension://mdafhkgmgciicpdegfgkblolngnhebca/".into()];
         assert!(is_host_invocation(&chrome));
+        // The Chrome Web Store's build.
+        let store = vec!["keyless".into(), "chrome-extension://hcmaplniiophbidhkclpbicbpleonhja/".into()];
+        assert!(is_host_invocation(&store));
         let firefox = vec!["keyless".into(), "/path/manifest.json".into(), FIREFOX_EXTENSION_ID.into()];
         assert!(is_host_invocation(&firefox));
         let other = vec!["keyless".into(), "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/".into()];
