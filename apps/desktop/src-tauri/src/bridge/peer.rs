@@ -37,6 +37,7 @@ const BROWSERS: &[&str] = &[
     "vivaldi-bin",
     "opera",
     "thorium",
+    "norte",
     "firefox",
     "firefox-bin",
     "firefox-esr",

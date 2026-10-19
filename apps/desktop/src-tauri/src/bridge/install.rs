@@ -67,6 +67,8 @@ mod linux {
         "microsoft-edge",
         "vivaldi",
         "opera",
+        // Norte, a Chromium build with its own profile (~/.config/norte).
+        "norte",
     ];
     /// Firefox-family roots, relative to $HOME.
     const FIREFOX: &[&str] = &[".mozilla", ".librewolf", ".zen", ".waterfox"];
