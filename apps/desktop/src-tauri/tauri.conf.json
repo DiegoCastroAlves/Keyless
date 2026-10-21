@@ -11,19 +11,7 @@
   },
   "app": {
     "withGlobalTauri": false,
-    "windows": [
-      {
-        "label": "main",
-        "title": "Keyless",
-        "width": 1180,
-        "height": 760,
-        "minWidth": 880,
-        "minHeight": 560,
-        "center": true,
-        "visible": false,
-        "dragDropEnabled": true
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": {
         "default-src": "'self'",

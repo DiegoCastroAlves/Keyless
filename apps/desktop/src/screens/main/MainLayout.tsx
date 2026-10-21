@@ -159,13 +159,14 @@ export function MainLayout() {
     else if (start === "sentinel") useApp.getState().setView({ kind: "sentinel" });
   }, []);
 
-  // "+" in the browser extension's popup.
+  // "+" in the browser extension's popup (kept by App until the vault shows).
+  const newItemRequest = useApp((s) => s.newItemRequest);
   useEffect(() => {
-    const unlisten = events.onNewItem(({ category, url, title }) => {
-      if (!useApp.getState().editing) newItem(category, { url, title });
-    });
-    return () => void unlisten.then((stop) => stop());
-  }, [newItem]);
+    if (!newItemRequest) return;
+    useApp.setState({ newItemRequest: null });
+    const { category, url, title } = newItemRequest;
+    if (!useApp.getState().editing) newItem(category, { url, title });
+  }, [newItemRequest, newItem]);
 
   return (
     <div className="flex h-full flex-col">

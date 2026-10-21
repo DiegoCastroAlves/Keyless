@@ -10,7 +10,7 @@ use keyless_core::{
     totp::Totp,
 };
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use zeroize::Zeroizing;
 
 use crate::{api::now_secs, error::AppError, state::AppState};
@@ -176,13 +176,7 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             // With an item: shows it in the main window.
             match args.get("id").and_then(Value::as_str) {
                 Some(id) => crate::quick_access::show_item(app, id),
-                None => {
-                    if let Some(window) = app.get_webview_window("main") {
-                        let _ = window.unminimize();
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                }
+                None => crate::main_window::show(app),
             }
             Ok(Value::Null)
         }
@@ -201,8 +195,7 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let url = url.as_str();
             let host = super::logins::page_host(url);
             let title = if host.is_empty() { String::new() } else { super::logins::suggested_title(&host) };
-            crate::tray::show_main(app);
-            let _ = app.emit_to("main", EVENT_NEW_ITEM, json!({ "category": category, "url": url, "title": title }));
+            crate::main_window::deliver(app, EVENT_NEW_ITEM, json!({ "category": category, "url": url, "title": title }));
             Ok(Value::Null)
         }
         "lock" => {

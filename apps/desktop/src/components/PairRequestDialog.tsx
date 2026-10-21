@@ -1,19 +1,16 @@
 import { Globe } from "lucide-react";
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { api, events, type PairRequest } from "../lib/api";
+import { api } from "../lib/api";
+import { useApp } from "../lib/store";
 import { Button, Dialog } from "./ui";
 
-/** Asks the user to approve a browser extension that wants to connect. */
+/** Asks the user to approve a browser extension that wants to connect (the
+ * request is kept by App, which listens from the start). */
 export function PairRequestDialog() {
   const { t } = useTranslation();
-  const [request, setRequest] = useState<PairRequest | null>(null);
-
-  useEffect(() => {
-    const unlisten = events.onPairRequest(setRequest);
-    return () => void unlisten.then((u) => u());
-  }, []);
+  const request = useApp((s) => s.pairRequest);
+  const setRequest = (next: null) => useApp.setState({ pairRequest: next });
 
   const answer = (approve: boolean) => {
     if (request) void api.bridgePairRespond(request.requestId, approve);

@@ -4,14 +4,15 @@
 
 use std::sync::Mutex;
 
-use serde::Deserialize;
-use tauri::{AppHandle, Emitter};
+use serde::{Deserialize, Serialize};
+use tauri::AppHandle;
 
 /// Tells the main window to show Sentinel.
 pub const EVENT_OPEN_SENTINEL: &str = "keyless://open-sentinel";
 
-/// Texts translated by the UI ("{count}" stands for the number).
-#[derive(Clone, Deserialize)]
+/// Texts translated by the UI ("{count}" stands for the number), kept for
+/// a Keyless started in the tray with no window yet.
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationLabels {
     pub sentinel_title: String,
@@ -21,6 +22,42 @@ pub struct NotificationLabels {
     pub device_setup_title: String,
     #[serde(default)]
     pub device_setup_body: String,
+}
+
+impl NotificationLabels {
+    /// Before the UI ever gave its texts: the UI's own, in `language`.
+    pub fn defaults(language: &str) -> Self {
+        let [sentinel_title, new_alerts_one, new_alerts_other, device_setup_title, device_setup_body] = match language {
+            "pt-BR" => [
+                "Sentinela",
+                "{count} alerta novo. Abra o Sentinela para ver.",
+                "{count} alertas novos. Abra o Sentinela para ver.",
+                "Pedido de entrada",
+                "Um dispositivo novo quer entrar na sua conta do Keyless. Abra o Keyless para aprovar ou recusar.",
+            ],
+            "es" => [
+                "Centinela",
+                "{count} alerta nueva. Abre Centinela para verla.",
+                "{count} alertas nuevas. Abre Centinela para verlas.",
+                "Solicitud de inicio de sesión",
+                "Un dispositivo nuevo quiere iniciar sesión en tu cuenta de Keyless. Abre Keyless para aprobarlo o rechazarlo.",
+            ],
+            _ => [
+                "Sentinel",
+                "{count} new alert. Open Sentinel to see it.",
+                "{count} new alerts. Open Sentinel to see them.",
+                "Sign-in request",
+                "A new device wants to sign in to your Keyless account. Open Keyless to approve or deny it.",
+            ],
+        };
+        Self {
+            sentinel_title: sentinel_title.into(),
+            new_alerts_one: new_alerts_one.into(),
+            new_alerts_other: new_alerts_other.into(),
+            device_setup_title: device_setup_title.into(),
+            device_setup_body: device_setup_body.into(),
+        }
+    }
 }
 
 static LABELS: Mutex<Option<NotificationLabels>> = Mutex::new(None);
@@ -46,13 +83,11 @@ pub fn device_setup(app: &AppHandle) {
 }
 
 fn open_sentinel(app: &AppHandle) {
-    crate::tray::show_main(app);
-    let _ = app.emit(EVENT_OPEN_SENTINEL, ());
+    crate::main_window::deliver(app, EVENT_OPEN_SENTINEL, serde_json::Value::Null);
 }
 
 fn open_device_setup(app: &AppHandle) {
-    crate::tray::show_main(app);
-    let _ = app.emit(crate::device_setup::EVENT_SETUP_REQUESTED, ());
+    crate::main_window::deliver(app, crate::device_setup::EVENT_SETUP_REQUESTED, serde_json::Value::Null);
 }
 
 /// What clicking the notification does.

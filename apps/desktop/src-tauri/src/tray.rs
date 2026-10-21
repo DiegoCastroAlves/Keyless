@@ -7,19 +7,53 @@
 //! the AppIndicator library behind Tauri's tray, it reports clicks, and it
 //! needs no native library. Elsewhere Tauri's tray is used.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::state::AppState;
 
-/// Menu texts, translated by the UI.
-#[derive(Clone, PartialEq, Deserialize)]
+/// Menu texts, translated by the UI (kept: Keyless may start in the tray,
+/// with no window to translate them yet).
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrayLabels {
     pub open: String,
     pub quick_access: String,
     pub lock: String,
     pub quit: String,
+}
+
+impl TrayLabels {
+    /// Before the UI ever gave its texts: the UI's own, in `language`.
+    pub fn defaults(language: &str) -> Self {
+        let [open, quick_access, lock, quit] = match language {
+            "pt-BR" => ["Abrir o Keyless", "Acesso Rápido", "Bloquear", "Encerrar o Keyless"],
+            "es" => ["Abrir Keyless", "Acceso rápido", "Bloquear", "Salir de Keyless"],
+            _ => ["Open Keyless", "Quick Access", "Lock", "Quit Keyless"],
+        };
+        Self { open: open.into(), quick_access: quick_access.into(), lock: lock.into(), quit: quit.into() }
+    }
+}
+
+/// The UI's language for a setting ("system": the system's, from the
+/// locale variables; English when it is none of the three).
+pub fn language(setting: &str) -> &'static str {
+    let tag = match setting {
+        "system" | "" => ["LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"]
+            .iter()
+            .filter_map(|name| std::env::var(name).ok())
+            .find(|value| !value.is_empty() && value != "C" && value != "POSIX")
+            .unwrap_or_default(),
+        other => other.to_string(),
+    };
+    let tag = tag.to_lowercase();
+    if tag.starts_with("pt") {
+        "pt-BR"
+    } else if tag.starts_with("es") {
+        "es"
+    } else {
+        "en"
+    }
 }
 
 /// Creates the tray icon, or updates its menu when the language changes.
@@ -62,12 +96,9 @@ pub fn available(app: &AppHandle) -> bool {
     }
 }
 
+/// Opens the main window (made again if it went to the tray).
 pub fn show_main(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    crate::main_window::show(app);
 }
 
 fn is_locked(app: &AppHandle) -> bool {

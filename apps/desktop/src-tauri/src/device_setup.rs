@@ -127,8 +127,7 @@ pub fn handle_args(app: &AppHandle, args: &[String]) -> bool {
     let state = app.state::<AppState>();
     match use_link(&state, link) {
         Ok(email) => {
-            crate::tray::show_main(app);
-            let _ = app.emit(EVENT_SETUP_RECEIVED, email);
+            crate::main_window::deliver(app, EVENT_SETUP_RECEIVED, serde_json::Value::String(email));
         }
         Err(err) => log::info!("setup link: {err}"),
     }

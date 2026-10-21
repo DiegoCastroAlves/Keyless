@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use keyless_core::item::wipe_json;
 use zeroize::Zeroizing;
@@ -324,12 +324,8 @@ async fn request_pairing(app: &AppHandle, extension_public: &x25519_dalek::Publi
         }
         pending.insert(request_id.clone(), tx);
     }
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
-    let _ = app.emit(EVENT_PAIR_REQUEST, json!({ "requestId": request_id, "code": code, "name": name }));
+    // The prompt is in the main window, opened (made again) for it.
+    crate::main_window::deliver(app, EVENT_PAIR_REQUEST, json!({ "requestId": request_id, "code": code, "name": name }));
     let decision = tokio::time::timeout(PAIRING_TIMEOUT, rx).await;
     state
         .bridge

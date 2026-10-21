@@ -71,6 +71,9 @@ x11rb = { version = "0.13", features = ["xtest"] }
 # How long the computer has been idle, from the Wayland compositor (idle.rs).
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+# Ending a hidden window's web process (main_window.rs): the WebKitGTK that
+# Tauri already uses, at its version.
+webkit2gtk = "2.0.2"
 
 [target.'cfg(windows)'.dependencies]
 tauri-plugin-global-shortcut = "2"

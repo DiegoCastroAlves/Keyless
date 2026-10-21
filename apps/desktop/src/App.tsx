@@ -107,7 +107,12 @@ export function App() {
         store.setView({ kind: "all" });
         store.select(id);
       }),
+      // Kept for the vault to take (see MainLayout) and the pairing prompt.
+      events.onNewItem((request) => useApp.setState({ newItemRequest: request })),
+      events.onPairRequest((request) => useApp.setState({ pairRequest: request })),
     ];
+    // Listening: what waited for this window (made when shown) comes now.
+    void Promise.all(subscriptions).then(() => api.mainReady());
     return () => {
       subscriptions.forEach((p) => void p.then((unlisten) => unlisten()));
     };

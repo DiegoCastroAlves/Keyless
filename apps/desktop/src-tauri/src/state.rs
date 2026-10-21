@@ -288,6 +288,15 @@ pub struct AppState {
     pub quick_access_ready: std::sync::atomic::AtomicBool,
     /// Quick Access was asked for before its page loaded.
     pub quick_access_pending: std::sync::atomic::AtomicBool,
+    /// Counts the times Quick Access was hidden: its page ends a while after
+    /// the last time (Linux, see `quick_access::hide`).
+    pub quick_access_hidden: std::sync::atomic::AtomicU64,
+    /// Quick Access's page was ended while hidden (Linux): it loads again
+    /// when opened.
+    pub quick_access_ended: std::sync::atomic::AtomicBool,
+    /// The main window: made when first shown, its page ended in the tray
+    /// (Linux, see main_window).
+    pub main: crate::main_window::MainState,
     /// Quick Access was last opened to type a login (Auto-Type).
     pub quick_access_auto_type: std::sync::atomic::AtomicBool,
     /// Browser extension requests waiting for the unlock prompt to close

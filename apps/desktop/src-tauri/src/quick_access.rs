@@ -76,8 +76,16 @@ fn open(app: &AppHandle, auto_type: bool) -> tauri::Result<()> {
         crate::auto_type::remember_focus();
     }
     let state = app.state::<AppState>();
+    // Opened again: it stays (see `hide`).
+    state.quick_access_hidden.fetch_add(1, Ordering::SeqCst);
     let window = match app.get_webview_window(LABEL) {
-        Some(window) => window,
+        Some(window) => {
+            // Its page ended while hidden: it loads again, then shows (`ready`).
+            if state.quick_access_ended.swap(false, Ordering::SeqCst) {
+                crate::main_window::reload(&window);
+            }
+            window
+        }
         None => WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
             .title("Keyless")
             .inner_size(640.0, 440.0)
@@ -115,9 +123,35 @@ pub fn ready(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Hidden this long, Quick Access's page ends (Linux: some 50 MiB, see
+/// main_window); opened again, it loads in a moment. Several uses in a row
+/// stay instant.
+#[cfg(target_os = "linux")]
+const KEEP_HIDDEN: Duration = Duration::from_secs(300);
+
 pub fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(LABEL) {
         let _ = window.hide();
+        let hidden = app.state::<AppState>().quick_access_hidden.fetch_add(1, Ordering::SeqCst) + 1;
+        #[cfg(target_os = "linux")]
+        {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(KEEP_HIDDEN).await;
+                let state = app.state::<AppState>();
+                // Not opened (nor hidden again) since.
+                if state.quick_access_hidden.load(Ordering::SeqCst) == hidden
+                    && let Some(window) = app.get_webview_window(LABEL)
+                    && !window.is_visible().unwrap_or(true)
+                {
+                    state.quick_access_ready.store(false, Ordering::SeqCst);
+                    state.quick_access_ended.store(true, Ordering::SeqCst);
+                    crate::main_window::end_page(&window);
+                }
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        let _ = hidden;
     }
 }
 
@@ -132,8 +166,7 @@ pub fn on_blur(app: &AppHandle) {
 /// Shows an item in the main window.
 pub fn show_item(app: &AppHandle, item_id: &str) {
     hide(app);
-    crate::tray::show_main(app);
-    let _ = app.emit_to("main", EVENT_SELECT_ITEM, item_id);
+    crate::main_window::deliver(app, EVENT_SELECT_ITEM, serde_json::Value::String(item_id.to_string()));
 }
 
 /// What a global shortcut does.

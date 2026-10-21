@@ -11,6 +11,7 @@ import {
   type ItemDraft,
   type ItemSummary,
   type InstallKind,
+  type PairRequest,
   type SentinelAlert,
   type Settings,
   type SyncStatus,
@@ -90,6 +91,11 @@ interface AppStore {
   recoverEmail: string | null;
   /** This device was signed out from another one: the welcome screen says so. */
   deviceRevoked: boolean;
+  /** The browser extension's "+": the editor opens for it once the vault
+   * shows (it can arrive while the window is still starting). */
+  newItemRequest: { category: Category; url: string; title: string } | null;
+  /** A browser extension asks to pair (the prompt shows it). */
+  pairRequest: PairRequest | null;
   /** The list of keyboard shortcuts is open. */
   shortcutsOpen: boolean;
   /** Items selected together (two or more: the bulk actions show). */
@@ -145,6 +151,8 @@ export const useApp = create<AppStore>((set, get) => ({
   revision: 0,
   recoverEmail: null,
   deviceRevoked: false,
+  newItemRequest: null,
+  pairRequest: null,
   shortcutsOpen: false,
   selection: [],
   filters: {},

@@ -971,6 +971,9 @@ export const api = {
     invoke<ExportOutcome>("export_plain", { masterPassword, format, dialog: dialogText("export") }),
   importCommit: (target: ImportTarget, updateChanged: boolean) => invoke<ImportOutcome>("import_commit", { target, updateChanged }),
   importCancel: () => invoke<void>("import_cancel"),
+  /** The main window has its listeners: the events waiting for it come now
+   * (it is made when shown and goes when closed to the tray). */
+  mainReady: () => invoke<void>("main_ready"),
 };
 
 export const events = {

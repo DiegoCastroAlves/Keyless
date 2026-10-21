@@ -945,13 +945,34 @@ pub async fn install_update(app: AppHandle) -> AppResult<()> {
 
 /// Texts for the system notifications, translated by the UI.
 #[tauri::command]
-pub fn configure_notifications(labels: crate::notify::NotificationLabels) {
+pub fn configure_notifications(state: State<'_, AppState>, labels: crate::notify::NotificationLabels) {
+    // Kept for the next start (see lib.rs: before any window).
+    if let Err(err) = state.store().set_setting(NOTIFICATION_LABELS, &labels) {
+        log::warn!("could not keep the notification texts: {err}");
+    }
     crate::notify::configure(labels);
+}
+
+/// Where the UI's texts for the tray and the notifications are kept.
+pub const TRAY_LABELS: &str = "tray_labels";
+pub const NOTIFICATION_LABELS: &str = "notification_labels";
+
+/// The main window's page has its listeners: the events waiting for it go
+/// to it, and it shows if it was asked to (see main_window).
+#[tauri::command]
+pub fn main_ready(app: AppHandle, window: tauri::WebviewWindow) {
+    if window.label() == crate::main_window::LABEL {
+        crate::main_window::ready(&app);
+    }
 }
 
 /// Creates the tray icon (or updates its menu) with texts translated by the UI.
 #[tauri::command]
-pub fn configure_tray(app: AppHandle, labels: crate::tray::TrayLabels) {
+pub fn configure_tray(app: AppHandle, state: State<'_, AppState>, labels: crate::tray::TrayLabels) {
+    // Kept for the next start (see lib.rs: before any window).
+    if let Err(err) = state.store().set_setting(TRAY_LABELS, &labels) {
+        log::warn!("could not keep the tray texts: {err}");
+    }
     if let Err(err) = crate::tray::configure(&app, &labels) {
         log::warn!("tray icon unavailable: {err}");
         // Without a tray there is no way back to a hidden window.

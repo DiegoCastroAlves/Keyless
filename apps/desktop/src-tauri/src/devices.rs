@@ -19,7 +19,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use keyless_core::crypto::{context, random_array};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::{
     error::{AppError, AppResult},
@@ -249,8 +249,7 @@ pub async fn check_revoked(app: &AppHandle) {
             if let Err(err) = crate::auth::sign_out(app).await {
                 log::warn!("could not remove the account from this device: {err}");
             }
-            crate::tray::show_main(app);
-            let _ = app.emit(EVENT_DEVICE_REVOKED, ());
+            crate::main_window::deliver(app, EVENT_DEVICE_REVOKED, serde_json::Value::Null);
         }
         Ok(_) => {}
         Err(err) => state.devices.note_error(&err),

@@ -3,7 +3,7 @@
 //! registers the scheme for the user as it starts). A link only shows the
 //! item, once Keyless is unlocked; it can do nothing else.
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 use crate::state::AppState;
 
@@ -40,8 +40,7 @@ pub fn handle_args(app: &AppHandle, args: &[String]) -> bool {
 /// Shows item `id` in the main window (editing it, when `edit`).
 pub fn request(app: &AppHandle, id: &str, edit: bool) {
     *app.state::<AppState>().item_request.lock().unwrap_or_else(|e| e.into_inner()) = Some(ItemRequest { id: id.to_string(), edit });
-    crate::tray::show_main(app);
-    let _ = app.emit(EVENT_ITEM_REQUESTED, ());
+    crate::main_window::deliver(app, EVENT_ITEM_REQUESTED, serde_json::Value::Null);
 }
 
 /// The item last asked for, once.

@@ -30,6 +30,7 @@ mod item_versions;
 mod items;
 mod kit_pdf;
 mod lock;
+mod main_window;
 mod notify;
 mod qr;
 mod shares;
@@ -181,7 +182,6 @@ pub fn run() {
             let bridge_secret = load_or_create_bridge_key(&secrets)?;
             let browser_integration = settings.browser_integration;
             let start_at_login = settings.start_at_login;
-            let zoom = settings.zoom;
             // A lock shortcut that started Keyless: it starts locked anyway.
             let start_hidden = quick_access_requested
                 || std::env::args().any(|a| a == quick_access::LOCK_ARG)
@@ -212,6 +212,9 @@ pub fn run() {
                 quick_access_shown: Mutex::new(None),
                 quick_access_ready: std::sync::atomic::AtomicBool::new(false),
                 quick_access_pending: std::sync::atomic::AtomicBool::new(false),
+                quick_access_hidden: std::sync::atomic::AtomicU64::new(0),
+                quick_access_ended: std::sync::atomic::AtomicBool::new(false),
+                main: Default::default(),
                 unlock_prompt: Mutex::new(Vec::new()),
                 lock_state: tokio::sync::watch::Sender::new(true),
                 quick_access_auto_type: std::sync::atomic::AtomicBool::new(false),
@@ -225,7 +228,20 @@ pub fn run() {
                 item_request: Mutex::new(None),
             });
 
-            apply_zoom(app.handle(), zoom);
+            // The tray and the notifications before any window (Keyless may
+            // start in the tray with none): with the texts the UI gave last
+            // time, or its own in the language it would use.
+            {
+                let state = app.state::<AppState>();
+                let language = tray::language(&state.settings().language);
+                let tray_labels = state.store().setting(commands::TRAY_LABELS).ok().flatten().unwrap_or_else(|| tray::TrayLabels::defaults(language));
+                let notification_labels =
+                    state.store().setting(commands::NOTIFICATION_LABELS).ok().flatten().unwrap_or_else(|| notify::NotificationLabels::defaults(language));
+                notify::configure(notification_labels);
+                if let Err(err) = tray::configure(app.handle(), &tray_labels) {
+                    log::warn!("tray icon unavailable: {err}");
+                }
+            }
             idle::init();
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
@@ -239,8 +255,8 @@ pub fn run() {
                 // Keeps the login entry pointing at this executable (e.g. a moved AppImage).
                 std::thread::spawn(|| autostart::sync(true));
             }
-            // The window is created hidden (tauri.conf.json): shown unless
-            // Keyless was started at login to stay in the tray.
+            // The main window is made when it is shown (see main_window):
+            // not when Keyless was started at login to stay in the tray.
             let args: Vec<String> = std::env::args().collect();
             if !item_links::handle_args(app.handle(), &args) && !device_setup::handle_args(app.handle(), &args) && !start_hidden {
                 tray::show_main(app.handle());
@@ -272,12 +288,15 @@ pub fn run() {
                 api.prevent_close();
                 quick_access::hide(window.app_handle());
             }
-            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == main_window::LABEL => {
                 let app = window.app_handle();
                 let settings = app.state::<AppState>().settings();
                 if settings.close_to_tray && tray::available(app) {
                     api.prevent_close();
-                    let _ = window.hide();
+                    // Hidden, its page ended (Linux), loaded again when opened.
+                    if let Some(main) = app.get_webview_window(main_window::LABEL) {
+                        main_window::close_to_tray(&main);
+                    }
                     if settings.lock_on_close {
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move { auth::lock(&app).await });
@@ -286,7 +305,7 @@ pub fn run() {
             }
             // Files dropped on the window can be attached (see attachments).
             tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. })
-                if window.label() == "main" || window.label().starts_with(item_windows::PREFIX) =>
+                if window.label() == main_window::LABEL || window.label().starts_with(item_windows::PREFIX) =>
             {
                 attachments::offer(paths);
             }
@@ -296,7 +315,7 @@ pub fn run() {
             tauri::WindowEvent::Destroyed if window.label() == unlock_prompt::LABEL => {
                 unlock_prompt::closed(window.app_handle());
             }
-            tauri::WindowEvent::Destroyed if window.label() == "main" => {
+            tauri::WindowEvent::Destroyed if window.label() == main_window::LABEL => {
                 let app = window.app_handle();
                 app.state::<AppState>().clipboard.clear_now();
                 app.exit(0);
@@ -461,7 +480,20 @@ pub fn run() {
             commands::bridge_pair_respond,
             commands::list_bridge_peers,
             commands::remove_bridge_peer,
+            commands::main_ready,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Keyless");
+        .build(tauri::generate_context!())
+        .expect("error while building Keyless")
+        .run(|app, event| {
+            // The last window closed (an item's window, while the main one
+            // was never made: Keyless started in the tray): it keeps running.
+            // Quitting on purpose (the tray's Quit, closing the main window
+            // without the tray) goes through app.exit, with a code, and is
+            // not stopped; so does the app menu's Quit on macOS, without one.
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event
+                && (cfg!(not(target_os = "macos")) || main_window::keeps_running(app))
+            {
+                api.prevent_exit();
+            }
+        });
 }
