@@ -44,6 +44,12 @@
   "untrustedBrowserBody": {
     "message": "Keyless only answers browsers installed on the system (from your distribution's packages, or in Program Files on Windows). On Linux, an administrator can allow another browser by adding its executable to /etc/keyless/allowed_browsers."
   },
+  "unknownBrowserTitle": {
+    "message": "Allow this browser in Keyless"
+  },
+  "unknownBrowserBody": {
+    "message": "Keyless doesn't know this browser and asks, in the desktop app, whether it may connect. Allow it there and try again. If you declined, it asks again the next time Keyless starts."
+  },
   "untrustedHostTitle": {
     "message": "Connection refused"
   },

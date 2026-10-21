@@ -52,12 +52,13 @@ pub fn sync_registration(enabled: bool) {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     use super::{HOST_NAME, chrome_manifest, firefox_manifest};
 
     /// Chromium-family profile roots, relative to $XDG_CONFIG_HOME (which is
-    /// where these browsers look for user-level host manifests).
+    /// where these browsers look for user-level host manifests). Others are
+    /// found by their files (see `chromium_roots`).
     const CHROMIUM: &[&str] = &[
         "google-chrome",
         "google-chrome-beta",
@@ -79,9 +80,9 @@ mod linux {
             .map(std::path::PathBuf::from)
             .filter(|p| p.is_absolute())
             .unwrap_or_else(|| home.join(".config"));
-        let targets = CHROMIUM
-            .iter()
-            .map(|root| (config.join(root), "NativeMessagingHosts", chrome_manifest(exe)))
+        let targets = chromium_roots(&config)
+            .into_iter()
+            .map(|root| (root, "NativeMessagingHosts", chrome_manifest(exe)))
             .chain(
                 FIREFOX
                     .iter()
@@ -102,6 +103,65 @@ mod linux {
             if let Err(err) = result {
                 log::warn!("browser registration at {}: {err}", path.display());
             }
+        }
+    }
+
+    /// The known Chromium browsers' folders, and any other folder in
+    /// `config` (or one level down, as BraveSoftware/Brave-Browser) that
+    /// holds a Chromium browser's profiles: a "Local State" file next to a
+    /// profile with its "Preferences" (apps made with Chromium keep no
+    /// profile folders).
+    fn chromium_roots(config: &Path) -> Vec<PathBuf> {
+        let mut roots: Vec<PathBuf> = CHROMIUM.iter().map(|root| config.join(root)).collect();
+        let children = |dir: &Path| -> Vec<PathBuf> {
+            std::fs::read_dir(dir)
+                .map(|entries| entries.flatten().map(|entry| entry.path()).filter(|path| path.is_dir()).collect())
+                .unwrap_or_default()
+        };
+        for dir in children(config) {
+            for candidate in std::iter::once(dir.clone()).chain(children(&dir)) {
+                if is_chromium_root(&candidate) && !roots.contains(&candidate) {
+                    roots.push(candidate);
+                }
+            }
+        }
+        roots
+    }
+
+    fn is_chromium_root(dir: &Path) -> bool {
+        if !dir.join("Local State").is_file() {
+            return false;
+        }
+        std::fs::read_dir(dir).is_ok_and(|entries| {
+            entries.flatten().any(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                (name == "Default" || name.starts_with("Profile ")) && entry.path().join("Preferences").is_file()
+            })
+        })
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn finds_chromium_browsers_by_their_profiles() {
+            let config = std::env::temp_dir().join(format!("keyless-install-{}", std::process::id()));
+            let browser = config.join("Vendor/Some-Browser");
+            std::fs::create_dir_all(browser.join("Profile 1")).unwrap();
+            std::fs::write(browser.join("Local State"), b"{}").unwrap();
+            std::fs::write(browser.join("Profile 1/Preferences"), b"{}").unwrap();
+            // An app made with Chromium: no profile folder.
+            let app = config.join("some-editor");
+            std::fs::create_dir_all(&app).unwrap();
+            std::fs::write(app.join("Local State"), b"{}").unwrap();
+            std::fs::write(app.join("Preferences"), b"{}").unwrap();
+            let roots = chromium_roots(&config);
+            assert!(roots.contains(&browser));
+            assert!(!roots.contains(&app));
+            assert!(roots.contains(&config.join("google-chrome")));
+            std::fs::remove_dir_all(&config).unwrap();
         }
     }
 }

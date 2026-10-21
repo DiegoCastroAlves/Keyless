@@ -731,6 +731,15 @@ export interface PairRequest {
   name: string;
 }
 
+/** A browser Keyless does not know wants to connect. */
+export interface BrowserRequest {
+  requestId: string;
+  /** Its executable's name. */
+  name: string;
+  /** Its executable. */
+  path: string;
+}
+
 export function errorMessage(err: unknown): string {
   return translateError(err);
 }
@@ -838,6 +847,9 @@ export const api = {
   bridgePairRespond: (requestId: string, approve: boolean) => invoke<void>("bridge_pair_respond", { requestId, approve }),
   listBridgePeers: () => invoke<BridgePeer[]>("list_bridge_peers"),
   removeBridgePeer: (publicKey: string) => invoke<void>("remove_bridge_peer", { publicKey }),
+  bridgeBrowserRespond: (requestId: string, allow: boolean) => invoke<void>("bridge_browser_respond", { requestId, allow }),
+  listAllowedBrowsers: () => invoke<string[]>("list_allowed_browsers"),
+  removeAllowedBrowser: (path: string) => invoke<void>("remove_allowed_browser", { path }),
   changeMasterPassword: (current: string, next: string) =>
     invoke<void>("change_master_password", { current, new: next }),
   deleteAccount: (masterPassword: string) => invoke<void>("delete_account", { masterPassword }),
@@ -1006,6 +1018,8 @@ export const events = {
     listen<UpdateProgress>("keyless://update-progress", (e) => cb(e.payload)),
   onPairRequest: (cb: (r: PairRequest) => void): Promise<UnlistenFn> =>
     listen<PairRequest>("keyless://pair-request", (e) => cb(e.payload)),
+  onBrowserRequest: (cb: (r: BrowserRequest) => void): Promise<UnlistenFn> =>
+    listen<BrowserRequest>("keyless://browser-request", (e) => cb(e.payload)),
   /** This device was signed out from another one (its data is gone). */
   onDeviceRevoked: (cb: () => void): Promise<UnlistenFn> => listen("keyless://device-revoked", () => cb()),
   /** A new device asks to sign in to the account. */

@@ -10,7 +10,8 @@
 //!   peer uid check; a per-user named pipe on Windows, open to this user
 //!   only, that rejects remote clients).
 //! - The process that connects must be Keyless in host mode, started by a
-//!   browser installed on the system (see `peer`).
+//!   browser installed on the system: one Keyless knows, or one the user
+//!   allowed in the app (see `peer`).
 //! - Every request is end-to-end encrypted between the extension and the app
 //!   with keys exchanged during pairing, which the user approves in the app
 //!   after comparing a code. Other programs that reach the socket can neither
@@ -30,7 +31,8 @@ pub mod server;
 pub mod shared_sites;
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
+    path::PathBuf,
     sync::Mutex,
     time::Instant,
 };
@@ -53,11 +55,27 @@ pub struct Bridge {
     pub pending: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
     /// Recently seen request ids, to reject replays.
     pub seen: Mutex<VecDeque<(String, Instant)>>,
+    /// Browsers Keyless does not know that the user is being asked about, by
+    /// request id, with when (see `server::ask_about_browser`).
+    pub browser_prompts: Mutex<HashMap<String, (PathBuf, Instant)>>,
+    /// Browsers the user turned down since the app started.
+    pub declined_browsers: Mutex<HashSet<PathBuf>>,
+    /// The allowed browsers changed: connections end, to connect again (and
+    /// be checked again).
+    pub browsers_changed: tokio::sync::Notify,
 }
 
 impl Bridge {
     pub fn new(secret: StaticSecret) -> Self {
         let public = PublicKey::from(&secret);
-        Self { secret, public, pending: Mutex::new(HashMap::new()), seen: Mutex::new(VecDeque::new()) }
+        Self {
+            secret,
+            public,
+            pending: Mutex::new(HashMap::new()),
+            seen: Mutex::new(VecDeque::new()),
+            browser_prompts: Mutex::new(HashMap::new()),
+            declined_browsers: Mutex::new(HashSet::new()),
+            browsers_changed: tokio::sync::Notify::new(),
+        }
     }
 }

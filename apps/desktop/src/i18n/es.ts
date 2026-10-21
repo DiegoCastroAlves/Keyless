@@ -333,6 +333,13 @@ const es: Translations = {
     vaultDeleted: "\"{{name}}\" eliminada",
     orphaned: "no está en el servidor",
   },
+  browserRequest: {
+    title: "¿Permitir este navegador?",
+    body: "{{name}} quiere usar la extensión de Keyless, pero Keyless no conoce este navegador.",
+    hint: "Permítelo solo si es un navegador que instalaste y en el que acabas de usar la extensión de Keyless. Puedes deshacerlo en Ajustes > Navegador.",
+    allow: "Permitir",
+    deny: "No permitir",
+  },
   pairing: {
     title: "¿Conectar una extensión del navegador?",
     body: "{{name}} quiere conectarse a Keyless para rellenar tus contraseñas.",
@@ -1009,12 +1016,15 @@ const es: Translations = {
     browser: "Navegador",
     browserTitle: "Extensión del navegador",
     browserBody:
-      "La extensión de Keyless rellena contraseñas en Chrome, Edge, Brave, Vivaldi y Firefox. Se comunica con esta app mediante una conexión cifrada que apruebas una vez por navegador.",
+      "La extensión de Keyless rellena contraseñas en Chrome, Edge, Brave, Vivaldi, Firefox y otros navegadores que permitas. Se comunica con esta app mediante una conexión cifrada que apruebas una vez por navegador.",
     browserIntegration: "Permitir la extensión del navegador",
     browserIntegrationHint: "Registra Keyless en los navegadores instalados en este equipo.",
     pairedBrowsers: "Navegadores conectados",
     noPairedBrowsers: "Todavía no hay ningún navegador conectado.",
     unpair: "Desconectar",
+    allowedBrowsers: "Otros navegadores permitidos",
+    allowedBrowsersHint: "Navegadores que Keyless no conocía y que permitiste.",
+    disallowBrowser: "Quitar",
     secretKeyTitle: "Clave secreta y Kit de emergencia",
     secretKeyBody:
       "Necesitas tu clave secreta para iniciar sesión en un dispositivo nuevo. Guarda una copia de tu Kit de emergencia en un lugar seguro.",

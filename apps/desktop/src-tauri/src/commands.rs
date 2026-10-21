@@ -153,6 +153,28 @@ pub fn remove_bridge_peer(state: State<'_, AppState>, public_key: String) -> App
     state.store().remove_bridge_peer(&public_key)
 }
 
+/// The user's answer about a browser Keyless does not know.
+#[tauri::command]
+pub fn bridge_browser_respond(state: State<'_, AppState>, request_id: String, allow: bool) -> AppResult<()> {
+    crate::bridge::server::respond_to_browser(&state, &request_id, allow)
+}
+
+/// The browsers the user allowed (their executables).
+#[tauri::command]
+pub fn list_allowed_browsers(state: State<'_, AppState>) -> Vec<String> {
+    crate::bridge::server::allowed_browsers(&state).iter().map(|path| path.display().to_string()).collect()
+}
+
+#[tauri::command]
+pub fn remove_allowed_browser(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    state.touch();
+    let mut allowed = crate::bridge::server::allowed_browsers(&state);
+    allowed.retain(|allowed| allowed.display().to_string() != path);
+    state.store().set_setting(crate::bridge::server::ALLOWED_BROWSERS, &allowed)?;
+    state.bridge.browsers_changed.notify_waiters();
+    Ok(())
+}
+
 /// When the account's recovery key was made (ISO 8601), if it has one.
 #[tauri::command]
 pub async fn recovery_key_status(state: State<'_, AppState>) -> AppResult<Option<String>> {

@@ -17,6 +17,9 @@
 //!   publisher, on Windows). On Linux an administrator can allow more browsers
 //!   in `/etc/keyless/allowed_browsers` (owned by root): one executable name,
 //!   or full path, per line.
+//! - or by another browser installed by the system (on Linux, a Chromium or
+//!   Firefox build owned by root; on Windows, in Program Files) that the user
+//!   allowed in the app: it asks the first time (`UNKNOWN_BROWSER`).
 //!
 //! This is checked once, when the host connects. It turns away programs that
 //! copied the pairing key and talk to the socket themselves, but not malware
@@ -52,6 +55,23 @@ const BROWSERS: &[&str] = &[
 /// Why a connection was refused. Sent to the extension, which explains it.
 pub const NOT_KEYLESS: &str = "untrusted_host";
 pub const UNTRUSTED_BROWSER: &str = "untrusted_browser";
+/// A browser installed by the system that Keyless does not know, and the
+/// user has not allowed (yet): the app asks.
+pub const UNKNOWN_BROWSER: &str = "unknown_browser";
+
+/// Why a connection was refused.
+#[derive(Debug)]
+pub struct Refusal {
+    pub code: &'static str,
+    /// The browser to ask the user about (`UNKNOWN_BROWSER`).
+    pub browser: Option<std::path::PathBuf>,
+}
+
+impl From<&'static str> for Refusal {
+    fn from(code: &'static str) -> Self {
+        Self { code, browser: None }
+    }
+}
 
 #[cfg(target_os = "linux")]
 pub use linux::check;
@@ -60,7 +80,7 @@ pub use linux::check;
 pub use windows::{check, client_pid};
 
 #[cfg(all(unix, not(target_os = "linux")))]
-pub fn check(_pid: Option<i32>) -> Result<(), &'static str> {
+pub fn check(_pid: Option<i32>, _allowed: &[std::path::PathBuf]) -> Result<(), Refusal> {
     Ok(())
 }
 
@@ -75,25 +95,32 @@ mod linux {
 
     use sha2::{Digest, Sha256};
 
-    use super::{BROWSERS, NOT_KEYLESS, UNTRUSTED_BROWSER};
+    use super::{BROWSERS, NOT_KEYLESS, Refusal, UNKNOWN_BROWSER, UNTRUSTED_BROWSER};
 
     const ALLOWED_BROWSERS_FILE: &str = "/etc/keyless/allowed_browsers";
 
     /// Checks the process that connected (`pid` from the socket's peer
-    /// credentials).
-    pub fn check(pid: Option<i32>) -> Result<(), &'static str> {
+    /// credentials). `allowed`: the browsers the user allowed in the app.
+    pub fn check(pid: Option<i32>, allowed: &[PathBuf]) -> Result<(), Refusal> {
         let pid = pid.ok_or(NOT_KEYLESS)?;
         let exe = executable(pid).ok_or(NOT_KEYLESS)?;
         if !same_executable(pid, &exe) {
-            return Err(NOT_KEYLESS);
+            return Err(NOT_KEYLESS.into());
         }
         let status = std::fs::read_to_string(format!("/proc/{pid}/status")).map_err(|_| NOT_KEYLESS)?;
         if status_field(&status, "TracerPid") != Some(0) || !clean_environment(pid) || !clean_mappings(pid, &exe) {
-            return Err(NOT_KEYLESS);
+            return Err(NOT_KEYLESS.into());
         }
         let parent = status_field(&status, "PPid").ok_or(UNTRUSTED_BROWSER)?;
         let browser = executable(parent as i32).ok_or(UNTRUSTED_BROWSER)?;
-        if trusted_browser(&browser) { Ok(()) } else { Err(UNTRUSTED_BROWSER) }
+        if trusted_browser(&browser) {
+            return Ok(());
+        }
+        // Another browser from the system: the user decides.
+        if system_file(&browser) && looks_like_browser(&browser) {
+            return if allowed.contains(&browser) { Ok(()) } else { Err(Refusal { code: UNKNOWN_BROWSER, browser: Some(browser) }) };
+        }
+        Err(UNTRUSTED_BROWSER.into())
     }
 
     fn status_field(status: &str, name: &str) -> Option<u32> {
@@ -248,6 +275,15 @@ mod linux {
         (BROWSERS.contains(&name) || extra.iter().any(|line| line == name)) && system_file(path)
     }
 
+    /// A Chromium or Firefox build (or an app made with Chromium): files
+    /// their folder always has. Other programs are not offered to the user.
+    fn looks_like_browser(path: &Path) -> bool {
+        let Some(dir) = path.parent() else { return false };
+        ["icudtl.dat", "v8_context_snapshot.bin", "snapshot_blob.bin", "omni.ja", "application.ini"]
+            .iter()
+            .any(|name| dir.join(name).is_file())
+    }
+
     /// The administrator's list, ignored unless only root can change it.
     fn allowed_browsers() -> Vec<String> {
         let path = Path::new(ALLOWED_BROWSERS_FILE);
@@ -303,6 +339,16 @@ mod linux {
             let home = std::env::temp_dir().join("chrome");
             assert!(!trusted_browser(&home));
         }
+
+        #[test]
+        fn browsers_by_their_files() {
+            assert!(!looks_like_browser(Path::new("/usr/bin/env")));
+            let dir = std::env::temp_dir().join(format!("keyless-browser-{}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("icudtl.dat"), b"").unwrap();
+            assert!(looks_like_browser(&dir.join("some-browser")));
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 }
 
@@ -327,7 +373,7 @@ mod windows {
         },
     };
 
-    use super::{BROWSERS, NOT_KEYLESS, UNTRUSTED_BROWSER};
+    use super::{BROWSERS, NOT_KEYLESS, Refusal, UNKNOWN_BROWSER, UNTRUSTED_BROWSER};
 
     struct Process {
         handle: HANDLE,
@@ -412,12 +458,13 @@ mod windows {
     }
 
     /// Checks the process at the other end of the pipe (`client_pid`).
-    pub fn check(pid: Option<u32>) -> Result<(), &'static str> {
+    /// `allowed`: the browsers the user allowed in the app.
+    pub fn check(pid: Option<u32>, allowed: &[PathBuf]) -> Result<(), Refusal> {
         let pid = pid.ok_or(NOT_KEYLESS)?;
         let host = Process::open(pid).ok_or(NOT_KEYLESS)?;
         let ours = std::env::current_exe().map_err(|_| NOT_KEYLESS)?;
         if !host.image().is_some_and(|image| same_path(&image, &ours)) {
-            return Err(NOT_KEYLESS);
+            return Err(NOT_KEYLESS.into());
         }
 
         // Chrome and Edge start hosts through cmd.exe: look one level up.
@@ -430,7 +477,18 @@ mod windows {
         let name = file_name(&image);
         let known = BROWSERS.iter().any(|b| name == format!("{b}.exe"));
         let trusted = in_program_files(&image) || signer(&image).is_some_and(|signer| browser_publisher(&signer));
-        if known && trusted { Ok(()) } else { Err(UNTRUSTED_BROWSER) }
+        if known && trusted {
+            return Ok(());
+        }
+        // Another program installed for all users: the user decides.
+        if in_program_files(&image) {
+            return if allowed.iter().any(|path| same_path(path, &image)) {
+                Ok(())
+            } else {
+                Err(Refusal { code: UNKNOWN_BROWSER, browser: Some(image) })
+            };
+        }
+        Err(UNTRUSTED_BROWSER.into())
     }
 
     /// System32, or SysWOW64 (the cmd.exe 32-bit browsers start).

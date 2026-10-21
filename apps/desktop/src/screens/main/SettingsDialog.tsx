@@ -727,10 +727,13 @@ function BrowserTab() {
   const settings = useApp((s) => s.settings);
   const setSettings = useApp((s) => s.setSettings);
   const [peers, setPeers] = useState<BridgePeer[]>([]);
+  const [browsers, setBrowsers] = useState<string[]>([]);
 
   const load = () => api.listBridgePeers().then(setPeers).catch(() => setPeers([]));
+  const loadBrowsers = () => api.listAllowedBrowsers().then(setBrowsers).catch(() => setBrowsers([]));
   useEffect(() => {
     void load();
+    void loadBrowsers();
   }, []);
 
   if (!settings) return null;
@@ -738,6 +741,14 @@ function BrowserTab() {
     try {
       await api.removeBridgePeer(peer.publicKey);
       await load();
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const removeBrowser = async (path: string) => {
+    try {
+      await api.removeAllowedBrowser(path);
+      await loadBrowsers();
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -781,6 +792,25 @@ function BrowserTab() {
           </div>
         )}
       </div>
+      {browsers.length > 0 && (
+        <div>
+          <div className="text-sm font-medium">{t("settings.allowedBrowsers")}</div>
+          <p className="mb-2 mt-1 text-xs leading-relaxed text-muted">{t("settings.allowedBrowsersHint")}</p>
+          <div className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+            {browsers.map((path) => (
+              <div key={path} className="flex items-center gap-3 px-3 py-2">
+                <Globe className="size-4 text-muted" />
+                <div className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>
+                  {path}
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => removeBrowser(path)} title={t("settings.disallowBrowser")}>
+                  <Trash className="size-3.5" /> {t("settings.disallowBrowser")}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -207,6 +207,8 @@ async function render() {
       return renderPairing(status.code ?? "");
     case "untrusted_browser":
       return message(t("untrustedBrowserTitle"), t("untrustedBrowserBody"));
+    case "unknown_browser":
+      return message(t("unknownBrowserTitle"), t("unknownBrowserBody"), { label: t("retry"), run: render });
     case "untrusted_host":
       return message(t("untrustedHostTitle"), t("untrustedHostBody"));
     case "locked":

@@ -12,6 +12,7 @@ use zeroize::Zeroizing;
 use super::{
     crypto::{Channel, decode_public_key, encode_public_key, pairing_code},
     handlers,
+    peer::Refusal,
 };
 use crate::state::AppState;
 
@@ -21,6 +22,14 @@ const PAIRING_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CLOCK_SKEW_MS: i64 = 120_000;
 
 pub const EVENT_PAIR_REQUEST: &str = "keyless://pair-request";
+/// A browser Keyless does not know wants to connect (see `ask_about_browser`).
+pub const EVENT_BROWSER_REQUEST: &str = "keyless://browser-request";
+/// The browsers the user allowed (full paths of their executables), in the
+/// local settings.
+pub const ALLOWED_BROWSERS: &str = "allowed_browsers";
+/// A question about a browser not answered by then is asked again on its
+/// next connection.
+const BROWSER_PROMPT_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[cfg(unix)]
 pub fn socket_path() -> std::path::PathBuf {
@@ -114,9 +123,10 @@ async fn listen(app: AppHandle) -> std::io::Result<()> {
         };
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = match check_peer(move || super::peer::check(pid)).await {
+            let allowed = allowed_browsers(&app.state::<AppState>());
+            let _ = match check_peer(move || super::peer::check(pid, &allowed)).await {
                 Ok(()) => serve(app, stream).await,
-                Err(code) => refuse(stream, code).await,
+                Err(refusal) => refuse(&app, stream, refusal).await,
             };
         });
     }
@@ -148,20 +158,30 @@ async fn listen(app: AppHandle) -> std::io::Result<()> {
         let pid = super::peer::client_pid(&connected);
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let _ = match check_peer(move || super::peer::check(pid)).await {
+            let allowed = allowed_browsers(&app.state::<AppState>());
+            let _ = match check_peer(move || super::peer::check(pid, &allowed)).await {
                 Ok(()) => serve(app, connected).await,
-                Err(code) => refuse(connected, code).await,
+                Err(refusal) => refuse(&app, connected, refusal).await,
             };
         });
     }
 }
 
 async fn serve<S: AsyncRead + AsyncWrite + Unpin>(app: AppHandle, stream: S) -> std::io::Result<()> {
+    // The allowed browsers changed: the connection ends between requests,
+    // and the host connects again, checked again.
+    let state = app.state::<AppState>();
+    let changed = state.bridge.browsers_changed.notified();
+    tokio::pin!(changed);
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
     loop {
         let mut line = Zeroizing::new(Vec::new());
-        let read = (&mut reader).take(MAX_LINE as u64 + 1).read_until(b'\n', &mut line).await?;
+        let mut limited = (&mut reader).take(MAX_LINE as u64 + 1);
+        let read = tokio::select! {
+            read = limited.read_until(b'\n', &mut line) => read?,
+            _ = &mut changed => return Ok(()),
+        };
         if read == 0 {
             return Ok(());
         }
@@ -184,27 +204,89 @@ const PEER_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Runs the `peer` check away from the accept loop, so one slow check never
 /// holds up other connections; one that takes too long is a refusal.
-async fn check_peer(check: impl FnOnce() -> Result<(), &'static str> + Send + 'static) -> Result<(), &'static str> {
+async fn check_peer(check: impl FnOnce() -> Result<(), Refusal> + Send + 'static) -> Result<(), Refusal> {
     match tokio::time::timeout(PEER_CHECK_TIMEOUT, tauri::async_runtime::spawn_blocking(check)).await {
         Ok(Ok(result)) => result,
-        _ => Err(super::peer::NOT_KEYLESS),
+        _ => Err(super::peer::NOT_KEYLESS.into()),
     }
 }
 
 /// Answers every request from a process that failed the `peer` check with
-/// why, so the extension can explain it, until it hangs up.
-async fn refuse<S: AsyncRead + AsyncWrite + Unpin>(stream: S, code: &'static str) -> std::io::Result<()> {
+/// why, so the extension can explain it, until it hangs up. A browser the
+/// user may allow is asked about in the app; once the user allows one, the
+/// connection ends, and the host connects again (checked again).
+async fn refuse<S: AsyncRead + AsyncWrite + Unpin>(app: &AppHandle, stream: S, refusal: Refusal) -> std::io::Result<()> {
+    let state = app.state::<AppState>();
+    let changed = state.bridge.browsers_changed.notified();
+    tokio::pin!(changed);
+    if let Some(browser) = refusal.browser {
+        ask_about_browser(app, browser);
+    }
     let (reader, mut writer) = tokio::io::split(stream);
     let mut reader = BufReader::new(reader);
-    let reply = format!("{}\n", json!({ "type": "error", "code": code }));
+    let reply = format!("{}\n", json!({ "type": "error", "code": refusal.code }));
     loop {
         let mut line = Vec::new();
-        if (&mut reader).take(MAX_LINE as u64 + 1).read_until(b'\n', &mut line).await? == 0 || line.len() > MAX_LINE {
+        let mut limited = (&mut reader).take(MAX_LINE as u64 + 1);
+        let read = tokio::select! {
+            read = limited.read_until(b'\n', &mut line) => read?,
+            _ = &mut changed => return Ok(()),
+        };
+        if read == 0 || line.len() > MAX_LINE {
             return Ok(());
         }
         writer.write_all(reply.as_bytes()).await?;
         writer.flush().await?;
     }
+}
+
+/// The browsers the user allowed.
+pub fn allowed_browsers(state: &AppState) -> Vec<std::path::PathBuf> {
+    state.store().setting(ALLOWED_BROWSERS).ok().flatten().unwrap_or_default()
+}
+
+/// Asks the user, in the app, whether a browser Keyless does not know may
+/// connect: one question per browser at a time, and none again after a "no"
+/// until the app starts again.
+fn ask_about_browser(app: &AppHandle, browser: std::path::PathBuf) {
+    let state = app.state::<AppState>();
+    let bridge = &state.bridge;
+    if bridge.declined_browsers.lock().unwrap_or_else(|e| e.into_inner()).contains(&browser) {
+        return;
+    }
+    let request_id = {
+        let mut prompts = bridge.browser_prompts.lock().unwrap_or_else(|e| e.into_inner());
+        if prompts.values().any(|(asked, at)| *asked == browser && at.elapsed() < BROWSER_PROMPT_TIMEOUT) {
+            return;
+        }
+        let id = uuid::Uuid::new_v4().to_string();
+        prompts.insert(id.clone(), (browser.clone(), Instant::now()));
+        id
+    };
+    let name = browser.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    crate::main_window::deliver(app, EVENT_BROWSER_REQUEST, json!({ "requestId": request_id, "name": name, "path": browser }));
+}
+
+/// Called by the UI when the user answers about a browser.
+pub fn respond_to_browser(state: &AppState, request_id: &str, allow: bool) -> crate::error::AppResult<()> {
+    let bridge = &state.bridge;
+    let browser = {
+        let mut prompts = bridge.browser_prompts.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((browser, _)) = prompts.remove(request_id) else { return Ok(()) };
+        prompts.retain(|_, (asked, _)| *asked != browser);
+        browser
+    };
+    if !allow {
+        bridge.declined_browsers.lock().unwrap_or_else(|e| e.into_inner()).insert(browser);
+        return Ok(());
+    }
+    let mut allowed = allowed_browsers(state);
+    if !allowed.contains(&browser) {
+        allowed.push(browser);
+        state.store().set_setting(ALLOWED_BROWSERS, &allowed)?;
+    }
+    bridge.browsers_changed.notify_waiters();
+    Ok(())
 }
 
 #[derive(Deserialize)]

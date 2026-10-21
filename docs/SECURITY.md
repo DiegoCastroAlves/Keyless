@@ -732,8 +732,12 @@ or a password it suggested.
   installed on the system (owned by root on Linux, where an administrator
   can allow others in `/etc/keyless/allowed_browsers`; on Windows, in
   Program Files or signed by that browser's publisher, looking past the
-  `cmd.exe` Chrome and Edge start hosts with). The extension explains a
-  refusal. This is a hurdle for a program that copied the pairing key and
+  `cmd.exe` Chrome and Edge start hosts with). Another browser installed on
+  the system (on Linux, owned by root and with a Chromium or Firefox build's
+  files beside it; on Windows, in Program Files) is asked about in the app,
+  with its executable's path, and works once the user allows it; the list
+  is kept in the app's local settings and can be undone there. The
+  extension explains a refusal. This is a hurdle for a program that copied the pairing key and
   talks to the socket itself, not a wall against malware running as the
   user (see "Accepted limitations").
 - **Pairing.** Each browser generates a non-extractable X25519 key pair

@@ -29,6 +29,8 @@ export interface Status {
     | "host_missing"
     /** The app refused this browser (not one installed on the system). */
     | "untrusted_browser"
+    /** A browser the app does not know: it asks the user whether to allow it. */
+    | "unknown_browser"
     /** The app refused the process that connected (not Keyless, or tampered with). */
     | "untrusted_host"
     | "error";

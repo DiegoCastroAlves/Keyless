@@ -44,6 +44,12 @@
   "untrustedBrowserBody": {
     "message": "O Keyless só responde a navegadores instalados no sistema (pelos pacotes da sua distribuição, ou em Arquivos de Programas no Windows). No Linux, um administrador pode liberar outro navegador colocando o executável dele em /etc/keyless/allowed_browsers."
   },
+  "unknownBrowserTitle": {
+    "message": "Permita este navegador no Keyless"
+  },
+  "unknownBrowserBody": {
+    "message": "O Keyless não conhece este navegador e pergunta, no app do computador, se ele pode se conectar. Permita lá e tente de novo. Se você recusou, ele pergunta outra vez quando o Keyless for aberto de novo."
+  },
   "untrustedHostTitle": {
     "message": "Conexão recusada"
   },

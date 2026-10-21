@@ -113,7 +113,7 @@ function browserName(): string {
 class BridgeError extends Error {}
 
 /** Error codes from the host or app that the popup explains. */
-const KNOWN_ERRORS = ["app_not_running", "not_paired", "untrusted_browser", "untrusted_host"] as const;
+const KNOWN_ERRORS = ["app_not_running", "not_paired", "untrusted_browser", "unknown_browser", "untrusted_host"] as const;
 
 function errorState(code: unknown): Status["state"] {
   return KNOWN_ERRORS.find((known) => known === code) ?? "error";
@@ -123,8 +123,12 @@ function errorState(code: unknown): Status["state"] {
 async function connect(): Promise<Status> {
   const me = await identity();
   let reply: any;
+  const hello = () => native.send({ type: "hello", pub: toBase64(me.publicRaw), name: browserName() });
   try {
-    reply = await native.send({ type: "hello", pub: toBase64(me.publicRaw), name: browserName() });
+    reply = await hello();
+    // The app ended the host's connection (it restarted, or the user just
+    // allowed this browser): the host connects again on the next message.
+    if (reply?.type === "error" && reply.code === "app_not_running") reply = await hello();
   } catch {
     return { state: "host_missing" };
   }

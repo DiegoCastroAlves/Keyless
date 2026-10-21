@@ -12,6 +12,7 @@ import {
   type ItemSummary,
   type InstallKind,
   type PairRequest,
+  type BrowserRequest,
   type SentinelAlert,
   type Settings,
   type SyncStatus,
@@ -96,6 +97,8 @@ interface AppStore {
   newItemRequest: { category: Category; url: string; title: string } | null;
   /** A browser extension asks to pair (the prompt shows it). */
   pairRequest: PairRequest | null;
+  /** A browser Keyless does not know asks to connect (the prompt shows it). */
+  browserRequest: BrowserRequest | null;
   /** The list of keyboard shortcuts is open. */
   shortcutsOpen: boolean;
   /** Items selected together (two or more: the bulk actions show). */
@@ -153,6 +156,7 @@ export const useApp = create<AppStore>((set, get) => ({
   deviceRevoked: false,
   newItemRequest: null,
   pairRequest: null,
+  browserRequest: null,
   shortcutsOpen: false,
   selection: [],
   filters: {},

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Logo, Toaster } from "./components/common";
+import { BrowserRequestDialog } from "./components/BrowserRequestDialog";
 import { DeviceApprovalDialog } from "./components/DeviceApprovalDialog";
 import { PairRequestDialog } from "./components/PairRequestDialog";
 import { TooltipProvider } from "./components/ui";
@@ -110,6 +111,7 @@ export function App() {
       // Kept for the vault to take (see MainLayout) and the pairing prompt.
       events.onNewItem((request) => useApp.setState({ newItemRequest: request })),
       events.onPairRequest((request) => useApp.setState({ pairRequest: request })),
+      events.onBrowserRequest((request) => useApp.setState({ browserRequest: request })),
     ];
     // Listening: what waited for this window (made when shown) comes now.
     void Promise.all(subscriptions).then(() => api.mainReady());
@@ -152,6 +154,7 @@ export function App() {
         <MainLayout />
       )}
       <PairRequestDialog />
+      <BrowserRequestDialog />
       {unlocked && <DeviceApprovalDialog />}
       <Toaster />
     </TooltipProvider>

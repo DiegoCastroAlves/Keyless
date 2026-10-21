@@ -480,6 +480,9 @@ pub fn run() {
             commands::bridge_pair_respond,
             commands::list_bridge_peers,
             commands::remove_bridge_peer,
+            commands::bridge_browser_respond,
+            commands::list_allowed_browsers,
+            commands::remove_allowed_browser,
             commands::main_ready,
         ])
         .build(tauri::generate_context!())
