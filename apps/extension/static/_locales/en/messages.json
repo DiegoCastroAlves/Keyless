@@ -413,6 +413,9 @@
   "pkFailed": {
     "message": "Keyless couldn't do it. Try again or use another device."
   },
+  "pkExpired": {
+    "message": "This page is no longer asking for a passkey. Reload it to try again."
+  },
   "setPasskeys": {
     "message": "Save and use passkeys with Keyless"
   },

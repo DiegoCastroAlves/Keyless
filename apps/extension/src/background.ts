@@ -257,8 +257,12 @@ async function showState(state: Status["state"]): Promise<void> {
     }
   }
   await chrome.storage.session.set({ lockState: { locked, at: Date.now() } }).catch(() => undefined);
-  // Passkeys waiting in pages' fields can be listed now.
-  if (!locked) void refreshConditional();
+  // Passkeys waiting in pages' fields can be listed now, and logins typed
+  // while locked compared with the saved ones.
+  if (!locked) {
+    void refreshConditional();
+    void releaseCaptures();
+  }
 }
 
 /** Full status for the popup, including the pairing code. */
@@ -775,6 +779,10 @@ interface Capture {
   /** Kept when a suggested password was filled; shown on the next page, in
    * case the form's submission was missed. */
   deferred: boolean;
+  /** Keyless was locked when signing in worked: it cannot tell yet whether
+   * the login is saved already, so the prompt waits until it is unlocked
+   * (see `releaseCaptures`). */
+  waitsUnlock?: boolean;
   at: number;
   check: SaveCheck | null;
 }
@@ -1014,13 +1022,37 @@ async function sameSite(capture: Capture, url: string | undefined): Promise<bool
   return sameSites(url, capture.url);
 }
 
-/** Signing in worked: shows the prompt on the page. */
+/** Signing in worked: shows the prompt on the page (once Keyless can tell
+ * whether the login is new). */
 async function captureDone(tabId: number, url: string): Promise<void> {
   const capture = await getCapture(tabId);
   if (!capture || capture.ready || !(await sameSite(capture, url))) return;
   capture.ready = true;
+  if ((await quickStatus()).state !== "ready") {
+    capture.waitsUnlock = true;
+    return setCapture(tabId, capture);
+  }
   await setCapture(tabId, capture);
   chrome.tabs.sendMessage(tabId, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
+}
+
+/** Unlocked: the logins typed meanwhile are compared with the saved ones;
+ * the prompt shows only for a new login or a changed password, on a tab
+ * still on its site. */
+async function releaseCaptures() {
+  for (const tab of await chrome.tabs.query({}).catch(() => [])) {
+    if (tab.id === undefined) continue;
+    const capture = await getCapture(tab.id);
+    if (!capture?.waitsUnlock) continue;
+    capture.waitsUnlock = false;
+    capture.check = await checkCapture(capture);
+    if (capture.check?.state === "same") {
+      await setCapture(tab.id, null);
+      continue;
+    }
+    await setCapture(tab.id, capture);
+    if (await sameSite(capture, tab.url)) chrome.tabs.sendMessage(tab.id, { type: "keyless-save" }, { frameId: 0 }).catch(() => undefined);
+  }
 }
 
 /** A page loaded in the tab: whether it shows the prompt. */
@@ -1034,6 +1066,14 @@ async function savePending(tabId: number, url: string, loginForm: boolean): Prom
     if (loginForm) return false;
     capture.ready = true;
     await setCapture(tabId, capture);
+  }
+  // Locked: the prompt waits until Keyless can tell whether it is new.
+  if (capture.waitsUnlock || (await quickStatus()).state !== "ready") {
+    if (!capture.waitsUnlock) {
+      capture.waitsUnlock = true;
+      await setCapture(tabId, capture);
+    }
+    return false;
   }
   return true;
 }
@@ -1147,7 +1187,7 @@ async function saveState(tabId: number, url: string | undefined): Promise<SaveSt
     };
   }
   const capture = await getCapture(tabId);
-  if (!capture || !capture.ready || !(await sameSite(capture, url))) return null;
+  if (!capture || !capture.ready || capture.waitsUnlock || !(await sameSite(capture, url))) return null;
   const locked = (await quickStatus()).state !== "ready";
   if (!locked && !capture.check) {
     capture.check = await checkCapture(capture);
@@ -1401,8 +1441,43 @@ const passkeyRequests = new Map<string, PasskeyRequest>();
 const conditionalRequests = new Map<string, PasskeyRequest>();
 const frameKey = (tabId: number, frameId: number) => `${tabId}:${frameId}`;
 
+// ----- Passkey diagnostics ---------------------------------------------------------
+//
+// Off unless turned on from this service worker's console:
+//   chrome.storage.local.set({ debugPasskeys: true })
+// Logs how each passkey request was asked and how it ended, by names and
+// counts only: never a challenge, a credential id or a key.
+
+async function debugPasskey(event: string, entry: Pick<PasskeyRequest, "origin" | "frameId" | "topOrigin" | "request">, extra: Record<string, unknown> = {}) {
+  const stored = await chrome.storage.local.get("debugPasskeys").catch(() => ({}) as Record<string, unknown>);
+  if (stored.debugPasskeys !== true) return;
+  const r = entry.request ?? {};
+  console.info("[Keyless passkeys]", event, {
+    origin: entry.origin,
+    frame: entry.frameId,
+    topOrigin: entry.topOrigin,
+    kind: r.kind,
+    conditional: r.conditional === true,
+    rpId: r.rpId,
+    allowCredentials: Array.isArray(r.allowCredentials) ? r.allowCredentials.length : 0,
+    excludeCredentials: Array.isArray(r.excludeCredentials) ? r.excludeCredentials.length : 0,
+    timeout: r.timeout,
+    prf: Boolean(r.prf),
+    about: r.about,
+    ...extra,
+  });
+}
+
+/** An answer to a page, as the diagnostics show it. */
+function outcome(answer: unknown) {
+  if (answer === null) return { endedByPage: true };
+  const a = answer as { ok?: boolean; error?: string; fallback?: boolean };
+  return { ok: a.ok === true, error: a.error, fallback: a.fallback === true };
+}
+
 function finishPasskey(entry: PasskeyRequest, answer: unknown) {
   if (!passkeyRequests.delete(entry.id)) return;
+  void debugPasskey("finished", entry, outcome(answer));
   clearTimeout(entry.timer);
   try {
     entry.port.postMessage(answer);
@@ -1418,6 +1493,7 @@ function finishConditional(entry: PasskeyRequest, answer: unknown) {
   const key = frameKey(entry.tabId, entry.frameId);
   if (conditionalRequests.get(key) !== entry) return;
   conditionalRequests.delete(key);
+  void debugPasskey("finished", entry, outcome(answer));
   if (answer !== null) {
     try {
       entry.port.postMessage(answer);
@@ -1437,6 +1513,19 @@ async function conditionalPasskeys(entry: PasskeyRequest): Promise<PasskeyEntry[
     rpId: entry.request.rpId,
     allowCredentials: entry.request.allowCredentials,
   }).catch(() => []);
+}
+
+/** Signed in with one of the passkeys of a login: a one-time code the site
+ * asks for next (as Deel does) is filled from the same login, as after a
+ * password (see "Sign-ins in steps"). The app checks the login against that
+ * page's address again when it fills. */
+async function afterPasskey(entry: PasskeyRequest, credentialId: string) {
+  const itemId = (await conditionalPasskeys(entry)).find((key) => key.credentialId === credentialId)?.itemId;
+  if (!itemId) return;
+  const until = Date.now() + CONTINUE_MS;
+  await setContinuation(entry.tabId, { id: itemId, url: entry.origin, needs: ["otp"], until, submit: false });
+  const push = { type: "keyless-continue", needs: ["otp"], until };
+  for (const frameId of new Set([entry.frameId, 0])) await chrome.tabs.sendMessage(entry.tabId, push, { frameId }).catch(() => undefined);
 }
 
 /** Tells the frame's content script how many passkeys its fields offer. */
@@ -1492,18 +1581,21 @@ async function startPasskey(
   where: { tabId: number; frameId: number; origin: string; host: string; topOrigin: string | null },
   request: any,
 ) {
-  const fallback = () => port.postMessage({ fallback: true });
-  if (request?.kind !== "create" && request?.kind !== "get") return fallback();
+  const fallback = (why: string) => {
+    void debugPasskey("left to the browser", { ...where, request: request ?? {} }, { why });
+    port.postMessage({ fallback: true });
+  };
+  if (request?.kind !== "create" && request?.kind !== "get") return fallback("not a passkey request");
   const settings = await loadSettings();
   const sites = [siteKey(where.origin), siteKey(where.topOrigin)].filter((site): site is string => site !== null);
-  if (!settings.passkeys || sites.some((site) => settings.hidden.includes(site))) return fallback();
+  if (!settings.passkeys || sites.some((site) => settings.hidden.includes(site))) return fallback("passkeys off, or hidden on this site");
   const conditional = request.kind === "get" && request.conditional === true;
   const current = await quickStatus();
   const connected = current.state === "ready" || current.state === "locked";
   // Passkeys for the page's fields wait even while Keyless cannot be reached
   // (the browser just started, the app is opening): they are offered once it
   // can, and the app checks the site when it lists them and signs.
-  if (!connected && !conditional) return fallback();
+  if (!connected && !conditional) return fallback(`app ${current.state}`);
   if (connected) {
     // A site that names another site's relying party is refused before the
     // user sees anything.
@@ -1511,11 +1603,13 @@ async function startPasskey(
       await call("passkey_check", { origin: where.origin, rpId: request.rpId });
     } catch (err) {
       const code = err instanceof BridgeError ? err.message : "error";
+      void debugPasskey("site check failed", { ...where, request }, { code });
       if (code === "rp_id_mismatch" || code === "insecure_page") return port.postMessage({ ok: false, error: "security" });
-      if (!conditional) return fallback();
+      if (!conditional) return fallback(`site check: ${code}`);
     }
   }
   const entry: PasskeyRequest = { id: crypto.randomUUID(), ...where, request, port, windowId: null, inPage: false, timer: undefined };
+  void debugPasskey("request", entry);
   if (conditional) return startConditional(entry);
 
   // One request per tab, like the browser. Passkeys offered in the page's
@@ -1647,9 +1741,11 @@ async function handlePasskey(entry: PasskeyRequest, message: any): Promise<Reply
             : await passkeyGet(entry, String(message.credentialId ?? ""));
         finishPasskey(entry, { ok: true, credential });
         if (r.kind === "create") await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
+        else void afterPasskey(entry, String(message.credentialId ?? ""));
         return { ok: true };
       } catch (err) {
         const code = err instanceof BridgeError ? err.message : "error";
+        void debugPasskey("app refused", entry, { code });
         // Already there, or a site Keyless refuses: the page is told.
         if (code === "exists" || code === "rp_id_mismatch" || code === "unsupported" || code === "insecure_page") {
           finishPasskey(entry, { ok: false, error: code === "exists" ? "exists" : code === "unsupported" ? "unsupported" : "security" });
@@ -1867,8 +1963,10 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       // A passkey from the menu under a field that asks for one.
       const entry = conditionalRequests.get(frameKey(tab.id, reg.frameId));
       if (!entry) return { ok: false, error: "expired" };
-      const credential = await passkeyGet(entry, String(message.credentialId ?? ""));
+      const credentialId = String(message.credentialId ?? "");
+      const credential = await passkeyGet(entry, credentialId);
       finishConditional(entry, { ok: true, credential });
+      void afterPasskey(entry, credentialId);
       return { ok: true };
     }
     case "unlock":

@@ -572,9 +572,11 @@ class Frame {
   private ready = false;
   /** What the menu is shown for, told when it loads (again after a reload,
    * see mount). */
-  private details: { activate: boolean; field: FieldInfo | null } = { activate: false, field: null };
+  private details: { activate: boolean; field: FieldInfo | null; room?: number } = { activate: false, field: null };
   open = false;
   height = 0;
+  /** The height the menu was told it may take (see `menuRoom`). */
+  room = 0;
 
   constructor(
     readonly mode: "menu" | "card" | "save" | "passkey" | "alert" | "ssh",
@@ -590,7 +592,7 @@ class Frame {
   /** Shows the menu; it appears once it has rendered and reported its size.
    * `activate`: opened with the Keyless button (unlocks when locked).
    * `field`: the field it was opened for. */
-  show(options: { activate?: boolean; field?: FieldInfo } = {}) {
+  show(options: { activate?: boolean; field?: FieldInfo; room?: number } = {}) {
     mount();
     // Above whatever the page put in the top layer since.
     if (!this.open) {
@@ -598,12 +600,13 @@ class Frame {
       else below = new Set();
     }
     this.open = true;
-    const details = { activate: options.activate ?? false, field: options.field ?? null };
-    this.details = { activate: false, field: details.field };
+    if (options.room) this.room = options.room;
+    const details = { activate: options.activate ?? false, field: options.field ?? null, room: options.room };
+    this.details = { activate: false, field: details.field, room: details.room };
     // Told again once it has its size (see resize).
     lastSafe.delete(this);
     if (this.ready) {
-      this.details = { activate: false, field: details.field };
+      this.details = { activate: false, field: details.field, room: details.room };
       this.post({ type: "show", ...details });
       if (this.height > 0) this.iframe.classList.add("open");
       return;
@@ -619,7 +622,7 @@ class Frame {
             this.ready = true;
             this.post({ type: "init", ...this.details });
             // Reloaded, it is set up again, not activated again.
-            this.details = { activate: false, field: this.details.field };
+            this.details = { activate: false, field: this.details.field, room: this.room || undefined };
             resolve();
           });
           this.iframe.src = chrome.runtime.getURL(`inline.html#${this.mode}`);
@@ -964,15 +967,32 @@ function getPageState(): Promise<PageState | null> {
   return pageState.value;
 }
 
+/** The height a menu under (or above) a field may take, its frame's
+ * padding included: the larger space of the two, so it shows whole and
+ * scrolls inside (a frame cut off by the window's edge takes no clicks). */
+function menuRoom(rect: { top: number; bottom: number }): number {
+  return Math.max(120, Math.floor(Math.max(window.innerHeight - rect.bottom - 4, rect.top - 4) - 8 + 2 * PAD));
+}
+
+/** Tells a menu the height it may take, when it changed. */
+function tellRoom(frame: Frame, room: number) {
+  if (Math.abs(room - frame.room) <= 2) return;
+  frame.room = room;
+  frame.post({ type: "room", room });
+}
+
 function place() {
   if (!current) return;
   const rect = current.getBoundingClientRect();
   button.style.top = `${rect.top + (rect.height - 24) / 2}px`;
   button.style.left = `${rect.right - (button.offsetWidth || 24) - 6}px`;
   if (menu?.open) {
-    const below = rect.bottom + 4 + menu.height - 2 * PAD <= window.innerHeight;
-    const above = rect.top - menu.height > 0;
-    if (!TOP && menu.height > 0 && !below && !above) {
+    tellRoom(menu, menuRoom(rect));
+    // As tall as it will be once it fits its room.
+    const height = Math.min(menu.height, menu.room || menu.height);
+    const below = rect.bottom + 4 + height - 2 * PAD <= window.innerHeight;
+    const above = rect.top - height > 0;
+    if (!TOP && height > 0 && !below && !above) {
       // Cut off by the frame's edges, it could not be trusted to be seen
       // (and Chromium refuses clicks on it): the page shows it instead.
       menuElsewhere(current);
@@ -982,8 +1002,8 @@ function place() {
     const outer = width + 2 * PAD;
     let top = rect.bottom + 4 - PAD;
     // Above the field when it does not fit below.
-    if (rect.bottom + 4 + menu.height - 2 * PAD > window.innerHeight && rect.top - menu.height > 0) {
-      top = rect.top - 4 - menu.height + PAD;
+    if (rect.bottom + 4 + height - 2 * PAD > window.innerHeight && rect.top - height > 0) {
+      top = rect.top - 4 - height + PAD;
     }
     const left = Math.max(0, Math.min(rect.left - PAD, window.innerWidth - outer));
     const moved = Math.abs(parseFloat(menu.iframe.style.top) - top) > 2 || Math.abs(parseFloat(menu.iframe.style.left) - left) > 2;
@@ -1049,11 +1069,13 @@ function frameFieldRect(origin: string, rect: Record<string, number>): DOMRect |
 function placeDetached() {
   if (!detached?.open || !detachedAnchor || detached.height === 0) return;
   const rect = detachedAnchor;
+  tellRoom(detached, menuRoom(rect));
+  const height = Math.min(detached.height, detached.room || detached.height);
   const width = Math.min(MENU_WIDTH, window.innerWidth - 16);
   const outer = width + 2 * PAD;
   let top = rect.bottom + 4 - PAD;
-  if (rect.bottom + 4 + detached.height - 2 * PAD > window.innerHeight && rect.top - detached.height > 0) {
-    top = rect.top - 4 - detached.height + PAD;
+  if (rect.bottom + 4 + height - 2 * PAD > window.innerHeight && rect.top - height > 0) {
+    top = rect.top - 4 - height + PAD;
   }
   const left = Math.max(0, Math.min(rect.left - PAD, window.innerWidth - outer));
   const moved = Math.abs(parseFloat(detached.iframe.style.top) - top) > 2 || Math.abs(parseFloat(detached.iframe.style.left) - left) > 2;
@@ -1066,7 +1088,7 @@ function openMenu(activate = false) {
   if (!current) return;
   if (tooSmall() || unseen) return menuElsewhere(current, activate);
   menu ??= new Frame("menu");
-  menu.show({ activate, field: { ...fieldInfo(current), savable: typedLogin(current) } });
+  menu.show({ activate, field: { ...fieldInfo(current), savable: typedLogin(current) }, room: menuRoom(current.getBoundingClientRect()) });
   place();
   follow ??= setInterval(place, 200);
 }
@@ -1650,7 +1672,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       detached.iframe.style.top = "";
       detached.iframe.style.left = "";
     }
-    detached.show({ activate: message.activate === true, field: message.field });
+    // At the top of the page when its field is not found: the window's height.
+    const room = detachedAnchor ? menuRoom(detachedAnchor) : Math.max(120, window.innerHeight - 16);
+    detached.show({ activate: message.activate === true, field: message.field, room });
     placeDetached();
     return;
   }

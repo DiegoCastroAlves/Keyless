@@ -413,6 +413,9 @@
   "pkFailed": {
     "message": "O Keyless não conseguiu. Tente de novo ou use outro dispositivo."
   },
+  "pkExpired": {
+    "message": "A página não está mais pedindo uma chave de acesso. Recarregue-a para tentar de novo."
+  },
   "setPasskeys": {
     "message": "Salvar e usar chaves de acesso com o Keyless"
   },

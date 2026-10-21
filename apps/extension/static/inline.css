@@ -80,6 +80,11 @@ button {
 .menu {
   border-radius: 12px;
   padding: 5px;
+  /* As tall as the page has room for under (or above) the field; the rest
+     scrolls inside. */
+  max-height: var(--room, 620px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .head {

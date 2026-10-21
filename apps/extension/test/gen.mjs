@@ -42,6 +42,12 @@ const WORDS = {
     signin: "Sign in",
     signup: "Create account",
     next: "Next",
+    otpDialog: {
+      title: ["Enter your authentication code", "Two-factor authentication", "Verify it's you"],
+      help: ["Check the code in your authenticator app", "Open your authenticator app to see the code"],
+      label: ["Enter the code", "Code"],
+      trust: "Trust this device for 4 weeks",
+    },
   },
   pt: {
     idNumber: ["CPF", "Digite seu CPF", "CPF ou CNPJ"],
@@ -63,6 +69,12 @@ const WORDS = {
     signin: "Entrar",
     signup: "Criar conta",
     next: "Continuar",
+    otpDialog: {
+      title: ["Introduza o seu código de autenticação", "Verificação em duas etapas", "Confirme que é você"],
+      help: ["Verifique o código na sua aplicação de autenticação", "Abra o seu app autenticador para ver o código"],
+      label: ["Introduza o código", "Digite o código", "Código"],
+      trust: "Confiar neste dispositivo durante 4 semanas",
+    },
   },
   es: {
     idNumber: ["Número de cliente", "Usuario o cuenta"],
@@ -84,6 +96,12 @@ const WORDS = {
     signin: "Iniciar sesión",
     signup: "Crear cuenta",
     next: "Siguiente",
+    otpDialog: {
+      title: ["Introduce tu código de autenticación", "Verificación en dos pasos", "Confirma que eres tú"],
+      help: ["Consulta el código en tu aplicación de autenticación", "Abre tu app de autenticación para ver el código"],
+      label: ["Introduce el código", "Código"],
+      trust: "Confiar en este dispositivo durante 4 semanas",
+    },
   },
 };
 
@@ -306,6 +324,19 @@ const KINDS = {
     const p = field({ key: "p", label: pick(w.pass), type: "password", meaningful: "password", autocomplete: "current-password", labeling });
     return { inner: e + t + p + button(w.signin), expect: { fields: { e: "username", p: "password" }, login: { username: "e", password: "p" }, submit: false } };
   },
+  // A code step in a dialog whose title says what the code is for, while
+  // the field only says "code" (Deel): numeric, no length, a random id, and a
+  // "trust this device" checkbox next to it.
+  otpDialog(w) {
+    const d = w.otpDialog;
+    const id = `:r${Math.floor(rand() * 900 + 100).toString(36)}:`;
+    const trust = `<label class="trust"><input type="checkbox"> ${esc(d.trust)}</label>`;
+    const o = `<div class="field"><label for="${esc(id)}">${esc(pick(d.label))} *</label><div class="wrap"><input data-k="o" id="${esc(id)}" type="text" inputmode="numeric" required></div></div>`;
+    return {
+      inner: `<p class="h2">${esc(pick(d.title))}</p><p>${esc(pick(d.help))}</p>${trust}${o}${button(w.next)}`,
+      expect: { fields: { o: "otp" }, codeForm: true, submit: true },
+    };
+  },
   honeypot(w, labeling) {
     const hiders = ["hp", "hp2", "hp3", "hp4"];
     const hp = `<div class="${pick(hiders)}"><input data-k="trap" type="text" name="email" autocomplete="off" tabindex="-1"></div>`;
@@ -340,6 +371,7 @@ const PLAN = [
   ["markedNew", 12],
   ["transparent", 6],
   ["phoneSignup", 6],
+  ["otpDialog", 9],
 ];
 
 // Shadow roots on cards and addresses are left for the shapes they come in.

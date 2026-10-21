@@ -43,6 +43,13 @@ function toParent(type: string, extra: Record<string, unknown> = {}) {
   window.parent.postMessage({ type, ...extra }, "*");
 }
 
+/** The height the list below a field may take, told by the content script
+ * (the room under or above the field): it scrolls inside beyond that. */
+function setRoom(room: unknown) {
+  if (typeof room !== "number" || !Number.isFinite(room)) return;
+  document.documentElement.style.setProperty("--room", `${Math.max(100, Math.min(room, 640) - 2 * PAD)}px`);
+}
+
 /** Tells the content script how tall the iframe must be. */
 function report() {
   toParent("size", { height: Math.ceil(app.getBoundingClientRect().height) + 2 * PAD });
@@ -276,6 +283,9 @@ async function usePasskey(key: PasskeyEntry) {
   const reply = await send({ type: "passkey_pick", credentialId: key.credentialId });
   if (reply.ok) return toParent("close");
   if (reply.error === "locked") await refresh();
+  // The page already got a passkey, or stopped asking (it asks again when
+  // it is loaded again).
+  else if (reply.error === "expired") showError(t("pkExpired"));
   else showError(t("pkFailed"));
 }
 
@@ -531,7 +541,7 @@ function renderCard() {
     toParent("hide");
     return;
   }
-  if (expanded) return renderSearch({ ...state, logins });
+  if (expanded) return renderSearch({ ...state, logins }, passkeys);
   const key = passkeys[0];
   const best = key ? passkeyLogin(key) : logins[0];
   const label = key ? t("signInPasskey") : field.code ? t("fillCode") : t("signIn");
@@ -545,11 +555,14 @@ function renderCard() {
   const head = key ? avatar(best, state.url ?? undefined) : icon(best);
   app.replaceChildren(
     el("div", { className: "box card" }, head, texts(best), signIn, closeButton(() => toParent("close"))),
-    ...(logins.length > 0 ? [others] : []),
+    // The page's other passkeys and its logins.
+    ...(logins.length > 0 || passkeys.length > 1 ? [others] : []),
   );
 }
 
-function renderSearch(current: InlineState) {
+/** "Other logins" under the card: the passkeys the page asks for, then its
+ * logins, with a search over both. */
+function renderSearch(current: InlineState, passkeys: PasskeyEntry[] = []) {
   const input = el("input", { type: "text", placeholder: t("findLogin"), spellcheck: false, autocomplete: "off" });
   const list = el("div", { className: "list" });
   const close = closeButton(() => {
@@ -560,18 +573,26 @@ function renderSearch(current: InlineState) {
 
   // Only the page's logins. Logins saved for other sites are filled from
   // the toolbar popup, which the page cannot cover.
-  const show = (logins: Login[]) => {
-    list.replaceChildren(...logins.slice(0, MAX_SEARCH_RESULTS).map((login) => loginRow(login, { submit: true })));
-    if (logins.length === 0) list.append(el("p", { className: "note", textContent: t("noResults") }));
+  const show = (keys: PasskeyEntry[], logins: Login[]) => {
+    list.replaceChildren();
+    if (keys.length > 0) {
+      list.append(el("div", { className: "head", textContent: t("passkeys") }), ...keys.slice(0, MAX_SEARCH_RESULTS).map(passkeyRow));
+      if (logins.length > 0) list.append(el("div", { className: "head", textContent: t("savedLogins") }));
+    }
+    list.append(...logins.slice(0, MAX_SEARCH_RESULTS).map((login) => loginRow(login, { submit: true })));
+    if (keys.length === 0 && logins.length === 0) list.append(el("p", { className: "note", textContent: t("noResults") }));
     list.append(el("p", { className: "note small", textContent: t("otherSitesInPopup") }));
     report();
   };
-  show(current.logins);
+  show(passkeys, current.logins);
 
   input.addEventListener("input", () => {
     // Each word anywhere, case and accents aside.
     const words = searchWords(input.value);
-    show(current.logins.filter((login) => hasWords(words, [login.title, login.username, login.url])));
+    show(
+      passkeys.filter((key) => hasWords(words, [key.title, key.userName])),
+      current.logins.filter((login) => hasWords(words, [login.title, login.username, login.url])),
+    );
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {
@@ -1087,6 +1108,7 @@ window.addEventListener("message", async (event) => {
     if (reply?.ok && !token) {
       token = data.keyless;
       if (data.field) field = data.field;
+      setRoom(data.room);
       await refresh(true);
       watchUnseen();
       if (data.activate) void activate(true);
@@ -1103,6 +1125,10 @@ window.addEventListener("message", async (event) => {
     case "moved":
       settle();
       break;
+    case "room":
+      setRoom(data.room);
+      report();
+      break;
     case "recheck":
       settle();
       watchVisibility();
@@ -1114,6 +1140,7 @@ window.addEventListener("message", async (event) => {
       // A new passkey request.
       passkeyError = null;
       passkeyTarget = "";
+      setRoom(data.room);
       if (data.field) {
         if (data.field.newPassword !== field.newPassword || data.field.maxLength !== field.maxLength || data.field.rules !== field.rules) suggestion = null;
         field = data.field;

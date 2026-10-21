@@ -36,8 +36,10 @@
 
   // ----- Extensions -------------------------------------------------------------
   //
-  // credProps is answered here (Keyless passkeys are always discoverable);
-  // prf goes to Keyless; the others are not supported and left out.
+  // credProps is answered here (Keyless passkeys are always discoverable), and
+  // so is appid (a passkey is never found by a U2F AppID: false, as browsers
+  // answer it; Google asks it on its passkey step); prf goes to Keyless; the
+  // others are not supported and left out.
 
   type Values = { first: string; second?: string };
   const values = (input: unknown): Values | undefined => {
@@ -71,6 +73,10 @@
     if (creating && (extensions as { credProps?: boolean } | undefined)?.credProps) {
       results.credProps = { rk: true };
       json.credProps = { rk: true };
+    }
+    if (!creating && typeof (extensions as { appid?: unknown } | undefined)?.appid === "string") {
+      results.appid = false;
+      json.appid = false;
     }
     const prf = answer?.prf;
     if (prf && typeof prf === "object") {
@@ -207,6 +213,17 @@
     return result as unknown as PublicKeyCredential;
   }
 
+  /** How the page asked, by names only (nothing secret): for the
+   * extension's passkey diagnostics (see background.ts, `debugPasskey`). */
+  function about(options: CredentialRequestOptions | undefined, publicKey: PublicKeyCredentialRequestOptions) {
+    return {
+      mediation: String(options?.mediation ?? ""),
+      userVerification: String(publicKey.userVerification ?? ""),
+      extensions: Object.keys(publicKey.extensions ?? {}),
+      hints: ((h: unknown) => (Array.isArray(h) ? h.map(String) : []))((publicKey as { hints?: unknown }).hints),
+    };
+  }
+
   // ----- create and get -----------------------------------------------------------
 
   credentials.create = async function create(options?: CredentialCreationOptions) {
@@ -248,6 +265,7 @@
       allowCredentials: ids(publicKey.allowCredentials),
       timeout: publicKey.timeout ?? null,
       prf: prfRequest(publicKey.extensions),
+      about: about(options, publicKey),
     };
     if (options?.mediation === "conditional") return conditional(options, publicKey, request);
     const answer = await ask(request, options?.signal);

@@ -24,6 +24,13 @@ const b64url = (value: unknown, max = 1024) => {
 const descriptors = (value: unknown) =>
   (Array.isArray(value) ? value.slice(0, MAX_ITEMS) : []).map((c) => b64url((c as { id?: unknown })?.id)).filter(Boolean);
 
+/** How the page asked, by names only (see webauthn-page.ts, `about`). */
+function about(value: unknown) {
+  const v = (value ?? {}) as { mediation?: unknown; userVerification?: unknown; extensions?: unknown; hints?: unknown };
+  const names = (list: unknown, max: number) => (Array.isArray(list) ? list.slice(0, max).map((n) => text(n, 40)).filter(Boolean) : []);
+  return { mediation: text(v.mediation, 20), userVerification: text(v.userVerification, 20), extensions: names(v.extensions, 16), hints: names(v.hints, 8) };
+}
+
 /** PRF inputs: `{first, second?}`, base64url. */
 function prfValues(value: unknown): { first: string; second?: string } | undefined {
   const v = value as { first?: unknown; second?: unknown } | undefined;
@@ -102,6 +109,7 @@ window.addEventListener("message", (event) => {
             prf: prf(data.prf),
             conditional: data.conditional === true,
             crossOrigin: false,
+            about: about(data.about),
           }
         : null;
   if (!request) return;

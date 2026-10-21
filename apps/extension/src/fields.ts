@@ -354,9 +354,26 @@ function boxOf(input: HTMLInputElement): Element | null {
   return null;
 }
 
-/** The only field in its box: a sign-in's first step, or its code step. */
+/** Inputs a person types into (not checkboxes, radios or buttons). */
+const TYPED = new Set(["text", "email", "tel", "number", "password", "search", "url"]);
+
+/** The only field in its box: a sign-in's first step, or its code step (a
+ * "trust this device" checkbox next to it does not count). */
 function aloneIn(input: HTMLInputElement, box: Element | null): boolean {
-  return box !== null && Array.from(box.querySelectorAll("input")).filter((i) => i.type !== "hidden" && (i === input || visible(i))).length === 1;
+  return box !== null && Array.from(box.querySelectorAll("input")).filter((i) => TYPED.has(i.type) && (i === input || visible(i))).length === 1;
+}
+
+/** The text of the block around a field's box, a few levels up while it
+ * holds no other fields: a dialog's title and help ("Enter your
+ * authentication code"), which pages often leave out of the field itself. */
+function contextText(input: HTMLInputElement, box: Element | null): string {
+  let node: Element | null = box ?? composedParent(input);
+  for (let level = 0; node && level < 4; level++) {
+    const parent = composedParent(node);
+    if (!parent || Array.from(parent.querySelectorAll<HTMLInputElement>("input")).filter((i) => TYPED.has(i.type)).length > 1) break;
+    node = parent;
+  }
+  return textOf(node, 600);
 }
 
 /** What the field's box says about itself: its buttons, its action. */
@@ -431,7 +448,11 @@ export function fieldKind(input: HTMLInputElement): Kind | null {
   if (splitBox(input)) otp += 2;
   // The only field in its box (the sign-in's code step).
   if (alone && (short(input) || /numeric|decimal/.test(input.inputMode) || type === "number" || type === "tel")) otp += 0.5;
-  if (/numeric|decimal/.test(input.inputMode) || type === "number" || type === "tel") otp += 0.5;
+  const numeric = /numeric|decimal/.test(input.inputMode) || type === "number" || type === "tel";
+  if (numeric) otp += 0.5;
+  // A field that looks like a code, in a block that says what for (Deel:
+  // "Introduza o código" under "Introduza o seu código de autenticação").
+  if (otp > 0 && otp < 3 && !withPassword && (numeric || short(input)) && OTP_SURE.test(contextText(input, box))) otp += 1;
   if (NOT_OTP.test(strong) || (!OTP_WORDS.test(strong) && NOT_OTP.test(near))) otp -= 4;
 
   if (otp >= 3 && otp >= user) return "otp";
@@ -668,8 +689,6 @@ export function fieldInfo(input: HTMLInputElement): FieldInfo {
 }
 
 // ----- Signing in ---------------------------------------------------------------------
-
-const TYPED = new Set(["text", "email", "password", "tel", "number", "search", "url"]);
 
 /** After filling a login: the form can be sent as it is. Not when a field
  * the user can see is still empty (a captcha, a password the login lacks),
