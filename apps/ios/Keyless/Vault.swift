@@ -11,6 +11,12 @@ struct Item: Identifiable {
     var subtitle: String { overview["subtitle"] as? String ?? "" }
     var category: String { overview["category"] as? String ?? "" }
     var favorite: Bool { overview["favorite"] as? Bool ?? false }
+    var archived: Bool { overview["archived"] as? Bool ?? false }
+    /// In Recently Deleted.
+    var trashed: Bool {
+        guard let at = overview["trashed_at"] else { return false }
+        return !(at is NSNull)
+    }
     var urls: [String] { (overview["urls"] as? [[String: Any]] ?? []).compactMap { $0["href"] as? String } }
 }
 
@@ -22,7 +28,8 @@ final class Vault: ObservableObject {
     enum Phase { case signedOut, locked, unlocked }
 
     @Published var phase: Phase = .signedOut
-    @Published var items: [Item] = []
+    /// Every item, archived and in Recently Deleted too.
+    @Published var all: [Item] = []
     @Published var syncing = false
     @Published var syncError: String?
     /// The email and Secret Key a setup link gave.
@@ -60,9 +67,14 @@ final class Vault: ObservableObject {
         if phase == .unlocked && Date().timeIntervalSince(lastActivity) > Double(autoLockMinutes * 60) { lock() }
     }
 
+    /// The items in use (not archived, not in Recently Deleted).
+    var items: [Item] { all.filter { !$0.archived && !$0.trashed } }
+    var archivedItems: [Item] { all.filter { $0.archived && !$0.trashed } }
+    var trashedItems: [Item] { all.filter(\.trashed) }
+
     func lock() {
         _ = try? Native.call("lock")
-        items = []
+        all = []
         phase = hasAccount ? .locked : .signedOut
     }
 
@@ -163,13 +175,86 @@ final class Vault: ObservableObject {
 
     func refresh() {
         let list = (try? Native.array("items")) ?? []
-        items = list.compactMap { row in
+        all = list.compactMap { row in
             guard let id = row["id"] as? String, let vaultId = row["vaultId"] as? String, let overview = row["overview"] as? [String: Any] else { return nil }
-            if let trashed = overview["trashed_at"], !(trashed is NSNull) { return nil }
-            if overview["archived"] as? Bool == true { return nil }
             return Item(id: id, vaultId: vaultId, overview: overview)
         }
         .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// Items of this vault can be changed here (not a vault shared to read only).
+    func canWrite(_ vaultId: String) -> Bool {
+        ((try? Native.array("vaults")) ?? []).contains { $0["id"] as? String == vaultId && $0["canWrite"] as? Bool == true }
+    }
+
+    private var now: Int { Int(Date().timeIntervalSince1970) }
+
+    /// Uploads a write (`setFlags`, `sealTombstone`, `passkeyRemove`...) and
+    /// keeps what the server answers. When the item changed meanwhile, the
+    /// desktop's rules settle it (`planConflict`), as on Android: the most
+    /// recent edit wins, the other is kept as a conflicted copy.
+    private func upload(_ sealed: [String: Any]) async throws {
+        guard let id = sealed["id"] as? String, let vaultId = sealed["vaultId"] as? String else {
+            throw KeylessError(key: "internal", message: "bad write")
+        }
+        touch()
+        let access = try await token()
+        let base = sealed["baseRevision"] as? Int
+        var rows: [Any]
+        if let tombstone = sealed["encTombstone"] as? String, let base {
+            rows = try await Server.patchItem(token: access, id: id, baseRevision: base, body: ["enc_tombstone": tombstone])
+        } else if let base {
+            let body: [String: Any] = ["enc_overview": sealed["encOverview"] as? String ?? "", "enc_details": sealed["encDetails"] as? String ?? ""]
+            rows = try await Server.patchItem(token: access, id: id, baseRevision: base, body: body)
+        } else {
+            rows = try await Server.insertItem(token: access, id: id, vaultId: vaultId, encOverview: sealed["encOverview"] as? String ?? "", encDetails: sealed["encDetails"] as? String ?? "")
+        }
+        var attempts = 0
+        while rows.isEmpty && attempts < 3 {
+            attempts += 1
+            guard let remote = try await Server.item(token: access, id: id) else { break }
+            var conflict = sealed
+            conflict["remote"] = remote
+            let plan = try Native.object("planConflict", conflict)
+            if let copy = plan["copy"] as? [String: Any], let copyId = copy["id"] as? String {
+                let copyVault = copy["vaultId"] as? String ?? vaultId
+                let copied = try await Server.insertItem(token: access, id: copyId, vaultId: copyVault, encOverview: copy["encOverview"] as? String ?? "", encDetails: copy["encDetails"] as? String ?? "")
+                _ = try Native.call("applyItems", ["vaultId": copyVault, "items": copied])
+            }
+            if plan["plan"] as? String == "overwrite", let revision = remote["revision"] as? Int, let body = plan["body"] as? [String: Any] {
+                rows = try await Server.patchItem(token: access, id: id, baseRevision: revision, body: body)
+            } else {
+                rows = [remote]
+            }
+        }
+        if rows.isEmpty { throw KeylessError(key: "save_conflict", message: "") }
+        _ = try Native.call("applyItems", ["vaultId": vaultId, "items": rows])
+        save()
+        refresh()
+    }
+
+    func setFavorite(_ id: String, _ favorite: Bool) async throws {
+        try await upload(Native.object("setFlags", ["id": id, "favorite": favorite, "now": now]))
+    }
+
+    func setArchived(_ id: String, _ archived: Bool) async throws {
+        try await upload(Native.object("setFlags", ["id": id, "archived": archived, "now": now]))
+    }
+
+    /// Moves an item to Recently Deleted, or back.
+    func setTrashed(_ id: String, _ trashed: Bool) async throws {
+        try await upload(Native.object("setFlags", ["id": id, "trashed": trashed, "now": now]))
+    }
+
+    /// Deletes an item for good (from Recently Deleted).
+    func deleteForGood(_ id: String) async throws {
+        try await upload(Native.object("sealTombstone", ["id": id, "now": now]))
+    }
+
+    /// Removes one of an item's passkeys: the site then asks for another way
+    /// to sign in.
+    func removePasskey(_ id: String, credentialId: String) async throws {
+        try await upload(Native.object("passkeyRemove", ["itemId": id, "credentialId": credentialId, "now": now]))
     }
 
     func item(_ id: String) throws -> [String: Any] { try Native.object("item", ["id": id]) }
@@ -193,7 +278,7 @@ final class Vault: ObservableObject {
         _ = try? Native.call("forget")
         try? FileManager.default.removeItem(at: file)
         Secure.clear()
-        items = []
+        all = []
         phase = .signedOut
     }
 }

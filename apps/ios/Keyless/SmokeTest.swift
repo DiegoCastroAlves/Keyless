@@ -2,7 +2,9 @@ import Foundation
 
 /// What works without an account, run by CI on the simulator
 /// (`--smoke`): the Rust client answers, a setup link is read, the search
-/// folds text as the other apps do, a mistyped Secret Key is refused, and a
+/// folds text as the other apps do, items are sorted into the Archive and
+/// Recently Deleted, changes wait for the unlock, a mistyped Secret Key is
+/// refused, and a
 /// well-formed one goes through key derivation to the server, which refuses
 /// the made-up account. Prints one line per check and quits (1 if one
 /// failed).
@@ -27,6 +29,19 @@ enum SmokeTest {
         check("the search spells out letters", Search.fold("Straße Æble Łódź ﬁle²") == "strasse aeble lodz file2")
         check("the search plains quotes and dashes", Search.fold("d’água – e‑mail") == "d'agua - e-mail")
         check("the search finds each word", Search.has(Search.words("conta MAE"), in: ["Mãe", "conta@x.com"]))
+        // The lists: Archive and Recently Deleted, as the client marks them.
+        let archived = Item(id: "a", vaultId: "v", overview: ["archived": true, "trashed_at": NSNull()])
+        let trashed = Item(id: "t", vaultId: "v", overview: ["trashed_at": 1_760_000_000])
+        check("an archived item is not in Recently Deleted", archived.archived && !archived.trashed)
+        check("an item in Recently Deleted", trashed.trashed && !trashed.archived)
+        do {
+            _ = try Native.object("setFlags", ["id": "a", "favorite": true, "now": 0])
+            check("changes need the vault unlocked", false)
+        } catch let error as KeylessError {
+            check("changes need the vault unlocked", error.key == "locked")
+        } catch {
+            check("changes need the vault unlocked", false)
+        }
         do {
             _ = try Native.object("derive", ["email": email, "masterPassword": "x", "secretKey": "K1-AAAAAA-BBBBBB-CCCCC-DDDDD-EEEEE"])
             check("a mistyped Secret Key is refused", false)

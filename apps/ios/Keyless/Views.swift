@@ -164,10 +164,20 @@ struct ItemsView: View {
     @State private var filter = "all"
     @State private var showSettings = false
 
+    /// What the filter lists from: the items in use, the Archive or
+    /// Recently Deleted.
+    private var source: [Item] {
+        switch filter {
+        case "archive": return vault.archivedItems
+        case "trash": return vault.trashedItems
+        default: return vault.items
+        }
+    }
+
     private var shown: [Item] {
         // Each word anywhere, case and accents aside (see Search.swift).
         let words = Search.words(query)
-        return vault.items.filter { item in
+        return source.filter { item in
             if filter == "favorites" && !item.favorite { return false }
             if filter.hasPrefix("category:") && item.category != String(filter.dropFirst("category:".count)) { return false }
             return Search.has(words, in: [item.title, item.subtitle] + item.urls)
@@ -183,6 +193,8 @@ struct ItemsView: View {
                     ForEach(Array(Set(vault.items.map(\.category))).sorted(), id: \.self) { category in
                         Text(Texts.categoryPlural(category)).tag("category:\(category)")
                     }
+                    Text(Texts.t("archive")).tag("archive")
+                    Text(Texts.t("recentlyDeleted")).tag("trash")
                 }
                 .pickerStyle(.menu)
                 if let error = vault.syncError { Text(error).foregroundStyle(.red).font(.footnote) }
@@ -201,9 +213,13 @@ struct ItemsView: View {
                                 Text(item.title).lineLimit(1)
                                 if !item.subtitle.isEmpty { Text(item.subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(1) }
                             }
+                            if item.favorite {
+                                Spacer()
+                                Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow)
+                            }
                         }
                     }
-                    // Held down: what can be copied without opening it (as Android's menu).
+                    // Held down: what can be copied or done without opening it (as Android's menu).
                     .contextMenu { ItemMenu(id: item.id) }
                 }
             }
@@ -232,12 +248,15 @@ struct ItemsView: View {
     }
 }
 
-/// An item held down in the list: its username, password or code to copy.
+/// An item held down in the list: its username, password or code to copy,
+/// and what can be done with it (as Android's menu).
 struct ItemMenu: View {
     let id: String
     @EnvironmentObject var vault: Vault
 
     var body: some View {
+        let summary = vault.all.first { $0.id == id }
+        let writable = summary.map { vault.canWrite($0.vaultId) } ?? false
         let fields = Self.fields((try? vault.item(id))?["details"] as? [String: Any] ?? [:])
         let username = fields.first(where: { $0["purpose"] as? String == "username" })?["value"] as? String ?? ""
         let password = fields.first(where: { $0["purpose"] as? String == "password" })?["value"] as? String ?? ""
@@ -253,11 +272,26 @@ struct ItemMenu: View {
                 if let code = vault.totp(totp) { copy(code.code) }
             } label: { Label(Texts.t("copyCode"), systemImage: "clock") }
         }
+        if let summary, writable {
+            Divider()
+            ItemActions(item: summary, onDeleteForever: nil) { _, work in run(work) }
+        }
     }
 
     private func copy(_ text: String) {
         copySecret(text)
         vault.touch()
+    }
+
+    private func run(_ work: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await work()
+                vault.syncError = nil
+            } catch {
+                vault.syncError = error.localizedDescription
+            }
+        }
     }
 
     /// The item's fields that have a value, in its sections too.
@@ -267,6 +301,77 @@ struct ItemMenu: View {
             all += section["fields"] as? [[String: Any]] ?? []
         }
         return all.filter { !($0["value"] as? String ?? "").isEmpty }
+    }
+}
+
+/// What can be done with an item, in its menus: favorite, archive, move to
+/// Recently Deleted; from there, restore or delete permanently (when the
+/// screen can ask first: `onDeleteForever`). `run` runs one, told whether
+/// the item leaves the screen's list.
+struct ItemActions: View {
+    let item: Item
+    let onDeleteForever: (() -> Void)?
+    let run: (Bool, @escaping () async throws -> Void) -> Void
+    @EnvironmentObject var vault: Vault
+
+    var body: some View {
+        let id = item.id
+        if item.trashed {
+            Button { run(false) { try await vault.setTrashed(id, false) } } label: {
+                Label(Texts.t("restore"), systemImage: "arrow.uturn.backward")
+            }
+            if let onDeleteForever {
+                Button(role: .destructive) { onDeleteForever() } label: {
+                    Label(Texts.t("deleteForever"), systemImage: "trash.slash")
+                }
+            }
+        } else {
+            Button { run(false) { try await vault.setFavorite(id, !item.favorite) } } label: {
+                Label(Texts.t(item.favorite ? "unfavorite" : "favorite"), systemImage: item.favorite ? "star.slash" : "star")
+            }
+            Button { run(false) { try await vault.setArchived(id, !item.archived) } } label: {
+                Label(Texts.t(item.archived ? "unarchive" : "toArchive"), systemImage: item.archived ? "tray.and.arrow.up" : "archivebox")
+            }
+            Button(role: .destructive) { run(true) { try await vault.setTrashed(id, true) } } label: {
+                Label(Texts.t("moveToTrash"), systemImage: "trash")
+            }
+        }
+    }
+}
+
+/// One of an item's passkeys: the site and account, and a way to delete it.
+struct PasskeyRow: View {
+    let passkey: [String: Any]
+    let itemId: String
+    let removable: Bool
+    let run: (@escaping () async throws -> Void) -> Void
+    @EnvironmentObject var vault: Vault
+    @State private var confirm = false
+
+    var body: some View {
+        let site = passkey["rpId"] as? String ?? ""
+        let user = passkey["userName"] as? String ?? ""
+        let created = passkey["createdAt"] as? Double ?? 0
+        let credentialId = passkey["credentialId"] as? String ?? ""
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(user.isEmpty ? site : "\(site) · \(user)")
+                if created > 0 {
+                    Text(String(format: Texts.t("passkeyCreated"), Date(timeIntervalSince1970: created).formatted(date: .abbreviated, time: .omitted)))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if removable {
+                Button(Texts.t("remove"), role: .destructive) { confirm = true }.buttonStyle(.borderless)
+            }
+        }
+        .confirmationDialog(Texts.t("passkeyRemoveBody"), isPresented: $confirm, titleVisibility: .visible) {
+            Button(Texts.t("remove"), role: .destructive) {
+                run { try await vault.removePasskey(itemId, credentialId: credentialId) }
+            }
+        }
     }
 }
 
@@ -316,8 +421,13 @@ struct FieldRow: View {
 struct ItemView: View {
     let id: String
     @EnvironmentObject var vault: Vault
+    @Environment(\.dismiss) private var dismiss
+    @State private var error: String?
+    @State private var confirmDelete = false
 
     var body: some View {
+        let summary = vault.all.first { $0.id == id }
+        let writable = summary.map { vault.canWrite($0.vaultId) } ?? false
         let item = (try? vault.item(id)) ?? [:]
         let overview = item["overview"] as? [String: Any] ?? [:]
         let details = item["details"] as? [String: Any] ?? [:]
@@ -326,9 +436,16 @@ struct ItemView: View {
         let urls = (overview["urls"] as? [[String: Any]] ?? []).compactMap { $0["href"] as? String }.filter { !$0.isEmpty }
         let notes = details["notes"] as? String ?? ""
         let tags = overview["tags"] as? [String] ?? []
+        let passkeys = details["passkeys"] as? [[String: Any]] ?? []
         return List {
+            if let error { Section { Text(error).foregroundStyle(.red) } }
             Section {
                 Text(Texts.category(overview["category"] as? String ?? "")).font(.footnote).foregroundStyle(.secondary)
+                if summary?.trashed == true {
+                    Text(Texts.t("inTrash")).font(.footnote).foregroundStyle(.secondary)
+                } else if summary?.archived == true {
+                    Text(Texts.t("inArchive")).font(.footnote).foregroundStyle(.secondary)
+                }
             }
             if !fields.isEmpty {
                 Section { ForEach(fields.indices, id: \.self) { FieldRow(field: fields[$0]) } }
@@ -352,12 +469,58 @@ struct ItemView: View {
                     }
                 }
             }
+            if !passkeys.isEmpty {
+                passkeysSection(passkeys, removable: writable && summary?.trashed != true)
+            }
             if !notes.isEmpty { Section(Texts.t("notes")) { Text(notes).textSelection(.enabled) } }
             if !tags.isEmpty { Section(Texts.t("tags")) { Text(tags.joined(separator: " · ")) } }
             Section { Text(Texts.t("readOnly")).font(.footnote).foregroundStyle(.secondary) }
         }
         .navigationTitle(overview["title"] as? String ?? "")
+        .toolbar { menu(summary, writable: writable) }
+        .confirmationDialog(Texts.t("deleteForeverBody"), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button(Texts.t("deleteForever"), role: .destructive) {
+                run(leaving: true) { try await vault.deleteForGood(id) }
+            }
+        }
         .onAppear { vault.touch() }
+    }
+
+    private func passkeysSection(_ passkeys: [[String: Any]], removable: Bool) -> some View {
+        Section(Texts.t("passkeys")) {
+            ForEach(passkeys.indices, id: \.self) { index in
+                PasskeyRow(passkey: passkeys[index], itemId: id, removable: removable) { work in run(work) }
+            }
+        }
+    }
+
+    /// The item's actions (see `ItemActions`), for an item that can be changed.
+    @ToolbarContentBuilder
+    private func menu(_ summary: Item?, writable: Bool) -> some ToolbarContent {
+        ToolbarItem(placement: .navigationBarTrailing) {
+            if let summary, writable {
+                Menu {
+                    ItemActions(item: summary, onDeleteForever: { confirmDelete = true }) { leaving, work in
+                        run(leaving: leaving, work)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+    }
+
+    /// Runs an action; `leaving`: the screen closes once it is done.
+    private func run(leaving: Bool = false, _ work: @escaping () async throws -> Void) {
+        Task {
+            do {
+                try await work()
+                error = nil
+                if leaving { dismiss() }
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
     }
 }
 

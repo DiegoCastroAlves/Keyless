@@ -137,6 +137,27 @@ enum Server {
         return (try JSONSerialization.jsonObject(with: data) as? [Any]) ?? []
     }
 
+    private static func rows(_ data: Data) -> [Any] {
+        (try? JSONSerialization.jsonObject(with: data) as? [Any]) ?? []
+    }
+
+    /// Adds an item; the server's row back (none when the id is taken).
+    static func insertItem(token: String, id: String, vaultId: String, encOverview: String, encDetails: String) async throws -> [Any] {
+        let body: [String: Any] = ["id": id, "vault_id": vaultId, "enc_overview": encOverview, "enc_details": encDetails]
+        return rows(try await request("rest/v1/items", method: "POST", body: body, token: token, headers: ["Prefer": "return=representation"]))
+    }
+
+    /// Writes `body` (content or a tombstone) where the server still has
+    /// `baseRevision`; none on a conflict.
+    static func patchItem(token: String, id: String, baseRevision: Int, body: [String: Any]) async throws -> [Any] {
+        rows(try await request("rest/v1/items?id=eq.\(encoded(id))&revision=eq.\(baseRevision)", method: "PATCH", body: body, token: token, headers: ["Prefer": "return=representation"]))
+    }
+
+    /// One item as the server has it now, or nil when it has none.
+    static func item(token: String, id: String) async throws -> [String: Any]? {
+        rows(try await request("rest/v1/items?select=*&id=eq.\(encoded(id))", token: token)).first as? [String: Any]
+    }
+
     static func rpc(_ name: String, _ args: [String: Any], token: String? = nil) async throws -> Any {
         let data = try await request("rest/v1/rpc/\(name)", method: "POST", body: args, token: token)
         return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) ?? NSNull()
