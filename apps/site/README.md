@@ -23,6 +23,11 @@ It has these pages:
 `pnpm build` runs `build.mjs`, which writes `dist/` and its `_headers`
 (security headers per page).
 
+Link previews (WhatsApp, Telegram, social networks) show `static/og.png`,
+named by the Open Graph tags of the home page, `/share/`, `/tutorial/` and
+`/privacy/`. The image is made from `scripts/og-image.html`, which says how
+to make it again.
+
 ## Web vault (off)
 
 The web vault's code stays here (`src/vault/`, `static/vault/`, and the

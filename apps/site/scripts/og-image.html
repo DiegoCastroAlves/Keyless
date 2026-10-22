@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- The image link previews show (static/og.png, 1200x630). To make it again,
+     after `pnpm build` (for the fonts), from this folder:
+     chromium --headless=new --hide-scrollbars --allow-file-access-from-files \
+       --window-size=1200,630 --screenshot=../static/og.png og-image.html -->
+<html><head><meta charset="utf-8"><style>
+@font-face{font-family:"Instrument Serif";src:url("../dist/fonts/instrument-serif-400.woff2")}
+@font-face{font-family:"Instrument Serif";font-style:italic;src:url("../dist/fonts/instrument-serif-400-italic.woff2")}
+@font-face{font-family:"IBM Plex Sans";src:url("../dist/fonts/ibm-plex-sans-400.woff2")}
+@font-face{font-family:"IBM Plex Mono";src:url("../dist/fonts/ibm-plex-mono-400.woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:500;src:url("../dist/fonts/ibm-plex-mono-500.woff2")}
+*{box-sizing:border-box;margin:0}
+html,body{width:1200px;height:630px;overflow:hidden;background:#0f1113;color:#ece7da}
+body{position:relative;padding:56px 64px;font-family:"IBM Plex Sans"}
+.brand{display:flex;align-items:center;gap:12px;font-family:"Instrument Serif";font-size:38px;letter-spacing:-.5px}
+.brand img{width:40px;height:40px}
+.kicker{margin-top:44px;font-family:"IBM Plex Mono";font-size:17px;letter-spacing:3.2px;color:#9a9c9f;text-transform:uppercase}
+h1{margin-top:20px;font-family:"Instrument Serif";font-weight:400;font-size:132px;line-height:.92;letter-spacing:-3px}
+h1 em{display:block;color:#3fd6c3;font-style:italic;letter-spacing:-2px}
+.panel{position:absolute;right:64px;top:196px;width:420px;padding:24px 26px;background:#15181b;border:1.5px solid #2b2f33}
+.label{font-family:"IBM Plex Mono";font-size:13px;letter-spacing:2.6px;color:#9a9c9f;text-transform:uppercase}
+.typed{margin:10px 0 18px;font-family:"IBM Plex Mono";font-size:24px;padding-bottom:16px;border-bottom:1.5px solid #2b2f33}
+.cipher{margin-top:10px;font-family:"IBM Plex Mono";font-size:19px;line-height:1.45;color:#1f5e56;word-break:break-all}
+.foot{position:absolute;left:64px;right:64px;bottom:44px;display:flex;justify-content:space-between;font-family:"IBM Plex Mono";font-size:18px;color:#9a9c9f;letter-spacing:.5px}
+.foot b{font-weight:500;color:#ece7da}
+</style></head><body>
+<div class="brand"><img src="../../extension/static/icons/icon-128.png" alt="">keyless</div>
+<div class="kicker">Gerenciador de senhas · código aberto</div>
+<h1>A chave fica <em>com você.</em></h1>
+<div class="panel"><div class="label">Você digita</div><div class="typed">minha-senha</div><div class="label">Sai do computador</div><div class="cipher">pSvvl2P3Lh0CHp4bRTJWgzbDpqbYV8cFozHsC0n513_frhB-XzriPr338oh_5bw0Wz0vWXKC_gVvciWfNbHE0Tfcochh30R39DWkQ6hIqs1Pl3qsGmffl88JOo9nr-Gc</div></div>
+<div class="foot"><span><b>keyless.diegoalves.dev</b></span><span>Windows · Linux</span></div>
+</body></html>
