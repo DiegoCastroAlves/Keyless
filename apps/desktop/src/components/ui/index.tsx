@@ -235,13 +235,15 @@ export function Dialog({
 export const Menu = DropdownMenu.Root;
 export const MenuTrigger = DropdownMenu.Trigger;
 
+/** A menu taller than the room left in the window scrolls instead of running off it. */
 export function MenuContent({ children, align = "end" }: { children: ReactNode; align?: "start" | "end" | "center" }) {
   return (
     <DropdownMenu.Portal>
       <DropdownMenu.Content
         align={align}
         sideOffset={6}
-        className="z-50 min-w-48 rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop"
+        collisionPadding={8}
+        className="z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-48 overflow-y-auto rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop"
       >
         {children}
       </DropdownMenu.Content>

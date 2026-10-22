@@ -291,6 +291,8 @@ export function ItemList({ onNewItem, controlRef }: { onNewItem: (category: Cate
 }
 
 const SORTS: ListSort[] = ["title", "created", "modified", "frequent", "recent", "strength"];
+/** The direction a sort starts in when picked: A to Z, newest or most used first, weakest first. */
+const STARTS_DESC: Record<ListSort, boolean> = { title: false, created: true, modified: true, frequent: true, recent: true, strength: false };
 
 function SortMenu({ count, order }: { count: number; order: ListOrder }) {
   const { t } = useTranslation();
@@ -312,7 +314,7 @@ function SortMenu({ count, order }: { count: number; order: ListOrder }) {
       </MenuTrigger>
       <MenuContent>
         <MenuLabel>{t("list.sortBy", { count })}</MenuLabel>
-        <MenuRadioGroup value={order.sort} onValueChange={(value) => save({ list_sort: value as ListSort })}>
+        <MenuRadioGroup value={order.sort} onValueChange={(value) => save({ list_sort: value as ListSort, list_sort_desc: STARTS_DESC[value as ListSort] })}>
           {SORTS.map((sort) => (
             <MenuRadioItem key={sort} value={sort}>
               {t(`list.sort.${sort}`)}
@@ -561,7 +563,10 @@ function ItemRow({ item, selected, note, onSelect }: { item: ItemSummary; select
           <ItemRowButton item={item} selected={selected} note={note} onSelect={onSelect} />
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
-          <ContextMenu.Content className="z-50 min-w-52 rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop">
+          <ContextMenu.Content
+            collisionPadding={8}
+            className="z-50 max-h-[var(--radix-context-menu-content-available-height)] min-w-52 overflow-y-auto rounded-xl border border-line bg-panel p-1 shadow-xl animate-pop"
+          >
             {trashed ? (
               <CtxItem icon={<RotateCcw className="size-4" />} onSelect={run(() => api.restoreItem(item.id), t("item.restored"))}>
                 {t("common.restore")}

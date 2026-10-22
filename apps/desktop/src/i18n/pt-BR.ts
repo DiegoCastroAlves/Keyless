@@ -385,8 +385,8 @@ const ptBR: Translations = {
     sortBy_other: "{{count}} itens ordenados por",
     sort: {
       title: "Título",
-      created: "Data de criação",
-      modified: "Data de modificação",
+      created: "Adicionados recentemente",
+      modified: "Modificados recentemente",
       frequent: "Usados com frequência",
       recent: "Usados recentemente",
       strength: "Força da senha",

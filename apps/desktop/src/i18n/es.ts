@@ -384,8 +384,8 @@ const es: Translations = {
     sortBy_other: "{{count}} elementos ordenados por",
     sort: {
       title: "Título",
-      created: "Fecha de creación",
-      modified: "Fecha de modificación",
+      created: "Añadidos recientemente",
+      modified: "Modificados recientemente",
       frequent: "Usados con frecuencia",
       recent: "Usados recientemente",
       strength: "Seguridad de la contraseña",

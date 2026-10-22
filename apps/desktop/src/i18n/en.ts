@@ -382,8 +382,8 @@ const en = {
     sortBy_other: "{{count}} items sorted by",
     sort: {
       title: "Title",
-      created: "Date created",
-      modified: "Date modified",
+      created: "Recently added",
+      modified: "Recently modified",
       frequent: "Frequently used",
       recent: "Recently used",
       strength: "Password strength",
