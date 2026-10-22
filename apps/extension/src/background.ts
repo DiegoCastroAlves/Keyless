@@ -1472,6 +1472,35 @@ async function debugPasskey(event: string, entry: Pick<PasskeyRequest, "origin" 
   });
 }
 
+/** What a passkey answer holds, as the diagnostics show it: the client
+ * data's fields but its challenge, the authenticator data's flags and
+ * counter, and whether the passkey is one the page listed; never the
+ * signature, an id or a key. */
+async function answerShape(entry: PasskeyRequest, credential: any): Promise<Record<string, unknown>> {
+  try {
+    const bytes = (text: unknown) => Uint8Array.from(atob(String(text ?? "").replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    const client = JSON.parse(new TextDecoder().decode(bytes(credential.clientDataJSON)));
+    const data = bytes(credential.authenticatorData);
+    const rpIdHash = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(entry.request.rpId ?? entry.host)));
+    const allowed = entry.request.allowCredentials;
+    return {
+      clientData: { fields: Object.keys(client), type: client.type, origin: client.origin, crossOrigin: client.crossOrigin, topOrigin: client.topOrigin },
+      authenticatorData: {
+        length: data.length,
+        flags: data.length > 32 ? data[32].toString(2).padStart(8, "0") : null,
+        signCount: data.length >= 37 ? new DataView(data.buffer).getUint32(33) : null,
+        rpIdHashMatches: rpIdHash.every((byte, i) => byte === data[i]),
+      },
+      signatureLength: bytes(credential.signature).length,
+      userHandleLength: credential.userHandle ? bytes(credential.userHandle).length : 0,
+      inAllowCredentials: Array.isArray(allowed) && allowed.length > 0 ? allowed.includes(credential.credentialId) : "no list",
+      prf: Boolean(credential.prf),
+    };
+  } catch (err) {
+    return { unreadable: String(err) };
+  }
+}
+
 /** An answer to a page, as the diagnostics show it. */
 function outcome(answer: unknown) {
   if (answer === null) return { endedByPage: true };
@@ -1743,6 +1772,7 @@ async function handlePasskey(entry: PasskeyRequest, message: any): Promise<Reply
                 itemId: typeof message.itemId === "string" ? message.itemId : "",
               })
             : await passkeyGet(entry, String(message.credentialId ?? ""));
+        if (r.kind === "get") void answerShape(entry, credential).then((shape) => debugPasskey("answer", entry, shape));
         finishPasskey(entry, { ok: true, credential });
         if (r.kind === "create") await chrome.storage.session.set({ itemsChangedAt: Date.now() }).catch(() => undefined);
         else void afterPasskey(entry, String(message.credentialId ?? ""));
@@ -1969,6 +1999,7 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       if (!entry) return { ok: false, error: "expired" };
       const credentialId = String(message.credentialId ?? "");
       const credential = await passkeyGet(entry, credentialId);
+      void answerShape(entry, credential).then((shape) => debugPasskey("answer", entry, shape));
       finishConditional(entry, { ok: true, credential });
       void afterPasskey(entry, credentialId);
       return { ok: true };

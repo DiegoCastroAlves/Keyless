@@ -16,13 +16,22 @@
 const TAG = "keyless-webauthn";
 const MAX_ITEMS = 64;
 
+/** Room for a challenge: the specification sets no limit, and Google's on
+ * its passkey step is some 1 KB. */
+const MAX_CHALLENGE = 16384;
+/** A credential id is at most 1023 bytes. */
+const MAX_ID = 1400;
+
 const text = (value: unknown, max = 1024) => (typeof value === "string" ? value.slice(0, max) : "");
-const b64url = (value: unknown, max = 1024) => {
-  const s = text(value, max);
-  return /^[A-Za-z0-9_-]*$/.test(s) ? s : "";
-};
+/** A base64url value as the page gave it, or "" when it is not one. Never
+ * shortened: a cut challenge or id would be signed or looked up wrong, so
+ * one over `max` is refused whole (and the request left to the browser). */
+const b64url = (value: unknown, max = MAX_ID) =>
+  typeof value === "string" && value.length <= max && /^[A-Za-z0-9_-]*$/.test(value) ? value : "";
 const descriptors = (value: unknown) =>
   (Array.isArray(value) ? value.slice(0, MAX_ITEMS) : []).map((c) => b64url((c as { id?: unknown })?.id)).filter(Boolean);
+/** Every one of the page's credentials made it through `descriptors`. */
+const allKept = (value: unknown, kept: string[]) => kept.length === (Array.isArray(value) ? value.length : 0);
 
 /** How the page asked, by names only (see webauthn-page.ts, `about`). */
 function about(value: unknown) {
@@ -92,7 +101,7 @@ window.addEventListener("message", (event) => {
           userId: b64url(data.userId, 128),
           userName: text(data.userName, 256),
           userDisplayName: text(data.userDisplayName, 256),
-          challenge: b64url(data.challenge),
+          challenge: b64url(data.challenge, MAX_CHALLENGE),
           algorithms: (Array.isArray(data.algorithms) ? data.algorithms.slice(0, MAX_ITEMS) : []).filter((a: unknown) => Number.isInteger(a)),
           excludeCredentials: descriptors(data.excludeCredentials),
           timeout: Number(data.timeout) || null,
@@ -103,7 +112,7 @@ window.addEventListener("message", (event) => {
         ? {
             kind: "get",
             rpId: data.rpId === null ? null : text(data.rpId, 253),
-            challenge: b64url(data.challenge),
+            challenge: b64url(data.challenge, MAX_CHALLENGE),
             allowCredentials: descriptors(data.allowCredentials),
             timeout: Number(data.timeout) || null,
             prf: prf(data.prf),
@@ -113,6 +122,12 @@ window.addEventListener("message", (event) => {
           }
         : null;
   if (!request) return;
+  // What could not be passed on whole goes to the browser as it is.
+  const whole =
+    request.challenge !== "" &&
+    (request.kind === "get"
+      ? allKept(data.allowCredentials, request.allowCredentials ?? [])
+      : request.userId !== "" && allKept(data.excludeCredentials, request.excludeCredentials ?? []));
 
   let answered = false;
   let keepAlive: ReturnType<typeof setInterval> | undefined;
@@ -124,6 +139,7 @@ window.addEventListener("message", (event) => {
     page.close();
   };
 
+  if (!whole) return answer({ fallback: true });
   if (!sameOriginWithAncestors()) {
     if (request.kind === "create") return answer({ fallback: true });
     const allowed = getAllowed();
