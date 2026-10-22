@@ -451,6 +451,9 @@ h3 {
   color: var(--ink-2);
   white-space: nowrap;
 }
+.files li a.mine span:first-child {
+  color: var(--accent);
+}
 .files li.empty {
   color: var(--ink-2);
   padding: 10px 0;

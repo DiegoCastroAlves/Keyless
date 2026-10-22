@@ -25,7 +25,8 @@ const TEXT: Record<Lang, Record<string, string>> = {
     title: "Pratique <em>aqui.</em>",
     lede: "Três exercícios rápidos nesta página. Nada do que você digitar sai daqui: os formulários são de mentira.",
     before1: "Abra o Keyless no computador e desbloqueie.",
-    before2: "Instale a extensão e conecte-a ao app (o ícone do Keyless fica colorido na barra do navegador).",
+    before2:
+      'Instale a extensão (<a href="https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja">Chrome, Edge, Brave, Vivaldi, Opera</a> ou <a href="https://addons.mozilla.org/firefox/addon/keyless/">Firefox</a>) e conecte-a ao app (o ícone do Keyless fica colorido na barra do navegador).',
     before3: "Use um e-mail inventado. Os itens de prática podem ser apagados no Keyless depois.",
     signupTitle: "Crie uma conta",
     signup1: "Escreva um e-mail qualquer.",
@@ -89,7 +90,8 @@ const TEXT: Record<Lang, Record<string, string>> = {
     title: "Practice <em>here.</em>",
     lede: "Three quick exercises on this page. Nothing you type leaves it: the forms are pretend.",
     before1: "Open Keyless on your computer and unlock it.",
-    before2: "Install the extension and connect it to the app (the Keyless icon in the browser's toolbar turns colored).",
+    before2:
+      'Install the extension (<a href="https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja">Chrome, Edge, Brave, Vivaldi, Opera</a> or <a href="https://addons.mozilla.org/firefox/addon/keyless/">Firefox</a>) and connect it to the app (the Keyless icon in the browser\'s toolbar turns colored).',
     before3: "Use a made-up email. You can delete the practice items in Keyless afterwards.",
     signupTitle: "Create an account",
     signup1: "Type any email.",
@@ -153,7 +155,8 @@ const TEXT: Record<Lang, Record<string, string>> = {
     title: "Practica <em>aquí.</em>",
     lede: "Tres ejercicios rápidos en esta página. Nada de lo que escribas sale de aquí: los formularios son de mentira.",
     before1: "Abre Keyless en el ordenador y desbloquéalo.",
-    before2: "Instala la extensión y conéctala a la app (el icono de Keyless en la barra del navegador se pone en color).",
+    before2:
+      'Instala la extensión (<a href="https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja">Chrome, Edge, Brave, Vivaldi, Opera</a> o <a href="https://addons.mozilla.org/firefox/addon/keyless/">Firefox</a>) y conéctala a la app (el icono de Keyless en la barra del navegador se pone en color).',
     before3: "Usa un correo inventado. Puedes borrar los elementos de práctica en Keyless después.",
     signupTitle: "Crea una cuenta",
     signup1: "Escribe cualquier correo.",

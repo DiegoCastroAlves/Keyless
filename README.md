@@ -78,13 +78,14 @@ file that runs without installing.
 The extension talks to the desktop app, so install and open the app first.
 It registers itself with your browsers when it starts (Settings > Browser).
 
-- **Chrome, Edge, Brave, Vivaldi, Opera:** unzip `keyless-chrome-*.zip`, open
-  `chrome://extensions`, turn on *Developer mode*, choose *Load unpacked* and
-  pick the unzipped folder.
-- **Firefox:** Firefox only installs signed extensions permanently. Until
-  Keyless is signed by Mozilla, load `keyless-firefox-*.zip` from
-  `about:debugging#/runtime/this-firefox` (*Load Temporary Add-on*); it stays
-  until Firefox restarts.
+- **Chrome, Edge, Brave, Vivaldi, Opera:** from the
+  [Chrome Web Store](https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja).
+  Edge first asks to allow extensions from other stores, and Opera to add
+  its *Install Chrome Extensions*.
+- **Firefox:** from
+  [Firefox Add-ons](https://addons.mozilla.org/firefox/addon/keyless/).
+
+The app links to both in Settings > Browser.
 
 Click the Keyless icon in the toolbar, choose *Connect* and approve the
 browser in the app after checking that both show the same code. Then click

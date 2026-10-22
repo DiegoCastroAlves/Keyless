@@ -119,8 +119,7 @@ const TEXT: Record<Lang, Record<string, string>> = {
     fileDeb: "Debian, Ubuntu (.deb)",
     fileRpm: "Fedora, openSUSE (.rpm)",
     fileArch: "Arch, CachyOS (.pkg.tar.zst)",
-    fileChrome: "Chrome, Edge, Brave (.zip)",
-    fileFirefox: "Firefox (.zip)",
+    storeFirefox: "Complementos do Firefox ↗",
     navInstall: "Instalar",
     howToInstall: "Como instalar cada arquivo",
     installTitle: "Como instalar",
@@ -182,7 +181,7 @@ const TEXT: Record<Lang, Record<string, string>> = {
     afterAccount:
       "Abra o Keyless e escolha <strong>Criar uma nova conta</strong>, ou entre na que você já tem. Guarde bem o Kit de Emergência: é nele que fica a sua Chave Secreta.",
     afterBrowser:
-      'Para preencher senhas no navegador, instale a extensão (<a href="https://github.com/DiegoCastroAlves/Keyless#browser-extension">veja como</a>) e pratique no <a href="/tutorial/">tutorial</a>.',
+      'Para preencher senhas no navegador, instale a extensão pela <a href="https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja">Chrome Web Store</a> (Chrome, Edge, Brave, Vivaldi, Opera) ou pelos <a href="https://addons.mozilla.org/firefox/addon/keyless/">Complementos do Firefox</a>, e pratique no <a href="/tutorial/">tutorial</a>.',
   },
   en: {
     docTitle: "Keyless: your passwords, only yours",
@@ -263,8 +262,7 @@ const TEXT: Record<Lang, Record<string, string>> = {
     fileDeb: "Debian, Ubuntu (.deb)",
     fileRpm: "Fedora, openSUSE (.rpm)",
     fileArch: "Arch, CachyOS (.pkg.tar.zst)",
-    fileChrome: "Chrome, Edge, Brave (.zip)",
-    fileFirefox: "Firefox (.zip)",
+    storeFirefox: "Firefox Add-ons ↗",
     navInstall: "Install",
     howToInstall: "How to install each file",
     installTitle: "How to install",
@@ -326,7 +324,7 @@ const TEXT: Record<Lang, Record<string, string>> = {
     afterAccount:
       "Open Keyless and choose <strong>Create a new account</strong>, or sign in to the one you have. Keep your Emergency Kit safe: it holds your Secret Key.",
     afterBrowser:
-      'To fill in passwords in your browser, install the extension (<a href="https://github.com/DiegoCastroAlves/Keyless#browser-extension">see how</a>) and practice in the <a href="/tutorial/">tutorial</a>.',
+      'To fill in passwords in your browser, get the extension from the <a href="https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja">Chrome Web Store</a> (Chrome, Edge, Brave, Vivaldi, Opera) or <a href="https://addons.mozilla.org/firefox/addon/keyless/">Firefox Add-ons</a>, and practice in the <a href="/tutorial/">tutorial</a>.',
   },
   es: {
     docTitle: "Keyless: tus contraseñas, solo tuyas",
@@ -408,8 +406,7 @@ const TEXT: Record<Lang, Record<string, string>> = {
     fileDeb: "Debian, Ubuntu (.deb)",
     fileRpm: "Fedora, openSUSE (.rpm)",
     fileArch: "Arch, CachyOS (.pkg.tar.zst)",
-    fileChrome: "Chrome, Edge, Brave (.zip)",
-    fileFirefox: "Firefox (.zip)",
+    storeFirefox: "Complementos de Firefox ↗",
     navInstall: "Instalar",
     howToInstall: "Cómo instalar cada archivo",
     installTitle: "Cómo instalar",
@@ -472,7 +469,7 @@ const TEXT: Record<Lang, Record<string, string>> = {
     afterAccount:
       "Abre Keyless y elige <strong>Crear una cuenta nueva</strong>, o inicia sesión en la que ya tienes. Guarda bien tu Kit de emergencia: en él está tu Clave Secreta.",
     afterBrowser:
-      'Para rellenar contraseñas en el navegador, instala la extensión (<a href="https://github.com/DiegoCastroAlves/Keyless#browser-extension">mira cómo</a>) y practica en el <a href="/tutorial/">tutorial</a>.',
+      'Para rellenar contraseñas en el navegador, instala la extensión desde la <a href="https://chromewebstore.google.com/detail/hcmaplniiophbidhkclpbicbpleonhja">Chrome Web Store</a> (Chrome, Edge, Brave, Vivaldi, Opera) o desde <a href="https://addons.mozilla.org/firefox/addon/keyless/">Complementos de Firefox</a>, y practica en el <a href="/tutorial/">tutorial</a>.',
   },
 };
 
@@ -608,14 +605,12 @@ let releaseFailed = false;
 type Guide = "appimage" | "deb" | "rpm" | "arch" | "windows";
 
 // Each file with its install guide (below), if it has one.
-const KINDS: { test: RegExp; platform: "windows" | "linux" | "extension"; label: string; guide?: Guide }[] = [
+const KINDS: { test: RegExp; platform: "windows" | "linux"; label: string; guide?: Guide }[] = [
   { test: /_x64-setup\.exe$/, platform: "windows", label: "fileExe", guide: "windows" },
   { test: /\.AppImage$/, platform: "linux", label: "fileAppImage", guide: "appimage" },
   { test: /\.deb$/, platform: "linux", label: "fileDeb", guide: "deb" },
   { test: /\.rpm$/, platform: "linux", label: "fileRpm", guide: "rpm" },
   { test: /\.pkg\.tar\.zst$/, platform: "linux", label: "fileArch", guide: "arch" },
-  { test: /^keyless-chrome-.*\.zip$/, platform: "extension", label: "fileChrome" },
-  { test: /^keyless-firefox-.*\.zip$/, platform: "extension", label: "fileFirefox" },
 ];
 const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
 const RELEASES_PAGE = `https://github.com/${REPO}/releases`;
@@ -628,6 +623,14 @@ function os(): "windows" | "linux" | null {
   if (platform.includes("win")) return "windows";
   if (platform.includes("linux") && !platform.includes("android")) return "linux";
   return null;
+}
+
+/** Marks the extension's store for the visitor's browser (Chromium ones say
+ * who they are in userAgentData). */
+function markStore() {
+  if (!os()) return;
+  const store = navigator.userAgent.includes("Firefox/") ? "firefox" : "userAgentData" in navigator ? "chromium" : null;
+  if (store) document.querySelector(`a[data-store="${store}"]`)?.classList.add("mine");
 }
 
 function size(bytes: number): string {
@@ -645,7 +648,7 @@ function renderRelease() {
   const date = new Date(release.published_at).toLocaleDateString(lang, { dateStyle: "long" });
   line.textContent = t("releaseLine", { version: release.tag_name, date });
   const assets = releaseAssets();
-  for (const list of document.querySelectorAll<HTMLUListElement>(".files")) {
+  for (const list of document.querySelectorAll<HTMLUListElement>(".files[data-platform]")) {
     list.replaceChildren();
     for (const kind of KINDS.filter((k) => k.platform === list.dataset.platform)) {
       const asset = assets.find((a) => kind.test.test(a.name));
@@ -1016,6 +1019,7 @@ function fillGuides() {
 }
 
 buildGuides();
+markStore();
 applyLang();
 void cycle();
 void loadRelease();
