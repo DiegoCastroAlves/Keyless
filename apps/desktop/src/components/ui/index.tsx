@@ -164,7 +164,7 @@ export function Tooltip({ content, children, side = "top" }: { content: ReactNod
         <RTooltip.Content
           side={side}
           sideOffset={6}
-          className="z-50 rounded-md bg-fg px-2 py-1 text-xs font-medium text-panel shadow-lg animate-fade"
+          className="z-50 rounded-md bg-fg px-2 py-1 text-xs font-medium text-panel shadow-lg animate-pop"
         >
           {content}
         </RTooltip.Content>
@@ -450,5 +450,5 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
 
 export function ErrorText({ children }: { children: ReactNode }) {
   if (!children) return null;
-  return <p className="mt-2 text-[13px] text-danger animate-fade">{children}</p>;
+  return <p className="mt-2 text-[13px] text-danger">{children}</p>;
 }
