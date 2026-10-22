@@ -71,4 +71,12 @@
     <string name="err_item_too_large">This item is too large to save.</string>
     <string name="err_not_found">This item is no longer there.</string>
     <string name="seconds_left">%1$ds</string>
+    <string name="apps">Apps</string>
+    <string name="link_app">Link an app</string>
+    <string name="search_apps">Search apps</string>
+    <string name="suggested">Suggested</string>
+    <string name="all_apps">All apps</string>
+    <string name="loading">Loading…</string>
+    <string name="not_installed">Not installed</string>
+    <string name="apps_hint">Keyless fills this login in the apps linked here.</string>
 </resources>

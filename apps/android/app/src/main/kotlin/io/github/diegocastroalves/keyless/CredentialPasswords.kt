@@ -15,7 +15,9 @@ import androidx.credentials.GetCredentialResponse
 import androidx.credentials.GetPasswordOption
 import androidx.credentials.PasswordCredential
 import androidx.credentials.exceptions.CreateCredentialUnknownException
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialUnknownException
+import androidx.credentials.provider.Action
 import androidx.credentials.provider.BeginGetCredentialRequest
 import androidx.credentials.provider.BeginGetCredentialResponse
 import androidx.credentials.provider.BeginGetPasswordOption
@@ -28,8 +30,9 @@ import kotlin.concurrent.thread
 /**
  * Passwords through Android's Credential Manager: the logins of the app
  * asking (by its package name), or of the page a browser in Google's list
- * shows, and saving a new one. The choice opens PasswordCredentialActivity,
- * which unlocks if needed.
+ * shows, "Search Keyless" for any other login (linked to the app if wanted,
+ * see AppLinks), and saving a new one. The choice opens
+ * PasswordCredentialActivity, which unlocks if needed.
  */
 @RequiresApi(34)
 object CredentialPasswords {
@@ -67,6 +70,15 @@ object CredentialPasswords {
         }
     }
 
+    /** "Search Keyless": any login for the caller, chosen in PasswordCredentialActivity. */
+    fun addPickAction(context: Context, request: BeginGetCredentialRequest, builder: BeginGetCredentialResponse.Builder) {
+        val info = request.callingAppInfo ?: return
+        if (request.beginGetCredentialOptions.none { it is BeginGetPasswordOption } || info.packageName == context.packageName) return
+        val intent = Intent(context, PasswordCredentialActivity::class.java).setAction(PasswordCredentialActivity.ACTION_PICK)
+        val pending = PendingIntent.getActivity(context, 2004, intent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        builder.addAction(Action(context.getString(R.string.autofill_pick), pending))
+    }
+
     /** The entry offering to save a new password in Keyless. */
     fun createEntry(context: Context): CreateEntry {
         val intent = Intent(context, PasswordCredentialActivity::class.java).setAction(PasswordCredentialActivity.ACTION_CREATE)
@@ -91,8 +103,54 @@ class PasswordCredentialActivity : KeylessActivity() {
     private fun proceed() {
         when (intent.action) {
             ACTION_GET -> get()
+            ACTION_PICK -> pick()
             ACTION_CREATE -> create()
             else -> finish()
+        }
+    }
+
+    /** "Search Keyless": the user chooses the login for the caller, and may link the caller to it. */
+    private fun pick() {
+        // An action gets the request as it began (who asks, and for what),
+        // not the full one an entry gets.
+        val request = PendingIntentHandler.retrieveBeginGetCredentialRequest(intent)
+        val info = request?.callingAppInfo
+        if (info == null || request.beginGetCredentialOptions.none { it is BeginGetPasswordOption }) return failGet("no request")
+        thread {
+            // Telling a browser's page apart may need the network.
+            val caller = try {
+                CredentialPasswords.caller(this, info)
+            } catch (e: Exception) {
+                CredentialPasswords.Caller(null, info.packageName)
+            }
+            runOnUiThread {
+                setContentView(loginPicker(caller.packageName, caller.domain, onPick = { login, link -> answer(login, link, caller) }, onCancel = {
+                    val result = Intent()
+                    PendingIntentHandler.setGetCredentialException(result, GetCredentialCancellationException())
+                    setResult(RESULT_OK, result)
+                    finish()
+                }))
+            }
+        }
+    }
+
+    private fun answer(login: Summary, link: Boolean, caller: CredentialPasswords.Caller) {
+        thread {
+            val values = try {
+                AutofillResponses.loginValues(Keyless.item(login.id)).also { if (it.password == null) throw KeylessException("not_found") }
+            } catch (e: Exception) {
+                runOnUiThread { android.widget.Toast.makeText(this, if (e is KeylessException && e.key == "not_found") getString(R.string.pick_no_values) else errorText(e), android.widget.Toast.LENGTH_LONG).show() }
+                return@thread
+            }
+            runOnUiThread {
+                Keyless.touch()
+                val result = Intent()
+                PendingIntentHandler.setGetCredentialResponse(result, GetCredentialResponse(PasswordCredential(values.username ?: "", values.password!!)))
+                setResult(RESULT_OK, result)
+                values.totp?.let { OneTimeCodes.copy(this, login.title, it) }
+                if (link) linkInBackground(login.id, caller.packageName, caller.domain)
+                finish()
+            }
         }
     }
 
@@ -170,6 +228,7 @@ class PasswordCredentialActivity : KeylessActivity() {
 
     companion object {
         const val ACTION_GET = "io.github.diegocastroalves.keyless.password.GET"
+        const val ACTION_PICK = "io.github.diegocastroalves.keyless.password.PICK"
         const val ACTION_CREATE = "io.github.diegocastroalves.keyless.password.CREATE"
         const val EXTRA_ITEM = "item"
     }

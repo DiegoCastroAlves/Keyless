@@ -9,8 +9,11 @@
   in payment and address forms;
 - a login filled from the list under the field, its one-time code copied
   (with a "Code copied" notification), then cleared after 90 seconds;
+- "Search Keyless" in the list: another login chosen for the app, filled
+  and linked to it (written to the server), then suggested by itself;
 - passwords through Credential Manager: one that needs unlocking first,
-  and a new one saved in Keyless.
+  another chosen with "Search Keyless" (and linked to the app), and a new
+  one saved in Keyless.
 
 UIAutomator cannot read the keyboard's chips (its dump of every window
 fails while they show), so a chip is found from Android's log (the
@@ -300,6 +303,51 @@ def inserts(path):
     return open(path).read().count('"insert"') if os.path.exists(path) else 0
 
 
+def updates(path, item):
+    """How many times the app uploaded a change of `item`."""
+    if not os.path.exists(path):
+        return 0
+    return sum(1 for line in open(path) if json.loads(line).get("kind") == "update" and json.loads(line).get("id") == item)
+
+
+def form_shows(name, text, seconds=20):
+    """Whether the form app itself shows `text` (not Keyless's list over it)."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if any(t == text and pkg == FORM for t, _, _, pkg in screen()):
+            return record(name, True)
+        time.sleep(1)
+    return record(name, False, texts())
+
+
+def search_in_sheet(title, username, seconds=90):
+    """Credential Manager's sheet: its sign-in options, "Search Keyless"
+    there (scrolled to), then the login `title` in Keyless's list, searched
+    for by `username`; returns what the form app says."""
+    width, height = screen_size()
+    end = time.time() + seconds
+    while time.time() < end:
+        nodes = screen()
+        shown = [t for t, *_ in nodes]
+        said = next((t for t, _, _, pkg in nodes if pkg == FORM and ("Got password for" in t or "Get failed" in t)), None)
+        if said:
+            return said
+        if "Choose a login" in shown:
+            # Searched for (the list may not fit a small screen), by another
+            # text than the one tapped: the search box shows it too.
+            type_into(PACKAGE, 0, username)
+            wait_tap(title, PACKAGE, seconds=10)
+        elif tap_text("Search Keyless", other_than=FORM):
+            pass
+        elif "Go back to the previous page" not in shown and tap_text("Sign-in options", other_than=FORM):
+            pass
+        else:
+            # Further down the sheet: Keyless's action is under the logins.
+            adb("shell", "input", "swipe", str(width // 2), str(int(height * 0.8)), str(width // 2), str(int(height * 0.4)), "300")
+        time.sleep(2)
+    return "timed out on: " + texts()[:300]
+
+
 def drive_sheet(done, buttons, seconds=90, typing=None):
     """Goes through Credential Manager's sheets (tapping the first of
     `buttons` shown outside the form app) until the form app shows one of
@@ -428,6 +476,28 @@ def main():
         pasted = clipboard()
         record("clears the code from the clipboard", pasted == "", f"clipboard: {pasted}")
 
+    # Another login, chosen with "Search Keyless" and linked to the app: then
+    # it shows by itself. (GitHub's login has a website only, no app.)
+    github = "cccccccc-0000-4000-8000-000000000002"
+    before = updates(writes_path, github)
+    start("LoginActivity")
+    check("the form app opens for Search Keyless", "Log in", 30)
+    if pick_from_list("offers Search Keyless in the list", "Search Keyless"):
+        if check("lists the logins to choose from", ["Choose a login", "Link Form test to this login", "Suggested", "All logins"], 30):
+            # Searched for (the list may not fit a small screen), by another
+            # text than the one tapped: the search box shows it too.
+            type_into(PACKAGE, 0, "octo")
+            wait_tap("GitHub", PACKAGE, seconds=10)
+            form_shows("fills the login chosen", "octo")
+            end = time.time() + 30
+            while time.time() < end and updates(writes_path, github) <= before:
+                time.sleep(2)
+            record("links the app to the login on the server", updates(writes_path, github) > before, "nothing written")
+            start("LoginActivity")
+            check("the form app opens again", "Log in", 30)
+            if pick_from_list("suggests the linked login by itself", "octo"):
+                form_shows("fills the linked login", "octo")
+
     # Passwords through Credential Manager, Keyless locked first.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
     if wait_tap("Account", PACKAGE, seconds=20):
@@ -439,6 +509,20 @@ def main():
     tap_text("Get password", FORM)
     got = drive_sheet(["Got password for", "Get failed"], ["Unlock Keyless to fill", "tester", "Continue", "Sign in"], typing=("Keyless is locked", password))
     record("gives a password through Credential Manager after unlocking", "Got password for tester" in got, got)
+
+    # Another login through Credential Manager: "Search Keyless", then the
+    # bank's login, linked to the app.
+    bank = "cccccccc-0000-4000-8000-000000000003"
+    before = updates(writes_path, bank)
+    start("LoginActivity")
+    hide_keyboard()
+    tap_text("Get password", FORM)
+    got = search_in_sheet("Bank", "client")
+    record("gives a password chosen with Search Keyless in Credential Manager", "Got password for client" in got, got)
+    end = time.time() + 30
+    while time.time() < end and updates(writes_path, bank) <= before:
+        time.sleep(2)
+    record("links the app to the login chosen in Credential Manager", updates(writes_path, bank) > before, "nothing written")
 
     before = inserts(writes_path)
     start("LoginActivity", "--es", "username", "cm-user", "--es", "password", "cm-pass-789")

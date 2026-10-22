@@ -56,13 +56,18 @@ object InlineSuggestions {
         return builder.build()
     }
 
-    /** Chips for one answer: as many as the keyboard has room for, each with its spec (the last one repeats). */
-    class Chips(private val context: Context, private val request: InlineSuggestionsRequest) {
+    /**
+     * Chips for one answer: as many as the keyboard has room for, each with
+     * its spec (the last one repeats). `reserved`: chips kept back for the
+     * end of the answer (see `next`).
+     */
+    class Chips(private val context: Context, private val request: InlineSuggestionsRequest, private val reserved: Int = 0) {
         private var used = 0
 
-        fun next(title: String, subtitle: String?): InlinePresentation? {
+        /** `last`: for a chip that may take a reserved place. */
+        fun next(title: String, subtitle: String?, last: Boolean = false): InlinePresentation? {
             val specs = request.inlinePresentationSpecs
-            if (specs.isEmpty() || used >= request.maxSuggestionCount) return null
+            if (specs.isEmpty() || used >= request.maxSuggestionCount - (if (last) 0 else reserved)) return null
             val spec = specs[minOf(used, specs.size - 1)]
             if (!supported(spec)) return null
             used++

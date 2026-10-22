@@ -54,4 +54,13 @@
     <string name="check_chrome_unknown">This Chrome does not say which service it uses. Chrome 135 and later can use Keyless.</string>
     <string name="check_chrome_absent">Chrome is not installed.</string>
     <string name="check_chrome_button">Open Chrome\'s autofill settings</string>
+    <string name="autofill_pick">Search Keyless</string>
+    <string name="pick_login_title">Choose a login</string>
+    <string name="pick_login_for">To fill in %1$s.</string>
+    <string name="link_app_to_login">Link %1$s to this login</string>
+    <string name="link_site_to_login">Add %1$s to this login</string>
+    <string name="search_logins">Search logins</string>
+    <string name="all_logins">All logins</string>
+    <string name="linked_to">Linked to %1$s</string>
+    <string name="pick_no_values">This login has no username or password.</string>
 </resources>

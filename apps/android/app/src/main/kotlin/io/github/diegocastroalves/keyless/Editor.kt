@@ -212,10 +212,13 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
         }, width = ViewGroup.LayoutParams.WRAP_CONTENT, top = 4)
 
         val urls = draft.optJSONArray("urls") ?: JSONArray().also { draft.put("urls", it) }
-        if (hasWebsite || urls.length() > 0) {
+        // Apps linked to the login are kept among its addresses (AppLinks).
+        val isApp = { i: Int -> AppLinks.packageOf(urls.getJSONObject(i).optString("href")) != null }
+        if (hasWebsite || (0 until urls.length()).any { !isApp(it) }) {
             page.add(sectionTitle(getString(R.string.websites)), top = 16)
             val panel = panel()
             for (i in 0 until urls.length()) {
+                if (isApp(i)) continue
                 val url = urls.getJSONObject(i)
                 val line = row()
                 line.add(EditText(this).apply {
@@ -235,6 +238,29 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
             panel.add(plainButton("+ " + getString(R.string.add_website)) {
                 urls.put(JSONObject().put("href", ""))
                 render()
+            }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
+            page.add(panel, top = 6)
+        }
+
+        if (category == "login" || (0 until urls.length()).any { isApp(it) }) {
+            page.add(sectionTitle(getString(R.string.apps)), top = 16)
+            page.add(label(getString(R.string.apps_hint), 13f, muted = true), top = 2)
+            val panel = panel()
+            for (i in 0 until urls.length()) {
+                val name = AppLinks.packageOf(urls.getJSONObject(i).optString("href")) ?: continue
+                val app = AppLinks.label(this, name)
+                panel.add(listRow(appIcon(name, 32), app ?: name, if (app == null) getString(R.string.not_installed) else name,
+                    iconButton(R.drawable.ic_close, getString(R.string.remove)) {
+                        urls.remove(i)
+                        render()
+                    }).apply { background = null })
+            }
+            panel.add(plainButton("+ " + getString(R.string.link_app)) {
+                val linked = AppLinks.linked(urls).toSet()
+                pickApp(AppLinks.loginWords(draft.optString("title"), urls), linked) { app ->
+                    urls.put(JSONObject().put("href", AppLinks.href(app.packageName)))
+                    render()
+                }
             }, width = ViewGroup.LayoutParams.WRAP_CONTENT)
             page.add(panel, top = 6)
         }

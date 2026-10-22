@@ -91,6 +91,13 @@
             android:theme="@style/Theme.Keyless.Translucent"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- "Search Keyless" in the autofill list: any login, linked to the app if wanted. -->
+        <activity
+            android:name=".AutofillPickActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Also Android's autofill settings' gear (xml/autofill_service.xml). -->
         <activity
             android:name=".AutofillCheckActivity"

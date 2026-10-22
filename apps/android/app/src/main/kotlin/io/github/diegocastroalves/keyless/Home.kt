@@ -120,7 +120,7 @@ internal fun Context.openedIds(): List<String> = try {
 
 /** A row for an item: its icon, title and subtitle; opens it. */
 internal fun MainActivity.itemRow(item: Summary): LinearLayout {
-    val url = item.overview.optJSONArray("urls")?.optJSONObject(0)?.optString("href")
+    val url = AppLinks.firstWebsite(item.overview.optJSONArray("urls"))
     return groupRow(itemIcon(item.category, item.title, url), item.title, item.subtitle) { showItem(item.id) }.apply {
         // Held down: the item's menu (ItemScreens.kt).
         setOnLongClickListener { row ->

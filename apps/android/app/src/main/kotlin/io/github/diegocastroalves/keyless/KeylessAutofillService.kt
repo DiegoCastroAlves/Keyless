@@ -24,10 +24,11 @@ import kotlin.concurrent.thread
 /**
  * Fills logins, credit cards and identities in apps and browsers. While
  * Keyless is locked it offers to unlock (AutofillAuthActivity); unlocked,
- * the logins of the app or website, best first, and the cards or
- * identities a payment or address form asks for. Suggestions show in the
- * keyboard when it can show them (Android 11+), in a list otherwise. It
- * never fills Keyless itself.
+ * the logins of the app or website, best first, then "Search Keyless" to
+ * choose any login (AutofillPickActivity), and the cards or identities a
+ * payment or address form asks for. Suggestions show in the keyboard when
+ * it can show them (Android 11+), in a list otherwise. It never fills
+ * Keyless itself.
  */
 class KeylessAutofillService : AutofillService() {
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -162,7 +163,8 @@ object AutofillResponses {
      */
     @Suppress("DEPRECATION")
     fun datasets(context: Context, parsed: ParsedFields, inline: InlineSuggestionsRequest?): FillResponse? {
-        val chips = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) InlineSuggestions.Chips(context, inline) else null
+        // A chip kept for "Search Keyless", at the end.
+        val chips = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) InlineSuggestions.Chips(context, inline, reserved = if (parsed.logins) 1 else 0) else null
         val builder = FillResponse.Builder()
         var count = 0
         if (parsed.logins) {
@@ -185,9 +187,36 @@ object AutofillResponses {
             }
         }
         if (parsed.cards || parsed.identities) count += forms(context, parsed, builder, chips)
+        if (parsed.logins) {
+            builder.addDataset(pickDataset(context, parsed, chips))
+            count++
+        }
         val save = saveInfo(parsed)
         if (save != null) builder.setSaveInfo(save)
         return if (count > 0 || save != null) builder.build() else null
+    }
+
+    /**
+     * "Search Keyless": any login for these fields, chosen in
+     * AutofillPickActivity, which can link it to the app or site. The only
+     * suggestion for an app with no login linked yet (Instagram, for a login
+     * saved for instagram.com).
+     */
+    @Suppress("DEPRECATION")
+    private fun pickDataset(context: Context, parsed: ParsedFields, chips: InlineSuggestions.Chips?): Dataset {
+        val title = context.getString(R.string.autofill_pick)
+        val builder = Dataset.Builder(presentation(context, title, null))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) chips?.next(title, null, last = true)?.let { builder.setInlinePresentation(it) }
+        // The values come once a login is chosen.
+        for (id in (parsed.usernames + parsed.passwords).distinct()) builder.setValue(id, null)
+        val intent = Intent(context, AutofillPickActivity::class.java)
+            .putParcelableArrayListExtra(AutofillPickActivity.EXTRA_USERNAMES, ArrayList(parsed.usernames))
+            .putParcelableArrayListExtra(AutofillPickActivity.EXTRA_PASSWORDS, ArrayList(parsed.passwords))
+            .putExtra(AutofillPickActivity.EXTRA_PACKAGE, if (parsed.webDomain == null) parsed.packageName else null)
+            .putExtra(AutofillPickActivity.EXTRA_DOMAIN, parsed.webDomain)
+        val sender = PendingIntent.getActivity(context, 4900, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE).intentSender
+        builder.setAuthentication(sender)
+        return builder.build()
     }
 
     /** The cards and identities that fit the form, each filling every field it has a value for. */

@@ -51,4 +51,13 @@
     <string name="check_chrome_unknown">Este Chrome no indica qué servicio usa. Chrome 135 o posterior puede usar Keyless.</string>
     <string name="check_chrome_absent">Chrome no está instalado.</string>
     <string name="check_chrome_button">Abrir autocompletar de Chrome</string>
+    <string name="autofill_pick">Buscar en Keyless</string>
+    <string name="pick_login_title">Elige un inicio de sesión</string>
+    <string name="pick_login_for">Para rellenar en %1$s.</string>
+    <string name="link_app_to_login">Vincular %1$s a este inicio de sesión</string>
+    <string name="link_site_to_login">Añadir %1$s a este inicio de sesión</string>
+    <string name="search_logins">Buscar inicios de sesión</string>
+    <string name="all_logins">Todos los inicios de sesión</string>
+    <string name="linked_to">Vinculado a %1$s</string>
+    <string name="pick_no_values">Este inicio de sesión no tiene usuario ni contraseña.</string>
 </resources>

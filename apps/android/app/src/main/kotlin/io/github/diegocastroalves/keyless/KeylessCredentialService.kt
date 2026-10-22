@@ -108,6 +108,7 @@ class KeylessCredentialService : CredentialProviderService() {
                 }
             }
             CredentialPasswords.addEntries(context, request, builder)
+            CredentialPasswords.addPickAction(context, request, builder)
             return builder.build()
         }
     }

@@ -71,4 +71,12 @@
     <string name="err_item_too_large">Este item é grande demais para salvar.</string>
     <string name="err_not_found">Este item não existe mais.</string>
     <string name="seconds_left">%1$d s</string>
+    <string name="apps">Apps</string>
+    <string name="link_app">Vincular app</string>
+    <string name="search_apps">Buscar apps</string>
+    <string name="suggested">Sugeridos</string>
+    <string name="all_apps">Todos os apps</string>
+    <string name="loading">Carregando…</string>
+    <string name="not_installed">Não instalado</string>
+    <string name="apps_hint">O Keyless preenche este login nos apps vinculados aqui.</string>
 </resources>

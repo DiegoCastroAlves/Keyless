@@ -58,10 +58,21 @@ class PasskeyActivity : KeylessActivity() {
 
     private fun unlocked() {
         val request = PendingIntentHandler.retrieveBeginGetCredentialRequest(intent)
-        val result = Intent()
-        if (request != null) PendingIntentHandler.setBeginGetCredentialResponse(result, KeylessCredentialService.entries(this, request))
-        setResult(RESULT_OK, result)
-        finish()
+        // Off the main thread: telling a browser's page apart may need the
+        // network, and the passwords would be left out without a word.
+        thread {
+            val entries = try {
+                request?.let { KeylessCredentialService.entries(this, it) }
+            } catch (e: Exception) {
+                null
+            }
+            runOnUiThread {
+                val result = Intent()
+                if (entries != null) PendingIntentHandler.setBeginGetCredentialResponse(result, entries)
+                setResult(RESULT_OK, result)
+                finish()
+            }
+        }
     }
 
     private fun get() {

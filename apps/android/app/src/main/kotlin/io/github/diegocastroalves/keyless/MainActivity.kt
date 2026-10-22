@@ -985,7 +985,7 @@ class MainActivity : KeylessActivity() {
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val item = shown[position]
-            val url = item.overview.optJSONArray("urls")?.optJSONObject(0)?.optString("href")
+            val url = AppLinks.firstWebsite(item.overview.optJSONArray("urls"))
             val star = if (item.favorite) icon(R.drawable.ic_star, getColor(R.color.warning), 16).apply { setPadding(0, 0, dp(4), 0) } else null
             // The list draws the touch feedback (its selector).
             return listRow(itemIcon(item.category, item.title, url), item.title, item.subtitle, star).apply { background = null }
@@ -1058,7 +1058,7 @@ class MainActivity : KeylessActivity() {
         val page = column(20).apply { setPadding(dp(16), dp(4), dp(16), dp(28)) }
         screen.add(page)
         // The header, as the desktop's: the item's icon, its title, its category and vault.
-        val firstUrl = overview.optJSONArray("urls")?.optJSONObject(0)?.optString("href")
+        val firstUrl = AppLinks.firstWebsite(overview.optJSONArray("urls"))
         val header = row().apply { gravity = android.view.Gravity.TOP }
         header.addView(itemIcon(overview.optString("category"), title, firstUrl, 60))
         val names = LinearLayout(this).apply {
@@ -1113,12 +1113,12 @@ class MainActivity : KeylessActivity() {
             group(section.optJSONArray("fields"))
         }
         val urls = overview.optJSONArray("urls")
-        if (urls != null && urls.length() > 0) {
+        if (urls != null && (0 until urls.length()).any { AppLinks.packageOf(urls.getJSONObject(it).optString("href")) == null }) {
             page.add(sectionTitle(getString(R.string.websites)), top = 24)
             val card = card()
             for (i in 0 until urls.length()) {
                 val href = urls.getJSONObject(i).optString("href")
-                if (href.isEmpty()) continue
+                if (href.isEmpty() || AppLinks.packageOf(href) != null) continue
                 val target = if (href.startsWith("http://") || href.startsWith("https://")) href else "https://$href"
                 val open = iconButton(R.drawable.ic_external, getString(R.string.open)) {
                     try {
@@ -1129,6 +1129,25 @@ class MainActivity : KeylessActivity() {
                 }
                 val copyUrl = iconButton(R.drawable.ic_copy, getString(R.string.copy)) { copy(getString(R.string.websites), href) }
                 card.add(fieldRow(urls.getJSONObject(i).optString("label").ifEmpty { Labels.field(this, "website") }, label(href, 16f, muted = false).apply { setTextColor(accent()) }, copyUrl, open))
+            }
+            page.add(card, top = 8)
+        }
+        // The apps it fills in (AppLinks).
+        val apps = AppLinks.linked(urls)
+        if (apps.isNotEmpty()) {
+            page.add(sectionTitle(getString(R.string.apps)), top = 24)
+            val card = card()
+            for (name in apps) {
+                val app = AppLinks.label(this, name)
+                val launch = packageManager.getLaunchIntentForPackage(name)
+                val open = if (launch == null) null else iconButton(R.drawable.ic_external, getString(R.string.open)) {
+                    try {
+                        startActivity(launch)
+                    } catch (e: Exception) {
+                        // Gone meanwhile.
+                    }
+                }
+                card.add(listRow(appIcon(name, 32), app ?: name, if (app == null) getString(R.string.not_installed) else name, open).apply { background = null })
             }
             page.add(card, top = 8)
         }
