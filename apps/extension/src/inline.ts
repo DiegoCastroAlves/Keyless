@@ -160,6 +160,16 @@ function subtitle(login: Login): string {
   return login.providerAccount ? t("signInWithAccount", provider, login.providerAccount) : t("signInWith", provider);
 }
 
+/** The card's icon: Keyless's logo and the login's, turning over in turn
+ * (see `.flip` in inline.css). */
+function flipIcon(face: HTMLElement): HTMLElement {
+  return el(
+    "span",
+    { className: "flip" },
+    el("span", { className: "flip-inner" }, el("span", { className: "flip-face front" }, svg(LOGO)), el("span", { className: "flip-face back" }, face)),
+  );
+}
+
 function closeButton(run: () => void): HTMLButtonElement {
   const button = el("button", { className: "x", type: "button", title: t("close") }, svg(ICON_CLOSE));
   button.addEventListener("click", run);
@@ -552,7 +562,7 @@ function renderCard() {
     expanded = true;
     render();
   });
-  const head = key ? avatar(best, state.url ?? undefined) : icon(best);
+  const head = flipIcon(key ? avatar(best, state.url ?? undefined) : icon(best));
   app.replaceChildren(
     el("div", { className: "box card" }, head, texts(best), signIn, closeButton(() => toParent("close"))),
     // The page's other passkeys and its logins.
