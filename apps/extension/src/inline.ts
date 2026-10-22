@@ -1437,9 +1437,13 @@ window.addEventListener("message", async (event) => {
       if (data.activate) void activate(true);
       break;
     case "blur":
-      // The user turned to the page.
+      // The user turned to the page; a click there folds "Other logins".
       cardFocus = false;
       parts?.box.classList.remove("focus");
+      if (mode === "card" && data.outside === true && expanded) {
+        expanded = false;
+        render();
+      }
       break;
     case "leave":
       // Filled from somewhere else: the card's work is done.

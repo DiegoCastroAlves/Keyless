@@ -1230,18 +1230,26 @@ function dismissCard() {
 }
 
 // The user turned to the page: the card's border goes (it comes back while
-// the pointer is over it, see inline.css).
-for (const type of ["mousedown", "keydown"] as const) {
-  document.addEventListener(
-    type,
-    (e) => {
-      if (!e.isTrusted || !cardFocused || !card?.open) return;
-      cardFocused = false;
-      card.post({ type: "blur" });
-    },
-    true,
-  );
-}
+// the pointer is over it, see inline.css). A click on the page also folds
+// "Other logins" away (clicks inside the card never get here).
+document.addEventListener(
+  "mousedown",
+  (e) => {
+    if (!e.isTrusted || !card?.open) return;
+    cardFocused = false;
+    card.post({ type: "blur", outside: true });
+  },
+  true,
+);
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!e.isTrusted || !cardFocused || !card?.open) return;
+    cardFocused = false;
+    card.post({ type: "blur" });
+  },
+  true,
+);
 
 // The Keyless button in the field: unlocks right away when Keyless is locked,
 // otherwise opens or closes the list (the menu decides, it knows the state).
