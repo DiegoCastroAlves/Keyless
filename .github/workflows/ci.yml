@@ -252,6 +252,10 @@ jobs:
           api-level: 34
           target: google_apis
           arch: x86_64
+          # The app came back locked from the system's file picker now and
+          # then (the QR code checks), most likely ended by Android for
+          # memory meanwhile.
+          ram-size: 4096M
           disable-animations: true
           script: bash apps/android/scripts/emulator.sh
 

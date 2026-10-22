@@ -2,6 +2,8 @@
 # CI, on the emulator: the real APK without an account (smoke.py), then the
 # test build end to end against the fake server (full_run.py).
 set -u
+# A log long enough to hold the whole run (published when a check fails).
+adb logcat -G 16M > /dev/null 2>&1
 python3 apps/android/scripts/smoke.py apk/keyless.apk
 smoke=$?
 python3 apps/android/scripts/mock_server.py apk-test/fixture.json 8787 > mock.log 2>&1 &
