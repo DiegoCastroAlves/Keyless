@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use keyless_core::item::wipe_json;
 use zeroize::Zeroizing;
@@ -22,6 +22,8 @@ const PAIRING_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_CLOCK_SKEW_MS: i64 = 120_000;
 
 pub const EVENT_PAIR_REQUEST: &str = "keyless://pair-request";
+/// A browser extension was connected (the main window stops suggesting it).
+pub const EVENT_PAIRED: &str = "keyless://bridge-paired";
 /// A browser Keyless does not know wants to connect (see `ask_about_browser`).
 pub const EVENT_BROWSER_REQUEST: &str = "keyless://browser-request";
 /// The browsers the user allowed (full paths of their executables), in the
@@ -331,6 +333,7 @@ async fn handle_line(app: &AppHandle, line: &[u8]) -> Value {
             let approved = request_pairing(app, &extension_public, &name).await;
             if approved {
                 let _ = state.store().add_bridge_peer(&encode_public_key(&extension_public), &name);
+                let _ = app.emit(EVENT_PAIRED, ());
             }
             json!({ "type": "pair", "ok": approved })
         }

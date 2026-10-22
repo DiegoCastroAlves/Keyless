@@ -347,6 +347,14 @@ const ptBR: Translations = {
     allow: "Conectar",
     deny: "Recusar",
   },
+  extension: {
+    get: "Instalar a extensão",
+    getHint: "Abre a página da extensão na loja, no seu navegador padrão.",
+    chromium: "Chrome, Edge, Brave, Vivaldi, Opera",
+    firefox: "Firefox",
+    hint: "Preencha senhas no navegador com a extensão do Keyless:",
+    dismiss: "Não mostrar mais",
+  },
   account: {
     deletionScheduled: "Esta conta será excluída em {{date}}.",
     cancelDeletion: "Cancelar exclusão",

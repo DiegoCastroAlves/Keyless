@@ -344,6 +344,14 @@ const en = {
     allow: "Connect",
     deny: "Deny",
   },
+  extension: {
+    get: "Get the extension",
+    getHint: "Opens the extension's page in its store, in your default browser.",
+    chromium: "Chrome, Edge, Brave, Vivaldi, Opera",
+    firefox: "Firefox",
+    hint: "Fill in passwords in your browser with the Keyless extension:",
+    dismiss: "Don't show again",
+  },
   account: {
     deletionScheduled: "This account will be deleted on {{date}}.",
     cancelDeletion: "Cancel deletion",

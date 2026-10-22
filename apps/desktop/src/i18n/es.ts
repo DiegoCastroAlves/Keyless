@@ -347,6 +347,14 @@ const es: Translations = {
     allow: "Conectar",
     deny: "Rechazar",
   },
+  extension: {
+    get: "Instalar la extensión",
+    getHint: "Abre la página de la extensión en su tienda, en tu navegador predeterminado.",
+    chromium: "Chrome, Edge, Brave, Vivaldi, Opera",
+    firefox: "Firefox",
+    hint: "Rellena contraseñas en el navegador con la extensión de Keyless:",
+    dismiss: "No mostrar más",
+  },
   account: {
     deletionScheduled: "Esta cuenta se eliminará el {{date}}.",
     cancelDeletion: "Cancelar eliminación",

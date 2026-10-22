@@ -5,9 +5,10 @@ import { useTranslation } from "react-i18next";
 
 import { PasswordInput, StrengthMeter, useStrength } from "../../components/common";
 import { EmergencyKit } from "../../components/EmergencyKit";
+import { ExtensionStores } from "../../components/ExtensionStores";
 import { Button, Combobox, Dialog, ErrorText, Input, Label, Switch, cx } from "../../components/ui";
 import { LANGUAGES } from "../../i18n";
-import { api, errorMessage, type AccountInfo, type BridgePeer, type Settings } from "../../lib/api";
+import { api, errorMessage, events, type AccountInfo, type BridgePeer, type Settings } from "../../lib/api";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { UpdateDialog, useUpdateAction } from "./UpdateDialog";
@@ -734,6 +735,8 @@ function BrowserTab() {
   useEffect(() => {
     void load();
     void loadBrowsers();
+    const unlisten = events.onBridgePaired(() => void load());
+    return () => void unlisten.then((stop) => stop());
   }, []);
 
   if (!settings) return null;
@@ -759,6 +762,11 @@ function BrowserTab() {
       <div>
         <div className="text-sm font-semibold">{t("settings.browserTitle")}</div>
         <p className="mt-1 text-xs leading-relaxed text-muted">{t("settings.browserBody")}</p>
+      </div>
+      <div>
+        <div className="text-sm font-medium">{t("extension.get")}</div>
+        <p className="mb-2 mt-1 text-xs leading-relaxed text-muted">{t("extension.getHint")}</p>
+        <ExtensionStores />
       </div>
       <Row title={t("settings.browserIntegration")} hint={t("settings.browserIntegrationHint")}>
         <div className="flex justify-end">

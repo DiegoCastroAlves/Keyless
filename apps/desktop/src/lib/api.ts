@@ -1018,6 +1018,8 @@ export const events = {
     listen<UpdateProgress>("keyless://update-progress", (e) => cb(e.payload)),
   onPairRequest: (cb: (r: PairRequest) => void): Promise<UnlistenFn> =>
     listen<PairRequest>("keyless://pair-request", (e) => cb(e.payload)),
+  /** A browser extension was connected. */
+  onBridgePaired: (cb: () => void): Promise<UnlistenFn> => listen("keyless://bridge-paired", () => cb()),
   onBrowserRequest: (cb: (r: BrowserRequest) => void): Promise<UnlistenFn> =>
     listen<BrowserRequest>("keyless://browser-request", (e) => cb(e.payload)),
   /** This device was signed out from another one (its data is gone). */

@@ -1,8 +1,9 @@
-import { TriangleAlert } from "lucide-react";
+import { Puzzle, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordInput } from "../../components/common";
+import { EXTENSION_STORES, openStore } from "../../components/ExtensionStores";
 import { Button, Dialog, ErrorText, Input } from "../../components/ui";
 import { api, errorCode, errorMessage, events, type AccountInfo, type Category, type Vault } from "../../lib/api";
 import { useSentinel } from "../../lib/sentinel";
@@ -177,6 +178,7 @@ export function MainLayout() {
           onCancelled={() => setAccountInfo({ ...accountInfo, deleteAfter: null })}
         />
       )}
+      <ExtensionHint />
       <div className="flex min-h-0 flex-1">
         <div className="relative h-full shrink-0" style={{ width: panes.sidebar }}>
           <Sidebar
@@ -257,6 +259,63 @@ function DeletionBanner({ deleteAfter, onCancelled }: { deleteAfter: string; onC
       <TriangleAlert className="size-3.5" /> {t("account.deletionScheduled", { date })}
       <button onClick={cancel} className="underline hover:no-underline">
         {t("account.cancelDeletion")}
+      </button>
+    </div>
+  );
+}
+
+const EXTENSION_HINT_DISMISSED = "keyless.extensionHintDismissed";
+
+/** Suggests the browser extension until one connects to this computer, or
+ * the user dismisses it (Settings > Browser has the same links). */
+function ExtensionHint() {
+  const { t } = useTranslation();
+  const integration = useApp((s) => s.settings?.browser_integration);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    let dismissed = false;
+    try {
+      dismissed = !!localStorage.getItem(EXTENSION_HINT_DISMISSED);
+    } catch {
+      // Shown, then.
+    }
+    if (!integration || dismissed) {
+      setShow(false);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listBridgePeers()
+      .then((peers) => !cancelled && setShow(peers.length === 0))
+      .catch(() => undefined);
+    const unlisten = events.onBridgePaired(() => setShow(false));
+    return () => {
+      cancelled = true;
+      void unlisten.then((stop) => stop());
+    };
+  }, [integration]);
+
+  if (!show) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem(EXTENSION_HINT_DISMISSED, "1");
+    } catch {
+      // Shown again next time.
+    }
+    setShow(false);
+  };
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 border-b border-line bg-accent-soft px-4 py-1.5 text-xs">
+      <Puzzle className="size-3.5 text-accent" />
+      <span>{t("extension.hint")}</span>
+      {EXTENSION_STORES.map((store) => (
+        <button key={store.url} onClick={() => openStore(store.url)} className="font-medium text-accent underline hover:no-underline">
+          {t(store.label)}
+        </button>
+      ))}
+      <button onClick={dismiss} className="text-muted hover:text-fg">
+        {t("extension.dismiss")}
       </button>
     </div>
   );
