@@ -12,6 +12,9 @@
   --accent-fg: #ffffff;
   --danger: #dc2626;
   --shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+  /* The sign-in card's edge: the site's passkey request, signing in. */
+  --pk: #14b8a6;
+  --run: #0d9488;
   /* Must match the iframe element's (set by the content script): otherwise
      the browser paints an opaque background behind this page. */
   color-scheme: light;
@@ -29,6 +32,8 @@
     --accent-fg: #052e2b;
     --danger: #f87171;
     --shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
+    --pk: #5eead4;
+    --run: #2dd4bf;
     color-scheme: dark;
   }
 }
@@ -123,13 +128,13 @@ button {
   outline: none;
 }
 
-.search .row:focus {
+.pill .row:focus {
   background: var(--accent);
   color: var(--accent-fg);
 }
 
-.search .row:focus .sub,
-.search .row:focus .svg {
+.pill .row:focus .sub,
+.pill .row:focus .svg {
   color: var(--accent-fg);
 }
 
@@ -225,34 +230,362 @@ button {
 
 /* ----- Sign-in card ----- */
 
-.card {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  position: relative;
-  z-index: 1;
-  padding: 9px 9px 9px 13px;
-  border: 2px solid color-mix(in srgb, var(--accent) 80%, transparent);
-  border-radius: 32px;
-  box-shadow: var(--shadow), 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+/* A pill at the top of the page, a little lower than the other menus. */
+html[data-mode="card"] body {
+  padding-top: 16px;
 }
 
-/* Its icon turns over, as a coin, between Keyless's logo and the login's:
-   each shows a few seconds. With less motion asked for, the login's stays. */
-.flip {
+/* One shadow for the pill and the tab under it. */
+html[data-mode="card"] #app {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+}
+
+/* It slides down into the page from above, and back up when closed. */
+#app.entering {
+  animation: card-in 0.3s cubic-bezier(0, 0, 0.58, 1) both;
+}
+
+#app.leaving {
+  animation: card-out 0.3s cubic-bezier(0.42, 0, 1, 1) forwards;
+}
+
+@keyframes card-in {
+  from {
+    transform: translateY(calc(-100% - 16px));
+  }
+}
+
+@keyframes card-out {
+  to {
+    transform: translateY(calc(-100% - 16px));
+  }
+}
+
+.pill {
+  position: relative;
+  z-index: 1;
+  border: 0;
+  border-radius: 32px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.13), var(--shadow);
+  transition: box-shadow 0.3s ease;
+}
+
+.pill-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 64px;
+  padding: 0 12px 0 16px;
+}
+
+/* Its edge. */
+.ring {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* While focused (and from when it shows until the user turns to the page),
+   and fainter under the pointer. */
+.ring.focus {
+  inset: 2px;
+  border: 2px solid transparent;
+  transition: border-color 0.2s ease-in-out;
+}
+
+.pill:hover .ring.focus {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.pill.focus .ring.focus,
+.pill:focus-within .ring.focus {
+  border-color: var(--accent);
+}
+
+.pill:is(.passkey, .signing, .finish) .ring.focus {
+  border-color: transparent;
+}
+
+/* The other two draw 2px wide: what they paint inside is masked away. */
+.ring.pk,
+.ring.run {
+  padding: 2px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+
+/* The site asks for a passkey: a coloured edge, a gleam going across it. */
+.ring.pk {
+  background-color: var(--pk);
+  background-image: linear-gradient(135deg, transparent 0%, transparent 40%, var(--bg) 50%, transparent 60%, transparent 100%);
+  background-size: 300% 300%;
+  animation: gleam 3s ease-in-out infinite;
+}
+
+.pill:is(.passkey, .finish) .ring.pk {
+  opacity: 1;
+}
+
+.pill:is(.passkey, .finish) {
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.13),
+    0 0 9px color-mix(in srgb, var(--pk) 35%, transparent);
+}
+
+@keyframes gleam {
+  from {
+    background-position: 100% 100%;
+  }
+  to {
+    background-position: 0% 0%;
+  }
+}
+
+/* Signing in: a light runs round the edge. */
+.ring.run::before {
+  content: "";
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: var(--run);
+  filter: blur(10px);
+  offset-path: inset(2px round 100vh);
+  offset-rotate: 0deg;
+  animation: run 3s linear infinite;
+}
+
+.pill.signing .ring.run {
+  opacity: 1;
+}
+
+@keyframes run {
+  from {
+    offset-distance: 0%;
+  }
+  to {
+    offset-distance: 100%;
+  }
+}
+
+@property --turn {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0turn;
+}
+
+/* Without paths round a shape, the light turns round the middle. */
+@supports not (offset-path: inset(0 round 1px)) {
+  .ring.run::before {
+    display: none;
+  }
+
+  .ring.run {
+    background: conic-gradient(from var(--turn), transparent 0% 70%, var(--run) 85%, transparent 100%);
+    animation: turn 3s linear infinite;
+  }
+}
+
+@keyframes turn {
+  to {
+    --turn: 1turn;
+  }
+}
+
+/* The middle: what it shows now, and what it showed fading out under it. */
+.slot {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.slot > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.slot > .text {
+  justify-content: center;
+}
+
+.slot > .entering {
+  animation: slot-in 0.24s ease 0.06s both;
+}
+
+.slot > .leaving {
+  animation: slot-out 0.16s ease forwards;
+}
+
+@keyframes slot-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+@keyframes slot-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.slot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pill-head .title {
+  font-size: 14px;
+}
+
+.pill-head .sub.error {
+  color: var(--danger);
+}
+
+.title.finish {
+  font-weight: 600;
+}
+
+/* "Signing in…": the dots come one by one. */
+.dots i {
+  font-style: normal;
+  opacity: 0;
+  animation: 1.6s linear infinite;
+}
+
+.dots i:nth-child(1) {
+  animation-name: dot-1;
+}
+
+.dots i:nth-child(2) {
+  animation-name: dot-2;
+}
+
+.dots i:nth-child(3) {
+  animation-name: dot-3;
+}
+
+@keyframes dot-1 {
+  0%,
+  24.9% {
+    opacity: 0;
+  }
+  25%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot-2 {
+  0%,
+  49.9% {
+    opacity: 0;
+  }
+  50%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot-3 {
+  0%,
+  74.9% {
+    opacity: 0;
+  }
+  75%,
+  100% {
+    opacity: 1;
+  }
+}
+
+.signin {
   flex: none;
-  width: 28px;
-  height: 28px;
-  perspective: 240px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.signin .svg svg {
+  width: 16px;
+  height: 16px;
+}
+
+.signin:hover,
+.signin:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.slot input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.slot input::placeholder {
+  color: var(--muted);
+}
+
+/* Its icon turns over, as a coin 2px thick, between Keyless's logo and the
+   login's: a turn, a short pause, the turn back, a longer pause. With less
+   motion asked for, the login's stays. */
+.flip {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  perspective: 900px;
+  perspective-origin: 50% 40%;
+}
+
+/* Its shadow, breathing as it turns. */
+.flip::before {
+  content: "";
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 50% 50%, rgba(0, 0, 0, 0.35), transparent 60%);
+  transform: translateZ(0);
+  animation: flip-shadow 6s cubic-bezier(0.68, -0.6, 0.32, 1.6) infinite;
 }
 
 .flip-inner {
   position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
   transform-style: preserve-3d;
-  animation: flip 7s ease-in-out infinite;
+  animation: flip 6s cubic-bezier(0.68, -0.6, 0.32, 1.6) infinite;
+  will-change: transform;
 }
 
 .flip-face {
@@ -261,11 +594,18 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 2px;
+  border-radius: 50%;
   backface-visibility: hidden;
 }
 
-.flip-face.back {
-  transform: rotateY(180deg);
+.flip-face.front {
+  overflow: hidden;
+  transform: translateZ(1px);
+}
+
+.flip-face.front > * {
+  transform: scale(1.15);
 }
 
 .flip-face.front svg {
@@ -273,44 +613,168 @@ button {
   height: 28px;
 }
 
+.flip-face.back {
+  transform: rotateY(180deg) translateZ(1px);
+}
+
+.flip-face.back > * {
+  transform: scale(0.93);
+}
+
+/* Still, on Keyless's logo, while "Other logins" is open. */
+.pill.open .flip-inner,
+.pill.open .flip::before {
+  animation: none;
+}
+
 @keyframes flip {
-  0%,
-  36% {
+  0% {
     transform: rotateY(0deg);
   }
-  44%,
-  86% {
+  25%,
+  30% {
     transform: rotateY(180deg);
   }
-  94%,
+  70%,
+  85%,
   100% {
     transform: rotateY(360deg);
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .flip-inner {
-    animation: none;
-    transform: rotateY(180deg);
+@keyframes flip-shadow {
+  0%,
+  50%,
+  100% {
+    transform: scale(1) translateZ(0);
+    opacity: 0.65;
+  }
+  25%,
+  75% {
+    transform: scale(0.85) translateZ(0);
+    opacity: 0.45;
   }
 }
 
-.signin {
-  flex: none;
-  padding: 6px 10px;
+@media (prefers-reduced-motion: reduce) {
+  .flip-inner,
+  .flip::before,
+  .ring.pk,
+  .ring.run::before,
+  .dots i {
+    animation: none;
+  }
+
+  .flip-inner {
+    transform: rotateY(180deg);
+  }
+
+  .dots i {
+    opacity: 1;
+  }
+
+  #app.entering,
+  #app.leaving,
+  .slot > .entering,
+  .slot > .leaving {
+    animation-duration: 1ms;
+    animation-delay: 0s;
+  }
+}
+
+/* "Other logins": a search in place of the sign-in, the list unfolding
+   below it. */
+.drawer {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-height 0.3s ease-in-out,
+    opacity 0.3s ease-in-out;
+}
+
+.pill.open .drawer {
+  max-height: 450px;
+  opacity: 1;
+}
+
+.pill .list {
+  max-height: 380px;
+  padding: 6px 8px 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* The tab under the pill, its shoulders curving into it. */
+.others {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -1px;
+  padding: 3px 10px 5px;
   border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--accent);
-  font-weight: 600;
+  border-radius: 0 0 16px 16px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
   cursor: pointer;
 }
 
-.signin:hover,
-.signin:focus-visible {
+.others[hidden] {
+  display: none;
+}
+
+.others::before,
+.others::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 37px;
+  height: 22px;
+  background: var(--bg);
+}
+
+.others::before {
+  right: 100%;
+  margin-right: -5px;
+  clip-path: path("M 37 0 L 36.69 21.31 C 30.69 15.31 22 2 0 0 Z");
+}
+
+.others::after {
+  left: 100%;
+  margin-left: -5px;
+  clip-path: path("M 0 0 L 0.31 21.31 C 6.31 15.31 15 2 37 0 Z");
+}
+
+.others .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.others:hover .label,
+.others:focus-visible .label {
   background: var(--hover);
+  color: var(--text);
+}
+
+.others:focus-visible {
   outline: none;
 }
+
+.list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+/* ----- Close button ----- */
 
 .x {
   display: flex;
@@ -332,64 +796,6 @@ button {
   background: var(--hover);
   color: var(--text);
   outline: none;
-}
-
-.others {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: -2px;
-  padding: 3px 14px 5px;
-  border: 1px solid var(--border);
-  border-top: 0;
-  border-radius: 0 0 14px 14px;
-  background: var(--bg);
-  box-shadow: var(--shadow);
-  clip-path: inset(0 -12px -12px -12px);
-  color: var(--muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.others:hover,
-.others:focus-visible {
-  color: var(--text);
-  outline: none;
-}
-
-.search {
-  padding: 6px;
-  border-radius: 22px;
-}
-
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 4px 4px 8px 10px;
-  border-bottom: 1px solid var(--border);
-}
-
-.bar input {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  outline: none;
-}
-
-.bar input::placeholder {
-  color: var(--muted);
-}
-
-.list {
-  max-height: 260px;
-  overflow-y: auto;
-  padding-top: 4px;
 }
 
 /* ----- Messages ----- */

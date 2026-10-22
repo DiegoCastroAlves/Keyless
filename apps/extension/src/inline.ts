@@ -50,10 +50,25 @@ function setRoom(room: unknown) {
   document.documentElement.style.setProperty("--room", `${Math.max(100, Math.min(room, 640) - 2 * PAD)}px`);
 }
 
+/** The sign-in card sits this much lower than the other menus (see
+ * inline.css). */
+const CARD_TOP = 6;
+/** How tall "Other logins" unfolds, at most (see `.drawer` in inline.css). */
+const DRAWER_MAX = 450;
+
 /** Tells the content script how tall the iframe must be. */
 function report() {
-  toParent("size", { height: Math.ceil(app.getBoundingClientRect().height) + 2 * PAD });
+  // An empty card takes no room (and no clicks) while it loads.
+  if (mode === "card" && app.childElementCount === 0) return toParent("size", { height: 0 });
+  let height = app.getBoundingClientRect().height;
+  // "Other logins" opening: the frame takes the list's full height at once.
+  // Each change of its size would make clicks wait again (see clickable).
+  const drawer = mode === "card" && expanded ? app.querySelector<HTMLElement>(".drawer") : null;
+  if (drawer) height += Math.max(0, Math.min(drawer.scrollHeight, DRAWER_MAX) - drawer.offsetHeight);
+  toParent("size", { height: Math.ceil(height) + 2 * PAD + (mode === "card" ? CARD_TOP : 0) });
 }
+// The card grows and shrinks in steps of its animations: the frame follows.
+if (mode === "card") new ResizeObserver(() => app.childElementCount > 0 && report()).observe(app);
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Record<string, unknown> = {}, ...children: (Node | string)[]): HTMLElementTagNameMap[K] {
   const node = Object.assign(document.createElement(tag), props) as HTMLElementTagNameMap[K];
@@ -141,6 +156,7 @@ const ICON_REFRESH = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none
 const ICON_WAND = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 4 1.5 1.5M19 8l1.5 1.5M18 3v2M21 6h-2M4 20 15 9l1 1L5 21z"/></svg>`;
 const ICON_PASSKEY = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="7" r="4"/><path d="M2 21a7 7 0 0 1 11.5-5.4"/><circle cx="18" cy="15" r="2.5"/><path d="M18 17.5V22M18 20h2"/></svg>`;
 const ICON_KEY = `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m10.7 12.3 9.8-9.8M17 6l3 3M15 8l2 2"/></svg>`;
+const ICON_PHONE = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18h2"/></svg>`;
 
 /** Icon for a login; matches show the icon of the page they are for. */
 function icon(login: Login): HTMLElement {
@@ -160,16 +176,6 @@ function subtitle(login: Login): string {
   return login.providerAccount ? t("signInWithAccount", provider, login.providerAccount) : t("signInWith", provider);
 }
 
-/** The card's icon: Keyless's logo and the login's, turning over in turn
- * (see `.flip` in inline.css). */
-function flipIcon(face: HTMLElement): HTMLElement {
-  return el(
-    "span",
-    { className: "flip" },
-    el("span", { className: "flip-inner" }, el("span", { className: "flip-face front" }, svg(LOGO)), el("span", { className: "flip-face back" }, face)),
-  );
-}
-
 function closeButton(run: () => void): HTMLButtonElement {
   const button = el("button", { className: "x", type: "button", title: t("close") }, svg(ICON_CLOSE));
   button.addEventListener("click", run);
@@ -177,6 +183,10 @@ function closeButton(run: () => void): HTMLButtonElement {
 }
 
 function showError(text: string) {
+  if (mode === "card") {
+    cardError = text;
+    return render();
+  }
   app.querySelector(".error")?.remove();
   app.querySelector(".box")?.append(el("p", { className: "error", textContent: text }));
   report();
@@ -202,7 +212,7 @@ async function fillLogin(login: Login, submit: boolean, insecureConfirmed = fals
   const reply = await send({ type: "fill", id: login.id, submit, code: field.code === true, insecureConfirmed });
   // The content script closes the menu, but not one the page shows for its
   // frame (see content.ts, `detached`).
-  if (reply.ok) return toParent("close");
+  if (reply.ok) return mode === "card" ? leaveCard() : toParent("close");
   if (reply.error === "locked") await refresh();
   else if (reply.error === "insecure_confirm") confirmBox(t("insecureFillWarning", state?.host ?? ""), () => void fillLogin(login, submit, true));
   else showError(t("fillFailed"));
@@ -230,7 +240,7 @@ function loginRow(login: Login, options: { submit: boolean }): HTMLButtonElement
  * it, and Keyless picks the account on the provider's page. */
 async function signInWith(login: Login) {
   const reply = await send({ type: "sign_in_with", id: login.id });
-  if (reply.ok) return toParent("close");
+  if (reply.ok) return mode === "card" ? leaveCard() : toParent("close");
   if (reply.error === "locked") await refresh();
   else showError(t("signInWithMissing", providerName(login.signInWith ?? "")));
 }
@@ -290,6 +300,7 @@ function scanRow(logins: Login[]): HTMLButtonElement {
 /** Signs in with a passkey the page offers in its fields: the page gets it
  * at once, nothing is typed. */
 async function usePasskey(key: PasskeyEntry) {
+  if (mode === "card") return pickPasskey(key);
   const reply = await send({ type: "passkey_pick", credentialId: key.credentialId });
   if (reply.ok) return toParent("close");
   if (reply.error === "locked") await refresh();
@@ -303,16 +314,18 @@ function passkeyLogin(key: PasskeyEntry): Login {
   return { id: key.itemId, title: key.title, username: key.userName, url: state?.url ?? "", vault: "", favorite: false };
 }
 
-function passkeyRow(key: PasskeyEntry): HTMLButtonElement {
+/** A passkey: signs in with it when clicked (`use`: for the site's request
+ * in the card, rather than for the page's fields). */
+function passkeyRow(key: PasskeyEntry, use: (key: PasskeyEntry) => Promise<void> = usePasskey): HTMLButtonElement {
   const login = passkeyLogin(key);
   const row = el(
     "button",
     { className: "row", type: "button" },
-    avatar(login, state?.url ?? undefined),
+    avatar(login, state?.url ?? (passkey ? `https://${passkey.host}` : undefined)),
     el("span", { className: "text" }, el("span", { className: "title", textContent: key.title }), el("span", { className: "sub", textContent: key.userName || t("passkey") })),
     el("span", { className: "badge" }, svg(ICON_PASSKEY), el("span", { textContent: t("passkey") })),
   );
-  row.addEventListener("click", () => void usePasskey(key));
+  row.addEventListener("click", () => void use(key));
   return row;
 }
 
@@ -350,10 +363,8 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     if (mode === "passkey") closePasskey();
     else if (mode === "menu") toParent("close", { refocus: true });
-    else if (expanded) {
-      expanded = false;
-      render();
-    } else toParent("close");
+    else if (mode === "card") closeCard();
+    else toParent("close");
   }
 });
 
@@ -540,77 +551,325 @@ function renderMenu() {
   app.replaceChildren(box);
 }
 
-/** The card at the top of a login page: sign in with the best login (or a
- * passkey the page offers in its fields); on a page asking for a one-time
- * code, fill the code of the best login that has one. */
-function renderCard() {
-  const { logins, passkeys } = offered();
-  if (state?.state !== "ready" || (logins.length === 0 && passkeys.length === 0)) {
-    // Locked meanwhile, or nothing left to offer.
-    app.replaceChildren();
-    toParent("hide");
-    return;
-  }
-  if (expanded) return renderSearch({ ...state, logins }, passkeys);
-  const key = passkeys[0];
-  const best = key ? passkeyLogin(key) : logins[0];
-  const label = key ? t("signInPasskey") : field.code ? t("fillCode") : t("signIn");
-  const signIn = el("button", { className: "signin", type: "button", textContent: label });
-  signIn.addEventListener("click", () => void (key ? usePasskey(key) : fillLogin(best, true)));
-  const others = el("button", { className: "others", type: "button" }, el("span", { textContent: t("otherLogins") }), svg(ICON_CHEVRON));
+// ----- Sign-in card ------------------------------------------------------------------
+//
+// A pill at the top of a login page: sign in with the best login (or a
+// passkey the page offers in its fields); on a page asking for a one-time
+// code, fill the code of the best login that has one. A site's request to
+// sign in with a passkey shows in it too (see content.ts): "Use passkey",
+// then "Signing in", and "Finish signing in on this page" when the page
+// still has its login form a while later. Saving a passkey, or signing in
+// with one while Keyless is locked, takes the passkey prompt instead.
+
+/** What the card shows: its sign-in, the site's passkey request, the
+ * sign-in going on, or the page left to finish it. */
+type CardState = "normal" | "passkey" | "signing" | "finish";
+let cardState: CardState = "normal";
+/** Shown for the site's passkey request (the content script says so). */
+let cardForPasskey = false;
+/** Its border shows, as if focused, until the user turns to the page. */
+let cardFocus = true;
+let cardError: string | null = null;
+/** The account being signed in, shown under "Signing in". */
+let signingAs = "";
+/** How long "Signing in" shows before the card leaves it to the page. */
+const FINISH_MS = 4000;
+let finishTimer: ReturnType<typeof setTimeout> | undefined;
+let leaving = false;
+
+interface CardParts {
+  box: HTMLElement;
+  back: HTMLElement;
+  slot: HTMLElement;
+  list: HTMLElement;
+  others: HTMLButtonElement;
+}
+let parts: CardParts | null = null;
+/** What the middle of the card shows now (see setSlot). */
+let slotKey = "";
+/** The login whose icon is on the back of the turning icon. */
+let backKey = "";
+
+/** The card's frame, built once and then changed in place, so that its
+ * changes can be animated. Its icon turns over, as a coin, between Keyless's
+ * logo and the login's (see `.flip` in inline.css). */
+function cardParts(): CardParts {
+  if (parts?.box.isConnected) return parts;
+  const back = el("span", { className: "flip-face back" });
+  const flip = el("span", { className: "flip" }, el("span", { className: "flip-inner" }, el("span", { className: "flip-face front" }, svg(LOGO)), back));
+  const slot = el("div", { className: "slot" });
+  const list = el("div", { className: "list" });
+  const drawer = el("div", { className: "drawer" }, list);
+  // Emptied once closed (the list stays while it folds away).
+  drawer.addEventListener("transitionend", () => !expanded && list.replaceChildren());
+  const box = el(
+    "div",
+    { className: "box pill" },
+    el("span", { className: "ring focus" }),
+    el("span", { className: "ring pk" }),
+    el("span", { className: "ring run" }),
+    el("div", { className: "pill-head" }, flip, slot, closeButton(closeCard)),
+    drawer,
+  );
+  const others = el("button", { className: "others", type: "button" }, el("span", { className: "label" }, el("span", { textContent: t("otherLogins") }), svg(ICON_CHEVRON)));
   others.addEventListener("click", () => {
     expanded = true;
     render();
   });
-  const head = flipIcon(key ? avatar(best, state.url ?? undefined) : icon(best));
-  app.replaceChildren(
-    el("div", { className: "box card" }, head, texts(best), signIn, closeButton(() => toParent("close"))),
-    // The page's other passkeys and its logins.
-    ...(logins.length > 0 || passkeys.length > 1 ? [others] : []),
-  );
+  app.replaceChildren(box, others);
+  slotKey = "";
+  backKey = "";
+  parts = { box, back, slot, list, others };
+  return parts;
 }
 
-/** "Other logins" under the card: the passkeys the page asks for, then its
- * logins, with a search over both. */
-function renderSearch(current: InlineState, passkeys: PasskeyEntry[] = []) {
-  const input = el("input", { type: "text", placeholder: t("findLogin"), spellcheck: false, autocomplete: "off" });
-  const list = el("div", { className: "list" });
-  const close = closeButton(() => {
-    expanded = false;
-    render();
-  });
-  app.replaceChildren(el("div", { className: "box search" }, el("div", { className: "bar" }, svg(LOGO), input, close), list));
-
-  // Only the page's logins. Logins saved for other sites are filled from
-  // the toolbar popup, which the page cannot cover.
-  const show = (keys: PasskeyEntry[], logins: Login[]) => {
-    list.replaceChildren();
-    if (keys.length > 0) {
-      list.append(el("div", { className: "head", textContent: t("passkeys") }), ...keys.slice(0, MAX_SEARCH_RESULTS).map(passkeyRow));
-      if (logins.length > 0) list.append(el("div", { className: "head", textContent: t("savedLogins") }));
+/** Puts new contents in the middle of the card, the old ones fading out
+ * as they fade in, unless it shows the same already. */
+function setSlot(key: string, contents: () => HTMLElement) {
+  const { slot } = cardParts();
+  if (key === slotKey) return;
+  const fade = slotKey !== "";
+  slotKey = key;
+  for (const old of Array.from(slot.children) as HTMLElement[]) {
+    if (!fade) {
+      old.remove();
+      continue;
     }
-    list.append(...logins.slice(0, MAX_SEARCH_RESULTS).map((login) => loginRow(login, { submit: true })));
-    if (keys.length === 0 && logins.length === 0) list.append(el("p", { className: "note", textContent: t("noResults") }));
-    list.append(el("p", { className: "note small", textContent: t("otherSitesInPopup") }));
-    report();
-  };
-  show(passkeys, current.logins);
+    old.inert = true;
+    old.classList.add("leaving");
+    old.addEventListener("animationend", () => old.remove(), { once: true });
+  }
+  const next = contents();
+  if (fade) next.classList.add("entering");
+  slot.append(next);
+}
 
-  input.addEventListener("input", () => {
-    // Each word anywhere, case and accents aside.
-    const words = searchWords(input.value);
-    show(
-      passkeys.filter((key) => hasWords(words, [key.title, key.userName])),
-      current.logins.filter((login) => hasWords(words, [login.title, login.username, login.url])),
+/** The back of the turning icon: the login's icon. */
+function setBack(key: string, face: () => HTMLElement) {
+  const { back } = cardParts();
+  if (key === backKey) return;
+  backKey = key;
+  back.replaceChildren(face());
+}
+
+/** The title and the account, or what went wrong in place of the account. */
+function cardTexts(title: string, sub: string): HTMLElement {
+  const below = el("span", { className: cardError ? "sub error" : "sub", textContent: cardError ?? sub });
+  if (cardError) below.title = cardError;
+  return el("span", { className: "text" }, el("span", { className: "title", textContent: title }), below);
+}
+
+function cardButton(label: string, withPasskey: boolean, run: () => void): HTMLButtonElement {
+  const button = el("button", { className: "signin", type: "button" }, ...(withPasskey ? [svg(ICON_PASSKEY)] : []), el("span", { textContent: label }));
+  button.addEventListener("click", run);
+  return button;
+}
+
+/** "Signing in…": the dots come one by one (see inline.css). */
+function signingTexts(): HTMLElement {
+  const title = el("span", { className: "title" }, t("signingIn"), el("span", { className: "dots" }, el("i", { textContent: "." }), el("i", { textContent: "." }), el("i", { textContent: "." })));
+  return el("span", { className: "text" }, title, el("span", { className: "sub", textContent: signingAs }));
+}
+
+function renderCard() {
+  const { logins, passkeys } = offered();
+  if (cardState === "normal" && (state?.state !== "ready" || (logins.length === 0 && passkeys.length === 0))) {
+    // Locked meanwhile, or nothing left to offer.
+    app.replaceChildren();
+    parts = null;
+    toParent("hide");
+    return;
+  }
+  const request = cardState === "normal" ? null : passkey;
+  // The site's request, not loaded yet.
+  if (cardState !== "normal" && !request) return;
+  const { box, others } = cardParts();
+  if (pendingEnter) playEnter();
+  box.classList.toggle("open", expanded);
+  box.classList.toggle("focus", cardFocus);
+  for (const name of ["passkey", "signing", "finish"] as const) box.classList.toggle(name, cardState === name);
+
+  const keys = request ? (request.passkeys ?? []) : passkeys;
+  const key = keys[0];
+  const site = request ? `https://${request.host}` : (state?.url ?? undefined);
+  const best = key ? { ...passkeyLogin(key), url: site ?? "" } : logins[0];
+  setBack(best.id, () => (key ? avatar(best, site) : icon(best)));
+
+  if (expanded) {
+    setSlot("search", searchInput);
+  } else if (cardState === "signing") {
+    setSlot(`signing|${signingAs}`, signingTexts);
+  } else if (cardState === "finish") {
+    setSlot("finish", () => el("span", { className: "text" }, el("span", { className: "title finish", textContent: t("finishOnPage") })));
+  } else {
+    const label = request ? t("pkUse") : field.code ? t("fillCode") : t("signIn");
+    const run = () => void (request ? choosePasskey(key) : key ? pickPasskey(key) : fillLogin(best, true));
+    setSlot(`${cardState}|${best.id}|${key?.credentialId ?? ""}|${best.title}|${subtitle(best)}|${label}|${cardError ?? ""}`, () =>
+      el("div", { className: "slot-row" }, cardTexts(best.title, request ? key.userName : subtitle(best)), cardButton(label, Boolean(key), run)),
     );
-  });
+  }
+  // The page's other passkeys and its logins (or the request's other
+  // passkeys, and another device).
+  const more = request ? true : logins.length > 0 || passkeys.length > 1;
+  others.hidden = expanded || !more || cardState === "signing" || cardState === "finish";
+}
+
+/** "Other logins" opened: a search in place of the sign-in, over the list
+ * that unfolds below. */
+function searchInput(): HTMLElement {
+  const input = el("input", { type: "text", placeholder: t("findLogin"), spellcheck: false, autocomplete: "off" });
+  // Each word anywhere, case and accents aside.
+  input.addEventListener("input", () => fillList(searchWords(input.value)));
   input.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       focusRow(0);
     }
   });
-  input.focus();
+  fillList([]);
+  queueMicrotask(() => input.focus());
+  return el("div", { className: "slot-row" }, input);
+}
+
+/** The list under "Other logins": the passkeys the page (or the site's
+ * request) asks for, then the page's logins. Logins saved for other sites
+ * are filled from the toolbar popup, which the page cannot cover. */
+function fillList(words: string[]) {
+  const { list } = cardParts();
+  list.replaceChildren();
+  if (cardState === "passkey" && passkey) {
+    const keys = (passkey.passkeys ?? []).filter((key) => hasWords(words, [key.title, key.userName]));
+    list.append(el("div", { className: "head", textContent: t("passkeys") }), ...keys.slice(0, MAX_SEARCH_RESULTS).map((key) => passkeyRow(key, choosePasskey)));
+    if (keys.length === 0) list.append(el("p", { className: "note", textContent: t("noResults") }));
+    const other = el(
+      "button",
+      { className: "row", type: "button" },
+      el("span", { className: "glyph" }, svg(ICON_PHONE)),
+      el("span", { className: "text" }, el("span", { className: "title", textContent: t("pkOtherDevice") })),
+    );
+    other.addEventListener("click", () => leaveCard(handOver));
+    list.append(other);
+    return;
+  }
+  const { logins, passkeys } = offered();
+  const keys = passkeys.filter((key) => hasWords(words, [key.title, key.userName]));
+  const found = logins.filter((login) => hasWords(words, [login.title, login.username, login.url]));
+  if (keys.length > 0) {
+    list.append(el("div", { className: "head", textContent: t("passkeys") }), ...keys.slice(0, MAX_SEARCH_RESULTS).map((key) => passkeyRow(key)));
+    if (found.length > 0) list.append(el("div", { className: "head", textContent: t("savedLogins") }));
+  }
+  list.append(...found.slice(0, MAX_SEARCH_RESULTS).map((login) => loginRow(login, { submit: true })));
+  if (keys.length === 0 && found.length === 0) list.append(el("p", { className: "note", textContent: t("noResults") }));
+  list.append(el("p", { className: "note small", textContent: t("otherSitesInPopup") }));
+}
+
+function startSigning(userName: string) {
+  expanded = false;
+  cardError = null;
+  signingAs = userName;
+  cardState = "signing";
+  // Kept while the page signs in, even once its login form is gone.
+  toParent("hold", { on: true });
+  render();
+}
+
+/** Signed in: once the page has moved on, the card goes with it. If the
+ * page is still there a while later, the card says to finish there, and
+ * stays only while the page shows a login form (the content script sees). */
+function signedIn() {
+  clearTimeout(finishTimer);
+  finishTimer = setTimeout(() => {
+    if (cardState !== "signing") return;
+    cardState = "finish";
+    render();
+    toParent("hold", { on: false });
+  }, FINISH_MS);
+}
+
+/** Signs in with a passkey the page offers in its fields. */
+async function pickPasskey(key: PasskeyEntry) {
+  startSigning(key.userName || key.title);
+  const reply = await send({ type: "passkey_pick", credentialId: key.credentialId });
+  if (reply.ok) return signedIn();
+  cardState = "normal";
+  toParent("hold", { on: false });
+  if (reply.error === "locked") return refresh(true);
+  // The page already got a passkey, or stopped asking (it asks again when
+  // it is loaded again).
+  showError(reply.error === "expired" ? t("pkExpired") : t("pkFailed"));
+}
+
+/** Signs in with a passkey for the site's request. */
+async function choosePasskey(key: PasskeyEntry) {
+  startSigning(key.userName || key.title);
+  const reply = await send({ type: "passkey_choose", credentialId: key.credentialId });
+  if (reply.ok) return signedIn();
+  // The request is gone (the page stopped asking).
+  if (reply.error === "expired") return toParent("passkey_done");
+  cardState = "passkey";
+  showError(t("pkFailed"));
+}
+
+/** The site's passkey request, shown in the card when Keyless can sign in
+ * with a passkey right away; otherwise the passkey prompt shows it. */
+async function loadCardPasskey() {
+  const reply = await send<PasskeyView>({ type: "passkey_view" });
+  if (!reply.ok || !reply.data) return toParent("passkey_done");
+  const view = reply.data;
+  if (view.kind !== "get" || view.locked || (view.passkeys ?? []).length === 0) return toParent("passkey_panel");
+  passkey = view;
+  if (cardState === "passkey") render();
+}
+
+/** The close button and Escape: "Other logins" folds away; otherwise the
+ * card leaves (and the browser takes the site's request). */
+function closeCard() {
+  if (expanded) {
+    expanded = false;
+    return render();
+  }
+  leaveCard(cardState === "passkey" ? handOver : undefined);
+}
+
+/** The browser takes the site's request (its own window shows). */
+function handOver() {
+  void send({ type: "passkey_fallback" });
+}
+
+/** Slides up out of the page, then closes; `then`: once it is gone. */
+function leaveCard(then?: () => void) {
+  if (leaving) return;
+  leaving = true;
+  clearTimeout(finishTimer);
+  app.classList.remove("entering");
+  app.classList.add("leaving");
+  const done = (e: AnimationEvent) => {
+    if (e.target !== app) return;
+    app.removeEventListener("animationend", done);
+    then?.();
+    toParent("close");
+  };
+  app.addEventListener("animationend", done);
+}
+
+/** Shown (again): it slides down into the page, as if focused, once it has
+ * something to show. What it showed before goes, not to flash by. */
+let pendingEnter = false;
+function enterCard() {
+  leaving = false;
+  cardFocus = true;
+  cardError = null;
+  expanded = false;
+  app.replaceChildren();
+  parts = null;
+  pendingEnter = true;
+}
+
+function playEnter() {
+  pendingEnter = false;
+  app.classList.remove("leaving", "entering");
+  void app.offsetWidth;
+  app.classList.add("entering");
 }
 
 // ----- "Save login?" prompt ----------------------------------------------------
@@ -872,6 +1131,9 @@ async function passkeyAction(type: string, extra: Record<string, unknown> = {}) 
   busy = false;
   if (type === "passkey_unlock" && reply.ok && reply.data) {
     passkey = reply.data;
+    // Unlocked, with a passkey to sign in with: the card at the top of the
+    // page takes the request.
+    if (passkey.kind === "get" && !passkey.locked && (passkey.passkeys ?? []).length > 0) return toParent("passkey_card");
     return render();
   }
   // Done (the background also closes this), or gone meanwhile.
@@ -1087,9 +1349,22 @@ function render() {
   report();
 }
 
+/** The content script shows the card: for the page's logins, or for the
+ * site's passkey request (`passkey`); `enter`: it was not on screen. */
+function cardShown(data: { enter?: unknown; passkey?: unknown }) {
+  if (data.enter === true) enterCard();
+  clearTimeout(finishTimer);
+  cardForPasskey = data.passkey === true;
+  cardState = cardForPasskey ? "passkey" : "normal";
+  // Shown once loaded (see loadCardPasskey).
+  if (cardForPasskey) passkey = null;
+}
+
 let lastRendered = "";
 async function refresh(force = false) {
   if (mode === "save") return loadSave();
+  // The card shows the site's request, or a sign-in going on.
+  if (mode === "card" && cardState !== "normal") return cardState === "passkey" ? loadCardPasskey() : undefined;
   if (mode === "passkey") return loadPasskey();
   if (mode === "alert") return loadAlert();
   if (mode === "ssh") return loadSsh();
@@ -1119,6 +1394,7 @@ window.addEventListener("message", async (event) => {
       token = data.keyless;
       if (data.field) field = data.field;
       setRoom(data.room);
+      if (mode === "card") cardShown(data);
       await refresh(true);
       watchUnseen();
       if (data.activate) void activate(true);
@@ -1155,9 +1431,24 @@ window.addEventListener("message", async (event) => {
         if (data.field.newPassword !== field.newPassword || data.field.maxLength !== field.maxLength || data.field.rules !== field.rules) suggestion = null;
         field = data.field;
       }
+      if (mode === "card") cardShown(data);
       await refresh(true);
       watchUnseen();
       if (data.activate) void activate(true);
+      break;
+    case "blur":
+      // The user turned to the page.
+      cardFocus = false;
+      parts?.box.classList.remove("focus");
+      break;
+    case "leave":
+      // Filled from somewhere else: the card's work is done.
+      if (mode !== "card") break;
+      leaveCard(cardState === "passkey" ? handOver : undefined);
+      break;
+    case "passkey_end":
+      // The page stopped asking, or the browser took the request.
+      if (mode === "card" && cardState === "passkey") toParent("passkey_done");
       break;
     case "activate":
       void activate(false);

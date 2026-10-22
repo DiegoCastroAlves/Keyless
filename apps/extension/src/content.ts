@@ -69,7 +69,7 @@ const EXTENSION_ORIGIN = new URL(chrome.runtime.getURL("")).origin;
 /** Transparent margin around the menus, room for their shadow. */
 const PAD = 10;
 const MENU_WIDTH = 320;
-const CARD_WIDTH = 400;
+const CARD_WIDTH = 420;
 const SAVE_WIDTH = 380;
 const PASSKEY_WIDTH = 380;
 
@@ -571,8 +571,9 @@ class Frame {
    * the page's origin, and messages for it are not sent. */
   private ready = false;
   /** What the menu is shown for, told when it loads (again after a reload,
-   * see mount). */
-  private details: { activate: boolean; field: FieldInfo | null; room?: number } = { activate: false, field: null };
+   * see mount). `passkey`: the card, for the site's passkey request;
+   * `enter`: it was not on screen (the card slides in). */
+  private details: { activate: boolean; field: FieldInfo | null; room?: number; passkey?: boolean; enter?: boolean } = { activate: false, field: null };
   open = false;
   height = 0;
   /** The height the menu was told it may take (see `menuRoom`). */
@@ -592,8 +593,10 @@ class Frame {
   /** Shows the menu; it appears once it has rendered and reported its size.
    * `activate`: opened with the Keyless button (unlocks when locked).
    * `field`: the field it was opened for. */
-  show(options: { activate?: boolean; field?: FieldInfo; room?: number } = {}) {
+  show(options: { activate?: boolean; field?: FieldInfo; room?: number; passkey?: boolean } = {}) {
     mount();
+    const enter = !this.open;
+    if (this.mode === "card" && enter) cardFocused = true;
     // Above whatever the page put in the top layer since.
     if (!this.open) {
       if (outranked()) raise();
@@ -601,14 +604,14 @@ class Frame {
     }
     this.open = true;
     if (options.room) this.room = options.room;
-    const details = { activate: options.activate ?? false, field: options.field ?? null, room: options.room };
-    this.details = { activate: false, field: details.field, room: details.room };
+    const details = { activate: options.activate ?? false, field: options.field ?? null, room: options.room, passkey: options.passkey ?? false, enter };
+    this.details = { activate: false, field: details.field, room: details.room, passkey: details.passkey };
     // Told again once it has its size (see resize).
     lastSafe.delete(this);
     if (this.ready) {
-      this.details = { activate: false, field: details.field, room: details.room };
       this.post({ type: "show", ...details });
-      if (this.height > 0) this.iframe.classList.add("open");
+      // The card shows once it has drawn what it shows now.
+      if (this.height > 0 && this.mode !== "card") this.iframe.classList.add("open");
       return;
     }
     // Told once it has loaded.
@@ -622,7 +625,7 @@ class Frame {
             this.ready = true;
             this.post({ type: "init", ...this.details });
             // Reloaded, it is set up again, not activated again.
-            this.details = { activate: false, field: this.details.field, room: this.room || undefined };
+            this.details = { activate: false, field: this.details.field, room: this.room || undefined, passkey: this.details.passkey };
             resolve();
           });
           this.iframe.src = chrome.runtime.getURL(`inline.html#${this.mode}`);
@@ -952,8 +955,35 @@ function hidePasskey() {
   // The sign-in card comes back if the page still wants it.
   void scan();
 }
+
+/** The site's passkey request in the prompt, over the page dimmed: to save
+ * a passkey, or to sign in with one while Keyless is locked or has none. */
+function showPasskeyPrompt() {
+  cardHeld = false;
+  passkeyFrame ??= new Frame("passkey");
+  // Nothing else of Keyless's on top of the dimmed page.
+  closeMenu();
+  card?.hide();
+  scrim.style.display = "block";
+  passkeyFrame.show();
+}
+
+/** The site asks to sign in with a passkey: the sign-in card shows it
+ * (it hands it to the prompt when it cannot, see inline.ts). */
+function showPasskeyCard() {
+  closeMenu();
+  cardHeld = true;
+  card ??= new Frame("card");
+  card.show({ field: { newPassword: false, maxLength: null, code: false }, passkey: true });
+}
+
 let card: Frame | null = null;
 let cardDismissed = false;
+/** The card shows the site's passkey request, or a sign-in going on: it
+ * stays even where the page has no login form. */
+let cardHeld = false;
+/** Shown with its border as if focused, until the user turns to the page. */
+let cardFocused = false;
 let filling = false;
 
 /** Asked once per address, and again when the window gets the focus back
@@ -1179,7 +1209,7 @@ function reportForms() {
 async function scan() {
   reportForms();
   // Not over the passkey prompt; it comes back after.
-  if (!TOP || passkeyFrame?.open) return;
+  if (!TOP || passkeyFrame?.open || cardHeld) return;
   const login = hasLoginForm();
   const code = !login && hasCodeForm();
   // Signed in without leaving the page: the card has nothing left to fill.
@@ -1194,8 +1224,23 @@ async function scan() {
 
 function dismissCard() {
   cardDismissed = true;
+  cardHeld = false;
   card?.hide();
   observer.disconnect();
+}
+
+// The user turned to the page: the card's border goes (it comes back while
+// the pointer is over it, see inline.css).
+for (const type of ["mousedown", "keydown"] as const) {
+  document.addEventListener(
+    type,
+    (e) => {
+      if (!e.isTrusted || !cardFocused || !card?.open) return;
+      cardFocused = false;
+      card.post({ type: "blur" });
+    },
+    true,
+  );
 }
 
 // The Keyless button in the field: unlocks right away when Keyless is locked,
@@ -1362,6 +1407,28 @@ window.addEventListener("message", (event) => {
     case "unlocked":
       pageState = null;
       void scan();
+      break;
+    case "hold":
+      if (frame !== card) break;
+      cardHeld = data.on === true;
+      if (!cardHeld) void scan();
+      break;
+    case "passkey_done":
+      // The card is done with the site's passkey request.
+      if (frame !== card) break;
+      cardHeld = false;
+      card.hide();
+      void scan();
+      break;
+    case "passkey_panel":
+      if (frame === card) showPasskeyPrompt();
+      break;
+    case "passkey_card":
+      // Unlocked in the prompt: the card takes the request.
+      if (frame !== passkeyFrame) break;
+      passkeyFrame.hide();
+      scrim.style.display = "none";
+      showPasskeyCard();
       break;
     case "save_now":
       // "Save in Keyless" in the menu: now, without waiting for the sign-in
@@ -1645,17 +1712,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // The page's own prompt; the background opens its window instead when
     // this cannot show.
     if (!TOP || !document.documentElement) return;
-    passkeyFrame ??= new Frame("passkey");
-    // Nothing else of Keyless's on top of the dimmed page.
-    closeMenu();
-    card?.hide();
-    scrim.style.display = "block";
-    passkeyFrame.show();
+    if (message.kind === "get") showPasskeyCard();
+    else showPasskeyPrompt();
     sendResponse(true);
     return;
   }
   if (message?.type === "keyless-passkey-close") {
-    if (TOP) hidePasskey();
+    if (!TOP) return;
+    if (passkeyFrame?.open) hidePasskey();
+    if (card?.open && cardHeld) card.post({ type: "passkey_end" });
     return;
   }
   if (message?.type === "keyless-menu-for" && typeof message.token === "string" && message.token.length >= 32) {
@@ -1722,7 +1787,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   closeMenu();
   closeElsewhere();
-  if (card?.open) dismissCard();
+  // The card slides away, then closes (see inline.ts); at once if it
+  // cannot (still loading).
+  if (card?.open) {
+    cardDismissed = true;
+    card.post({ type: "leave" });
+    setTimeout(() => cardDismissed && card?.open && dismissCard(), 800);
+  }
   // What was filled: the background copies the code when it was not, and
   // waits for the next step of the sign-in.
   sendResponse({ username: fields.username !== null && Boolean(message.username), password: fields.password !== null && Boolean(message.password), otp: fields.otp !== null });

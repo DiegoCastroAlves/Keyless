@@ -434,8 +434,14 @@
   "passkey": {
     "message": "Llave de acceso"
   },
-  "signInPasskey": {
-    "message": "Iniciar sesión con llave de acceso"
+  "pkUse": {
+    "message": "Usar llave de acceso"
+  },
+  "signingIn": {
+    "message": "Iniciando sesión"
+  },
+  "finishOnPage": {
+    "message": "Termina de iniciar sesión en esta página"
   },
   "fillCode": {
     "message": "Rellenar código"

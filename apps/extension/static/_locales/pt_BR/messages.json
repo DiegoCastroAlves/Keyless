@@ -434,8 +434,14 @@
   "passkey": {
     "message": "Chave de acesso"
   },
-  "signInPasskey": {
-    "message": "Entrar com chave de acesso"
+  "pkUse": {
+    "message": "Usar chave de acesso"
+  },
+  "signingIn": {
+    "message": "Entrando"
+  },
+  "finishOnPage": {
+    "message": "Conclua o login nesta página"
   },
   "fillCode": {
     "message": "Preencher código"

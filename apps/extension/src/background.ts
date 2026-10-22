@@ -1655,12 +1655,12 @@ async function startPasskey(
   entry.timer = setTimeout(() => finishPasskey(entry, { ok: false, error: "cancelled" }), ms);
   passkeyRequests.set(entry.id, entry);
   port.onDisconnect.addListener(() => finishPasskey(entry, null));
-  // The page's prompt, or a window where the page cannot show it.
-  const shown = await chrome.tabs.sendMessage(where.tabId, { type: "keyless-passkey-prompt" }, { frameId: 0 }).catch(() => false);
-  if (shown === true) {
-    entry.inPage = true;
-    return;
-  }
+  // The page's prompt (or its sign-in card), or a window where the page
+  // cannot show it. Marked first: the card asks for the request at once.
+  entry.inPage = true;
+  const shown = await chrome.tabs.sendMessage(where.tabId, { type: "keyless-passkey-prompt", kind: request.kind }, { frameId: 0 }).catch(() => false);
+  if (shown === true) return;
+  entry.inPage = false;
   const window = await chrome.windows
     .create({ url: chrome.runtime.getURL(`passkey.html#${entry.id}`), type: "popup", width: 440, height: 560, focused: true })
     .catch(() => null);

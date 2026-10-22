@@ -434,8 +434,14 @@
   "passkey": {
     "message": "Passkey"
   },
-  "signInPasskey": {
-    "message": "Sign in with passkey"
+  "pkUse": {
+    "message": "Use passkey"
+  },
+  "signingIn": {
+    "message": "Signing in"
+  },
+  "finishOnPage": {
+    "message": "Finish signing in on this page"
   },
   "fillCode": {
     "message": "Fill code"
