@@ -343,7 +343,7 @@ class Handler(BaseHTTPRequestHandler):
                                        "created_at": "2026-10-01T10:00:00Z", "last_seen_at": "2026-10-13T10:00:00Z", "revoked_at": None}
             return self.answer(201, {})
         if url.path == "/test/items":
-            # More of the fixture's items, by key ("autofillItems": a card and an identity).
+            # More of the fixture's items, by key ("autofillItems": two logins, a card and an identity).
             with lock:
                 for row in fixture.get(body.get("key", ""), []):
                     if row["id"] not in items:

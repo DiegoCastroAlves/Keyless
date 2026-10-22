@@ -188,7 +188,8 @@ jobs:
           # A new device asking to sign in, for approving it from the phone.
           cargo build -q --release -p keyless-client --example requester
           cp ../../target/release/examples/requester test/requester
-          # The test site names the form app (by its certificate) for passkeys.
+          # The test sites name the form app (by its certificate) for passkeys
+          # and passwords; one names it with another certificate.
           apksigner=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           digest=$("$apksigner" verify --print-certs test/formtest.apk | awk '/SHA-256 digest/ {print $NF; exit}')
           echo "form app certificate: $digest"
@@ -197,7 +198,13 @@ jobs:
           digest, path = sys.argv[1], sys.argv[2]
           fingerprint = ":".join(digest[i:i + 2] for i in range(0, len(digest), 2)).upper()
           fixture = json.load(open(path))
-          fixture["assetLinks"] = {"passkey.example.test": [{"relation": ["delegate_permission/common.get_login_creds"], "target": {"namespace": "android_app", "package_name": "io.github.diegocastroalves.keyless.formtest", "sha256_cert_fingerprints": [fingerprint]}}]}
+          def names(relation, prints):
+              return [{"relation": [relation], "target": {"namespace": "android_app", "package_name": "io.github.diegocastroalves.keyless.formtest", "sha256_cert_fingerprints": prints}}]
+          fixture["assetLinks"] = {
+              "passkey.example.test": names("delegate_permission/common.get_login_creds", [fingerprint]),
+              "formtest.example": names("delegate_permission/common.handle_all_urls", [fingerprint]),
+              "formtest.test": names("delegate_permission/common.get_login_creds", [":".join(["AB"] * 32)]),
+          }
           json.dump(fixture, open(path, "w"))
           PY
           # Who signed the APK (the release key or a debug one), readable without a login.

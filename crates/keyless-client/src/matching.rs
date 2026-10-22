@@ -48,6 +48,12 @@ pub fn registrable(host: &str) -> Option<String> {
     std::str::from_utf8(domain.as_bytes()).ok().map(str::to_string)
 }
 
+/// A site's name: its registrable domain without the public suffix
+/// ("nubank" for nubank.com.br).
+pub fn site_name(site: &str) -> &str {
+    site.split('.').next().unwrap_or(site)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +75,12 @@ mod tests {
         assert_eq!(score("android://AAAA@com.nu.production/", None, Some("com.nu.production")), 4);
         assert_eq!(score("androidapp://com.nu.production", None, Some("com.other")), 0);
         assert_eq!(score("https://nubank.com.br", None, Some("com.nu.production")), 0);
+    }
+
+    #[test]
+    fn site_names() {
+        assert_eq!(registrable("www.nubank.com.br").as_deref().map(site_name), Some("nubank"));
+        assert_eq!(registrable("accounts.instagram.com").as_deref().map(site_name), Some("instagram"));
+        assert_eq!(registrable("bank.example").as_deref().map(site_name), Some("bank"));
     }
 }

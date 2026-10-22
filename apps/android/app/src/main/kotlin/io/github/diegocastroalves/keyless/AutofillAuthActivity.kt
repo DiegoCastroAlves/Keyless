@@ -65,19 +65,23 @@ class AutofillAuthActivity : KeylessActivity() {
                 intent.getParcelableExtra<android.view.inputmethod.InlineSuggestionsRequest>(AutofillManager.EXTRA_INLINE_SUGGESTIONS_REQUEST)
             else -> null
         }
-        val response = structure?.let {
-            try {
-                AutofillResponses.datasets(this, AutofillParser.parse(it), inline)
-            } catch (e: Exception) {
-                null
+        thread {
+            val response = structure?.let {
+                try {
+                    AutofillResponses.datasets(this, AutofillParser.parse(it), inline)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            runOnUiThread {
+                if (response != null) {
+                    setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, response))
+                } else {
+                    setResult(RESULT_CANCELED)
+                }
+                finish()
             }
         }
-        if (response != null) {
-            setResult(RESULT_OK, Intent().putExtra(AutofillManager.EXTRA_AUTHENTICATION_RESULT, response))
-        } else {
-            setResult(RESULT_CANCELED)
-        }
-        finish()
     }
 
     companion object {

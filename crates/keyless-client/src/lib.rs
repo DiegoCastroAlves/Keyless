@@ -26,7 +26,7 @@ mod store;
 pub mod transfer;
 mod writes;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use keyless_core::{
@@ -333,6 +333,7 @@ impl Client {
             "sealLogin" => self.seal_login(json),
             "totp" => totp(json),
             "match" => self.matches(json),
+            "sitesNamed" => self.sites_named(json),
             "autofillFields" => self.autofill_fields(json),
             "autofillItems" => self.autofill_items(json),
             "parseSetupLink" => parse_setup_link(json),
@@ -1067,6 +1068,39 @@ impl Client {
         }
         found.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.overview.favorite.cmp(&a.1.overview.favorite)).then(a.1.overview.title.cmp(&b.1.overview.title)));
         Ok(serde_json::to_value(found.into_iter().map(|(_, s)| s).collect::<Vec<_>>())?)
+    }
+
+    /// The sites (registrable domains) of logins named one of `names`:
+    /// "instagram.com" for "instagram". On Android, the sites that may name
+    /// an app as theirs (Digital Asset Links), for an app with no login
+    /// linked to it.
+    fn sites_named(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        struct A {
+            names: Vec<String>,
+        }
+        let a: A = args(json)?;
+        let names: HashSet<String> = a.names.iter().map(|n| n.to_lowercase()).collect();
+        let unlocked = self.unlocked()?;
+        let mut sites: Vec<String> = Vec::new();
+        for (id, row) in &self.store.items {
+            if row.deleted {
+                continue;
+            }
+            let (Some(vault), Some(enc)) = (unlocked.vaults.get(&row.vault_id), row.enc_overview.as_deref()) else { continue };
+            let Ok(overview) = vault.key.open_overview(&row.vault_id, id, enc) else { continue };
+            if overview.trashed_at.is_some() || overview.category != Category::Login {
+                continue;
+            }
+            for url in &overview.urls {
+                let Some(site) = matching::host_of(&url.href).and_then(|host| matching::registrable(&host)) else { continue };
+                if names.contains(matching::site_name(&site)) && !sites.contains(&site) {
+                    sites.push(site);
+                }
+            }
+        }
+        sites.sort();
+        Ok(json!(sites))
     }
 
     fn setup_start(&mut self) -> Outcome<Value> {

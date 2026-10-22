@@ -9,6 +9,9 @@
   in payment and address forms;
 - a login filled from the list under the field, its one-time code copied
   (with a "Code copied" notification), then cleared after 90 seconds;
+- the login of a site that names the app as its own (Digital Asset Links,
+  by the app's certificate) suggested with no link, and not that of a
+  site naming it with another certificate;
 - "Search Keyless" in the list: another login chosen for the app, filled
   and linked to it (written to the server), then suggested by itself;
 - passwords through Credential Manager: one that needs unlocking first,
@@ -22,8 +25,9 @@ and checked by what it fills.
 
 Results are printed as GitHub annotations.
 
-The fake server adds the fixture's card and identity first (POST
-/test/items), at KEYLESS_MOCK (default http://127.0.0.1:8787).
+The fake server adds the fixture's logins of sites, card and identity
+first (POST /test/items), at KEYLESS_MOCK (default http://127.0.0.1:8787),
+and serves the sites' Digital Asset Links (the fixture's "assetLinks").
 
 Usage: autofill_run.py <keyless-mock.apk> <formtest.apk> <fixture.json> <writes.jsonl>
 """
@@ -475,6 +479,25 @@ def main():
         time.sleep(max(0, copied_at + 100 - time.time()))
         pasted = clipboard()
         record("clears the code from the clipboard", pasted == "", f"clipboard: {pasted}")
+
+    # The login of a site that names the app as its own (formtest.example),
+    # with no link to the app; not that of a site naming it with another
+    # certificate (formtest.test).
+    start("LoginActivity")
+    check("the form app opens for a site's login", "Log in", 30)
+    if pick_from_list("suggests the login of a site that names the app", "shopper"):
+        form_shows("fills the login of the site that names the app", "shopper")
+    start("LoginActivity")
+    check("the form app opens once more", "Log in", 30)
+    x, y = fields(FORM)[0]
+    tap(x, y)
+    end = time.time() + 30
+    shown = ""
+    while time.time() < end and "shopper" not in shown:
+        time.sleep(2)
+        shown = texts()
+    record("does not suggest the login of a site naming another certificate", "shopper" in shown and "impostor" not in shown, shown)
+    hide_keyboard()
 
     # Another login, chosen with "Search Keyless" and linked to the app: then
     # it shows by itself. (GitHub's login has a website only, no app.)

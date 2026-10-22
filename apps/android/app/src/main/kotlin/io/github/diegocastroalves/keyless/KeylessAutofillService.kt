@@ -24,11 +24,11 @@ import kotlin.concurrent.thread
 /**
  * Fills logins, credit cards and identities in apps and browsers. While
  * Keyless is locked it offers to unlock (AutofillAuthActivity); unlocked,
- * the logins of the app or website, best first, then "Search Keyless" to
- * choose any login (AutofillPickActivity), and the cards or identities a
- * payment or address form asks for. Suggestions show in the keyboard when
- * it can show them (Android 11+), in a list otherwise. It never fills
- * Keyless itself.
+ * the logins of the app (linked to it, or of the sites naming it: AppSites)
+ * or website, best first, then "Search Keyless" to choose any login
+ * (AutofillPickActivity), and the cards or identities a payment or address
+ * form asks for. Suggestions show in the keyboard when it can show them
+ * (Android 11+), in a list otherwise. It never fills Keyless itself.
  */
 class KeylessAutofillService : AutofillService() {
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -45,12 +45,26 @@ class KeylessAutofillService : AutofillService() {
         val asked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) request.inlineSuggestionsRequest else null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) AutofillCheck.noteInlineRequest(this, asked != null)
         val inline = if (AutofillCheck.inlineEnabled(this)) asked else null
-        val response = try {
-            if (Keyless.isUnlocked) AutofillResponses.datasets(this, parsed, inline) else AutofillResponses.locked(this, parsed, inline)
-        } catch (e: Exception) {
-            null
+        if (!Keyless.isUnlocked) {
+            // The sites the app names, asked while the user unlocks.
+            if (parsed.logins && parsed.webDomain == null) AppSites.warm(this, parsed.packageName)
+            val response = try {
+                AutofillResponses.locked(this, parsed, inline)
+            } catch (e: Exception) {
+                null
+            }
+            callback.onSuccess(response)
+            return
         }
-        callback.onSuccess(response)
+        // An app's logins may wait for its sites (AppSites).
+        thread {
+            val response = try {
+                AutofillResponses.datasets(this, parsed, inline)
+            } catch (e: Exception) {
+                null
+            }
+            if (!cancellationSignal.isCanceled) callback.onSuccess(response)
+        }
     }
 
     /** What was typed: saved now when unlocked, or after unlocking. */
@@ -159,7 +173,8 @@ object AutofillResponses {
      * The logins for the fields' app or website, the cards or identities
      * for a payment or address form, and the offer to save (null when none
      * applies). A login with a one-time password goes through
-     * AutofillFillActivity, which copies the code once it is chosen.
+     * AutofillFillActivity, which copies the code once it is chosen. May
+     * wait for the network (AppSites): off the main thread.
      */
     @Suppress("DEPRECATION")
     fun datasets(context: Context, parsed: ParsedFields, inline: InlineSuggestionsRequest?): FillResponse? {
@@ -168,7 +183,7 @@ object AutofillResponses {
         val builder = FillResponse.Builder()
         var count = 0
         if (parsed.logins) {
-            val matches = Keyless.matches(parsed.webDomain, if (parsed.webDomain == null) parsed.packageName else null).take(8)
+            val matches = (if (parsed.webDomain != null) Keyless.matches(parsed.webDomain, null) else AppSites.logins(context, parsed.packageName)).take(8)
             for ((index, match) in matches.withIndex()) {
                 val values = loginValues(Keyless.item(match.id))
                 if (values.username == null && values.password == null) continue

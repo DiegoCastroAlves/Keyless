@@ -56,12 +56,16 @@ object Origins {
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 
-    private fun fingerprint(signature: Signature): String = sha256(signature.toByteArray()).joinToString(":") { "%02X".format(it) }
+    /** A certificate's SHA-256, as Digital Asset Links write it ("AB:CD:…"). */
+    fun fingerprint(signature: Signature): String = sha256(signature.toByteArray()).joinToString(":") { "%02X".format(it) }
 
     private fun certificates(info: CallingAppInfo): List<Signature> {
         val signing = info.signingInfo
         return if (signing.hasMultipleSigners()) signing.apkContentsSigners.toList() else signing.signingCertificateHistory.toList()
     }
+
+    /** The caller's certificates, as Digital Asset Links write them. */
+    fun fingerprints(info: CallingAppInfo): Set<String> = certificates(info).map { fingerprint(it) }.toSet()
 
     /** The page's origin a browser in Google's list reports (null for an app, or for another browser). */
     fun browserOrigin(context: Context, info: CallingAppInfo): String? {

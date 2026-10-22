@@ -108,6 +108,10 @@ fn signs_in_syncs_and_reads() {
     let found = ok(client.call("match", &json!({ "domain": "gist.github.com" }).to_string()));
     assert_eq!(found.as_array().unwrap().len(), 1);
     assert_eq!(found[0]["overview"]["title"], "GitHub");
+
+    // The sites an app named "bank" or "example" may sign in to.
+    assert_eq!(ok(client.call("sitesNamed", &json!({ "names": ["Bank", "example"] }).to_string())), json!(["bank.example"]));
+    assert_eq!(ok(client.call("sitesNamed", &json!({ "names": ["instagram"] }).to_string())), json!([]));
 }
 
 #[test]

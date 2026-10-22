@@ -67,7 +67,12 @@ fn main() {
         ("cccccccc-0000-4000-8000-000000000003", login("Bank", "https://bank.example", "client", "bank-pass-456", &["Família"])),
     ];
     // For autofill_run.py (POST /test/items): full_run.py's list stays as it was.
+    // Two logins of sites named like the form app: the first site names the
+    // app as its own (the test build's Digital Asset Links), the second
+    // names it with another certificate.
     let forms = [
+        ("cccccccc-0000-4000-8000-000000000006", login("Shop", "https://formtest.example", "shopper", "shop-pass-321", &[])),
+        ("cccccccc-0000-4000-8000-000000000007", login("Lookalike", "https://formtest.test", "impostor", "fake-pass-654", &[])),
         (
             "cccccccc-0000-4000-8000-000000000004",
             other(

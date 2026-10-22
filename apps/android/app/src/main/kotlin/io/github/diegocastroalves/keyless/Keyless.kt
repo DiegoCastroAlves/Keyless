@@ -299,6 +299,12 @@ object Keyless {
         }
     }
 
+    /** The sites of logins named one of `names` ("instagram.com" for "instagram"; see AppSites). */
+    fun sitesNamed(names: Collection<String>): List<String> {
+        val list = Native.arr("sitesNamed", JSONObject().put("names", JSONArray(names)))
+        return (0 until list.length()).map { list.getString(it) }
+    }
+
     /**
      * Saves a login typed in another app or a website (autofill): a new one,
      * or a new password for the one with that username there.

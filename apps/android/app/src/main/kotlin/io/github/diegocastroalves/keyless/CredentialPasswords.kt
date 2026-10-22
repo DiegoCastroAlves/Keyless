@@ -29,10 +29,10 @@ import kotlin.concurrent.thread
 
 /**
  * Passwords through Android's Credential Manager: the logins of the app
- * asking (by its package name), or of the page a browser in Google's list
- * shows, "Search Keyless" for any other login (linked to the app if wanted,
- * see AppLinks), and saving a new one. The choice opens
- * PasswordCredentialActivity, which unlocks if needed.
+ * asking (linked to it, or of the sites naming it: AppSites), or of the
+ * page a browser in Google's list shows, "Search Keyless" for any other
+ * login (linked to the app if wanted, see AppLinks), and saving a new one.
+ * The choice opens PasswordCredentialActivity, which unlocks if needed.
  */
 @RequiresApi(34)
 object CredentialPasswords {
@@ -45,7 +45,9 @@ object CredentialPasswords {
         return if (host != null) Caller(host, null) else Caller(null, info.packageName)
     }
 
-    fun matches(caller: Caller): List<Summary> = Keyless.matches(caller.domain, caller.packageName)
+    /** The caller's logins: a page's, or an app's (linked to it, or of the sites naming it: AppSites). Network: off the main thread. */
+    fun matches(context: Context, caller: Caller, info: CallingAppInfo, waitMs: Long = AppSites.WAIT_MS): List<Summary> =
+        if (caller.packageName == null) Keyless.matches(caller.domain, null) else AppSites.logins(context, caller.packageName, Origins.fingerprints(info), waitMs)
 
     /** A password entry for each login of the caller, for each password option asked. */
     fun addEntries(context: Context, request: BeginGetCredentialRequest, builder: BeginGetCredentialResponse.Builder) {
@@ -53,7 +55,7 @@ object CredentialPasswords {
         val info = request.callingAppInfo ?: return
         if (options.isEmpty() || info.packageName == context.packageName) return
         val logins = try {
-            matches(caller(context, info))
+            matches(context, caller(context, info), info)
         } catch (e: Exception) {
             return
         }
@@ -162,7 +164,9 @@ class PasswordCredentialActivity : KeylessActivity() {
             val answer = try {
                 // Still a login of whoever asks now.
                 val caller = CredentialPasswords.caller(this, request.callingAppInfo)
-                if (CredentialPasswords.matches(caller).none { it.id == id }) throw KeylessException("passkey_origin", "not a login of ${request.callingAppInfo.packageName}")
+                if (CredentialPasswords.matches(this, caller, request.callingAppInfo, waitMs = 10_000).none { it.id == id }) {
+                    throw KeylessException("passkey_origin", "not a login of ${request.callingAppInfo.packageName}")
+                }
                 val item = Keyless.item(id)
                 val values = AutofillResponses.loginValues(item)
                 Triple(values, item.getJSONObject("overview").optString("title"), values.password ?: throw KeylessException("not_found"))

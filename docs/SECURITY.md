@@ -681,8 +681,15 @@ everything the server sends, and the same decryption.
   password is asked again after the phone restarts.
 - The screens cannot be captured (Android FLAG_SECURE); copied values are
   marked sensitive and cleared after 90 seconds.
-- Autofill (Android) fills a login only for the app or website it names;
-  while locked it offers to unlock first. It never fills Keyless itself.
+- Autofill (Android) suggests a login only for the app or website it names;
+  while locked it offers to unlock first. It never fills Keyless itself. An
+  app also gets the logins of a website that names it as its own, with its
+  signing certificate, in its Digital Asset Links
+  (`delegate_permission/common.get_login_creds` or `handle_all_urls`). Only
+  the sites the app names in its manifest and those of logins named like
+  the app are asked, so no other site learns about the vault; what they say
+  is kept on the phone for a week. Any other login can be chosen for an app
+  by hand ("Search Keyless"), which links them.
 - Passkeys (Android 14 and later, Credential Manager): a browser's origin is
   believed only for Google's list of privileged browsers, checked by
   signing certificate, and must be the site or a subdomain over https; any
