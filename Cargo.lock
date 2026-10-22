@@ -2997,7 +2997,7 @@ dependencies = [
 
 [[package]]
 name = "keyless-android"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "jni 0.21.1",
  "keyless-client",
@@ -3007,7 +3007,7 @@ dependencies = [
 
 [[package]]
 name = "keyless-client"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "base64 0.23.1",
  "keyless-core",
@@ -3025,7 +3025,7 @@ dependencies = [
 
 [[package]]
 name = "keyless-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "aes 0.9.3",
  "argon2",
@@ -3064,7 +3064,7 @@ dependencies = [
 
 [[package]]
 name = "keyless-desktop"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "aes-gcm 0.11.1",
  "arboard",
@@ -3120,14 +3120,14 @@ dependencies = [
 
 [[package]]
 name = "keyless-ios"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "keyless-client",
 ]
 
 [[package]]
 name = "keyless-wasm"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.4.3",
