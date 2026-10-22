@@ -48,7 +48,7 @@ import {
   type UrlFill,
 } from "../../lib/api";
 import { categoryLabel, isSecretKind } from "../../lib/categories";
-import { formatBytes, formatDate, formatTotp, hostOf } from "../../lib/format";
+import { appOf, firstWebsite, formatBytes, formatDate, formatTotp, hostOf } from "../../lib/format";
 import { useFileDrop } from "../../lib/fileDrop";
 import { itemIdOfLink, itemLink, showLinkedItem } from "../../lib/itemLinks";
 import { Markdown } from "../../lib/markdown";
@@ -205,7 +205,7 @@ export function ItemDetail() {
         </div>
       )}
       <header className="flex items-start gap-4 border-b border-line px-8 pb-5 pt-7">
-        <ItemIcon title={item.title} category={item.category} url={item.urls[0]} size="lg" item={item} />
+        <ItemIcon title={item.title} category={item.category} url={firstWebsite(item.urls)} size="lg" item={item} />
         <div className="min-w-0 flex-1 pt-1">
           <h2 className="selectable line-clamp-2 break-words text-xl font-semibold tracking-tight">{item.title}</h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted">
@@ -328,7 +328,7 @@ export function ItemDetail() {
 
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-5">
-          {!trashed && <SentinelBanners itemId={item.id} hasUrl={item.urls.length > 0} canEdit={item.canEdit} />}
+          {!trashed && <SentinelBanners itemId={item.id} hasUrl={!!firstWebsite(item.urls)} canEdit={item.canEdit} />}
           {item.fields.some((f) => f.hasValue) && (
             <FieldCard>
               {item.fields.map((f) => (
@@ -350,11 +350,20 @@ export function ItemDetail() {
             ),
           )}
 
-          {item.urlEntries.length > 0 && (
+          {item.urlEntries.some((u) => !appOf(u.href)) && (
             <FieldCard>
-              {item.urlEntries.map((u, index) => (
-                <WebsiteRow key={`${u.href}-${index}`} itemId={item.id} index={index} href={u.href} label={u.label} fill={u.fill} />
-              ))}
+              {item.urlEntries.map((u, index) =>
+                appOf(u.href) ? null : <WebsiteRow key={`${u.href}-${index}`} itemId={item.id} index={index} href={u.href} label={u.label} fill={u.fill} />,
+              )}
+            </FieldCard>
+          )}
+
+          {item.urlEntries.some((u) => appOf(u.href)) && (
+            <FieldCard>
+              {item.urlEntries.map((u, index) => {
+                const app = appOf(u.href);
+                return app ? <AppRow key={`${u.href}-${index}`} packageName={app} label={u.label} /> : null;
+              })}
             </FieldCard>
           )}
 
@@ -907,6 +916,35 @@ function WebsiteRow({ itemId, index, href, label, fill }: { itemId: string; inde
             <ExternalLink className="size-4" />
           </IconButton>
         </Tooltip>
+        <Tooltip content={t("common.copy")}>
+          <IconButton label={t("common.copy")} onClick={copy}>
+            <Copy className="size-4" />
+          </IconButton>
+        </Tooltip>
+      </div>
+    </div>
+  );
+}
+
+/** An Android app the login is linked to (on the phone): its name, when the phone gave one, and its package. */
+function AppRow({ packageName, label }: { packageName: string; label?: string }) {
+  const { t } = useTranslation();
+  const copy = async () => {
+    try {
+      const result = await api.copyText(packageName);
+      toast.copied(t("item.androidApp"), result.clearAfterSeconds);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  return (
+    <div className="group flex items-center gap-3 px-4 py-2.5 hover:bg-panel-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-subtle">{t("item.androidApp")}</div>
+        <div className="selectable mt-0.5 truncate text-[15px]">{label || packageName}</div>
+        {label && <div className="selectable mt-0.5 truncate text-xs text-subtle">{packageName}</div>}
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
         <Tooltip content={t("common.copy")}>
           <IconButton label={t("common.copy")} onClick={copy}>
             <Copy className="size-4" />

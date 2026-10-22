@@ -1147,7 +1147,7 @@ class MainActivity : KeylessActivity() {
                         // Gone meanwhile.
                     }
                 }
-                card.add(listRow(appIcon(name, 32), app ?: name, if (app == null) getString(R.string.not_installed) else name, open).apply { background = null })
+                card.add(listRow(appIcon(name, 32), app ?: AppLinks.savedName(urls, name) ?: name, if (app == null) getString(R.string.not_installed) else name, open).apply { background = null })
             }
             page.add(card, top = 8)
         }

@@ -48,6 +48,12 @@ object AppLinks {
     fun linked(urls: JSONArray?): List<String> =
         if (urls == null) emptyList() else (0 until urls.length()).mapNotNull { packageOf(urls.optJSONObject(it)?.optString("href") ?: "") }
 
+    /** An app's name as kept with its address by the phone that linked it: for an app not installed here. */
+    fun savedName(urls: JSONArray?, packageName: String): String? =
+        if (urls == null) null else (0 until urls.length()).mapNotNull { urls.optJSONObject(it) }
+            .firstOrNull { packageOf(it.optString("href")).equals(packageName, ignoreCase = true) }
+            ?.optString("label")?.ifBlank { null }
+
     /** The first website among an item's addresses (not an app), for its icon. */
     fun firstWebsite(urls: JSONArray?): String? =
         if (urls == null) null else (0 until urls.length()).map { urls.optJSONObject(it)?.optString("href") ?: "" }.firstOrNull { it.isNotBlank() && packageOf(it) == null }
@@ -104,9 +110,10 @@ object AppLinks {
 
     /**
      * Adds the app (or the website) to a login's addresses, unless it has it
-     * already. Uploads: call off the main thread.
+     * already; an app with its name (`label`), for the other devices, which
+     * cannot look it up. Uploads: call off the main thread.
      */
-    fun link(itemId: String, packageName: String?, domain: String?) {
+    fun link(itemId: String, packageName: String?, domain: String?, label: String? = null) {
         val draft = Keyless.draftOf(itemId)
         val urls = draft.optJSONArray("urls") ?: JSONArray().also { draft.put("urls", it) }
         val hrefs = (0 until urls.length()).map { urls.optJSONObject(it)?.optString("href") ?: "" }
@@ -115,7 +122,7 @@ object AppLinks {
             domain != null -> if (hrefs.any { packageOf(it) == null && hostOf(it).equals(domain.removePrefix("www."), ignoreCase = true) }) return else "https://$domain"
             else -> return
         }
-        urls.put(JSONObject().put("href", href))
+        urls.put(JSONObject().put("href", href).apply { if (packageName != null && !label.isNullOrBlank()) put("label", label) })
         Keyless.saveDraft(draft)
     }
 }

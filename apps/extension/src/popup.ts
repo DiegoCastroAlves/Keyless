@@ -5,7 +5,7 @@
 // button that fills it. The keyboard works as in the app: typing searches,
 // the arrows move, Enter fills, Escape clears the search and then closes.
 
-import { avatar, hostOf } from "./avatar";
+import { appOf, avatar, hostOf } from "./avatar";
 import { markupNodes } from "./markup";
 import { renderMarkdown } from "./markdown";
 import { providerName } from "./providers";
@@ -94,6 +94,11 @@ function copiedToast(reply: Reply<{ clearAfterSeconds: number }>) {
 function siteUrl(href: string): string {
   const scheme = /^(https?):/i.exec(href.trim());
   return scheme ? scheme[1].toLowerCase() + href.trim().slice(scheme[1].length) : `https://${href.trim()}`;
+}
+
+/** An item's first website (not an Android app it is linked to on the phone). */
+function websiteOf(item: ItemView): string | undefined {
+  return item.urls.find((u) => !appOf(u.href))?.href;
 }
 
 /** Passwords shown with digits and symbols in their own colours, as in the app. */
@@ -911,7 +916,7 @@ function openLink(href: string) {
 
 function renderDetails(item: ItemView, login: Login | null) {
   const canFill = login !== null && fillable(login);
-  const site = item.urls[0]?.href;
+  const site = websiteOf(item);
   const primary = el("button", { className: canFill ? "primary" : "outline", type: "button", textContent: primaryLabel(item, canFill) });
   primary.addEventListener("click", () => void primaryAction(item, login));
   const star = iconButton(ICONS.star, item.favorite ? t("favoriteRemove") : t("favoriteAdd"), () => void changeItems([item.id], "favorite", !item.favorite), `tool${item.favorite ? " on" : ""}`);
@@ -934,9 +939,10 @@ function renderDetails(item: ItemView, login: Login | null) {
   }
   if (item.passkeys > 0) parts.push(el("div", { className: "card" }, field(t("passkeyLabel"), document.createTextNode(t("passkeySaved")), [])));
 
-  if (item.urls.length > 0) {
+  if (item.urls.some((u) => !appOf(u.href))) {
     const websites = el("div", { className: "card" });
     for (const url of item.urls) {
+      if (appOf(url.href)) continue;
       const link = el("a", { className: "link", href: siteUrl(url.href), textContent: hostOf(url.href) || url.href, title: url.href });
       link.addEventListener("click", (e) => {
         e.preventDefault();
@@ -945,6 +951,15 @@ function renderDetails(item: ItemView, login: Login | null) {
       websites.append(field(url.label || t("fieldWebsite"), link, []));
     }
     parts.push(websites);
+  }
+  // Apps linked on the phone: nothing to open here.
+  if (item.urls.some((u) => appOf(u.href))) {
+    const apps = el("div", { className: "card" });
+    for (const url of item.urls) {
+      const app = appOf(url.href);
+      if (app) apps.append(field(t("fieldAndroidApp"), el("span", { textContent: url.label || app, title: app }), []));
+    }
+    parts.push(apps);
   }
 
   if (item.notes.trim()) parts.push(el("div", { className: "section", textContent: t("notesTitle") }), el("div", { className: "card notes" }, renderMarkdown(item.notes, openLink)));
@@ -983,7 +998,7 @@ function renderDetails(item: ItemView, login: Login | null) {
 
 function primaryLabel(item: ItemView, canFill: boolean): string {
   if (canFill) return t("fillShort");
-  if (LOGIN_LIKE.has(item.category) && item.urls[0]) return t("openFill");
+  if (LOGIN_LIKE.has(item.category) && websiteOf(item)) return t("openFill");
   return item.canEdit ? t("editInKeyless") : t("openInKeyless");
 }
 
@@ -992,7 +1007,7 @@ function primaryLabel(item: ItemView, canFill: boolean): string {
 async function primaryAction(item: ItemView | null, login: Login | null) {
   if (login && fillable(login)) return fill(login);
   if (!item) return;
-  const site = item.urls[0]?.href;
+  const site = websiteOf(item);
   if (LOGIN_LIKE.has(item.category) && site) {
     const reply = await send({ type: "open_fill", id: item.id, url: siteUrl(site) });
     if (reply.ok) window.close();
@@ -1071,8 +1086,8 @@ function showItemMenu(anchor: HTMLElement, item: ItemView, login: Login | null) 
   const entries: (MenuEntry | "divider")[] = [];
   if (item.canEdit) entries.push({ label: t("editInKeyless"), icon: ICONS.edit, run: () => void editItem(item.id) });
   entries.push({ label: t("openInKeyless"), icon: ICONS.app, run: () => void send({ type: "open_app", id: item.id }).then(() => window.close()) });
-  if (item.urls[0]) {
-    const href = item.urls[0].href;
+  const href = websiteOf(item);
+  if (href) {
     entries.push({ label: t("openWebsite"), icon: ICONS.external, run: () => void chrome.tabs.create({ url: siteUrl(href) }).then(() => window.close()) });
   }
   if (login && !fillable(login) && view.pageHost && LOGIN_LIKE.has(item.category)) {
@@ -1082,7 +1097,7 @@ function showItemMenu(anchor: HTMLElement, item: ItemView, login: Login | null) 
       icon: ICONS.login,
       run: () =>
         confirmFill(
-          t("otherSiteWarning", item.title, hostOf(item.urls[0]?.href ?? login.url), view.pageHost ?? ""),
+          t("otherSiteWarning", item.title, hostOf(websiteOf(item) ?? login.url), view.pageHost ?? ""),
           { type: "fill", id: item.id, anySite: true },
           { label: t("fillAndAddSite"), request: { type: "fill", id: item.id, anySite: true, addSite: true } },
         ),

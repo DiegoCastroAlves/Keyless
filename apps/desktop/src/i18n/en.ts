@@ -499,6 +499,8 @@ const en = {
     archived: "Archived",
     websites: "Websites",
     website: "website",
+    apps: "Android apps",
+    androidApp: "Android app",
     notes: "Notes",
     tags: "Tags",
     modified: "Modified {{date}}",
@@ -558,6 +560,7 @@ const en = {
     fieldType: "Field type",
     addWebsite: "Add website",
     websitePlaceholder: "https://example.com",
+    appsHint: "Linked on the phone: Keyless suggests this login in these apps.",
     fillRule: "Fill in the browser",
     fill: {
       domain: "Anywhere on this website",

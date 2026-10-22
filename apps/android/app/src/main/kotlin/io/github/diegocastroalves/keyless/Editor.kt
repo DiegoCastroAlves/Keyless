@@ -249,7 +249,7 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
             for (i in 0 until urls.length()) {
                 val name = AppLinks.packageOf(urls.getJSONObject(i).optString("href")) ?: continue
                 val app = AppLinks.label(this, name)
-                panel.add(listRow(appIcon(name, 32), app ?: name, if (app == null) getString(R.string.not_installed) else name,
+                panel.add(listRow(appIcon(name, 32), app ?: AppLinks.savedName(urls, name) ?: name, if (app == null) getString(R.string.not_installed) else name,
                     iconButton(R.drawable.ic_close, getString(R.string.remove)) {
                         urls.remove(i)
                         render()
@@ -258,7 +258,7 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
             panel.add(plainButton("+ " + getString(R.string.link_app)) {
                 val linked = AppLinks.linked(urls).toSet()
                 pickApp(AppLinks.loginWords(draft.optString("title"), urls), linked) { app ->
-                    urls.put(JSONObject().put("href", AppLinks.href(app.packageName)))
+                    urls.put(JSONObject().put("href", AppLinks.href(app.packageName)).put("label", app.label))
                     render()
                 }
             }, width = ViewGroup.LayoutParams.WRAP_CONTENT)

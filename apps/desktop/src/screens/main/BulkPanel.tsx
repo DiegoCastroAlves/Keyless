@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ItemIcon } from "../../components/common";
 import { Button, Dialog, Input } from "../../components/ui";
 import { api, errorMessage } from "../../lib/api";
+import { firstWebsite } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { MoveItemsDialog } from "./MoveDialog";
@@ -57,7 +58,7 @@ export function BulkPanel() {
       <div className="flex -space-x-3">
         {chosen.slice(0, 5).map((item) => (
           <div key={item.id} className="rounded-2xl ring-4 ring-panel">
-            <ItemIcon title={item.title} category={item.category} url={item.urls[0]} size="lg" item={item} />
+            <ItemIcon title={item.title} category={item.category} url={firstWebsite(item.urls)} size="lg" item={item} />
           </div>
         ))}
       </div>

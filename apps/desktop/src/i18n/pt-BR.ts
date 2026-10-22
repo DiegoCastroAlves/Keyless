@@ -502,6 +502,8 @@ const ptBR: Translations = {
     archived: "Arquivado",
     websites: "Sites",
     website: "site",
+    apps: "Apps Android",
+    androidApp: "App Android",
     notes: "Notas",
     tags: "Tags",
     modified: "Modificado em {{date}}",
@@ -561,6 +563,7 @@ const ptBR: Translations = {
     fieldType: "Tipo de campo",
     addWebsite: "Adicionar site",
     websitePlaceholder: "https://exemplo.com",
+    appsHint: "Vinculados no celular: o Keyless sugere este login nesses apps.",
     fillRule: "Preencher no navegador",
     fill: {
       domain: "Em qualquer parte deste site",

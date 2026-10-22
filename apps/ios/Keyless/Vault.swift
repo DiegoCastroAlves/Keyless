@@ -18,6 +18,18 @@ struct Item: Identifiable {
         return !(at is NSNull)
     }
     var urls: [String] { (overview["urls"] as? [[String: Any]] ?? []).compactMap { $0["href"] as? String } }
+
+    /// The Android app an address names (android://<package>,
+    /// androidapp://<package>, Chrome's android://<hash>@<package>), or nil.
+    static func appOf(_ href: String) -> String? {
+        let text = href.trimmingCharacters(in: .whitespaces)
+        for scheme in ["android://", "androidapp://"] where text.lowercased().hasPrefix(scheme) {
+            let name = text.dropFirst(scheme.count).split(separator: "@", omittingEmptySubsequences: false).last ?? ""
+            let package = name.split(whereSeparator: { "/?#".contains($0) }).first.map(String.init) ?? ""
+            return package.isEmpty ? nil : package
+        }
+        return nil
+    }
 }
 
 /// The account on this device: what is kept (the server's ciphertext in a

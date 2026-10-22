@@ -629,7 +629,8 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, lim
                 "id": id,
                 "title": o.title,
                 "username": o.subtitle,
-                "url": o.urls.first().map(|u| u.href.clone()).unwrap_or_default(),
+                // The first website (not an Android app).
+                "url": o.urls.iter().find(|u| url_host(&u.href).is_some()).map(|u| u.href.clone()).unwrap_or_default(),
                 "vault": vault,
                 "vaultId": item.vault_id,
                 "favorite": o.favorite,
@@ -786,7 +787,7 @@ async fn password_owner(app: &AppHandle, url: &str, password: &str) -> Result<Va
             logins.push(json!({
                 "itemId": id,
                 "title": o.title,
-                "site": o.urls.first().and_then(|u| url_host(&u.href)).unwrap_or_default(),
+                "site": o.urls.iter().find_map(|u| url_host(&u.href)).unwrap_or_default(),
                 "vaultId": item.vault_id,
             }));
         }

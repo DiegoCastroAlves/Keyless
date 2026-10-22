@@ -17,6 +17,13 @@ export function hostOf(url: string): string {
   }
 }
 
+/** The Android app an address names (android://<package>, androidapp://<package>, Chrome's android://<hash>@<package>), or null. */
+export function appOf(href: string): string | null {
+  const found = /^(?:android|androidapp):\/\/(.*)$/i.exec(href.trim());
+  if (!found) return null;
+  return found[1].slice(found[1].lastIndexOf("@") + 1).split(/[/?#]/)[0] || null;
+}
+
 function color(seed: string): string {
   let hash = 0;
   for (const ch of seed) hash = (hash * 31 + ch.charCodeAt(0)) | 0;

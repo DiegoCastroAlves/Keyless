@@ -33,6 +33,18 @@ export function relativeTime(unixSeconds: number | null): string {
   return i18n.t("time.days", { count: Math.round(diff / 86400) });
 }
 
+/** The Android app an address names (android://<package>, androidapp://<package>, Chrome's android://<hash>@<package>), or null. */
+export function appOf(href: string): string | null {
+  const found = /^(?:android|androidapp):\/\/(.*)$/i.exec(href.trim());
+  if (!found) return null;
+  return found[1].slice(found[1].lastIndexOf("@") + 1).split(/[/?#]/)[0] || null;
+}
+
+/** The first website among an item's addresses (not an app): for its icon and "open". */
+export function firstWebsite(urls: string[]): string | undefined {
+  return urls.find((u) => u.trim() !== "" && !appOf(u));
+}
+
 export function hostOf(url: string): string {
   try {
     const parsed = new URL(url.includes("://") ? url : `https://${url}`);

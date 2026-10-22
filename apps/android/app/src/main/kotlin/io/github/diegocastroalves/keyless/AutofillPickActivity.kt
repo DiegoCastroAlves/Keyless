@@ -82,10 +82,11 @@ class AutofillPickActivity : KeylessActivity() {
 /** Links the app (or site) to the login, uploading it; says how it went. */
 internal fun android.app.Activity.linkInBackground(itemId: String, packageName: String?, domain: String?) {
     val app = applicationContext
-    val name = packageName?.let { AppLinks.label(this, it) ?: it } ?: domain ?: return
+    val label = packageName?.let { AppLinks.label(this, it) }
+    val name = label ?: packageName ?: domain ?: return
     thread {
         val text = try {
-            AppLinks.link(itemId, packageName, domain)
+            AppLinks.link(itemId, packageName, domain, label)
             app.getString(R.string.linked_to, name)
         } catch (e: Exception) {
             app.errorText(e)

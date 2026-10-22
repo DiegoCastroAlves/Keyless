@@ -502,6 +502,8 @@ const es: Translations = {
     archived: "Archivado",
     websites: "Sitios web",
     website: "sitio web",
+    apps: "Apps de Android",
+    androidApp: "App de Android",
     notes: "Notas",
     tags: "Etiquetas",
     modified: "Modificado el {{date}}",
@@ -561,6 +563,7 @@ const es: Translations = {
     fieldType: "Tipo de campo",
     addWebsite: "Añadir sitio web",
     websitePlaceholder: "https://ejemplo.com",
+    appsHint: "Vinculadas en el teléfono: Keyless sugiere este inicio de sesión en esas apps.",
     fillRule: "Rellenar en el navegador",
     fill: {
       domain: "En cualquier parte de este sitio",

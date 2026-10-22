@@ -523,6 +523,9 @@
   "fieldWebsite": {
     "message": "website"
   },
+  "fieldAndroidApp": {
+    "message": "Android app"
+  },
   "reveal": {
     "message": "Show"
   },

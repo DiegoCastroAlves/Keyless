@@ -6,6 +6,7 @@ import { ItemIcon, Logo } from "../components/common";
 import { Kbd, cx } from "../components/ui";
 import { applyLanguage } from "../i18n";
 import { api, errorCode, errorMessage, events, type AppStatus, type ItemSummary } from "../lib/api";
+import { appOf, firstWebsite } from "../lib/format";
 import { fold, hasWords, searchWords } from "../lib/search";
 import { sortItems } from "../lib/store";
 import { useTheme } from "../lib/theme";
@@ -121,11 +122,11 @@ export function QuickAccess() {
   const typeable = selected !== undefined && TYPEABLE.has(selected.category);
   const itemActions: Action[] = selected
     ? autoType && typeable
-      ? ["type", ...(selected.urls.length ? (["open"] as Action[]) : []), "app", "username", "password", "totp"]
-      : [...(selected.urls.length ? (["open"] as Action[]) : []), ...(typeable ? (["type"] as Action[]) : []), "app", "username", "password", "totp"]
+      ? ["type", ...(firstWebsite(selected.urls) ? (["open"] as Action[]) : []), "app", "username", "password", "totp"]
+      : [...(firstWebsite(selected.urls) ? (["open"] as Action[]) : []), ...(typeable ? (["type"] as Action[]) : []), "app", "username", "password", "totp"]
     : [];
   /** What Enter (or a click) does with an item. */
-  const mainAction = (item: ItemSummary): Action => (autoType && TYPEABLE.has(item.category) ? "type" : item.urls.length ? "open" : "app");
+  const mainAction = (item: ItemSummary): Action => (autoType && TYPEABLE.has(item.category) ? "type" : firstWebsite(item.urls) ? "open" : "app");
 
   useEffect(() => {
     listRef.current?.querySelector(`[data-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
@@ -147,7 +148,8 @@ export function QuickAccess() {
           setNotice({ text: errorMessage(err), error: true });
         }
       } else if (action === "open") {
-        await api.openItemUrl(item.id, 0);
+        // The first website: an Android app has none to open here.
+        await api.openItemUrl(item.id, item.urls.findIndex((u) => u.trim() !== "" && !appOf(u)));
         hide();
       } else if (action === "app") {
         await api.showItemInApp(item.id);
@@ -292,11 +294,11 @@ export function QuickAccess() {
                       i === index ? "bg-accent text-accent-fg" : "hover:bg-panel-3",
                     )}
                   >
-                    <ItemIcon title={item.title} category={item.category} url={item.urls[0]} size="sm" />
+                    <ItemIcon title={item.title} category={item.category} url={firstWebsite(item.urls)} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-sm">
                       <span className="font-medium">{item.title}</span>
                       {item.subtitle && <span className={cx(i === index ? "text-accent-fg/80" : "text-muted")}> · {item.subtitle}</span>}
-                      {item.urls[0] && <span className={cx(i === index ? "text-accent-fg/70" : "text-subtle")}> · {hostOf(item.urls[0])}</span>}
+                      {firstWebsite(item.urls) && <span className={cx(i === index ? "text-accent-fg/70" : "text-subtle")}> · {hostOf(firstWebsite(item.urls)!)}</span>}
                     </span>
                     {i === index && (
                       <span className="flex shrink-0 items-center gap-1 text-xs font-medium">

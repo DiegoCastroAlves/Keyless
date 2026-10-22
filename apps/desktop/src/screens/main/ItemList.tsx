@@ -40,6 +40,7 @@ import {
 } from "../../components/ui";
 import { api, errorMessage, type Category, type DeletedVault, type ItemSummary, type ListSort } from "../../lib/api";
 import { CATEGORIES, categoryLabel } from "../../lib/categories";
+import { firstWebsite } from "../../lib/format";
 import { itemIdOfLink, showLinkedItem } from "../../lib/itemLinks";
 import { isOff, isPending, useInScope, useScopedIssues, useSentinel } from "../../lib/sentinel";
 import { filterItems, groupLabel, hasFilters, useApp, viewTitle, type ListOrder } from "../../lib/store";
@@ -516,7 +517,7 @@ const ItemRowButton = forwardRef<
       )}
       {...props}
     >
-      <ItemIcon title={item.title} category={item.category} url={item.urls[0]} item={item} size={useApp.getState().settings?.density === "compact" ? "sm" : "md"} />
+      <ItemIcon title={item.title} category={item.category} url={firstWebsite(item.urls)} item={item} size={useApp.getState().settings?.density === "compact" ? "sm" : "md"} />
       <div className="min-w-0 flex-1">
         <div className={cx("truncate text-[13.5px] font-medium", selected && "text-fg")}>{item.title}</div>
         <div className="truncate text-xs text-muted">{item.subtitle || " "}</div>

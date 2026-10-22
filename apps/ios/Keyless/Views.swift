@@ -433,7 +433,14 @@ struct ItemView: View {
         let details = item["details"] as? [String: Any] ?? [:]
         let fields = (details["fields"] as? [[String: Any]] ?? []).filter { !(($0["value"] as? String) ?? "").isEmpty }
         let sections = details["sections"] as? [[String: Any]] ?? []
-        let urls = (overview["urls"] as? [[String: Any]] ?? []).compactMap { $0["href"] as? String }.filter { !$0.isEmpty }
+        let addresses = (overview["urls"] as? [[String: Any]] ?? []).filter { !(($0["href"] as? String) ?? "").isEmpty }
+        let urls = addresses.compactMap { $0["href"] as? String }.filter { Item.appOf($0) == nil }
+        // Apps linked on an Android phone: their name when the phone gave one, and the package.
+        let apps: [(name: String, package: String)] = addresses.compactMap { address in
+            guard let href = address["href"] as? String, let package = Item.appOf(href) else { return nil }
+            let label = address["label"] as? String ?? ""
+            return (name: label.isEmpty ? package : label, package: package)
+        }
         let notes = details["notes"] as? String ?? ""
         let tags = overview["tags"] as? [String] ?? []
         let passkeys = details["passkeys"] as? [[String: Any]] ?? []
@@ -469,6 +476,9 @@ struct ItemView: View {
                     }
                 }
             }
+            if !apps.isEmpty {
+                appsSection(apps)
+            }
             if !passkeys.isEmpty {
                 passkeysSection(passkeys, removable: writable && summary?.trashed != true)
             }
@@ -484,6 +494,21 @@ struct ItemView: View {
             }
         }
         .onAppear { vault.touch() }
+    }
+
+    /// Apps the login is linked to on an Android phone: nothing to open here.
+    private func appsSection(_ apps: [(name: String, package: String)]) -> some View {
+        Section(Texts.t("androidApps")) {
+            ForEach(apps.indices, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(apps[index].name)
+                    if apps[index].name != apps[index].package {
+                        Text(apps[index].package).font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                .textSelection(.enabled)
+            }
+        }
     }
 
     private func passkeysSection(_ passkeys: [[String: Any]], removable: Bool) -> some View {

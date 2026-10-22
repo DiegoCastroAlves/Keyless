@@ -39,7 +39,7 @@ import {
 import { CATEGORIES, FIELD_KINDS, categoryInfo, categoryLabel, fieldKindLabel, frequentUsernames, isSecretKind, newFieldId, templateFields } from "../../lib/categories";
 import { useFileDrop } from "../../lib/fileDrop";
 import { Markdown } from "../../lib/markdown";
-import { formatBytes } from "../../lib/format";
+import { appOf, firstWebsite, formatBytes } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { AddressEditor, AlertButton, FileFieldEditor, LocationEditor, ReferenceEditor, SignInWithEditor } from "./FieldKinds";
@@ -164,7 +164,7 @@ export function ItemEditor() {
     const missing = templateFields(category).filter(
       (f) => !existing.some((e) => (f.purpose && e.purpose === f.purpose) || fieldLabel(e.label).toLowerCase() === fieldLabel(f.label).toLowerCase()),
     );
-    const urls = categoryInfo(category).hasWebsite && draft.urls.length === 0 ? [{ href: "" }] : draft.urls;
+    const urls = categoryInfo(category).hasWebsite && draft.urls.every((u) => appOf(u.href)) ? [...draft.urls, { href: "" }] : draft.urls;
     update({ category, fields: [...draft.fields, ...missing], urls });
   };
 
@@ -220,7 +220,7 @@ export function ItemEditor() {
         <Menu>
           <MenuTrigger asChild>
             <button className="rounded-2xl outline-none ring-accent/40 focus-visible:ring-3" aria-label={t("editor.icon")} tabIndex={-1}>
-              <ItemIcon title={draft.title || categoryLabel(draft.category)} category={draft.category} url={draft.urls[0]?.href} size="lg" icon={draft.icon || undefined} />
+              <ItemIcon title={draft.title || categoryLabel(draft.category)} category={draft.category} url={firstWebsite(draft.urls.map((u) => u.href))} size="lg" icon={draft.icon || undefined} />
             </button>
           </MenuTrigger>
           <MenuContent align="start">
@@ -337,38 +337,40 @@ export function ItemEditor() {
             <Plus className="size-4" /> {t("editor.addSection")}
           </Button>
 
-          {(info.hasWebsite || draft.urls.length > 0) && (
+          {(info.hasWebsite || draft.urls.some((u) => !appOf(u.href))) && (
             <div className="space-y-2">
               <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.websites")}</div>
-              {draft.urls.map((url, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <div className="w-28 shrink-0">
+              {draft.urls.map((url, i) =>
+                appOf(url.href) ? null : (
+                  <div key={i} className="flex items-center gap-2">
+                    <div className="w-28 shrink-0">
+                      <Input
+                        value={url.label ?? ""}
+                        onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, label: e.target.value } : u)) })}
+                        placeholder={t("editor.websiteLabel")}
+                        className="text-[13px]"
+                        tabIndex={-1}
+                      />
+                    </div>
                     <Input
-                      value={url.label ?? ""}
-                      onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, label: e.target.value } : u)) })}
-                      placeholder={t("editor.websiteLabel")}
-                      className="text-[13px]"
-                      tabIndex={-1}
+                      value={url.href}
+                      onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
+                      onBlur={(e) => nameFromWebsite(e.target.value)}
+                      placeholder={t("editor.websitePlaceholder")}
+                      autoFocus={i === focusUrl}
                     />
+                    <FillRuleButton
+                      value={url.fill ?? "domain"}
+                      submit={url.submit ?? null}
+                      onChange={(fill) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, fill } : u)) })}
+                      onSubmitChange={(submit) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, submit } : u)) })}
+                    />
+                    <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
+                      <X className="size-4" />
+                    </IconButton>
                   </div>
-                  <Input
-                    value={url.href}
-                    onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
-                    onBlur={(e) => nameFromWebsite(e.target.value)}
-                    placeholder={t("editor.websitePlaceholder")}
-                    autoFocus={i === focusUrl}
-                  />
-                  <FillRuleButton
-                    value={url.fill ?? "domain"}
-                    submit={url.submit ?? null}
-                    onChange={(fill) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, fill } : u)) })}
-                    onSubmitChange={(submit) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, submit } : u)) })}
-                  />
-                  <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
-                    <X className="size-4" />
-                  </IconButton>
-                </div>
-              ))}
+                ),
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -379,6 +381,24 @@ export function ItemEditor() {
               >
                 <Plus className="size-4" /> {t("editor.addWebsite")}
               </Button>
+            </div>
+          )}
+
+          {draft.urls.some((u) => appOf(u.href)) && (
+            <div className="space-y-2">
+              <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.apps")}</div>
+              <p className="px-1 text-xs text-subtle">{t("editor.appsHint")}</p>
+              {draft.urls.map((url, i) => {
+                const app = appOf(url.href);
+                return app ? (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input value={url.label ? `${url.label} · ${app}` : app} readOnly tabIndex={-1} />
+                    <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
+                      <X className="size-4" />
+                    </IconButton>
+                  </div>
+                ) : null;
+              })}
             </div>
           )}
 
