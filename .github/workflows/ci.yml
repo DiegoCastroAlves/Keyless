@@ -332,7 +332,7 @@ jobs:
           cp target/aarch64-apple-ios-sim/release/libkeyless_ios.a apps/ios/lib/iphonesimulator/
           cp target/aarch64-apple-ios/release/libkeyless_ios.a apps/ios/lib/iphoneos/
 
-      # For the simulator, unsigned (installing on a phone needs an Apple developer account).
+      # For the simulator, unsigned.
       - name: Build the app
         working-directory: apps/ios
         run: |
@@ -356,11 +356,22 @@ jobs:
           message=$(tr -d '\r' < smoke.log | grep "SMOKE" | sed -e 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
           echo "::notice title=iOS on the simulator::${message}"
 
+      # For an iPhone, unsigned: Sideloadly or AltStore signs it with the
+      # person's own Apple ID as they install it (with a free Apple ID it
+      # runs 7 days, then is installed again).
+      - name: Build the app for a phone
+        working-directory: apps/ios
+        run: |
+          set -o pipefail
+          xcodebuild -project Keyless.xcodeproj -scheme Keyless -sdk iphoneos -configuration Release \
+            -derivedDataPath build ARCHS=arm64 CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee build-phone.log
+
       - name: Report errors
         if: failure()
         working-directory: apps/ios
         run: |
-          message=$( (grep -E "error:|SMOKE" build.log smoke.log 2>/dev/null || true) | head -80 | sed -e 's/%/%25/g' -e 's#/Users/runner/work/Keyless/Keyless/##g' | awk '{printf "%s%%0A", $0}')
+          message=$( (grep -E "error:|SMOKE" build.log smoke.log build-phone.log 2>/dev/null || true) | head -80 | sed -e 's/%/%25/g' -e 's#/Users/runner/work/Keyless/Keyless/##g' | awk '{printf "%s%%0A", $0}')
           echo "::error title=iOS build::${message}"
 
       - name: Package the simulator app
@@ -371,3 +382,16 @@ jobs:
         with:
           name: keyless-ios-simulator
           path: Keyless-ios-simulator.zip
+
+      # An .ipa is the app in a Payload folder, zipped.
+      - name: Package the phone app
+        working-directory: apps/ios/build/Build/Products/Release-iphoneos
+        run: |
+          mkdir Payload
+          cp -R Keyless.app Payload/
+          zip -qry "$GITHUB_WORKSPACE/Keyless-ios.ipa" Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyless-ios-ipa
+          path: Keyless-ios.ipa
