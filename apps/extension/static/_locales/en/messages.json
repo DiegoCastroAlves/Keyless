@@ -625,6 +625,89 @@
   "genHistoryNote": {
     "message": "A password you copy here is kept in the generator history in Keyless."
   },
+  "passwordOptions": {
+    "message": "Password options"
+  },
+  "genUppercase": {
+    "message": "Uppercase (A-Z)"
+  },
+  "genLowercase": {
+    "message": "Lowercase (a-z)"
+  },
+  "genDigitsSet": {
+    "message": "Numbers (0-9)"
+  },
+  "genSymbolsSet": {
+    "message": "Symbols (!@#)"
+  },
+  "genAvoidAmbiguous": {
+    "message": "Avoid ambiguous characters"
+  },
+  "genStyleWords": {
+    "message": "Words"
+  },
+  "genStyleWordsHint": {
+    "message": "Real words, easy to remember"
+  },
+  "genStyleSyllables": {
+    "message": "Syllables"
+  },
+  "genStyleSyllablesHint": {
+    "message": "Made-up words that are easy to say"
+  },
+  "genStyleThree": {
+    "message": "3 letters"
+  },
+  "genStyleThreeHint": {
+    "message": "Three random letters each"
+  },
+  "genSeparator": {
+    "message": "Separator"
+  },
+  "genSepHyphen": {
+    "message": "Hyphen ( - )"
+  },
+  "genSepSpace": {
+    "message": "Space"
+  },
+  "genSepPeriod": {
+    "message": "Period ( . )"
+  },
+  "genSepUnderscore": {
+    "message": "Underscore ( _ )"
+  },
+  "genSepComma": {
+    "message": "Comma ( , )"
+  },
+  "genSepNone": {
+    "message": "None"
+  },
+  "genSepDigits": {
+    "message": "A random digit between words"
+  },
+  "genSepDigitsSymbols": {
+    "message": "A random digit or symbol between words"
+  },
+  "suggestionDefault": {
+    "message": "Use as default for suggestions"
+  },
+  "suggestionDefaultHint": {
+    "message": "On your other devices too."
+  },
+  "suggestedLength": {
+    "message": "This field takes up to $COUNT$ characters.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "suggestedRules": {
+    "message": "Made with this site's password rules."
+  },
+  "usePassword": {
+    "message": "Fill in"
+  },
   "strength0": {
     "message": "Very weak"
   },

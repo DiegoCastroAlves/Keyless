@@ -781,6 +781,8 @@ const es: Translations = {
     sepDigits: "Un dígito al azar entre las palabras",
     sepDigitsSymbols: "Un dígito o símbolo al azar entre las palabras",
     hidePassword: "Ocultar la contraseña hasta que la muestre",
+    suggestionDefault: "Usar como predeterminado en las sugerencias del navegador",
+    suggestionDefaultHint: "También en tus otros dispositivos.",
   },
   sentinel: {
     title: "Centinela",

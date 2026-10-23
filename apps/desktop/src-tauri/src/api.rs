@@ -324,6 +324,18 @@ impl Api {
         Ok(())
     }
 
+    /// The account's settings, sealed (see account_settings.rs).
+    pub async fn account_settings(&self, token: &str, user_id: &str) -> AppResult<Option<String>> {
+        let filter = format!("eq.{user_id}");
+        let req = self.request(
+            Method::GET,
+            self.url("rest/v1/profiles", &[("select", "enc_settings"), ("user_id", &filter)]),
+            Some(token),
+        );
+        let rows: Vec<Value> = self.send(req).await?;
+        Ok(rows.first().and_then(|row| row.get("enc_settings")).and_then(Value::as_str).map(str::to_string))
+    }
+
     pub async fn update_profile(&self, token: &str, user_id: &str, patch: Value) -> AppResult<()> {
         let filter = format!("eq.{user_id}");
         let req = self

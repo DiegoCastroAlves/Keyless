@@ -702,11 +702,13 @@ pub async fn sync_now(app: &AppHandle) -> AppResult<()> {
             crate::site_icons::refresh(app);
             // Attachment deletions waiting for the network.
             crate::attachments::spawn_clean_up(app);
-            // The device list, and new devices asking to sign in.
+            // The device list, new devices asking to sign in, and the
+            // settings that follow the account.
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 crate::devices::seen(&app).await;
                 crate::device_setup::check_requests(&app).await;
+                crate::account_settings::pull(&app).await;
             });
             Ok(())
         }

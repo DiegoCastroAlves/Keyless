@@ -1,6 +1,6 @@
 # Política de privacidad de Keyless
 
-Actualizada el 15 de octubre de 2026
+Actualizada el 23 de octubre de 2026
 
 Keyless es un gestor de contraseñas de conocimiento cero. Todo lo que
 guardas en tus bóvedas se cifra en tu dispositivo antes de enviarse a
@@ -13,7 +13,9 @@ quien gestiona el servidor de Keyless, puede leer tus bóvedas.
 - Tu correo electrónico, que identifica tu cuenta, y el idioma de la app
   cuando la creaste, usado solo para escribir en él los correos de la
   cuenta.
-- Los datos cifrados de tus bóvedas, tu clave pública y tus claves cifradas.
+- Los datos cifrados de tus bóvedas, tu clave pública y tus claves cifradas,
+  y los ajustes que acompañan a tu cuenta en tus otros dispositivos (cómo se
+  hacen las contraseñas sugeridas), cifrados de la misma forma.
 - Metadatos técnicos para sincronizar: cuántas bóvedas y elementos tienes,
   su tamaño aproximado y cuándo cambian.
 - Registros de conexión del proveedor de alojamiento (dirección IP, hora,

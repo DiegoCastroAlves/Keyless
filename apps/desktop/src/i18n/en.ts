@@ -778,6 +778,8 @@ const en = {
     sepDigits: "A random digit between words",
     sepDigitsSymbols: "A random digit or symbol between words",
     hidePassword: "Hide the password until I show it",
+    suggestionDefault: "Use as default for the browser's suggestions",
+    suggestionDefaultHint: "On your other devices too.",
   },
   sentinel: {
     title: "Sentinel",

@@ -17,6 +17,7 @@ use zeroize::Zeroizing;
 
 use super::handlers::{Page, match_score, site_of};
 use crate::{
+    error::AppResult,
     items::{self, ItemDraft},
     state::AppState,
     sync::EVENT_ITEMS_CHANGED,
@@ -288,26 +289,78 @@ fn save_error(err: crate::error::AppError) -> &'static str {
     }
 }
 
-/// A strong random password; `max_length` and `symbols` follow the form.
-/// A password for a sign-up or change-password form: within the field's
-/// maximum length, and following the website's password rules, those the
-/// page states (its `passwordrules` attribute) or the known ones for its
-/// site (see `keyless_core::password_rules`).
-pub fn suggest(max_length: Option<u64>, symbols: bool, page_rules: &str, url: &str) -> Result<Value, &'static str> {
-    let length = max_length.map_or(SUGGESTED_LENGTH, |max| (max as usize).clamp(8, SUGGESTED_LENGTH));
-    let rules = password_rules::parse(page_rules).or_else(|| password_rules::rules_for(&page_host(url)));
-    if let Some(mut rules) = rules {
+/// The account setting with the user's defaults for suggested passwords.
+const SUGGESTION: &str = "suggestion";
+
+/// What a suggested password is made of until the user picks otherwise.
+pub fn standard_suggestion() -> GeneratorOptions {
+    GeneratorOptions::Random { length: SUGGESTED_LENGTH, uppercase: true, lowercase: true, digits: true, symbols: true, avoid_ambiguous: true }
+}
+
+/// The defaults the user chose for suggested passwords, if any (a setting
+/// that follows the account).
+pub fn suggestion_default(state: &AppState) -> Option<GeneratorOptions> {
+    serde_json::from_value(crate::account_settings::get(state, SUGGESTION)?).ok()
+}
+
+/// Makes `options` the defaults for suggested passwords (None: back to the
+/// standard ones).
+pub async fn set_suggestion_default(app: &AppHandle, options: Option<GeneratorOptions>) -> AppResult<()> {
+    if let Some(options) = &options {
+        generate(options)?;
+    }
+    crate::account_settings::set(app, SUGGESTION, options.map(|options| json!(options))).await
+}
+
+/// A password for a sign-up or change-password form, made as `options` say
+/// when the form and the site take that: within the field's maximum length,
+/// and following the website's password rules, those the page states (its
+/// `passwordrules` attribute) or the known ones for its site (see
+/// `keyless_core::password_rules`). Otherwise the closest one they take,
+/// with why in `adjusted` ("length" or "rules").
+pub fn suggest(options: &GeneratorOptions, max_length: Option<u64>, page_rules: &str, url: &str) -> Result<Value, &'static str> {
+    generate(options).map_err(|_| "bad_request")?;
+    let max = max_length.map(|max| max as usize);
+    let rules = password_rules::parse(page_rules).or_else(|| password_rules::rules_for(&page_host(url))).map(|mut rules| {
         // The field itself may allow less than the site says.
-        if let Some(max) = max_length {
-            rules.max_length = Some(rules.max_length.map_or(max as usize, |m| m.min(max as usize)));
+        if let Some(max) = max {
+            rules.max_length = Some(rules.max_length.map_or(max, |m| m.min(max)));
         }
-        if let Ok(generated) = password_rules::generate(&rules, SUGGESTED_LENGTH, symbols) {
-            return Ok(json!({ "password": generated.password.as_str() }));
+        rules
+    });
+    let made = |password: Zeroizing<String>, adjusted: Option<&str>| json!({ "password": password.as_str(), "options": options, "adjusted": adjusted });
+
+    // A random password or PIN longer than the field takes: as long as it does.
+    let mut asked = options.clone();
+    let mut adjusted = None;
+    if let (Some(max), GeneratorOptions::Random { length, .. } | GeneratorOptions::Pin { length }) = (max, &mut asked)
+        && *length > max
+    {
+        *length = max;
+        adjusted = Some("length");
+    }
+    let fits = |password: &str| max.is_none_or(|max| password.chars().count() <= max) && rules.as_ref().is_none_or(|rules| password_rules::follows(rules, password));
+    for _ in 0..20 {
+        if let Ok(generated) = generate(&asked)
+            && fits(&generated.password)
+        {
+            return Ok(made(generated.password, adjusted));
         }
     }
-    let options = GeneratorOptions::Random { length, uppercase: true, lowercase: true, digits: true, symbols, avoid_ambiguous: true };
-    let generated = generate(&options).map_err(|_| "error")?;
-    Ok(json!({ "password": generated.password.as_str() }))
+
+    // Not what the site takes: what it does, as close as can be.
+    let (length, symbols) = match options {
+        GeneratorOptions::Random { length, symbols, .. } => (*length, *symbols),
+        _ => (SUGGESTED_LENGTH, true),
+    };
+    if let Some(rules) = &rules
+        && let Ok(generated) = password_rules::generate(rules, length, symbols)
+    {
+        return Ok(made(generated.password, Some("rules")));
+    }
+    let length = max.map_or(length, |max| length.min(max)).max(8);
+    let generated = generate(&GeneratorOptions::Random { length, uppercase: true, lowercase: true, digits: true, symbols, avoid_ambiguous: true }).map_err(|_| "error")?;
+    Ok(made(generated.password, Some("length")))
 }
 
 #[cfg(test)]
@@ -326,7 +379,7 @@ mod tests {
 
     #[test]
     fn suggestions_follow_the_site() {
-        let password = |rules: &str, url: &str, max| suggest(max, true, rules, url).unwrap()["password"].as_str().unwrap().to_string();
+        let password = |rules: &str, url: &str, max| suggest(&standard_suggestion(), max, rules, url).unwrap()["password"].as_str().unwrap().to_string();
         // The page's own rules.
         let digits = password("minlength: 6; maxlength: 6; allowed: digit;", "https://bank.example", None);
         assert!(digits.len() == 6 && digits.chars().all(|c| c.is_ascii_digit()));
@@ -340,9 +393,35 @@ mod tests {
 
     #[test]
     fn suggestions_follow_the_form() {
-        let password = |max, symbols| suggest(max, symbols, "", "").unwrap()["password"].as_str().unwrap().to_string();
+        let random = |symbols| GeneratorOptions::Random { length: SUGGESTED_LENGTH, uppercase: true, lowercase: true, digits: true, symbols, avoid_ambiguous: true };
+        let password = |max, symbols| suggest(&random(symbols), max, "", "").unwrap()["password"].as_str().unwrap().to_string();
         assert_eq!(password(None, true).len(), SUGGESTED_LENGTH);
         assert_eq!(password(Some(12), true).len(), 12);
         assert!(password(None, false).chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn suggestions_follow_the_options() {
+        let made = |options: &GeneratorOptions, max, rules: &str| suggest(options, max, rules, "https://x.example").unwrap();
+        let text = |reply: &Value| reply["password"].as_str().unwrap().to_string();
+        // As asked, when the site takes it.
+        let memorable = GeneratorOptions::Memorable { words: 4, separator: "-".into(), capitalize: false, include_number: false, style: Default::default(), separators: Default::default() };
+        let reply = made(&memorable, None, "");
+        assert_eq!(text(&reply).split('-').count(), 4);
+        assert!(reply["adjusted"].is_null());
+        assert_eq!(reply["options"]["kind"], "memorable");
+        let pin = GeneratorOptions::Pin { length: 6 };
+        assert!(text(&made(&pin, None, "")).chars().all(|c| c.is_ascii_digit()));
+        // Shorter, for a field that takes fewer characters.
+        let long = GeneratorOptions::Random { length: 40, uppercase: true, lowercase: true, digits: true, symbols: false, avoid_ambiguous: true };
+        let reply = made(&long, Some(16), "");
+        assert_eq!(text(&reply).len(), 16);
+        assert_eq!(reply["adjusted"], "length");
+        // The site's rules, when the options do not meet them.
+        let reply = made(&pin, None, "required: upper; required: lower; minlength: 10;");
+        assert!(text(&reply).len() >= 10 && text(&reply).chars().any(|c| c.is_ascii_uppercase()));
+        assert_eq!(reply["adjusted"], "rules");
+        // Options that make no password are refused.
+        assert_eq!(suggest(&GeneratorOptions::Pin { length: 2 }, None, "", ""), Err("bad_request"));
     }
 }

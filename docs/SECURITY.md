@@ -249,7 +249,11 @@ randomness from the operating system via `getrandom`; memory locking via
 ## What the server stores
 
 - `auth.users`: email, bcrypt hash of the auth secret, timestamps (Supabase Auth).
-- `profiles`: KDF parameters, wrapped user key, public key, wrapped private key.
+- `profiles`: KDF parameters, wrapped user key, public key, wrapped private
+  key, and the settings that follow the account to its devices (for now the
+  defaults of suggested passwords), sealed with a key derived from the user
+  key (`"account-settings" | user id`; `enc_settings`). Each device keeps a
+  copy; the newest write wins.
 - `vaults`, `vault_members`: wrapped vault keys and encrypted vault metadata.
 - `items`: encrypted overview and details, a revision counter and a sync
   sequence number. A deleted item keeps its encrypted content for 30 days

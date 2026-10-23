@@ -612,6 +612,18 @@ pub async fn delete_items_permanently(app: AppHandle, state: State<'_, AppState>
 
 // ----- tools --------------------------------------------------------------
 
+/// The defaults for passwords suggested in the browser, if the user chose
+/// some (they follow the account).
+#[tauri::command]
+pub fn suggestion_default(state: State<'_, AppState>) -> Option<GeneratorOptions> {
+    crate::bridge::logins::suggestion_default(&state)
+}
+
+#[tauri::command]
+pub async fn set_suggestion_default(app: AppHandle, options: Option<GeneratorOptions>) -> AppResult<()> {
+    crate::bridge::logins::set_suggestion_default(&app, options).await
+}
+
 #[tauri::command]
 pub fn generate_password(state: State<'_, AppState>, options: GeneratorOptions) -> AppResult<GeneratedPassword> {
     state.touch();

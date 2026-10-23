@@ -63,6 +63,31 @@ export interface PageState {
 export type FormKind = "card" | "identity";
 
 /** The field a Keyless menu was opened for. */
+/** How the app's generator makes a password (its GeneratorOptions). */
+export type GeneratorOptions =
+  | { kind: "random"; length: number; uppercase: boolean; lowercase: boolean; digits: boolean; symbols: boolean; avoid_ambiguous: boolean }
+  | {
+      kind: "memorable";
+      words: number;
+      separator: string;
+      capitalize: boolean;
+      include_number: boolean;
+      style: "words" | "syllables" | "three_letters";
+      separators: "fixed" | "digits" | "digits_symbols";
+    }
+  | { kind: "pin"; length: number };
+
+/** A password the app suggests for a new-password field. */
+export interface Suggestion {
+  password: string;
+  /** What it was asked to be (an older app leaves these out). */
+  options?: GeneratorOptions;
+  /** The account's defaults, when the user chose some. */
+  default?: GeneratorOptions | null;
+  /** Made otherwise, for the field's length or the site's rules. */
+  adjusted?: "length" | "rules" | null;
+}
+
 export interface FieldInfo {
   /** A password being chosen (sign-up, change password): suggest one. */
   newPassword: boolean;

@@ -1,6 +1,6 @@
 # Keyless privacy policy
 
-Last updated: October 15, 2026
+Last updated: October 23, 2026
 
 Keyless is a zero-knowledge password manager. Everything you store in your
 vaults is encrypted on your device before it is sent anywhere, with keys that
@@ -13,7 +13,8 @@ server, can read your vaults.
 - Your email address, used to identify your account, and the app's language
   when you created it, used only to write the account emails in it.
 - Your encrypted vault data (ciphertext), your public key and your encrypted
-  keys.
+  keys, and the settings that follow your account to your other devices (how
+  suggested passwords are made), encrypted the same way.
 - Technical metadata needed to sync: how many vaults and items you have,
   approximate item sizes, and when they change.
 - Connection logs kept by our hosting provider (IP address, time, request

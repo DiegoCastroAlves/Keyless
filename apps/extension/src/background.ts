@@ -24,6 +24,7 @@ import type {
   BrowserManager,
   Credentials,
   FormItems,
+  GeneratorOptions,
   InlineState,
   Login,
   PageState,
@@ -34,6 +35,7 @@ import type {
   SaveState,
   SiteAlert,
   Status,
+  Suggestion,
   Vault,
 } from "./types";
 
@@ -871,6 +873,15 @@ async function onCopied(tabId: number, url: string, text: string) {
 }
 const usernameKey = (tabId: number) => `username:${tabId}`;
 const suggestionKey = (tabId: number) => `suggestion:${tabId}`;
+
+/** Generator options from a menu, as an object of the known kinds (the app
+ * checks the rest); null for anything else. */
+function generatorOptions(value: unknown): GeneratorOptions | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const kind = (value as { kind?: unknown }).kind;
+  if (kind !== "random" && kind !== "memorable" && kind !== "pin") return null;
+  return JSON.stringify(value).length <= 512 ? (value as GeneratorOptions) : null;
+}
 
 async function sessionGet<T>(key: string): Promise<T | undefined> {
   return (await chrome.storage.session.get(key))[key] as T | undefined;
@@ -2138,9 +2149,17 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       const maxLength = Number(message.maxLength) || 0;
       // The site's rules: the page's own, or the known ones for its site.
       const rules = typeof message.rules === "string" ? message.rules.slice(0, 1024) : "";
-      const result = await call<{ password: string }>("suggest_password", { maxLength, symbols: message.symbols !== false, rules, url: url ?? "" });
+      // Picked in the menu for this form (the app checks them); otherwise
+      // the account's defaults.
+      const options = generatorOptions(message.options);
+      const result = await call<Suggestion>("suggest_password", { maxLength, rules, url: url ?? "", ...(options ? { options } : {}) });
       await chrome.storage.session.set({ [suggestionKey(tab.id)]: result.password });
-      return { ok: true, data: result.password };
+      return { ok: true, data: result };
+    }
+    case "suggest_default": {
+      // The options become (or stop being, with none) the account's defaults.
+      await call("save_suggestion_default", { options: generatorOptions(message.options) });
+      return { ok: true };
     }
     case "use_suggested": {
       if (!url) return { ok: false, error: "no_tab" };

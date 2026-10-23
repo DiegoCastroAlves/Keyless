@@ -1,6 +1,6 @@
 # Política de privacidade do Keyless
 
-Atualizada em 15 de outubro de 2026
+Atualizada em 23 de outubro de 2026
 
 O Keyless é um gerenciador de senhas de conhecimento zero. Tudo o que você
 guarda nos cofres é criptografado no seu dispositivo antes de ir para
@@ -13,7 +13,9 @@ quem cuida do servidor do Keyless, consegue ler seus cofres.
 - Seu e-mail, que identifica a sua conta, e o idioma do app quando você a
   criou, usado só para escrever nele os e-mails da conta.
 - Os dados criptografados dos cofres, sua chave pública e suas chaves
-  criptografadas.
+  criptografadas, e as configurações que acompanham a sua conta nos outros
+  aparelhos (como as senhas sugeridas são feitas), criptografadas do mesmo
+  jeito.
 - Metadados técnicos para sincronizar: quantos cofres e itens você tem, o
   tamanho aproximado dos itens e quando mudam.
 - Registros de conexão mantidos pelo provedor de hospedagem (endereço IP,

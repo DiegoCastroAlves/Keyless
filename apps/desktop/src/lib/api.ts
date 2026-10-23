@@ -911,6 +911,9 @@ export const api = {
   deleteItemsPermanently: (itemIds: string[]) => invoke<void>("delete_items_permanently", { itemIds }),
 
   generatePassword: (options: GeneratorOptions) => invoke<GeneratedPassword>("generate_password", { options }),
+  /** The options of passwords suggested in the browser, when the user chose some (they follow the account). */
+  suggestionDefault: () => invoke<GeneratorOptions | null>("suggestion_default"),
+  setSuggestionDefault: (options: GeneratorOptions | null) => invoke<void>("set_suggestion_default", { options }),
   rememberGenerated: (password: string) => invoke<void>("remember_generated", { password }),
   itemVersions: (itemId: string) => invoke<ItemVersion[]>("item_versions", { itemId }),
   revealVersionField: (itemId: string, revision: number, fieldId: string) =>

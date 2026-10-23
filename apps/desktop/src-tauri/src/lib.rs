@@ -3,6 +3,7 @@
 //! All cryptography and secret handling happens in Rust; the web UI only
 //! renders what these commands return.
 
+mod account_settings;
 mod api;
 mod attachments;
 mod auth;
@@ -387,6 +388,8 @@ pub fn run() {
             commands::restore_item,
             commands::delete_items_permanently,
             commands::generate_password,
+            commands::suggestion_default,
+            commands::set_suggestion_default,
             commands::item_versions,
             commands::reveal_version_field,
             commands::restore_item_version,

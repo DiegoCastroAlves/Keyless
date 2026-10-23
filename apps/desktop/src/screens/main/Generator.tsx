@@ -1,6 +1,6 @@
 import { ArrowLeft, Copy, Eye, EyeOff, History, RefreshCw, Trash, WandSparkles } from "lucide-react";
 import { Popover, Slider } from "radix-ui";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PasswordText, StrengthBadge, useStrength } from "../../components/common";
@@ -86,6 +86,10 @@ function toOptions(p: Prefs): GeneratorOptions {
   }
 }
 
+/** The same options, whatever the order of their keys. */
+const sameOptions = (a: GeneratorOptions, b: GeneratorOptions) =>
+  JSON.stringify(Object.entries(a).sort(([x], [y]) => (x < y ? -1 : 1))) === JSON.stringify(Object.entries(b).sort(([x], [y]) => (x < y ? -1 : 1)));
+
 /** The wand next to a password field: opens the generator, and fills the
  * field with what it makes. */
 export function GeneratorButton({ onUse, className }: { onUse: (password: string) => void; className?: string }) {
@@ -128,6 +132,10 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
   const [error, setError] = useState<string | null>(null);
   /** Shown for now, while the preference hides it. */
   const [peek, setPeek] = useState(false);
+  /** These options make the browser's suggested passwords; while on, they
+   * change with them. */
+  const [asDefault, setAsDefault] = useState(false);
+  const following = useRef<GeneratorOptions | null>(null);
 
   const regenerate = useCallback(async (p: Prefs) => {
     try {
@@ -145,7 +153,36 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
     } catch {
       // Storage unavailable: preferences just won't persist.
     }
+    const options = toOptions(prefs);
+    if (following.current && !sameOptions(following.current, options)) {
+      following.current = options;
+      api.setSuggestionDefault(options).catch((err) => toast.error(errorMessage(err)));
+    }
   }, [prefs, regenerate]);
+
+  // On when the options shown are the defaults already.
+  useEffect(() => {
+    if (compact) return;
+    api
+      .suggestionDefault()
+      .then((saved) => {
+        const on = !!saved && sameOptions(saved, toOptions(loadPrefs()));
+        following.current = on ? saved : null;
+        setAsDefault(on);
+      })
+      .catch(() => undefined);
+  }, [compact]);
+
+  const toggleDefault = (on: boolean) => {
+    const options = on ? toOptions(prefs) : null;
+    api
+      .setSuggestionDefault(options)
+      .then(() => {
+        following.current = options;
+        setAsDefault(on);
+      })
+      .catch((err) => toast.error(errorMessage(err)));
+  };
 
   const update = (patch: Partial<Prefs>) => setPrefs((p) => ({ ...p, ...patch }));
 
@@ -263,6 +300,9 @@ export function GeneratorPanel({ onUse, compact }: { onUse?: (password: string) 
         <LengthSlider label={t("generator.length")} value={prefs.pinLength} min={4} max={12} onChange={(pinLength) => update({ pinLength })} />
       )}
       <Toggle label={t("generator.hidePassword")} checked={prefs.hidden} onChange={(hidden) => update({ hidden })} />
+      {!compact && (
+        <Toggle label={t("generator.suggestionDefault")} hint={t("generator.suggestionDefaultHint")} checked={asDefault} onChange={toggleDefault} />
+      )}
 
       {onUse && result && (
         <Button
@@ -386,10 +426,13 @@ function GeneratorHistory() {
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({ label, hint, checked, onChange }: { label: string; hint?: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex cursor-pointer items-center justify-between gap-4 text-xs text-muted">
-      {label}
+      <span>
+        {label}
+        {hint && <span className="block text-[11px] text-subtle">{hint}</span>}
+      </span>
       <Switch checked={checked} onChange={onChange} label={label} />
     </label>
   );

@@ -625,6 +625,89 @@
   "genHistoryNote": {
     "message": "A senha que você copiar aqui fica no histórico do gerador do Keyless."
   },
+  "passwordOptions": {
+    "message": "Opções da senha"
+  },
+  "genUppercase": {
+    "message": "Maiúsculas (A-Z)"
+  },
+  "genLowercase": {
+    "message": "Minúsculas (a-z)"
+  },
+  "genDigitsSet": {
+    "message": "Números (0-9)"
+  },
+  "genSymbolsSet": {
+    "message": "Símbolos (!@#)"
+  },
+  "genAvoidAmbiguous": {
+    "message": "Evitar caracteres ambíguos"
+  },
+  "genStyleWords": {
+    "message": "Palavras"
+  },
+  "genStyleWordsHint": {
+    "message": "Palavras de verdade, fáceis de lembrar"
+  },
+  "genStyleSyllables": {
+    "message": "Sílabas"
+  },
+  "genStyleSyllablesHint": {
+    "message": "Palavras inventadas, fáceis de falar"
+  },
+  "genStyleThree": {
+    "message": "3 letras"
+  },
+  "genStyleThreeHint": {
+    "message": "Três letras aleatórias cada"
+  },
+  "genSeparator": {
+    "message": "Separador"
+  },
+  "genSepHyphen": {
+    "message": "Hífen ( - )"
+  },
+  "genSepSpace": {
+    "message": "Espaço"
+  },
+  "genSepPeriod": {
+    "message": "Ponto ( . )"
+  },
+  "genSepUnderscore": {
+    "message": "Sublinhado ( _ )"
+  },
+  "genSepComma": {
+    "message": "Vírgula ( , )"
+  },
+  "genSepNone": {
+    "message": "Nenhum"
+  },
+  "genSepDigits": {
+    "message": "Um dígito aleatório entre as palavras"
+  },
+  "genSepDigitsSymbols": {
+    "message": "Um dígito ou símbolo aleatório entre as palavras"
+  },
+  "suggestionDefault": {
+    "message": "Usar como padrão nas sugestões"
+  },
+  "suggestionDefaultHint": {
+    "message": "Vale nos seus outros aparelhos também."
+  },
+  "suggestedLength": {
+    "message": "Este campo aceita até $COUNT$ caracteres.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "suggestedRules": {
+    "message": "Feita com as regras de senha deste site."
+  },
+  "usePassword": {
+    "message": "Preencher"
+  },
   "strength0": {
     "message": "Muito fraca"
   },

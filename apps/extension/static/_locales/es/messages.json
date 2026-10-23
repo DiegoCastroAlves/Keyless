@@ -625,6 +625,89 @@
   "genHistoryNote": {
     "message": "La contraseña que copies aquí queda en el historial del generador de Keyless."
   },
+  "passwordOptions": {
+    "message": "Opciones de la contraseña"
+  },
+  "genUppercase": {
+    "message": "Mayúsculas (A-Z)"
+  },
+  "genLowercase": {
+    "message": "Minúsculas (a-z)"
+  },
+  "genDigitsSet": {
+    "message": "Números (0-9)"
+  },
+  "genSymbolsSet": {
+    "message": "Símbolos (!@#)"
+  },
+  "genAvoidAmbiguous": {
+    "message": "Evitar caracteres ambiguos"
+  },
+  "genStyleWords": {
+    "message": "Palabras"
+  },
+  "genStyleWordsHint": {
+    "message": "Palabras reales, fáciles de recordar"
+  },
+  "genStyleSyllables": {
+    "message": "Sílabas"
+  },
+  "genStyleSyllablesHint": {
+    "message": "Palabras inventadas, fáciles de decir"
+  },
+  "genStyleThree": {
+    "message": "3 letras"
+  },
+  "genStyleThreeHint": {
+    "message": "Tres letras al azar cada una"
+  },
+  "genSeparator": {
+    "message": "Separador"
+  },
+  "genSepHyphen": {
+    "message": "Guion ( - )"
+  },
+  "genSepSpace": {
+    "message": "Espacio"
+  },
+  "genSepPeriod": {
+    "message": "Punto ( . )"
+  },
+  "genSepUnderscore": {
+    "message": "Guion bajo ( _ )"
+  },
+  "genSepComma": {
+    "message": "Coma ( , )"
+  },
+  "genSepNone": {
+    "message": "Ninguno"
+  },
+  "genSepDigits": {
+    "message": "Un dígito al azar entre las palabras"
+  },
+  "genSepDigitsSymbols": {
+    "message": "Un dígito o símbolo al azar entre las palabras"
+  },
+  "suggestionDefault": {
+    "message": "Usar como predeterminado en las sugerencias"
+  },
+  "suggestionDefaultHint": {
+    "message": "También en tus otros dispositivos."
+  },
+  "suggestedLength": {
+    "message": "Este campo admite hasta $COUNT$ caracteres.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "suggestedRules": {
+    "message": "Hecha con las reglas de contraseña de este sitio."
+  },
+  "usePassword": {
+    "message": "Rellenar"
+  },
   "strength0": {
     "message": "Muy débil"
   },

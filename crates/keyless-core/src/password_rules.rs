@@ -199,6 +199,19 @@ fn without(set: Vec<char>, unwanted: impl Fn(char) -> bool) -> Vec<char> {
     if kept.is_empty() { set } else { kept }
 }
 
+/// Whether `password` follows `rules`: its length, a character of each
+/// required set, only the characters they name (any, when they name none)
+/// and no longer runs of one character.
+pub fn follows(rules: &PasswordRules, password: &str) -> bool {
+    let chars: Vec<char> = password.chars().collect();
+    let length = rules.min_length.is_none_or(|min| chars.len() >= min) && rules.max_length.is_none_or(|max| chars.len() <= max);
+    let required = rules.required.iter().all(|set| chars.iter().any(|c| set.contains(c)));
+    let named = |c: &char| rules.allowed.contains(c) || rules.required.iter().any(|set| set.contains(c));
+    let allowed = (rules.allowed.is_empty() && rules.required.is_empty()) || chars.iter().all(named);
+    let runs = rules.max_consecutive.is_none_or(|most| !chars.windows(most + 1).any(|run| run.iter().all(|c| *c == run[0])));
+    length && required && allowed && runs
+}
+
 /// A password of `length` characters (or as close as the rules allow) that
 /// follows `rules`. Without `symbols`, special characters are left out where
 /// the rules do not require them; ambiguous ones are left out where there is
@@ -293,6 +306,23 @@ mod tests {
         // Required symbols stay even so.
         let needed = generate(&parse("required: special;").unwrap(), 16, false).unwrap().password;
         assert!(needed.chars().any(|c| !c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn checks_passwords() {
+        let rules = parse("minlength: 8; maxlength: 12; max-consecutive: 2; required: upper; required: digit; allowed: lower;").unwrap();
+        assert!(follows(&rules, "Abcdefg1"));
+        assert!(!follows(&rules, "Abcdef1"), "too short");
+        assert!(!follows(&rules, "Abcdefghijk12"), "too long");
+        assert!(!follows(&rules, "abcdefg1"), "no upper case");
+        assert!(!follows(&rules, "Abcdefg1!"), "a character not allowed");
+        assert!(!follows(&rules, "Abcccdefg1"), "three in a row");
+        // Rules naming no characters allow any.
+        assert!(follows(&parse("minlength: 4;").unwrap(), "a b!"));
+        // What generate makes follows them.
+        for _ in 0..50 {
+            assert!(follows(&rules, &generate(&rules, 20, true).unwrap().password));
+        }
     }
 
     #[test]

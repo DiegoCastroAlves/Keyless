@@ -387,10 +387,36 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
         }
         "suggest_password" => {
             let max_length = args.get("maxLength").and_then(Value::as_u64).filter(|&n| n > 0);
-            let symbols = args.get("symbols").and_then(Value::as_bool).unwrap_or(true);
             let rules = args.get("rules").and_then(Value::as_str).unwrap_or("");
             let url = args.get("url").and_then(Value::as_str).unwrap_or("");
-            super::logins::suggest(max_length, symbols, rules, url)
+            let default = super::logins::suggestion_default(&app.state::<AppState>());
+            let options = match args.get("options").filter(|options| !options.is_null()) {
+                // Picked in the extension for this form.
+                Some(options) => serde_json::from_value::<GeneratorOptions>(options.clone()).map_err(|_| "bad_request")?,
+                // The defaults; an older extension asks without symbols this way.
+                None => {
+                    let mut options = default.clone().unwrap_or_else(super::logins::standard_suggestion);
+                    if let (Some(false), GeneratorOptions::Random { symbols, .. }) = (args.get("symbols").and_then(Value::as_bool), &mut options) {
+                        *symbols = false;
+                    }
+                    options
+                }
+            };
+            let mut reply = super::logins::suggest(&options, max_length, rules, url)?;
+            reply["default"] = json!(default);
+            Ok(reply)
+        }
+        "save_suggestion_default" => {
+            let options = match args.get("options").filter(|options| !options.is_null()) {
+                Some(options) => {
+                    let options = serde_json::from_value::<GeneratorOptions>(options.clone()).map_err(|_| "bad_request")?;
+                    generate(&options).map_err(|_| "bad_request")?;
+                    Some(options)
+                }
+                None => None,
+            };
+            super::logins::set_suggestion_default(app, options).await.map_err(|_| "error")?;
+            Ok(json!(true))
         }
         // Passkeys, after the user chose in the extension's window.
         "passkey_check" => super::passkeys::check(args),

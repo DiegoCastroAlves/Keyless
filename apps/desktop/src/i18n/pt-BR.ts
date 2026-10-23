@@ -781,6 +781,8 @@ const ptBR: Translations = {
     sepDigits: "Um dígito aleatório entre as palavras",
     sepDigitsSymbols: "Um dígito ou símbolo aleatório entre as palavras",
     hidePassword: "Esconder a senha até eu mostrar",
+    suggestionDefault: "Usar como padrão nas sugestões do navegador",
+    suggestionDefaultHint: "Vale nos seus outros aparelhos também.",
   },
   sentinel: {
     title: "Sentinela",
