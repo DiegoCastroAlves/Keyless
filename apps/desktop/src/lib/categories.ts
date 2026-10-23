@@ -309,6 +309,29 @@ export function fieldKindLabel(kind: FieldKind): string {
   return i18n.t(`fieldKinds.${kind}`);
 }
 
+/** The usual name of a field of each kind, kept in English and shown
+ * translated (see fieldLabel). */
+const USUAL_LABELS: Partial<Record<FieldKind, string>> = {
+  concealed: "password",
+  email: "email",
+  url: "URL",
+  phone: "phone",
+  totp: "one-time password",
+  date: "date",
+  card_number: "number",
+  pin: "PIN",
+  address: "address",
+  location: "location",
+  file: "document",
+};
+
+/** The label a new field of `kind` starts with: its usual name, or the
+ * kind's. None for a security question, whose label is the question. */
+export function defaultFieldLabel(kind: FieldKind): string {
+  if (kind === "security_question") return "";
+  return USUAL_LABELS[kind] ?? fieldKindLabel(kind).toLocaleLowerCase(i18n.language);
+}
+
 export function isSecretKind(field: { kind: FieldKind; purpose?: FieldPurpose | null }): boolean {
   return (
     field.kind === "concealed" ||

@@ -27,7 +27,7 @@ import {
   TextCursorInput,
   Trash,
 } from "lucide-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon, PasswordText, StrengthBadge } from "../../components/common";
@@ -196,6 +196,12 @@ export function ItemDetail() {
       toast.success(t("item.attachmentsAdded", { count: files.length }));
     });
 
+  // Passkeys sit with the fields, after the username (first without one).
+  const passkeyRows = (item.passkeys ?? []).map((passkey) => (
+    <PasskeyRow key={passkey.credentialId} itemId={item.id} passkey={passkey} canEdit={item.canEdit} onDeleted={() => void loadData()} />
+  ));
+  const passkeysAfter = item.fields.find((f) => f.purpose === "username" && f.hasValue)?.id;
+
   return (
     <section className="relative flex min-w-0 flex-1 flex-col bg-panel">
       {dragging && (
@@ -330,10 +336,14 @@ export function ItemDetail() {
       <div className="flex-1 overflow-y-auto px-8 py-6">
         <div className="mx-auto max-w-2xl space-y-5">
           {!trashed && <SentinelBanners itemId={item.id} hasUrl={!!firstWebsite(item.urls)} canEdit={item.canEdit} />}
-          {item.fields.some((f) => f.hasValue) && (
+          {(item.fields.some((f) => f.hasValue) || passkeyRows.length > 0) && (
             <FieldCard>
+              {!passkeysAfter && passkeyRows}
               {item.fields.map((f) => (
-                <FieldRow key={f.id} item={item} field={f} onPreview={setPreview} />
+                <Fragment key={f.id}>
+                  <FieldRow item={item} field={f} onPreview={setPreview} />
+                  {f.id === passkeysAfter && passkeyRows}
+                </Fragment>
               ))}
             </FieldCard>
           )}
@@ -365,14 +375,6 @@ export function ItemDetail() {
                 const app = appOf(u.href);
                 return app ? <AppRow key={`${u.href}-${index}`} packageName={app} label={u.label} /> : null;
               })}
-            </FieldCard>
-          )}
-
-          {(item.passkeys ?? []).length > 0 && (
-            <FieldCard>
-              {item.passkeys.map((passkey) => (
-                <PasskeyRow key={passkey.credentialId} itemId={item.id} passkey={passkey} canEdit={item.canEdit} onDeleted={() => void loadData()} />
-              ))}
             </FieldCard>
           )}
 
@@ -855,11 +857,12 @@ function PasskeyRow({ itemId, passkey, canEdit, onDeleted }: { itemId: string; p
     }
   };
   return (
-    <div className="group px-4 py-2.5">
+    <div className="group px-4 py-2.5 hover:bg-panel-2 compact:py-1.5">
       <div className="flex items-center gap-3">
-        <Fingerprint className="size-5 shrink-0 text-accent" />
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-subtle">{t("item.passkey")}</div>
+          <div className="flex items-center gap-1.5 text-xs font-medium text-subtle">
+            <Fingerprint className="size-3.5 text-accent" /> {t("item.passkey")}
+          </div>
           <div className="mt-0.5 truncate text-[15px]">
             {passkey.rpId}
             {passkey.userName && <span className="text-muted"> · {passkey.userName}</span>}
@@ -929,7 +932,7 @@ function WebsiteRow({ itemId, index, href, label, fill }: { itemId: string; inde
     <div className="group flex items-center gap-3 px-4 py-2.5 hover:bg-panel-2">
       <button onClick={open} className="min-w-0 flex-1 text-left">
         <div className="text-xs font-medium text-subtle">{label || t("item.website")}</div>
-        <div className="mt-0.5 truncate text-[15px] text-accent">{hostOf(href)}</div>
+        <div className="mt-0.5 truncate text-[15px] group-hover:text-accent">{hostOf(href)}</div>
         {fill && fill !== "domain" && <div className="mt-0.5 text-xs text-subtle">{t(`editor.fill.${fill}`)}</div>}
       </button>
       {pinned && (

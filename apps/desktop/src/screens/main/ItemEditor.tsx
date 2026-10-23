@@ -1,5 +1,28 @@
-import { Ban, ClipboardPaste, Crosshair, FileText, Globe, GripVertical, ImageIcon, Monitor, Paperclip, Plus, ScanQrCode, Trash, UserRound, WandSparkles, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Ban,
+  ChevronDown,
+  CircleMinus,
+  ClipboardPaste,
+  Crosshair,
+  Eye,
+  EyeOff,
+  FileText,
+  Fingerprint,
+  Globe,
+  GripVertical,
+  ImageIcon,
+  Monitor,
+  Paperclip,
+  Plus,
+  Rows3,
+  ScanQrCode,
+  Smartphone,
+  Trash,
+  UserRound,
+  WandSparkles,
+  X,
+} from "lucide-react";
+import { Fragment, forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { ItemIcon, PasswordInput, StrengthBadge } from "../../components/common";
@@ -8,7 +31,6 @@ import {
   Combobox,
   Dialog,
   IconButton,
-  Input,
   Menu,
   MenuContent,
   MenuItem,
@@ -17,7 +39,6 @@ import {
   MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
-  Textarea,
   cx,
 } from "../../components/ui";
 import { fieldLabel, isFieldLabel } from "../../i18n";
@@ -31,15 +52,27 @@ import {
   type FieldKind,
   type FileInfo,
   type ItemDraft,
+  type PasskeyView,
   type PasswordCheck,
   type Section,
   type SshKeyFields,
   type UrlFill,
 } from "../../lib/api";
-import { CATEGORIES, FIELD_KINDS, categoryInfo, categoryLabel, fieldKindLabel, frequentUsernames, isSecretKind, newFieldId, templateFields } from "../../lib/categories";
+import {
+  CATEGORIES,
+  FIELD_KINDS,
+  categoryInfo,
+  categoryLabel,
+  defaultFieldLabel,
+  fieldKindLabel,
+  frequentUsernames,
+  isSecretKind,
+  newFieldId,
+  templateFields,
+} from "../../lib/categories";
 import { useFileDrop } from "../../lib/fileDrop";
 import { Markdown } from "../../lib/markdown";
-import { appOf, firstWebsite, formatBytes } from "../../lib/format";
+import { appOf, firstWebsite, formatBytes, formatDate } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 import { AddressEditor, AlertButton, FileFieldEditor, LocationEditor, ReferenceEditor, SignInWithEditor } from "./FieldKinds";
@@ -56,6 +89,7 @@ export function ItemEditor() {
   // What was just added gets the focus, so typing can go on.
   const [focusField, setFocusField] = useState<string | null>(null);
   const [focusUrl, setFocusUrl] = useState<number | null>(null);
+  const [focusSection, setFocusSection] = useState<string | null>(null);
   const [notesPreview, setNotesPreview] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const initial = useRef(JSON.stringify(editing.draft));
@@ -69,9 +103,11 @@ export function ItemEditor() {
     titleRef.current?.focus();
   }, []);
 
-  // Attachments change when the item is saved: files to add, and the
-  // item's files to delete.
+  // Attachments and passkeys change when the item is saved: files to add,
+  // and the item's files and passkeys to delete.
   const [attachments, setAttachments] = useState<AttachmentView[]>([]);
+  const [passkeys, setPasskeys] = useState<PasskeyView[]>([]);
+  const [removingPasskeys, setRemovingPasskeys] = useState<string[]>([]);
   const [newFiles, setNewFiles] = useState<FileInfo[]>([]);
   const [removing, setRemoving] = useState<string[]>([]);
   // File fields that point to a file chosen now (field id -> path).
@@ -80,7 +116,10 @@ export function ItemEditor() {
     if (!editing.draft.id) return;
     api
       .getItem(editing.draft.id)
-      .then((item) => setAttachments(item.attachments ?? []))
+      .then((item) => {
+        setAttachments(item.attachments ?? []);
+        setPasskeys(item.passkeys ?? []);
+      })
       .catch(() => setAttachments([]));
   }, [editing.draft.id]);
   const addFiles = useCallback((files: FileInfo[]) => setNewFiles((current) => [...current, ...files.filter((f) => !current.some((c) => c.path === f.path))]), []);
@@ -103,13 +142,16 @@ export function ItemEditor() {
     }
   };
 
-  const dirty = JSON.stringify(draft) !== initial.current || newFiles.length > 0 || removing.length > 0;
+  const dirty = JSON.stringify(draft) !== initial.current || newFiles.length > 0 || removing.length > 0 || removingPasskeys.length > 0;
   const update = (patch: Partial<ItemDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const save = useCallback(async () => {
     setSaving(true);
     try {
       const saved = await api.saveItem(draft);
+      for (const credentialId of removingPasskeys) {
+        await api.deletePasskey(saved.id, credentialId).catch((err) => toast.error(errorMessage(err)));
+      }
       toast.success(t("editor.saved"));
       stopEditing();
       await useApp.getState().loadData();
@@ -126,7 +168,7 @@ export function ItemEditor() {
     } finally {
       setSaving(false);
     }
-  }, [draft, newFiles, removing, fileLinks, stopEditing, t]);
+  }, [draft, newFiles, removing, removingPasskeys, fileLinks, stopEditing, t]);
 
   const cancel = useCallback(() => {
     if (dirty) setConfirmDiscard(true);
@@ -179,7 +221,8 @@ export function ItemEditor() {
   const setField = (index: number, field: Field) => update({ fields: draft.fields.map((f, i) => (i === index ? field : f)) });
   const removeField = (index: number) => update({ fields: draft.fields.filter((_, i) => i !== index) });
   const addField = (kind: FieldKind, sectionIndex?: number) => {
-    const field: Field = { id: newFieldId(), label: "", kind, value: "", purpose: null };
+    // Named after its kind ("password"), which can be changed.
+    const field: Field = { id: newFieldId(), label: defaultFieldLabel(kind), kind, value: "", purpose: null };
     setFocusField(field.id);
     if (sectionIndex === undefined) update({ fields: [...draft.fields, field] });
     else
@@ -277,141 +320,186 @@ export function ItemEditor() {
       </header>
 
       <div ref={bodyRef} className="flex-1 overflow-y-auto px-8 py-6">
-        <div className="mx-auto max-w-2xl space-y-6">
-          <div className="space-y-2">
-            {draft.category === "ssh_key" && <SshKeyTools draft={draft} onFields={(fields) => setDraft((d) => ({ ...d, fields }))} />}
-            <Reorderable
-              items={draft.fields}
-              keyOf={(f) => f.id}
-              onMove={(from, to) => update({ fields: moveItem(draft.fields, from, to) })}
-              render={(field, i, handle) => fieldEditor(field, (f) => setField(i, f), () => removeField(i), handle)}
-            />
-            <AddFieldButton onAdd={(kind) => addField(kind)} />
-          </div>
+        <div className="mx-auto max-w-2xl space-y-4">
+          {draft.category === "ssh_key" && <SshKeyTools draft={draft} onFields={(fields) => setDraft((d) => ({ ...d, fields }))} />}
+          {(draft.fields.length > 0 || passkeys.length > 0) && (
+            <EditCard>
+              <Reorderable
+                items={draft.fields}
+                keyOf={(f) => f.id}
+                gap="divide-y divide-line"
+                onMove={(from, to) => update({ fields: moveItem(draft.fields, from, to) })}
+                render={(field, i, handle) => fieldEditor(field, (f) => setField(i, f), () => removeField(i), handle)}
+                // The passkeys come after the username, as in the item.
+                extra={
+                  passkeys.length > 0
+                    ? {
+                        after: draft.fields.findIndex((f) => f.purpose === "username"),
+                        node: passkeys.map((passkey) => (
+                          <PasskeyEditRow
+                            key={passkey.credentialId}
+                            passkey={passkey}
+                            removing={removingPasskeys.includes(passkey.credentialId)}
+                            onToggle={() =>
+                              setRemovingPasskeys((ids) =>
+                                ids.includes(passkey.credentialId) ? ids.filter((id) => id !== passkey.credentialId) : [...ids, passkey.credentialId],
+                              )
+                            }
+                          />
+                        )),
+                      }
+                    : undefined
+                }
+              />
+            </EditCard>
+          )}
 
           <Reorderable
             items={draft.sections}
             keyOf={(s) => s.id}
-            gap="space-y-6"
+            gap="space-y-4"
             onMove={(from, to) => update({ sections: moveItem(draft.sections, from, to) })}
             render={(section, si, handle) => (
-              <div className="space-y-2 rounded-xl border border-line p-3">
-                <div className="flex items-center gap-2">
+              <div className="space-y-1.5">
+                <div className="group/section flex items-center gap-1.5 pl-0.5 pr-1">
                   {handle}
-                  <Input
+                  <input
                     value={section.title}
                     onChange={(e) => setSection(si, { ...section, title: e.target.value })}
                     placeholder={t("editor.sectionTitle")}
-                    className="h-8 border-transparent bg-transparent text-xs font-semibold uppercase tracking-wider shadow-none focus:bg-panel"
+                    autoFocus={section.id === focusSection}
+                    spellCheck={false}
+                    className="h-7 min-w-0 flex-1 rounded bg-transparent px-1 text-xs font-semibold uppercase tracking-wider text-subtle outline-none placeholder:normal-case placeholder:tracking-normal placeholder:text-subtle/70 focus:bg-panel-2 focus:text-fg"
                   />
                   <IconButton
                     label={t("editor.deleteSection")}
                     tabIndex={-1}
                     onClick={() => update({ sections: draft.sections.filter((_, i) => i !== si) })}
+                    className="opacity-0 group-hover/section:opacity-100 focus:opacity-100"
                   >
                     <Trash className="size-4" />
                   </IconButton>
                 </div>
-                <Reorderable
-                  items={section.fields}
-                  keyOf={(f) => f.id}
-                  onMove={(from, to) => setSection(si, { ...section, fields: moveItem(section.fields, from, to) })}
-                  render={(field, fi, fieldHandle) =>
-                    fieldEditor(
-                      field,
-                      (f) => setSection(si, { ...section, fields: section.fields.map((x, i) => (i === fi ? f : x)) }),
-                      () => setSection(si, { ...section, fields: section.fields.filter((_, i) => i !== fi) }),
-                      fieldHandle,
-                    )
-                  }
-                />
-                <AddFieldButton onAdd={(kind) => addField(kind, si)} />
+                <EditCard>
+                  {section.fields.length > 0 && (
+                    <Reorderable
+                      items={section.fields}
+                      keyOf={(f) => f.id}
+                      gap="divide-y divide-line"
+                      onMove={(from, to) => setSection(si, { ...section, fields: moveItem(section.fields, from, to) })}
+                      render={(field, fi, fieldHandle) =>
+                        fieldEditor(
+                          field,
+                          (f) => setSection(si, { ...section, fields: section.fields.map((x, i) => (i === fi ? f : x)) }),
+                          () => setSection(si, { ...section, fields: section.fields.filter((_, i) => i !== fi) }),
+                          fieldHandle,
+                        )
+                      }
+                    />
+                  )}
+                  <AddFieldRow onAdd={(kind) => addField(kind, si)} />
+                </EditCard>
               </div>
             )}
           />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => update({ sections: [...draft.sections, { id: newFieldId(), title: "", fields: [] }] })}
-          >
-            <Plus className="size-4" /> {t("editor.addSection")}
-          </Button>
 
           {(info.hasWebsite || draft.urls.some((u) => !appOf(u.href))) && (
-            <div className="space-y-2">
-              <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.websites")}</div>
+            <EditCard>
               {draft.urls.map((url, i) =>
                 appOf(url.href) ? null : (
-                  <div key={i} className="flex items-center gap-2">
-                    <div className="w-28 shrink-0">
-                      <Input
+                  <div key={i} className="flex items-center gap-2 py-2 pl-5 pr-3 focus-within:bg-panel-2">
+                    <div className="min-w-0 flex-1">
+                      <input
                         value={url.label ?? ""}
                         onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, label: e.target.value } : u)) })}
-                        placeholder={t("editor.websiteLabel")}
-                        className="text-[13px]"
+                        placeholder={t("item.website")}
+                        spellCheck={false}
                         tabIndex={-1}
+                        className={cx(LABEL, "text-subtle placeholder:text-subtle")}
+                      />
+                      <input
+                        value={url.href}
+                        onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
+                        onBlur={(e) => nameFromWebsite(e.target.value)}
+                        placeholder={t("editor.websitePlaceholder")}
+                        autoFocus={i === focusUrl}
+                        spellCheck={false}
+                        autoComplete="off"
+                        inputMode="url"
+                        className={cx(BARE, "h-7")}
                       />
                     </div>
-                    <Input
-                      value={url.href}
-                      onChange={(e) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, href: e.target.value } : u)) })}
-                      onBlur={(e) => nameFromWebsite(e.target.value)}
-                      placeholder={t("editor.websitePlaceholder")}
-                      autoFocus={i === focusUrl}
-                    />
                     <FillRuleButton
                       value={url.fill ?? "domain"}
                       submit={url.submit ?? null}
                       onChange={(fill) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, fill } : u)) })}
                       onSubmitChange={(submit) => update({ urls: draft.urls.map((u, j) => (j === i ? { ...u, submit } : u)) })}
                     />
-                    <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
-                      <X className="size-4" />
-                    </IconButton>
+                    <RemoveButton label={t("common.remove")} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })} />
                   </div>
                 ),
               )}
-              <Button
-                variant="ghost"
-                size="sm"
+              <AddRow
+                label={t("editor.addWebsite")}
                 onClick={() => {
                   setFocusUrl(draft.urls.length);
                   update({ urls: [...draft.urls, { href: "" }] });
                 }}
-              >
-                <Plus className="size-4" /> {t("editor.addWebsite")}
-              </Button>
-            </div>
+              />
+            </EditCard>
           )}
 
           {draft.urls.some((u) => appOf(u.href)) && (
-            <div className="space-y-2">
-              <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.apps")}</div>
-              <p className="px-1 text-xs text-subtle">{t("editor.appsHint")}</p>
+            <EditCard>
+              <div className="px-5 pb-2 pt-2.5">
+                <div className="text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.apps")}</div>
+                <p className="mt-0.5 text-xs text-subtle">{t("editor.appsHint")}</p>
+              </div>
               {draft.urls.map((url, i) => {
                 const app = appOf(url.href);
                 return app ? (
-                  <div key={i} className="flex items-center gap-2">
-                    <Input value={url.label ? `${url.label} · ${app}` : app} readOnly tabIndex={-1} />
-                    <IconButton label={t("common.remove")} tabIndex={-1} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })}>
-                      <X className="size-4" />
-                    </IconButton>
+                  <div key={i} className="flex items-center gap-3 py-2 pl-5 pr-3">
+                    <Smartphone className="size-4 shrink-0 text-muted" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[15px]">{url.label || app}</div>
+                      {url.label && <div className="truncate text-xs text-subtle">{app}</div>}
+                    </div>
+                    <RemoveButton label={t("common.remove")} onClick={() => update({ urls: draft.urls.filter((_, j) => j !== i) })} />
                   </div>
                 ) : null;
               })}
-            </div>
+            </EditCard>
           )}
 
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 px-1">
-              <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.notes")}</span>
-              <div className="flex rounded-lg bg-panel-2 p-0.5 text-xs">
+          <AttachmentsEditor
+            attachments={attachments}
+            newFiles={newFiles}
+            removing={removing}
+            dragging={dragging}
+            onDropNew={(path) => setNewFiles((files) => files.filter((f) => f.path !== path))}
+            onToggleRemove={(id) => setRemoving((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]))}
+          />
+
+          <AddMoreMenu
+            onField={(kind) => addField(kind)}
+            onSection={() => {
+              const section = { id: newFieldId(), title: "", fields: [] };
+              setFocusSection(section.id);
+              update({ sections: [...draft.sections, section] });
+            }}
+            onFile={() => void pickFiles()}
+          />
+
+          <div className="overflow-hidden rounded-xl border border-line focus-within:border-accent/50">
+            <div className="flex items-center gap-2 pl-5 pr-2 pt-2">
+              <span className="flex-1 text-xs font-medium text-subtle">{t("item.notes")}</span>
+              <div className="flex rounded-md bg-panel-2 p-0.5 text-[11px]">
                 {[false, true].map((preview) => (
                   <button
                     key={String(preview)}
                     tabIndex={-1}
                     onClick={() => setNotesPreview(preview)}
-                    className={cx("rounded-md px-2.5 py-1", notesPreview === preview ? "bg-panel font-medium text-fg shadow-xs" : "text-muted hover:text-fg")}
+                    className={cx("rounded px-2 py-0.5", notesPreview === preview ? "bg-panel font-medium text-fg shadow-xs" : "text-muted hover:text-fg")}
                   >
                     {preview ? t("editor.notesPreview") : t("editor.notesWrite")}
                   </button>
@@ -419,7 +507,7 @@ export function ItemEditor() {
               </div>
             </div>
             {notesPreview ? (
-              <div className="min-h-24 rounded-lg border border-line px-3 py-2.5">
+              <div className="min-h-24 px-5 pb-3 pt-1">
                 {draft.notes.trim() ? (
                   <Markdown text={draft.notes} options={{ onLink: (url) => void api.openLink(url).catch(() => undefined) }} />
                 ) : (
@@ -427,20 +515,17 @@ export function ItemEditor() {
                 )}
               </div>
             ) : (
-              <Textarea value={draft.notes} onChange={(e) => update({ notes: e.target.value })} placeholder={t("editor.notesPlaceholder")} rows={5} />
+              <textarea
+                value={draft.notes}
+                onChange={(e) => update({ notes: e.target.value })}
+                placeholder={t("editor.notesPlaceholder")}
+                rows={4}
+                spellCheck={false}
+                className={cx(BARE, "block min-h-24 resize-y px-5 pb-3 pt-1 text-sm leading-relaxed")}
+              />
             )}
-            <p className="px-1 text-[11px] text-subtle">{t("editor.notesMarkdownHint")}</p>
+            <p className="border-t border-line px-5 py-1.5 text-[11px] text-subtle">{t("editor.notesMarkdownHint")}</p>
           </div>
-
-          <AttachmentsEditor
-            attachments={attachments}
-            newFiles={newFiles}
-            removing={removing}
-            dragging={dragging}
-            onPick={() => void pickFiles()}
-            onDropNew={(path) => setNewFiles((files) => files.filter((f) => f.path !== path))}
-            onToggleRemove={(id) => setRemoving((ids) => (ids.includes(id) ? ids.filter((i) => i !== id) : [...ids, id]))}
-          />
 
           <TagsEditor tags={draft.tags} onChange={(tags) => update({ tags })} />
         </div>
@@ -487,12 +572,15 @@ function Reorderable<T>({
   onMove,
   render,
   gap = "space-y-2",
+  extra,
 }: {
   items: T[];
   keyOf: (item: T) => string;
   onMove: (from: number, to: number) => void;
   render: (item: T, index: number, handle: ReactNode) => ReactNode;
   gap?: string;
+  /** Rows that do not move, after the item at `after` (first, at -1). */
+  extra?: { after: number; node: ReactNode };
 }) {
   const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
@@ -534,6 +622,7 @@ function Reorderable<T>({
 
   return (
     <div ref={listRef} className={gap}>
+      {extra && extra.after < 0 && extra.node}
       {items.map((item, index) => {
         const handle = (
           <button
@@ -543,13 +632,13 @@ function Reorderable<T>({
             title={t("editor.reorder")}
             onPointerDown={(e) => startDrag(index, e)}
             onKeyDown={(e) => keyMove(index, e)}
-            className="mt-1 shrink-0 cursor-grab touch-none rounded text-subtle/50 hover:text-muted active:cursor-grabbing"
+            className="shrink-0 cursor-grab touch-none rounded text-subtle/60 hover:text-muted active:cursor-grabbing"
           >
             <GripVertical className="size-4" />
           </button>
         );
         const target = drag && drag.over === index && drag.from !== index;
-        return (
+        const row = (
           <div
             key={keyOf(item)}
             data-row=""
@@ -557,11 +646,19 @@ function Reorderable<T>({
             className={cx(
               "transition-opacity",
               drag?.from === index && "opacity-50",
-              target && (drag.from < index ? "border-b-2 border-accent pb-1" : "border-t-2 border-accent pt-1"),
+              target && (drag.from < index ? "border-b-2 border-b-accent" : "border-t-2 border-t-accent"),
             )}
           >
             {render(item, index, handle)}
           </div>
+        );
+        return extra && extra.after === index ? (
+          <Fragment key={keyOf(item)}>
+            {row}
+            {extra.node}
+          </Fragment>
+        ) : (
+          row
         );
       })}
     </div>
@@ -593,14 +690,157 @@ async function applyAttachments(
   }
 }
 
-/** The item's files while editing: the ones it has (to keep or delete) and
- * the new ones, chosen in the file dialog or dropped on the window. */
+/** A group of rows, like a card of the item's view. */
+function EditCard({ children }: { children: ReactNode }) {
+  return <div className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">{children}</div>;
+}
+
+/** A field's label, small above its value (its colour apart). */
+const LABEL = "block w-full rounded bg-transparent text-xs font-medium outline-none focus:text-fg";
+/** A value typed straight in its row, without a box (like the item's view). */
+const BARE = "w-full bg-transparent text-[15px] text-fg outline-none placeholder:text-subtle";
+
+function RemoveButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex size-7 shrink-0 items-center justify-center self-center rounded-full text-danger/70 transition-colors hover:bg-danger-soft hover:text-danger"
+    >
+      <CircleMinus className="size-[18px]" />
+    </button>
+  );
+}
+
+/** "+ Add website" and the like, as the card's last row (also a menu's
+ * trigger). */
+const AddRow = forwardRef<HTMLButtonElement, ButtonHTMLAttributes<HTMLButtonElement> & { label: string }>(function AddRow({ label, ...props }, ref) {
+  return (
+    <button
+      ref={ref}
+      type="button"
+      {...props}
+      className="flex w-full items-center gap-2 px-5 py-2 text-left text-[13px] font-medium text-accent transition-colors hover:bg-panel-2 data-[state=open]:bg-panel-2"
+    >
+      <Plus className="size-4" /> {label}
+    </button>
+  );
+});
+
+/** "+ Add field" at the end of a section: a field of the kind picked. */
+function AddFieldRow({ onAdd }: { onAdd: (kind: FieldKind) => void }) {
+  const { t } = useTranslation();
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <AddRow label={t("editor.addField")} />
+      </MenuTrigger>
+      <MenuContent align="start">
+        {FIELD_KINDS.map((kind) => (
+          <MenuItem key={kind} onSelect={() => onAdd(kind)}>
+            {fieldKindLabel(kind)}
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/** Under the item's cards: a field (to the first card), a section or a file. */
+function AddMoreMenu({ onField, onSection, onFile }: { onField: (kind: FieldKind) => void; onSection: () => void; onFile: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-xl border border-line px-5 py-2 text-left text-[13px] font-medium text-accent transition-colors hover:bg-panel-2 data-[state=open]:bg-panel-2"
+        >
+          <Plus className="size-4" />
+          <span className="flex-1">{t("editor.addMore")}</span>
+          <ChevronDown className="size-4 text-subtle" />
+        </button>
+      </MenuTrigger>
+      <MenuContent align="start">
+        {FIELD_KINDS.map((kind) => (
+          <MenuItem key={kind} onSelect={() => onField(kind)}>
+            {fieldKindLabel(kind)}
+          </MenuItem>
+        ))}
+        <MenuSeparator />
+        <MenuItem icon={<Rows3 className="size-4" />} onSelect={onSection}>
+          {t("editor.section")}
+        </MenuItem>
+        <MenuSeparator />
+        <MenuItem icon={<Paperclip className="size-4" />} onSelect={onFile}>
+          <span>
+            {t("editor.attachFile")}
+            <span className="block text-xs text-subtle">{t("editor.attachFileHint")}</span>
+          </span>
+        </MenuItem>
+      </MenuContent>
+    </Menu>
+  );
+}
+
+/** A passkey of the item while editing: deleted when the item is saved. */
+function PasskeyEditRow({ passkey, removing, onToggle }: { passkey: PasskeyView; removing: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-2 py-2 pl-5 pr-3">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-subtle">
+          <Fingerprint className="size-3.5 text-accent" /> {t("item.passkey")}
+        </div>
+        <div className={cx("truncate text-[15px]", removing && "text-subtle line-through")}>
+          {passkey.rpId}
+          {passkey.userName && <span className="text-muted"> · {passkey.userName}</span>}
+        </div>
+        <div className="text-xs text-subtle">
+          {removing ? t("editor.deleteOnSave") : passkey.createdAt > 0 ? t("item.passkeyCreated", { date: formatDate(passkey.createdAt) }) : null}
+        </div>
+      </div>
+      {removing ? (
+        <Button size="sm" variant="ghost" onClick={onToggle}>
+          {t("editor.keepFile")}
+        </Button>
+      ) : (
+        <RemoveButton label={t("common.delete")} onClick={onToggle} />
+      )}
+    </div>
+  );
+}
+
+/** A secret typed in its row, hidden until shown. */
+function BareSecret(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const { t } = useTranslation();
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        {...props}
+        type={visible ? "text" : "password"}
+        spellCheck={false}
+        autoComplete="off"
+        className={cx(BARE, "h-7 min-w-0 font-mono", !visible && "tracking-[0.15em]")}
+      />
+      <IconButton label={visible ? t("common.hide") : t("common.show")} tabIndex={-1} onClick={() => setVisible((v) => !v)}>
+        {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </IconButton>
+    </div>
+  );
+}
+
+/** The item's files while editing, the ones it has (to keep or delete) and
+ * the new ones; where files dropped on the window go, while dragging. */
 function AttachmentsEditor({
   attachments,
   newFiles,
   removing,
   dragging,
-  onPick,
   onDropNew,
   onToggleRemove,
 }: {
@@ -608,23 +848,22 @@ function AttachmentsEditor({
   newFiles: FileInfo[];
   removing: string[];
   dragging: boolean;
-  onPick: () => void;
   onDropNew: (path: string) => void;
   onToggleRemove: (id: string) => void;
 }) {
   const { t } = useTranslation();
+  if (!dragging && attachments.length === 0 && newFiles.length === 0) return null;
   return (
     <div className="space-y-2">
-      <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.attachments")}</div>
       {(attachments.length > 0 || newFiles.length > 0) && (
-        <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line">
+        <EditCard>
           {attachments.map((a) => {
             const gone = removing.includes(a.id);
             return (
-              <li key={a.id} className="flex items-center gap-3 px-3.5 py-2.5">
+              <div key={a.id} className="flex items-center gap-3 py-2 pl-5 pr-3">
                 <FileText className={cx("size-4 shrink-0", gone ? "text-subtle" : "text-accent")} />
                 <div className="min-w-0 flex-1">
-                  <div className={cx("truncate text-sm", gone && "text-subtle line-through")}>{a.name}</div>
+                  <div className={cx("truncate text-[15px]", gone && "text-subtle line-through")}>{a.name}</div>
                   <div className="text-xs text-subtle">{gone ? t("editor.deleteOnSave") : formatBytes(a.size)}</div>
                 </div>
                 {gone ? (
@@ -632,66 +871,37 @@ function AttachmentsEditor({
                     {t("editor.keepFile")}
                   </Button>
                 ) : (
-                  <IconButton label={t("common.delete")} onClick={() => onToggleRemove(a.id)}>
-                    <Trash className="size-4" />
-                  </IconButton>
+                  <RemoveButton label={t("common.delete")} onClick={() => onToggleRemove(a.id)} />
                 )}
-              </li>
+              </div>
             );
           })}
           {newFiles.map((f) => (
-            <li key={f.path} className="flex items-center gap-3 px-3.5 py-2.5">
+            <div key={f.path} className="flex items-center gap-3 py-2 pl-5 pr-3">
               <Paperclip className="size-4 shrink-0 text-accent" />
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm">{f.name}</div>
+                <div className="truncate text-[15px]">{f.name}</div>
                 <div className="text-xs text-subtle">
                   {formatBytes(f.size)} · {t("editor.addOnSave")}
                 </div>
               </div>
-              <IconButton label={t("common.remove")} onClick={() => onDropNew(f.path)}>
-                <X className="size-4" />
-              </IconButton>
-            </li>
+              <RemoveButton label={t("common.remove")} onClick={() => onDropNew(f.path)} />
+            </div>
           ))}
-        </ul>
+        </EditCard>
       )}
-      <div
-        className={cx(
-          "flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-xl border border-dashed px-4 py-4 text-center text-[13px] text-muted transition-colors",
-          dragging ? "border-accent bg-accent-soft text-accent" : "border-line-strong",
-        )}
-      >
-        <Paperclip className="size-4" />
-        <span>{dragging ? t("editor.dropHere") : t("editor.dragFiles")}</span>
-        {!dragging && (
-          <button type="button" onClick={onPick} className="font-medium text-accent hover:underline">
-            {t("editor.chooseFiles")}
-          </button>
-        )}
-      </div>
+      {dragging && (
+        <div className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-accent bg-accent-soft px-4 py-4 text-[13px] text-accent">
+          <Paperclip className="size-4" />
+          <span>{t("editor.dropHere")}</span>
+        </div>
+      )}
     </div>
   );
 }
 
 function kindOptions() {
   return FIELD_KINDS.map((kind) => ({ value: kind, label: fieldKindLabel(kind) }));
-}
-
-function AddFieldButton({ onAdd }: { onAdd: (kind: FieldKind) => void }) {
-  const { t } = useTranslation();
-  return (
-    <Combobox
-      value={null}
-      onChange={onAdd}
-      options={kindOptions()}
-      searchPlaceholder={t("common.searchPlaceholder")}
-      trigger={
-        <button className="inline-flex h-7 items-center gap-2 rounded-lg px-2.5 text-[13px] font-medium text-muted hover:bg-panel-3 hover:text-fg">
-          <Plus className="size-4" /> {t("editor.addField")}
-        </button>
-      }
-    />
-  );
 }
 
 interface PasswordContext {
@@ -754,28 +964,35 @@ function FieldEditor({
       case "file":
         return <FileFieldEditor field={field} attachments={attachments} pending={pendingFile} onChange={onChange} onPick={onPickFile} />;
       case "multiline":
-        return <Textarea {...common} rows={3} className="font-mono text-[13px]" />;
+        return <textarea {...common} rows={3} spellCheck={false} className={cx(BARE, "block min-h-16 resize-y py-0.5 font-mono text-[13px]")} />;
       case "totp":
-        return <Input {...common} placeholder={t("editor.totpPlaceholder")} className="font-mono" />;
+        return <input {...common} placeholder={t("editor.totpPlaceholder")} spellCheck={false} autoComplete="off" className={cx(BARE, "h-7 font-mono")} />;
       case "date":
-        return <Input {...common} type="date" />;
+        return <input {...common} type="date" className={cx(BARE, "h-7")} />;
       case "month_year":
-        return <Input {...common} placeholder="MM/YYYY" />;
+        return <input {...common} placeholder="MM/YYYY" autoComplete="off" className={cx(BARE, "h-7")} />;
     }
-    if (secret) return <PasswordInput {...common} className="h-9 font-mono" />;
+    if (secret) return <BareSecret {...common} />;
     return (
-      <Input
+      <input
         {...common}
         type={field.kind === "email" ? "email" : "text"}
         inputMode={field.kind === "phone" ? "tel" : field.kind === "url" ? "url" : undefined}
+        spellCheck={false}
+        autoComplete="off"
+        className={cx(BARE, "h-7")}
       />
     );
   })();
 
+  // A label still the one of its kind follows a change of kind.
+  const changeKind = (kind: FieldKind) =>
+    onChange({ ...field, kind, label: !field.label || field.label === defaultFieldLabel(field.kind) ? defaultFieldLabel(kind) : field.label });
+
   return (
-    <div className="group flex gap-2 rounded-xl border border-line bg-panel p-2.5 focus-within:border-accent/50">
-      {handle}
-      <div className="min-w-0 flex-1 space-y-1.5">
+    <div className="group/row relative flex gap-2 py-2 pl-5 pr-3 focus-within:bg-panel-2">
+      <div className="absolute left-0.5 top-2.5 opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">{handle}</div>
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1">
           <input
             value={fieldLabel(field.label)}
@@ -786,43 +1003,35 @@ function FieldEditor({
             // but one still to name is in the way.
             tabIndex={field.label ? -1 : undefined}
             autoFocus={autoFocus && !field.label}
-            className="min-w-0 flex-1 rounded bg-transparent px-1 text-xs font-medium text-subtle outline-none placeholder:text-subtle/60 focus:text-fg"
+            // The login's own fields (username, password) stand out.
+            className={cx(LABEL, "min-w-0 flex-1 placeholder:text-subtle/60", field.purpose ? "text-accent" : "text-subtle")}
           />
           <Combobox
             value={field.kind}
-            onChange={(kind) => onChange({ ...field, kind })}
+            onChange={changeKind}
             options={kindOptions()}
             align="end"
             searchPlaceholder={t("common.searchPlaceholder")}
             trigger={
               <button
                 tabIndex={-1}
-                className="rounded px-1.5 py-0.5 text-[11px] font-medium text-subtle opacity-0 hover:bg-panel-3 hover:text-fg group-hover:opacity-100 focus:opacity-100"
+                className="rounded px-1.5 py-0.5 text-[11px] font-medium text-subtle opacity-0 hover:bg-panel-3 hover:text-fg group-hover/row:opacity-100 focus:opacity-100"
               >
                 {fieldKindLabel(field.kind)}
               </button>
             }
           />
         </div>
-        <div className="flex items-start gap-1">
+        <div className="flex items-center gap-1">
           <div className="min-w-0 flex-1">{valueInput}</div>
           {field.purpose === "username" && <UsernameSuggestions value={field.value} onPick={(value) => onChange({ ...field, value })} />}
           {field.kind === "totp" && <ScanQrButton onRead={(value) => onChange({ ...field, value })} />}
           {(field.kind === "date" || field.kind === "month_year") && <AlertButton value={field.alert} onChange={(alert) => onChange({ ...field, alert })} />}
-          {canGenerate && (
-            <GeneratorButton className="mt-0.5" onUse={(password) => onChange({ ...field, value: password })} />
-          )}
-          <IconButton
-            label={t("editor.deleteField")}
-            tabIndex={-1}
-            onClick={onRemove}
-            className={cx("mt-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100")}
-          >
-            <Trash className="size-4" />
-          </IconButton>
+          {canGenerate && <GeneratorButton onUse={(password) => onChange({ ...field, value: password })} />}
         </div>
         {passwordContext && field.purpose === "password" && field.value && <PasswordHints password={field.value} context={passwordContext} />}
       </div>
+      <RemoveButton label={t("editor.deleteField")} onClick={onRemove} />
     </div>
   );
 }
@@ -836,7 +1045,7 @@ function UsernameSuggestions({ value, onPick }: { value: string; onPick: (value:
   return (
     <Menu>
       <MenuTrigger asChild>
-        <IconButton label={t("editor.usernameSuggestions")} tabIndex={-1} className="mt-0.5">
+        <IconButton label={t("editor.usernameSuggestions")} tabIndex={-1}>
           <UserRound className="size-4" />
         </IconButton>
       </MenuTrigger>
@@ -1071,7 +1280,7 @@ function ScanQrButton({ onRead }: { onRead: (value: string) => void }) {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <IconButton label={t("editor.scanQr")} tabIndex={-1} className="mt-0.5">
+        <IconButton label={t("editor.scanQr")} tabIndex={-1}>
           <ScanQrCode className="size-4" />
         </IconButton>
       </MenuTrigger>
@@ -1099,9 +1308,9 @@ function TagsEditor({ tags, onChange }: { tags: string[]; onChange: (tags: strin
     setInput("");
   };
   return (
-    <div className="space-y-2">
-      <div className="px-1 text-xs font-semibold uppercase tracking-wider text-subtle">{t("item.tags")}</div>
-      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-panel px-2 py-1.5 focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft">
+    <div className="space-y-1.5 px-1">
+      <div className="text-xs font-medium text-subtle">{t("item.tags")}</div>
+      <div className="flex flex-wrap items-center gap-1.5">
         {tags.map((tag) => (
           <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-panel-3 py-0.5 pl-2.5 pr-1 text-xs font-medium">
             {tag}
@@ -1115,22 +1324,26 @@ function TagsEditor({ tags, onChange }: { tags: string[]; onChange: (tags: strin
             </button>
           </span>
         ))}
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
-              e.preventDefault();
-              add();
-            } else if (e.key === "Backspace" && !input && tags.length) {
-              onChange(tags.slice(0, -1));
-            }
-          }}
-          onBlur={add}
-          placeholder={tags.length ? "" : t("editor.tagsPlaceholder")}
-          spellCheck={false}
-          className="h-6 min-w-32 flex-1 bg-transparent text-sm outline-none placeholder:text-subtle"
-        />
+        <label className="inline-flex items-center gap-1 rounded-full bg-panel-2 py-0.5 pl-2 pr-2.5 text-accent focus-within:ring-2 focus-within:ring-accent-soft">
+          <Plus className="size-3.5 shrink-0" />
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === ",") {
+                e.preventDefault();
+                add();
+              } else if (e.key === "Backspace" && !input && tags.length) {
+                onChange(tags.slice(0, -1));
+              }
+            }}
+            onBlur={add}
+            placeholder={t("editor.addTag")}
+            title={t("editor.tagsPlaceholder")}
+            spellCheck={false}
+            className="h-5 w-36 bg-transparent text-xs font-medium text-fg outline-none placeholder:text-accent"
+          />
+        </label>
       </div>
     </div>
   );
