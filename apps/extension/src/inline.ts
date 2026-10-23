@@ -751,7 +751,9 @@ function renderMenu() {
     // A two-factor setup: the code the site asks for comes from its QR code.
     const withoutCode = (state?.logins ?? []).filter((login) => !login.totp);
     if (field.code && state?.state === "ready" && withoutCode.length > 0) box.append(scanRow(withoutCode));
-    if (field.savable && state?.state === "ready") box.append(saveNowRow());
+    // Not in a sign-up or a password change: what is sent there is offered
+    // to be saved by itself.
+    if (field.savable && !field.newPassword && state?.state === "ready") box.append(saveNowRow());
   } else if (state.state === "locked") {
     box.append(lockedView());
   } else {
