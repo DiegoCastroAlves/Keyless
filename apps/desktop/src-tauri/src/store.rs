@@ -12,7 +12,14 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::AppResult;
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 7;
+
+/// How long it takes a use to count half as much (see `item_frecency`).
+const USE_HALF_LIFE_SECS: f64 = 14.0 * 24.0 * 3600.0;
+
+fn decayed(score: f64, age_secs: i64) -> f64 {
+    score * 0.5f64.powf(age_secs.max(0) as f64 / USE_HALF_LIFE_SECS)
+}
 
 pub struct Store {
     conn: Connection,
@@ -192,6 +199,14 @@ impl Store {
                     id TEXT PRIMARY KEY,
                     data TEXT NOT NULL
                  );",
+            )?;
+        }
+        if version < 7 {
+            // Version 7: how much each item is used, recent uses weighing
+            // more (see `item_frecency`); the uses so far count as recent.
+            self.conn.execute_batch(
+                "ALTER TABLE item_usage ADD COLUMN frecency REAL NOT NULL DEFAULT 0;
+                 UPDATE item_usage SET frecency = MIN(uses, 10);",
             )?;
         }
         self.conn
@@ -441,12 +456,28 @@ impl Store {
     // ----- item usage -----------------------------------------------------
 
     pub fn record_item_use(&self, item_id: &str) -> AppResult<()> {
+        let now = crate::api::now_secs();
+        let before: Option<(f64, i64)> = self
+            .conn
+            .query_row("SELECT frecency, last_used_at FROM item_usage WHERE item_id = ?1", [item_id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        let frecency = before.map_or(0.0, |(score, at)| decayed(score, now - at)) + 1.0;
         self.conn.execute(
-            "INSERT INTO item_usage (item_id, uses, last_used_at) VALUES (?1, 1, strftime('%s','now'))
-             ON CONFLICT(item_id) DO UPDATE SET uses = uses + 1, last_used_at = excluded.last_used_at",
-            [item_id],
+            "INSERT INTO item_usage (item_id, uses, last_used_at, frecency) VALUES (?1, 1, ?2, ?3)
+             ON CONFLICT(item_id) DO UPDATE SET uses = uses + 1, last_used_at = excluded.last_used_at, frecency = excluded.frecency",
+            params![item_id, now, frecency],
         )?;
         Ok(())
+    }
+
+    /// How much each item is used now: each use adds 1, and what it added
+    /// halves every two weeks, so a login used every day stays ahead of one
+    /// used once yesterday, and one left aside sinks by itself.
+    pub fn item_frecency(&self) -> AppResult<std::collections::HashMap<String, f64>> {
+        let now = crate::api::now_secs();
+        let mut stmt = self.conn.prepare("SELECT item_id, frecency, last_used_at FROM item_usage")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, decayed(r.get(1)?, now - r.get::<_, i64>(2)?))))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// Keeps the usage of an item that moved to another vault under a new id.
@@ -641,5 +672,19 @@ mod tests {
         store.delete_vault("v1").unwrap();
         assert!(store.items().unwrap().is_empty());
         assert_eq!(store.cursor("v1").unwrap(), 0);
+    }
+
+    #[test]
+    fn uses_weigh_less_with_time() {
+        assert!((decayed(4.0, 0) - 4.0).abs() < 1e-9);
+        assert!((decayed(4.0, (USE_HALF_LIFE_SECS * 2.0) as i64) - 1.0).abs() < 1e-9);
+        let store = Store::open_in_memory().unwrap();
+        for _ in 0..3 {
+            store.record_item_use("a").unwrap();
+        }
+        store.record_item_use("b").unwrap();
+        let frecency = store.item_frecency().unwrap();
+        assert!(frecency["a"] > 2.9 && frecency["b"] > 0.9 && frecency["b"] < 1.1);
+        assert_eq!(store.item_usage().unwrap()["a"].0, 3);
     }
 }

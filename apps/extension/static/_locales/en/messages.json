@@ -708,6 +708,25 @@
   "usePassword": {
     "message": "Fill in"
   },
+  "pinToSite": {
+    "message": "Pin to $SITE$: it comes first on this site",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "unpinFromSite": {
+    "message": "Unpin from $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinFailed": {
+    "message": "This login could not be pinned."
+  },
   "strength0": {
     "message": "Very weak"
   },

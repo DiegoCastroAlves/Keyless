@@ -708,6 +708,25 @@
   "usePassword": {
     "message": "Rellenar"
   },
+  "pinToSite": {
+    "message": "Fijar en $SITE$: aparece primero en este sitio",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "unpinFromSite": {
+    "message": "Dejar de fijar en $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinFailed": {
+    "message": "No se pudo fijar este inicio de sesión."
+  },
   "strength0": {
     "message": "Muy débil"
   },

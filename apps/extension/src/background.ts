@@ -1981,6 +1981,13 @@ async function handleInline(message: any, sender: chrome.runtime.MessageSender):
       return { ok: true };
     case "state":
       return { ok: true, data: await inlineState(url, tab.id, reg.frameId) };
+    case "pin_login": {
+      // This login first on the frame's website (or no longer); the app
+      // checks it is one of its logins.
+      if (!url) return { ok: false, error: "no_tab" };
+      await call("pin_login", { id: String(message.id ?? ""), url, pinned: message.pinned !== false });
+      return { ok: true };
+    }
     case "fill":
       // Only the frame's own logins: a login saved for another site is filled
       // from the toolbar popup, which a page cannot cover or fake.

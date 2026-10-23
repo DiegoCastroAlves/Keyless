@@ -612,6 +612,20 @@ pub async fn delete_items_permanently(app: AppHandle, state: State<'_, AppState>
 
 // ----- tools --------------------------------------------------------------
 
+/// Whether an item is pinned to the website of `url` (first for it in the
+/// browser).
+#[tauri::command]
+pub fn item_pinned(state: State<'_, AppState>, item_id: String, url: String) -> bool {
+    keyless_core::site::url_host(&url).is_some_and(|host| crate::pinned::sites_of(&state, &item_id).contains(&keyless_core::site::site_of(&host)))
+}
+
+/// Pins an item to the website of `url`, or unpins it.
+#[tauri::command]
+pub async fn pin_item(app: AppHandle, item_id: String, url: String, pinned: bool) -> AppResult<()> {
+    let host = keyless_core::site::url_host(&url).ok_or_else(|| AppError::Invalid(Msg::new("url_invalid")))?;
+    crate::pinned::set(&app, &keyless_core::site::site_of(&host), &item_id, pinned).await
+}
+
 /// The defaults for passwords suggested in the browser, if the user chose
 /// some (they follow the account).
 #[tauri::command]

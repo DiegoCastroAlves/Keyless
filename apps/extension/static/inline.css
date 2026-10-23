@@ -920,6 +920,38 @@ html[data-mode="card"] #app {
   accent-color: var(--accent);
 }
 
+/* A login below a field, with its pin (first on the website). */
+.login-line {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.login-line .row {
+  flex: 1;
+  min-width: 0;
+}
+
+.pin {
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+}
+
+.login-line:hover .pin,
+.pin:focus-visible,
+.pin.on {
+  opacity: 1;
+}
+
+.pin.on {
+  color: var(--accent);
+}
+
+.pin.on svg path {
+  fill: currentColor;
+}
+
 /* ----- The suggested password's options (in place of the menu) ----- */
 
 .tuning {

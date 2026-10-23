@@ -708,6 +708,25 @@
   "usePassword": {
     "message": "Preencher"
   },
+  "pinToSite": {
+    "message": "Fixar em $SITE$: vem primeiro neste site",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "unpinFromSite": {
+    "message": "Desafixar de $SITE$",
+    "placeholders": {
+      "site": {
+        "content": "$1"
+      }
+    }
+  },
+  "pinFailed": {
+    "message": "Não foi possível fixar este login."
+  },
   "strength0": {
     "message": "Muito fraca"
   },

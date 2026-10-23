@@ -235,6 +235,24 @@ async fn dispatch_all(app: &AppHandle, cmd: &str, args: &mut Value) -> Result<Va
             let url = args.get("url").and_then(Value::as_str).ok_or("bad_request")?;
             find(app, Query::Url(url), false, false, MAX_RESULTS).await
         }
+        "pin_login" => {
+            // From the menu below a field: this login first on the page's
+            // site (or no longer). Only one of the logins for it.
+            let id = args.get("id").and_then(Value::as_str).ok_or("bad_request")?;
+            let page = args.get("url").and_then(Value::as_str).and_then(Page::parse).ok_or("bad_request")?;
+            let pinned = args.get("pinned").and_then(Value::as_bool).unwrap_or(true);
+            {
+                let state = app.state::<AppState>();
+                let guard = state.session.lock().await;
+                let session = guard.as_ref().ok_or("locked")?;
+                let item = session.items.get(id).ok_or("not_found")?;
+                if !item.overview.urls.iter().any(|url| match_score(&page, url) > 0) {
+                    return Err("not_found");
+                }
+            }
+            crate::pinned::set(app, &site_of(&page.host), id, pinned).await.map_err(|_| "error")?;
+            Ok(json!(true))
+        }
         "search" => {
             // An empty query lists logins, most recently used first:
             // `favorites` keeps only favorites, `limit` asks for more than
@@ -602,6 +620,27 @@ pub fn match_score(page: &Page, item_url: &ItemUrl) -> u8 {
     }
 }
 
+/// Where a login comes in the list (see `find`): the first one first.
+struct Rank {
+    pinned: bool,
+    favorite: bool,
+    score: u8,
+    frecency: f64,
+    last_used: i64,
+}
+
+impl Rank {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other
+            .pinned
+            .cmp(&self.pinned)
+            .then(other.favorite.cmp(&self.favorite))
+            .then(other.score.cmp(&self.score))
+            .then(other.frecency.total_cmp(&self.frecency))
+            .then(other.last_used.cmp(&self.last_used))
+    }
+}
+
 enum Query<'a> {
     Url(&'a str),
     Text(&'a str),
@@ -629,9 +668,13 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, lim
         Query::Url(_) => Vec::new(),
     };
 
-    // Logins used most recently come first, like the last one used here.
+    // For a page: the login pinned to its site, then favorites, then by how
+    // much each is used (recent uses weighing more), each group with the
+    // closest addresses first. A search lists those used last first.
     let usage = state.store().item_usage().unwrap_or_default();
-    let mut results: Vec<(u8, i64, Value)> = Vec::new();
+    let frecency = state.store().item_frecency().unwrap_or_default();
+    let pinned = page.as_ref().and_then(|page| crate::pinned::for_site(&state, &site_of(&page.host)));
+    let mut results: Vec<(Rank, Value)> = Vec::new();
     for (id, item) in &session.items {
         let o = &item.overview;
         if o.trashed_at.is_some() || o.archived || !(all || is_fillable(o.category)) || (favorites && !o.favorite) {
@@ -648,9 +691,15 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, lim
             continue;
         }
         let vault = session.vaults.get(&item.vault_id).map(|v| v.meta.name.clone()).unwrap_or_default();
+        let is_pinned = pinned.as_deref() == Some(id.as_str());
         results.push((
-            score,
-            usage.get(id).map(|&(_, last_used)| last_used).unwrap_or(0),
+            Rank {
+                pinned: is_pinned,
+                favorite: page.is_some() && o.favorite,
+                score,
+                frecency: if page.is_some() { frecency.get(id).copied().unwrap_or(0.0) } else { 0.0 },
+                last_used: usage.get(id).map(|&(_, last_used)| last_used).unwrap_or(0),
+            },
             json!({
                 "id": id,
                 "title": o.title,
@@ -660,20 +709,14 @@ async fn find(app: &AppHandle, query: Query<'_>, favorites: bool, all: bool, lim
                 "vault": vault,
                 "vaultId": item.vault_id,
                 "favorite": o.favorite,
+                "pinned": is_pinned,
                 "category": o.category,
             }),
         ));
     }
-    results.sort_by(|a, b| {
-        b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then_with(|| {
-            a.2["title"]
-                .as_str()
-                .unwrap_or("")
-                .to_lowercase()
-                .cmp(&b.2["title"].as_str().unwrap_or("").to_lowercase())
-        })
-    });
-    let mut logins: Vec<Value> = results.into_iter().take(limit).map(|(_, _, v)| v).collect();
+    let title = |login: &Value| login["title"].as_str().unwrap_or("").to_lowercase();
+    results.sort_by(|(a, x), (b, y)| a.cmp(b).then_with(|| title(x).cmp(&title(y))));
+    let mut logins: Vec<Value> = results.into_iter().take(limit).map(|(_, v)| v).collect();
     // Which have a one-time code (for the code's own fill and shortcut).
     // Not for the popup's long lists: it would decrypt every login's details.
     if limit <= MAX_RESULTS {
@@ -930,5 +973,20 @@ mod tests {
         let saved: ItemUrl = serde_json::from_str(r#"{"href":"https://github.com"}"#).unwrap();
         assert_eq!(saved.fill, UrlMatch::Domain);
         assert_eq!(serde_json::to_string(&saved).unwrap(), r#"{"href":"https://github.com"}"#);
+    }
+
+    #[test]
+    fn page_logins_order() {
+        let rank = |pinned, favorite, score, frecency| Rank { pinned, favorite, score, frecency, last_used: 0 };
+        let mut ranks = [
+            ("used a lot", rank(false, false, 2, 30.0)),
+            ("same site, used more", rank(false, false, 1, 50.0)),
+            ("favorite", rank(false, true, 1, 0.0)),
+            ("pinned", rank(true, false, 1, 0.0)),
+            ("used a little", rank(false, false, 2, 1.0)),
+        ];
+        ranks.sort_by(|(_, a), (_, b)| a.cmp(b));
+        let order: Vec<&str> = ranks.iter().map(|(name, _)| *name).collect();
+        assert_eq!(order, ["pinned", "favorite", "used a lot", "used a little", "same site, used more"]);
     }
 }

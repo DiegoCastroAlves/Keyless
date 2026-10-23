@@ -1177,6 +1177,7 @@ pub async fn move_items(app: &AppHandle, item_ids: &[String], to_vault: &str) ->
             old_files.extend(files);
         }
     }
+    let mut renamed = Vec::new();
     let moved = {
         let mut guard = state.session.lock().await;
         let session = unlocked(&mut guard)?;
@@ -1199,10 +1200,14 @@ pub async fn move_items(app: &AppHandle, item_ids: &[String], to_vault: &str) ->
             write_local_item(&state, session, &new_id, to_vault, 0, 1, &mut overview, &mut details)?;
             tombstone_local(&state, session, &local)?;
             let _ = state.store().move_item_usage(id, &new_id);
+            renamed.push((id.clone(), new_id));
             moved += 1;
         }
         moved
     };
+    if let Err(err) = crate::pinned::moved(app, &renamed).await {
+        log::info!("pins: {err}");
+    }
     crate::attachments::forget(app, old_files);
     sync::spawn_sync(app);
     Ok(moved)

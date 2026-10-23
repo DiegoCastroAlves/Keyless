@@ -33,6 +33,7 @@ mod kit_pdf;
 mod lock;
 mod main_window;
 mod notify;
+mod pinned;
 mod qr;
 mod shares;
 mod quick_access;
@@ -389,6 +390,8 @@ pub fn run() {
             commands::delete_items_permanently,
             commands::generate_password,
             commands::suggestion_default,
+            commands::item_pinned,
+            commands::pin_item,
             commands::set_suggestion_default,
             commands::item_versions,
             commands::reveal_version_field,

@@ -18,6 +18,7 @@ import {
   Paperclip,
   Pencil,
   PictureInPicture2,
+  Pin,
   Printer,
   QrCode,
   RotateCcw,
@@ -888,6 +889,27 @@ function PasskeyRow({ itemId, passkey, canEdit, onDeleted }: { itemId: string; p
 
 function WebsiteRow({ itemId, index, href, label, fill }: { itemId: string; index: number; href: string; label?: string; fill?: UrlFill }) {
   const { t } = useTranslation();
+  // First on this website in the browser, whatever else is used more.
+  const [pinned, setPinned] = useState(false);
+  useEffect(() => {
+    let current = true;
+    api
+      .itemPinned(itemId, href)
+      .then((on) => current && setPinned(on))
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [itemId, href]);
+  const pin = async () => {
+    try {
+      await api.pinItem(itemId, href, !pinned);
+      setPinned(!pinned);
+      toast.success(t(pinned ? "item.unpinnedFromSite" : "item.pinnedToSite", { site: hostOf(href) }));
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
   const open = async () => {
     try {
       await api.openItemUrl(itemId, index);
@@ -910,7 +932,17 @@ function WebsiteRow({ itemId, index, href, label, fill }: { itemId: string; inde
         <div className="mt-0.5 truncate text-[15px] text-accent">{hostOf(href)}</div>
         {fill && fill !== "domain" && <div className="mt-0.5 text-xs text-subtle">{t(`editor.fill.${fill}`)}</div>}
       </button>
+      {pinned && (
+        <Tooltip content={t("item.pinnedHint")}>
+          <Pin className="size-3.5 shrink-0 fill-current text-accent group-hover:hidden" aria-label={t("item.pinnedHint")} />
+        </Tooltip>
+      )}
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <Tooltip content={t(pinned ? "item.unpinFromSite" : "item.pinToSite")}>
+          <IconButton label={t(pinned ? "item.unpinFromSite" : "item.pinToSite")} onClick={pin} active={pinned}>
+            <Pin className={cx("size-4", pinned && "fill-current")} />
+          </IconButton>
+        </Tooltip>
         <Tooltip content={t("item.openWebsite")}>
           <IconButton label={t("item.openWebsite")} onClick={open}>
             <ExternalLink className="size-4" />

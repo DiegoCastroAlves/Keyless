@@ -229,12 +229,26 @@ function confirmBox(text: string, onConfirm: () => void) {
   report();
 }
 
-function loginRow(login: Login, options: { submit: boolean }): HTMLButtonElement {
+function loginRow(login: Login, options: { submit: boolean }): HTMLElement {
   const row = el("button", { className: "row", type: "button" }, icon(login), texts(login));
   if (mode === "card") row.append(svg(ICON_KEY));
   row.addEventListener("click", () => void fillLogin(login, options.submit));
-  return row;
+  // Below a field, the page's logins can be pinned to its website.
+  const pinnable = mode === "menu" && login.id && state?.logins.some((match) => match.id === login.id);
+  if (!pinnable) return row;
+  const label = t(login.pinned ? "unpinFromSite" : "pinToSite", state?.host ?? "");
+  const pin = el("button", { className: `x pin${login.pinned ? " on" : ""}`, type: "button", title: label }, svg(ICON_PIN));
+  pin.setAttribute("aria-label", label);
+  pin.setAttribute("aria-pressed", String(!!login.pinned));
+  pin.addEventListener("click", async () => {
+    const reply = await send({ type: "pin_login", id: login.id, pinned: !login.pinned });
+    if (reply.ok) await refresh(true);
+    else showError(t("pinFailed"));
+  });
+  return el("div", { className: "login-line" }, row, pin);
 }
+
+const ICON_PIN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
 
 /** A login that signs in through a provider: presses the page's button for
  * it, and Keyless picks the account on the provider's page. */

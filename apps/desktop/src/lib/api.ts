@@ -915,6 +915,9 @@ export const api = {
   suggestionDefault: () => invoke<GeneratorOptions | null>("suggestion_default"),
   setSuggestionDefault: (options: GeneratorOptions | null) => invoke<void>("set_suggestion_default", { options }),
   rememberGenerated: (password: string) => invoke<void>("remember_generated", { password }),
+  /** The item comes first in the browser on the website of `url` (a setting that follows the account). */
+  itemPinned: (itemId: string, url: string) => invoke<boolean>("item_pinned", { itemId, url }),
+  pinItem: (itemId: string, url: string, pinned: boolean) => invoke<void>("pin_item", { itemId, url, pinned }),
   itemVersions: (itemId: string) => invoke<ItemVersion[]>("item_versions", { itemId }),
   revealVersionField: (itemId: string, revision: number, fieldId: string) =>
     invoke<string>("reveal_version_field", { itemId, revision, fieldId }),
