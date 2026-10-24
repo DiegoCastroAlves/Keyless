@@ -41,6 +41,12 @@ through `KeylessActivity`, which every activity extends.
   Back, its name, the filter and the order.
 - **New item** (`Fab`, on Home, Items and the list): the categories as tiles
   (`categoryTile`), the most used first, with a search.
+- **An item and its editor** (`showItem`, `Editor.kt`): the editor has the
+  item's cards. Each field is typed in its row, its name small over its
+  value, with a red minus to remove it. The passkeys come after the
+  username, in both. "Add website" and "Add field" are a card's last row;
+  "Add more" adds a field, a section or a file. A new field is named after
+  its kind ("password").
 - **Settings** (`SettingsScreens.kt`): a list of groups (account, general,
   security, autofill, import and export, about), each with its own page.
 - Sign-in and unlock screens sit on `app_bg`, as the desktop's lock screen;

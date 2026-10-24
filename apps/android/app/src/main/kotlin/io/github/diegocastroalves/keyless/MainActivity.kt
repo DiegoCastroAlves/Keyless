@@ -1093,18 +1093,20 @@ class MainActivity : KeylessActivity() {
         }
         val updaters = mutableListOf<() -> Unit>()
 
-        fun group(fields: org.json.JSONArray?) {
-            if (fields == null) return
+        fun group(fields: org.json.JSONArray?, passkeys: List<View> = emptyList()) {
+            val shown = fields?.let { list -> (0 until list.length()).map { list.getJSONObject(it) } }.orEmpty().filter { it.optString("value").isNotEmpty() }
+            // Passkeys sit with the fields, after the username (first without one), as the desktop's.
+            val after = shown.indexOfFirst { it.optString("purpose") == "username" }
             val card = card()
-            for (i in 0 until fields.length()) {
-                val f = fields.getJSONObject(i)
-                if (f.optString("value").isEmpty()) continue
+            if (after < 0) passkeys.forEach { card.add(it) }
+            for ((i, f) in shown.withIndex()) {
                 card.add(fieldView(f, updaters))
+                if (i == after) passkeys.forEach { card.add(it) }
             }
             if (card.childCount > 0) page.add(card, top = 16)
         }
 
-        group(details.optJSONArray("fields"))
+        group(details.optJSONArray("fields"), passkeyRows(id, details.optJSONArray("passkeys"), writable && !trashed))
         val sections = details.optJSONArray("sections")
         if (sections != null) for (i in 0 until sections.length()) {
             val section = sections.getJSONObject(i)
@@ -1114,7 +1116,6 @@ class MainActivity : KeylessActivity() {
         }
         val urls = overview.optJSONArray("urls")
         if (urls != null && (0 until urls.length()).any { AppLinks.packageOf(urls.getJSONObject(it).optString("href")) == null }) {
-            page.add(sectionTitle(getString(R.string.websites)), top = 24)
             val card = card()
             for (i in 0 until urls.length()) {
                 val href = urls.getJSONObject(i).optString("href")
@@ -1128,9 +1129,9 @@ class MainActivity : KeylessActivity() {
                     }
                 }
                 val copyUrl = iconButton(R.drawable.ic_copy, getString(R.string.copy)) { copy(getString(R.string.websites), href) }
-                card.add(fieldRow(urls.getJSONObject(i).optString("label").ifEmpty { Labels.field(this, "website") }, label(href, 16f, muted = false).apply { setTextColor(accent()) }, copyUrl, open))
+                card.add(fieldRow(urls.getJSONObject(i).optString("label").ifEmpty { Labels.field(this, "website") }, label(href, 16f), copyUrl, open))
             }
-            page.add(card, top = 8)
+            page.add(card, top = 16)
         }
         // The apps it fills in (AppLinks).
         val apps = AppLinks.linked(urls)
@@ -1151,7 +1152,6 @@ class MainActivity : KeylessActivity() {
             }
             page.add(card, top = 8)
         }
-        passkeysSection(page, id, details.optJSONArray("passkeys"), writable && !trashed)
         val notes = details.optString("notes")
         if (notes.isNotEmpty()) {
             page.add(sectionTitle(getString(R.string.notes)), top = 24)

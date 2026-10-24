@@ -86,6 +86,20 @@ object Labels {
 
     /** Field kinds in the editor's "Add field" menu, as the desktop's. */
     val FIELD_KINDS = listOf("text", "concealed", "email", "url", "phone", "totp", "date", "month_year", "card_number", "pin", "multiline")
+
+    /** The usual name of a field of each kind, kept in English as the templates' (and shown translated). */
+    private val USUAL_LABELS = mapOf(
+        "concealed" to "password", "email" to "email", "url" to "URL", "phone" to "phone", "totp" to "one-time password", "date" to "date",
+        "card_number" to "number", "pin" to "PIN", "address" to "address", "location" to "location", "file" to "document",
+    )
+
+    /**
+     * The label a new field of `kind` starts with, as the desktop's: its
+     * usual name, or the kind's. None for a security question, whose label
+     * is the question.
+     */
+    fun defaultFieldLabel(context: Context, kind: String): String =
+        if (kind == "security_question") "" else USUAL_LABELS[kind] ?: fieldKind(context, kind).lowercase(Locale.getDefault())
 }
 
 /** A desktop text in the phone's language (see `Labels.t`). */

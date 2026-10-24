@@ -24,7 +24,7 @@ ic_plus=plus ic_search=search ic_shield=shield-check ic_smartphone=smartphone ic
 ic_star=star ic_star_filled=star:filled ic_trash=trash ic_user=user ic_scan=scan-qr-code
 ic_home=house ic_items=layout-grid ic_settings=settings ic_info=info ic_history=history ic_sparkles=sparkles
 ic_tag=tag ic_archive=archive ic_setup=list-checks ic_customize=sliders-horizontal ic_autofill=text-cursor-input
-ic_check=check ic_chevron_down=chevron-down ic_chevron_up=chevron-up ic_alert=shield-alert ic_monitor=monitor ic_globe=globe
+ic_check=check ic_circle_minus=circle-minus ic_wand=wand-sparkles ic_chevron_down=chevron-down ic_chevron_up=chevron-up ic_alert=shield-alert ic_monitor=monitor ic_globe=globe
 ic_cat_login=key-round ic_cat_password=asterisk ic_cat_secure_note=sticky-note ic_cat_credit_card=credit-card
 ic_cat_identity=id-card ic_cat_bank_account=landmark ic_cat_api_credential=braces ic_cat_database=database
 ic_cat_server=server ic_cat_ssh_key=terminal ic_cat_software_license=award ic_cat_wireless_router=wifi

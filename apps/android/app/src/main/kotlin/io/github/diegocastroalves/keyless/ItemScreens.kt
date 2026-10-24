@@ -344,11 +344,10 @@ internal fun MainActivity.itemActions(id: String, anchor: View) {
 
 // ----- passkeys ------------------------------------------------------------------------
 
-/** The item's passkeys, as on the desktop: the site and account, and a way to delete one. */
-internal fun MainActivity.passkeysSection(page: LinearLayout, id: String, passkeys: JSONArray?, writable: Boolean) {
-    if (passkeys == null || passkeys.length() == 0) return
-    val card = card()
-    for (i in 0 until passkeys.length()) {
+/** The item's passkeys, as rows of its fields (after the username), each with a way to delete it. */
+internal fun MainActivity.passkeyRows(id: String, passkeys: JSONArray?, writable: Boolean): List<View> {
+    if (passkeys == null) return emptyList()
+    return (0 until passkeys.length()).map { i ->
         val passkey = passkeys.getJSONObject(i)
         val user = passkey.optString("userName")
         val value = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -367,9 +366,14 @@ internal fun MainActivity.passkeysSection(page: LinearLayout, id: String, passke
                 .setNegativeButton(t("common.cancel"), null)
                 .show()
         }
-        card.add(if (writable) fieldRow(t("item.passkey"), value, delete) else fieldRow(t("item.passkey"), value))
+        val row = if (writable) fieldRow(t("item.passkey"), value, delete) else fieldRow(t("item.passkey"), value)
+        // Its name with a small fingerprint, as the desktop's.
+        ((row.getChildAt(0) as LinearLayout).getChildAt(0) as TextView).apply {
+            setCompoundDrawablesRelative(iconDrawable(R.drawable.ic_fingerprint, accent()).apply { setBounds(0, 0, dp(14), dp(14)) }, null, null, null)
+            compoundDrawablePadding = dp(6)
+        }
+        row
     }
-    page.add(card, top = 16)
 }
 
 // ----- attached files -----------------------------------------------------------------
@@ -433,28 +437,37 @@ internal fun Context.fileInfo(uri: Uri): Pair<String, Long> {
     return name to size
 }
 
-internal fun MainActivity.attachFile(id: String) {
+internal fun MainActivity.attachFile(id: String) = pickFile { attachFiles(id, listOf(it)) }
+
+/** Asks for a file (the system's picker). */
+internal fun MainActivity.pickFile(onPick: (Uri) -> Unit) {
     val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
     startForResult(pick) { result, data ->
         val uri = data?.data
-        if (result != Activity.RESULT_OK || uri == null) return@startForResult
-        val (name, size) = try {
-            fileInfo(uri)
-        } catch (e: Exception) {
-            Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
-            return@startForResult
+        if (result == Activity.RESULT_OK && uri != null) onPick(uri)
+    }
+}
+
+/** Attaches the files at `uris` to the item, one after the other, each with its progress. */
+internal fun MainActivity.attachFiles(id: String, uris: List<Uri>, attached: Int = 0) {
+    val uri = uris.firstOrNull() ?: return
+    val (name, size) = try {
+        fileInfo(uri)
+    } catch (e: Exception) {
+        Toast.makeText(this, errorText(e), Toast.LENGTH_LONG).show()
+        return
+    }
+    val (dialog, progress) = progressDialog(t("item.attachmentUploading", mapOf("name" to name, "percent" to "")).trimEnd('%', ' '))
+    act({
+        try {
+            contentResolver.openInputStream(uri)?.use { input -> Keyless.attach(id, name, size, input, progress) } ?: throw KeylessException("file_unreadable")
+        } finally {
+            runOnUiThread { dialog.dismiss() }
         }
-        val (dialog, progress) = progressDialog(t("item.attachmentUploading", mapOf("name" to name, "percent" to "")).trimEnd('%', ' '))
-        act({
-            try {
-                contentResolver.openInputStream(uri)?.use { input -> Keyless.attach(id, name, size, input, progress) } ?: throw KeylessException("file_unreadable")
-            } finally {
-                runOnUiThread { dialog.dismiss() }
-            }
-        }) {
-            Toast.makeText(this, t("item.attachmentsAdded", mapOf("count" to 1)), Toast.LENGTH_SHORT).show()
-            showItem(id)
-        }
+    }) {
+        if (uris.size > 1) return@act attachFiles(id, uris.drop(1), attached + 1)
+        Toast.makeText(this, t("item.attachmentsAdded", mapOf("count" to attached + 1)), Toast.LENGTH_SHORT).show()
+        showItem(id)
     }
 }
 

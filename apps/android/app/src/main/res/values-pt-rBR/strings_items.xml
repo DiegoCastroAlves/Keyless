@@ -12,14 +12,10 @@
     <string name="title_hint">Título</string>
     <string name="vault">Cofre</string>
     <string name="add_field">Adicionar campo</string>
-    <string name="add_section">Adicionar seção</string>
-    <string name="section_title">Nome da seção</string>
     <string name="field_label">Nome do campo</string>
     <string name="remove">Remover</string>
     <string name="website_hint">exemplo.com</string>
     <string name="add_website">Adicionar site</string>
-    <string name="notes_hint">Notas</string>
-    <string name="tags_hint">Tags, separadas por vírgula</string>
     <string name="favorite">Favoritar</string>
     <string name="unfavorite">Tirar dos favoritos</string>
     <string name="totp_hint">Link otpauth:// ou chave de configuração</string>

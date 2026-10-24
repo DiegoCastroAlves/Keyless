@@ -12,14 +12,10 @@
     <string name="title_hint">Title</string>
     <string name="vault">Vault</string>
     <string name="add_field">Add field</string>
-    <string name="add_section">Add section</string>
-    <string name="section_title">Section name</string>
     <string name="field_label">Field name</string>
     <string name="remove">Remove</string>
     <string name="website_hint">example.com</string>
     <string name="add_website">Add website</string>
-    <string name="notes_hint">Notes</string>
-    <string name="tags_hint">Tags, separated by commas</string>
     <string name="favorite">Favorite</string>
     <string name="unfavorite">Remove from favorites</string>
     <string name="totp_hint">otpauth:// link or setup key</string>

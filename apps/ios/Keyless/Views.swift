@@ -354,7 +354,14 @@ struct PasskeyRow: View {
         let created = passkey["createdAt"] as? Double ?? 0
         let credentialId = passkey["credentialId"] as? String ?? ""
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label {
+                    Text(Texts.t("passkey"))
+                } icon: {
+                    Image(systemName: "touchid").foregroundStyle(.tint)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
                 Text(user.isEmpty ? site : "\(site) · \(user)")
                 if created > 0 {
                     Text(String(format: Texts.t("passkeyCreated"), Date(timeIntervalSince1970: created).formatted(date: .abbreviated, time: .omitted)))
@@ -418,6 +425,34 @@ struct FieldRow: View {
     }
 }
 
+/// One of an item's websites, as plain as a field, with buttons to copy and open it.
+struct WebsiteRow: View {
+    let href: String
+    let label: String
+    @EnvironmentObject var vault: Vault
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        let target = href.hasPrefix("http://") || href.hasPrefix("https://") ? href : "https://\(href)"
+        let url = URL(string: target).flatMap { $0.scheme == "https" || $0.scheme == "http" ? $0 : nil }
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label.isEmpty ? Texts.field("website") : label).font(.caption).foregroundStyle(.secondary)
+                Text(href).textSelection(.enabled)
+            }
+            Spacer()
+            Button(Texts.t("copy")) {
+                copySecret(href)
+                vault.touch()
+            }
+            .buttonStyle(.borderless)
+            if let url {
+                Button(Texts.t("open")) { openURL(url) }.buttonStyle(.borderless)
+            }
+        }
+    }
+}
+
 struct ItemView: View {
     let id: String
     @EnvironmentObject var vault: Vault
@@ -434,7 +469,10 @@ struct ItemView: View {
         let fields = (details["fields"] as? [[String: Any]] ?? []).filter { !(($0["value"] as? String) ?? "").isEmpty }
         let sections = details["sections"] as? [[String: Any]] ?? []
         let addresses = (overview["urls"] as? [[String: Any]] ?? []).filter { !(($0["href"] as? String) ?? "").isEmpty }
-        let urls = addresses.compactMap { $0["href"] as? String }.filter { Item.appOf($0) == nil }
+        let websites: [(href: String, label: String)] = addresses.compactMap { address in
+            guard let href = address["href"] as? String, Item.appOf(href) == nil else { return nil }
+            return (href: href, label: address["label"] as? String ?? "")
+        }
         // Apps linked on an Android phone: their name when the phone gave one, and the package.
         let apps: [(name: String, package: String)] = addresses.compactMap { address in
             guard let href = address["href"] as? String, let package = Item.appOf(href) else { return nil }
@@ -444,6 +482,9 @@ struct ItemView: View {
         let notes = details["notes"] as? String ?? ""
         let tags = overview["tags"] as? [String] ?? []
         let passkeys = details["passkeys"] as? [[String: Any]] ?? []
+        let removable = writable && summary?.trashed != true
+        // Passkeys sit with the fields, after the username (first without one), as on the computer.
+        let after = fields.firstIndex { ($0["purpose"] as? String) == "username" }
         return List {
             if let error { Section { Text(error).foregroundStyle(.red) } }
             Section {
@@ -454,8 +495,14 @@ struct ItemView: View {
                     Text(Texts.t("inArchive")).font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            if !fields.isEmpty {
-                Section { ForEach(fields.indices, id: \.self) { FieldRow(field: fields[$0]) } }
+            if !fields.isEmpty || !passkeys.isEmpty {
+                Section {
+                    if after == nil { passkeyRows(passkeys, removable: removable) }
+                    ForEach(fields.indices, id: \.self) { index in
+                        FieldRow(field: fields[index])
+                        if index == after { passkeyRows(passkeys, removable: removable) }
+                    }
+                }
             }
             ForEach(sections.indices, id: \.self) { index in
                 let section = sections[index]
@@ -464,23 +511,13 @@ struct ItemView: View {
                     Section(section["title"] as? String ?? "") { ForEach(inner.indices, id: \.self) { FieldRow(field: inner[$0]) } }
                 }
             }
-            if !urls.isEmpty {
-                Section(Texts.t("websites")) {
-                    ForEach(urls, id: \.self) { href in
-                        let target = href.hasPrefix("http://") || href.hasPrefix("https://") ? href : "https://\(href)"
-                        if let url = URL(string: target), url.scheme == "https" || url.scheme == "http" {
-                            Link(href, destination: url)
-                        } else {
-                            Text(href)
-                        }
-                    }
+            if !websites.isEmpty {
+                Section {
+                    ForEach(websites.indices, id: \.self) { WebsiteRow(href: websites[$0].href, label: websites[$0].label) }
                 }
             }
             if !apps.isEmpty {
                 appsSection(apps)
-            }
-            if !passkeys.isEmpty {
-                passkeysSection(passkeys, removable: writable && summary?.trashed != true)
             }
             if !notes.isEmpty { Section(Texts.t("notes")) { Text(notes).textSelection(.enabled) } }
             if !tags.isEmpty { Section(Texts.t("tags")) { Text(tags.joined(separator: " · ")) } }
@@ -511,11 +548,9 @@ struct ItemView: View {
         }
     }
 
-    private func passkeysSection(_ passkeys: [[String: Any]], removable: Bool) -> some View {
-        Section(Texts.t("passkeys")) {
-            ForEach(passkeys.indices, id: \.self) { index in
-                PasskeyRow(passkey: passkeys[index], itemId: id, removable: removable) { work in run(work) }
-            }
+    private func passkeyRows(_ passkeys: [[String: Any]], removable: Bool) -> some View {
+        ForEach(passkeys.indices, id: \.self) { index in
+            PasskeyRow(passkey: passkeys[index], itemId: id, removable: removable) { work in run(work) }
         }
     }
 
