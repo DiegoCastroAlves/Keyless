@@ -212,7 +212,7 @@ export function ItemDetail() {
         </div>
       )}
       <header className="flex items-start gap-4 border-b border-line px-8 pb-5 pt-7">
-        <ItemIcon title={item.title} category={item.category} url={firstWebsite(item.urls)} size="lg" item={item} />
+        <ItemIcon title={item.title} category={item.category} url={item.iconUrl ?? undefined} size="lg" item={item} />
         <div className="min-w-0 flex-1 pt-1">
           <h2 className="selectable line-clamp-2 break-words text-xl font-semibold tracking-tight">{item.title}</h2>
           <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-[13px] text-muted">

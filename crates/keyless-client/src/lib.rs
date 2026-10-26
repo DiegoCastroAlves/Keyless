@@ -221,6 +221,9 @@ pub struct RemoteItem {
 struct ItemSummary {
     id: String,
     vault_id: String,
+    /// The address whose icon it shows: its first website, or the site of a
+    /// linked app (`site_icons::icon_address`, as the desktop's).
+    icon_url: Option<String>,
     overview: ItemOverview,
 }
 
@@ -724,7 +727,8 @@ impl Client {
             }
             let (Some(vault), Some(enc)) = (unlocked.vaults.get(&row.vault_id), row.enc_overview.as_deref()) else { continue };
             let Ok(overview) = vault.key.open_overview(&row.vault_id, id, enc) else { continue };
-            list.push(ItemSummary { id: id.clone(), vault_id: row.vault_id.clone(), overview });
+            let icon_url = keyless_core::site_icons::icon_address(&overview.urls);
+            list.push(ItemSummary { id: id.clone(), vault_id: row.vault_id.clone(), icon_url, overview });
         }
         Ok(serde_json::to_value(list)?)
     }
@@ -759,7 +763,8 @@ impl Client {
             }
         }
         let row = &self.store.items[&a.id];
-        Ok(json!({ "id": a.id, "vaultId": vault_id, "overview": overview, "details": details, "revision": row.revision }))
+        let icon_url = keyless_core::site_icons::icon_address(&overview.urls);
+        Ok(json!({ "id": a.id, "vaultId": vault_id, "iconUrl": icon_url, "overview": overview, "details": details, "revision": row.revision }))
     }
 
     /// Encrypts a new item, or a new version of one, for the host to upload
@@ -1084,7 +1089,8 @@ impl Client {
                 .max()
                 .unwrap_or(0);
             if score > 0 {
-                found.push((score, ItemSummary { id: id.clone(), vault_id: row.vault_id.clone(), overview }));
+                let icon_url = keyless_core::site_icons::icon_address(&overview.urls);
+                found.push((score, ItemSummary { id: id.clone(), vault_id: row.vault_id.clone(), icon_url, overview }));
             }
         }
         found.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.overview.favorite.cmp(&a.1.overview.favorite)).then(a.1.overview.title.cmp(&b.1.overview.title)));

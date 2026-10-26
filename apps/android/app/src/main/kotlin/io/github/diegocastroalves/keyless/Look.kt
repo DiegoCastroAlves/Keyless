@@ -25,6 +25,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import org.json.JSONArray
 
 /*
  * The desktop app's look on the phone (apps/desktop/src/styles.css and
@@ -253,6 +254,26 @@ fun Context.itemIcon(category: String, title: String, url: String? = null, size:
         background = shape(Color.argb(38, Color.red(base), Color.green(base), Color.blue(base)), radius)
         layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
     }
+}
+
+/**
+ * A login's icon in the desktop's order: its website's; with none, the app
+ * linked to it when that app is on this phone, or else the app's site
+ * (`iconUrl`, from the client: `site_icons::icon_address`). Other
+ * categories, theirs.
+ */
+fun Context.loginIcon(category: String, title: String, urls: JSONArray?, iconUrl: String?, size: Int = 40): View {
+    val website = AppLinks.firstWebsite(urls)
+    if (website == null && (category == "login" || category == "password")) {
+        AppLinks.linked(urls).firstNotNullOfOrNull { AppLinks.icon(this, it) }?.let { app ->
+            return ImageView(this).apply {
+                setImageDrawable(app)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                layoutParams = LinearLayout.LayoutParams(dp(size), dp(size))
+            }
+        }
+    }
+    return itemIcon(category, title, website ?: iconUrl, size)
 }
 
 /** A login's letter waiting for its website's icon (see fillSiteIcons). */

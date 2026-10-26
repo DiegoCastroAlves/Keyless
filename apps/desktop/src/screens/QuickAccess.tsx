@@ -294,7 +294,7 @@ export function QuickAccess() {
                       i === index ? "bg-accent text-accent-fg" : "hover:bg-panel-3",
                     )}
                   >
-                    <ItemIcon title={item.title} category={item.category} url={firstWebsite(item.urls)} size="sm" />
+                    <ItemIcon title={item.title} category={item.category} url={item.iconUrl ?? undefined} size="sm" />
                     <span className="min-w-0 flex-1 truncate text-sm">
                       <span className="font-medium">{item.title}</span>
                       {item.subtitle && <span className={cx(i === index ? "text-accent-fg/80" : "text-muted")}> · {item.subtitle}</span>}

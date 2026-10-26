@@ -14,7 +14,7 @@ from scratch; when the desktop changes its look, change these with it.
 | Font | Inter Variable (`@fontsource-variable/inter`) | `res/font/inter.ttf`: its Latin `wght` file, turned from WOFF2 into TTF with fontTools (`TTFont(woff2).flavor = None`); `res/font/inter_family.xml`, `Context.inter(weight)` |
 | Icons | Lucide (`lucide-react`) | `res/drawable/ic_*.xml`, made by `scripts/lucide_icons.py` from the desktop's copy |
 | Category icons and tints | `src/lib/categories.ts` | `Look.kt` (`CATEGORY_LOOK`, `itemIcon`) |
-| A login's icon, letter and color | `ItemIcon`, `avatarColor` (`src/lib/format.ts`), website icons (`site_icons.rs`) | `itemIcon`, `avatarColor` (the same hash, so an item has the same color on both), `SiteIcons` |
+| A login's icon, letter and color | `ItemIcon`, `avatarColor` (`src/lib/format.ts`), website icons (`site_icons.rs`); with no website, a linked app's site (`keyless_core::site_icons::icon_address`) | `loginIcon`, `itemIcon`, `avatarColor` (the same hash, so an item has the same color on both), `SiteIcons`; with no website, the linked app's own icon when it is installed, or its site as on the desktop |
 | Website icons | `src-tauri/src/site_icons.rs` | `SiteIcons.kt`; both on `keyless_core::site_icons` (which sites, which links, the keys) |
 | Names of the item groups | `sidebar` in `src/i18n` | `Labels.t("sidebar.…")` (copied by `scripts/labels.mjs`) |
 | Buttons, fields | `src/components/ui` | `Ui.kt` (`primaryButton`, `secondaryButton`, `plainButton`, `field`) |

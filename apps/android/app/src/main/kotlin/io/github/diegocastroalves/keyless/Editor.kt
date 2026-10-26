@@ -196,7 +196,9 @@ internal fun MainActivity.showEditor(draft: JSONObject) {
         // The header, as the item's: its icon, the title, its category (and vault).
         val urls = draft.optJSONArray("urls") ?: JSONArray().also { draft.put("urls", it) }
         val header = row().apply { gravity = Gravity.TOP }
-        header.addView(itemIcon(category, draft.optString("title").ifEmpty { Labels.category(this, category) }, AppLinks.firstWebsite(urls), 60))
+        // A linked app's site, as saved (the client works it out).
+        val savedIconUrl = Keyless.items.firstOrNull { it.id == draft.optString("id") }?.iconUrl
+        header.addView(loginIcon(category, draft.optString("title").ifEmpty { Labels.category(this, category) }, urls, savedIconUrl, 60))
         val names = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), 0, 0, 0)

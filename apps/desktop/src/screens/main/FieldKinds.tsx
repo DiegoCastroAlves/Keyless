@@ -10,7 +10,6 @@ import { ItemIcon } from "../../components/common";
 import { Combobox, IconButton, Input, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuTrigger, cx } from "../../components/ui";
 import { api, errorCode, errorMessage, type Address, type AttachmentView, type ExpiryAlert, type Field, type FieldView, type FileInfo } from "../../lib/api";
 import { EXPIRY_ALERTS, PROVIDER_NAMES, SIGN_IN_PROVIDERS, categoryLabel } from "../../lib/categories";
-import { firstWebsite } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
@@ -294,7 +293,7 @@ export function SpecialValue({ field, attachments, onPreview }: { field: FieldVi
           }}
           className="inline-flex items-center gap-2 text-[15px] text-accent hover:underline"
         >
-          <ItemIcon title={target.title} category={target.category} url={firstWebsite(target.urls)} size="sm" />
+          <ItemIcon title={target.title} category={target.category} url={target.iconUrl ?? undefined} size="sm" />
           <span>
             {target.title}
             <span className="ml-1.5 text-xs text-subtle">{categoryLabel(target.category)}</span>

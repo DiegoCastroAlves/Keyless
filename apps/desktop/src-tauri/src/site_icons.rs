@@ -26,7 +26,7 @@ use std::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use keyless_core::{
     item::Category,
-    site_icons::{ICON_SIZE as SIZE, IconKeys, allowed_host, icon_links, is_public},
+    site_icons::{ICON_SIZE as SIZE, IconKeys, allowed_host, icon_address, icon_links, is_public},
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
@@ -137,7 +137,11 @@ async fn run(app: &AppHandle) -> AppResult<()> {
             .items
             .values()
             .filter(|item| item.overview.trashed_at.is_none() && matches!(item.overview.category, Category::Login | Category::Password))
-            .flat_map(|item| item.overview.urls.iter().filter_map(|u| host_of(&u.href)))
+            .flat_map(|item| {
+                let urls = &item.overview.urls;
+                // A linked app's site too, for a login with no website.
+                urls.iter().filter_map(|u| host_of(&u.href)).chain(icon_address(urls).and_then(|a| host_of(&a)))
+            })
             .filter(|host| allowed_host(host))
             .collect();
         hosts.sort();

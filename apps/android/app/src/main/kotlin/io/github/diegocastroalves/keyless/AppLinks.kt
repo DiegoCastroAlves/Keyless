@@ -240,7 +240,7 @@ internal fun Activity.loginPicker(packageName: String?, domain: String?, onPick:
             if (found.isEmpty()) return
             list.add(sectionTitle(title), top = if (list.childCount == 0) 0 else 12)
             for (login in found) {
-                val icon = itemIcon(login.category, login.title, AppLinks.firstWebsite(login.overview.optJSONArray("urls")))
+                val icon = loginIcon(login.category, login.title, login.overview.optJSONArray("urls"), login.iconUrl)
                 list.add(listRow(icon, login.title, login.subtitle).apply {
                     setOnClickListener { onPick(login, link.isChecked && link.visibility == View.VISIBLE) }
                 })

@@ -1104,10 +1104,10 @@ class MainActivity : KeylessActivity() {
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val item = shown[position]
-            val url = AppLinks.firstWebsite(item.overview.optJSONArray("urls"))
             val star = if (item.favorite) icon(R.drawable.ic_star, getColor(R.color.warning), 16).apply { setPadding(0, 0, dp(4), 0) } else null
+            val icon = loginIcon(item.category, item.title, item.overview.optJSONArray("urls"), item.iconUrl)
             // The list draws the touch feedback (its selector).
-            return listRow(itemIcon(item.category, item.title, url), item.title, item.subtitle, star).apply { background = null }
+            return listRow(icon, item.title, item.subtitle, star).apply { background = null }
         }
     }
 
@@ -1177,9 +1177,9 @@ class MainActivity : KeylessActivity() {
         val page = column(20).apply { setPadding(dp(16), dp(4), dp(16), dp(28)) }
         screen.add(page)
         // The header, as the desktop's: the item's icon, its title, its category and vault.
-        val firstUrl = AppLinks.firstWebsite(overview.optJSONArray("urls"))
+        val iconUrl = if (item.isNull("iconUrl")) null else item.optString("iconUrl")
         val header = row().apply { gravity = android.view.Gravity.TOP }
-        header.addView(itemIcon(overview.optString("category"), title, firstUrl, 60))
+        header.addView(loginIcon(overview.optString("category"), title, overview.optJSONArray("urls"), iconUrl, 60))
         val names = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(2), 0, 0)

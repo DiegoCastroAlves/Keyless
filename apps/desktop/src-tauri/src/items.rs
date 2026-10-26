@@ -68,6 +68,9 @@ pub struct ItemSummary {
     pub last_used_at: Option<i64>,
     /// The item has its own icon (see `item_icon`).
     pub custom_icon: bool,
+    /// The address whose icon it shows: its first website, or the site of a
+    /// linked app (`site_icons::icon_address`).
+    pub icon_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -181,6 +184,7 @@ fn summary(id: &str, item: &CachedItem) -> ItemSummary {
         uses: 0,
         last_used_at: None,
         custom_icon: o.custom_icon,
+        icon_url: keyless_core::site_icons::icon_address(&o.urls),
     }
 }
 

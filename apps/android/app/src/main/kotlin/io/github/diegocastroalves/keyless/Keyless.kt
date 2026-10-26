@@ -11,8 +11,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
-/** An item in lists: its id, vault and overview (title, username, websites...). */
-class Summary(val id: String, val vaultId: String, val overview: JSONObject) {
+/**
+ * An item in lists: its id, vault and overview (title, username, websites...),
+ * and the address whose icon it shows (its website, or a linked app's site).
+ */
+class Summary(val id: String, val vaultId: String, val overview: JSONObject, val iconUrl: String? = null) {
     val title: String get() = overview.optString("title")
     val subtitle: String get() = overview.optString("subtitle")
     val category: String get() = overview.optString("category")
@@ -243,13 +246,16 @@ object Keyless {
         val all = ArrayList<Summary>(list.length())
         for (i in 0 until list.length()) {
             val row = list.getJSONObject(i)
-            all.add(Summary(row.getString("id"), row.getString("vaultId"), row.getJSONObject("overview")))
+            all.add(summaryOf(row))
         }
         all.sortBy { it.title.lowercase() }
         trashed = all.filter { it.trashed }.sortedByDescending { it.trashedAt }
         archived = all.filter { !it.trashed && it.archived }
         items = all.filter { !it.trashed && !it.archived }
     }
+
+    private fun summaryOf(row: JSONObject) =
+        Summary(row.getString("id"), row.getString("vaultId"), row.getJSONObject("overview"), if (row.isNull("iconUrl")) null else row.optString("iconUrl"))
 
     /** The vaults items can be written to, the account's own first. */
     fun writableVaults(): List<JSONObject> =
@@ -338,7 +344,7 @@ object Keyless {
         val list = Native.arr("match", args)
         return (0 until list.length()).map { i ->
             val row = list.getJSONObject(i)
-            Summary(row.getString("id"), row.getString("vaultId"), row.getJSONObject("overview"))
+            summaryOf(row)
         }
     }
 

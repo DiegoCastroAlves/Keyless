@@ -84,6 +84,10 @@ export function ItemEditor() {
   const vaults = useApp((s) => s.vaults);
   const stopEditing = useApp((s) => s.stopEditing);
   const [draft, setDraft] = useState<ItemDraft>(editing.draft);
+  // A linked app's site (worked out when saved) while the draft has no website but apps.
+  const savedIconUrl = useApp((s) => s.items.find((i) => i.id === editing.draft.id)?.iconUrl);
+  const website = firstWebsite(draft.urls.map((u) => u.href));
+  const iconUrl = website ?? (draft.urls.some((u) => appOf(u.href)) ? (savedIconUrl ?? undefined) : undefined);
   const [saving, setSaving] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // What was just added gets the focus, so typing can go on.
@@ -263,7 +267,7 @@ export function ItemEditor() {
         <Menu>
           <MenuTrigger asChild>
             <button className="rounded-2xl outline-none ring-accent/40 focus-visible:ring-3" aria-label={t("editor.icon")} tabIndex={-1}>
-              <ItemIcon title={draft.title || categoryLabel(draft.category)} category={draft.category} url={firstWebsite(draft.urls.map((u) => u.href))} size="lg" icon={draft.icon || undefined} />
+              <ItemIcon title={draft.title || categoryLabel(draft.category)} category={draft.category} url={iconUrl} size="lg" icon={draft.icon || undefined} />
             </button>
           </MenuTrigger>
           <MenuContent align="start">

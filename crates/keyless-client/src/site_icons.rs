@@ -9,7 +9,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use keyless_core::{
     item::Category,
     site::url_host,
-    site_icons::{IconKeys, allowed_host, icon_links, is_public},
+    site_icons::{IconKeys, allowed_host, icon_address, icon_links, is_public},
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -38,6 +38,8 @@ impl Client {
                 continue;
             }
             hosts.extend(overview.urls.iter().filter_map(|u| url_host(&u.href)).filter(|h| allowed_host(h)));
+            // A linked app's site, for a login with no website.
+            hosts.extend(icon_address(&overview.urls).and_then(|a| url_host(&a)).filter(|h| allowed_host(h)));
         }
         hosts.sort();
         hosts.dedup();

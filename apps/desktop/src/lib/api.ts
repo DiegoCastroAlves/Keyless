@@ -344,6 +344,8 @@ export interface ItemSummary {
   lastUsedAt: number | null;
   /** The item has its own icon (see api.itemIcon). */
   customIcon: boolean;
+  /** The address whose icon it shows: its first website, or the site of a linked app. */
+  iconUrl: string | null;
 }
 
 /** A program asking the SSH agent to sign. */

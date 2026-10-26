@@ -18,6 +18,7 @@ use zeroize::Zeroizing;
 use crate::{
     Error, Result,
     crypto::{SymmetricKey, context},
+    item::ItemUrl,
 };
 
 /// Largest side of a kept icon, in pixels.
@@ -154,6 +155,50 @@ fn attributes(tag: &str) -> HashMap<String, String> {
     attrs
 }
 
+/// The Android app an address names (`android://<package>`,
+/// `androidapp://<package>`, Chrome's `android://<hash>@<package>`), or `None`.
+pub fn app_package(href: &str) -> Option<&str> {
+    let text = href.trim();
+    for scheme in ["android://", "androidapp://"] {
+        if text.len() >= scheme.len() && text[..scheme.len()].eq_ignore_ascii_case(scheme) {
+            let rest = &text[scheme.len()..];
+            let name = rest.rsplit('@').next().unwrap_or(rest);
+            let package = name.split(['/', '?', '#']).next().unwrap_or("");
+            return (!package.is_empty()).then_some(package);
+        }
+    }
+    None
+}
+
+/// The website a linked app stands for, for the icon of a login without
+/// one: the site its package names, read backwards (org.telegram.messenger
+/// is telegram.org), only when that site's name is the app's (its first
+/// word, or all of it: "Telegram", "WhatsApp Business"). It is a guess, so
+/// one that does not fit gives no icon rather than another site's:
+/// com.nu.production is "Nubank", not nu.com, and
+/// com.google.android.youtube is "YouTube", not google.com.
+pub fn app_site(package: &str, label: &str) -> Option<String> {
+    let host = package.trim().split('.').rev().collect::<Vec<_>>().join(".").to_ascii_lowercase();
+    let domain = psl::domain(host.as_bytes()).filter(|d| d.suffix().is_known())?;
+    let domain = std::str::from_utf8(domain.as_bytes()).ok()?.to_string();
+    let name = domain.split('.').next()?;
+    let simple = |text: &str| text.chars().filter(|c| c.is_alphanumeric()).collect::<String>().to_lowercase();
+    let first = simple(label.split_whitespace().next().unwrap_or(""));
+    let fits = !name.is_empty() && (first == name || simple(label) == name);
+    (fits && allowed_host(&domain)).then(|| format!("https://{domain}"))
+}
+
+/// The address whose icon a login shows: its first website, or else the
+/// site of its first linked app that stands for one (`app_site`, with the
+/// app's name kept with its link). The same in every app.
+pub fn icon_address(urls: &[ItemUrl]) -> Option<String> {
+    let website = urls.iter().find(|u| !u.href.trim().is_empty() && app_package(&u.href).is_none());
+    if let Some(website) = website {
+        return Some(website.href.clone());
+    }
+    urls.iter().find_map(|u| app_package(&u.href).and_then(|package| app_site(package, &u.label)))
+}
+
 /// A public internet name: not an IP address, not a local or private name,
 /// and under a known public suffix.
 pub fn allowed_host(host: &str) -> bool {
@@ -203,6 +248,28 @@ pub fn is_public(ip: IpAddr) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_linked_app_stands_for_its_own_site_only() {
+        assert_eq!(app_package("android://org.telegram.messenger"), Some("org.telegram.messenger"));
+        assert_eq!(app_package("android://AAAA@com.nu.production/"), Some("com.nu.production"));
+        assert_eq!(app_package("https://telegram.org"), None);
+        assert_eq!(app_site("org.telegram.messenger", "Telegram").as_deref(), Some("https://telegram.org"));
+        assert_eq!(app_site("com.whatsapp.w4b", "WhatsApp Business").as_deref(), Some("https://whatsapp.com"));
+        assert_eq!(app_site("com.instagram.android", "Instagram").as_deref(), Some("https://instagram.com"));
+        assert_eq!(app_site("br.com.example.app", "Example").as_deref(), Some("https://example.com.br"));
+        // Another name: no icon rather than another site's.
+        assert_eq!(app_site("com.nu.production", "Nubank"), None);
+        assert_eq!(app_site("com.google.android.youtube", "YouTube"), None);
+        assert_eq!(app_site("org.telegram.messenger", ""), None);
+        assert_eq!(app_site("telegram", "Telegram"), None);
+
+        let url = |href: &str, label: &str| ItemUrl { href: href.into(), label: label.into(), ..Default::default() };
+        assert_eq!(icon_address(&[url("android://org.telegram.messenger", "Telegram")]).as_deref(), Some("https://telegram.org"));
+        // A website comes first; an app without its name, nothing.
+        assert_eq!(icon_address(&[url("android://org.telegram.messenger", "Telegram"), url("https://web.telegram.org", "")]).as_deref(), Some("https://web.telegram.org"));
+        assert_eq!(icon_address(&[url("android://org.telegram.messenger", "")]), None);
+    }
 
     #[test]
     fn only_public_names_are_contacted() {
