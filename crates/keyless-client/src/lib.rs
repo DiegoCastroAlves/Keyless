@@ -267,6 +267,12 @@ impl Client {
             }
             "applyMemberships" => self.apply_memberships(json),
             "applyItems" => self.apply_items(json),
+            // Pulls every item again on the next sync (they are checked and
+            // kept as always): items a pushed write's cursor skipped come back.
+            "resetCursors" => {
+                self.store.cursors.clear();
+                Ok(Value::Null)
+            }
             "cursor" => {
                 #[derive(Deserialize)]
                 #[serde(rename_all = "camelCase")]
@@ -622,13 +628,19 @@ impl Client {
     /// app does: content must decrypt with the vault key with its overview
     /// and details from the same write and never go back to an older
     /// version; a deletion needs a tombstone newer than our copy. What fails
-    /// is ignored. Returns the new cursor.
+    /// is ignored. Returns the new cursor, and how many items changed.
+    ///
+    /// `pushed`: the server's answer to this device's own write. It does not
+    /// move the cursor: items written elsewhere before it, not pulled yet,
+    /// would be skipped.
     fn apply_items(&mut self, json: &str) -> Outcome<Value> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct A {
             vault_id: String,
             items: Vec<RemoteItem>,
+            #[serde(default)]
+            pushed: bool,
         }
         let a: A = args(json)?;
         let unlocked = self.unlocked.as_ref().ok_or(Failure::new("locked"))?;
@@ -636,12 +648,21 @@ impl Client {
         let mut cursor = self.store.cursors.get(&a.vault_id).copied().unwrap_or(0);
         let (mut changed, mut rejected) = (0, 0);
         for remote in &a.items {
-            cursor = cursor.max(remote.seq);
+            if !a.pushed {
+                cursor = cursor.max(remote.seq);
+            }
             if remote.vault_id != a.vault_id {
                 rejected += 1;
                 continue;
             }
             let local = self.store.items.get(&remote.id);
+            // What this device has already (its own write, pulled back).
+            let same = local.is_some_and(|l| {
+                l.revision == remote.revision && l.enc_overview == remote.enc_overview && l.enc_details == remote.enc_details && l.enc_tombstone == remote.enc_tombstone
+            });
+            if same {
+                continue;
+            }
             match verify(vault, remote, local) {
                 Verdict::Accept { version } => {
                     self.store.items.insert(

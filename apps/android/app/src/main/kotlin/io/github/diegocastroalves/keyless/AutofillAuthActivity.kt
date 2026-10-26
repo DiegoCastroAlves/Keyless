@@ -65,7 +65,10 @@ class AutofillAuthActivity : KeylessActivity() {
                 intent.getParcelableExtra<android.view.inputmethod.InlineSuggestionsRequest>(AutofillManager.EXTRA_INLINE_SUGGESTIONS_REQUEST)
             else -> null
         }
+        // Logins added elsewhere since the last sync (the app was closed).
+        setContentView(syncingView())
         thread {
+            Keyless.syncBriefly(3_000)
             val response = structure?.let {
                 try {
                     AutofillResponses.datasets(this, AutofillParser.parse(it), inline)

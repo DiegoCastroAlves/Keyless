@@ -7,6 +7,9 @@ import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 /** An item in lists: its id, vault and overview (title, username, websites...). */
 class Summary(val id: String, val vaultId: String, val overview: JSONObject) {
@@ -93,6 +96,10 @@ object Keyless {
     /** A sync finished since unlocking (an empty Home syncs until then). */
     @Volatile var synced = false
 
+    /** When the last sync finished (elapsedRealtime), 0 until one has since unlocking. */
+    @Volatile private var syncedAt = 0L
+    private val syncLock = Any()
+
     fun lock() {
         Native.run("lock")
         clearCache()
@@ -101,6 +108,7 @@ object Keyless {
 
     private fun clearCache() {
         synced = false
+        syncedAt = 0L
         items = emptyList()
         archived = emptyList()
         trashed = emptyList()
@@ -174,24 +182,59 @@ object Keyless {
         return renewed.accessToken
     }
 
-    /** Pulls the vaults and the items that changed, checked by the client. */
-    fun sync() {
+    /**
+     * Pulls the vaults and the items that changed, checked by the client, one
+     * sync at a time; answers whether anything changed.
+     */
+    fun sync(): Boolean = synchronized(syncLock) {
         val access = token()
         val userId = status().optString("userId")
-        Native.run("applyMemberships", Server.memberships(access, userId))
+        // Once: every item again, for those an older version skipped (its own
+        // writes moved the cursor past items not pulled yet).
+        val repull = !prefs().getBoolean("cursors_reset", false)
+        if (repull) Native.run("resetCursors")
+        var changed = Native.obj("applyMemberships", Server.memberships(access, userId)).optBoolean("changed")
         val vaultList = Native.arr("vaults")
         for (i in 0 until vaultList.length()) {
             val vaultId = vaultList.getJSONObject(i).getString("id")
             while (true) {
                 val cursor = (Native.run("cursor", JSONObject().put("vaultId", vaultId)) as Number).toLong()
                 val page = Server.itemsSince(access, vaultId, cursor, PAGE)
-                Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", page))
+                if (Native.obj("applyItems", JSONObject().put("vaultId", vaultId).put("items", page)).optInt("changed") > 0) changed = true
                 if (page.length() < PAGE) break
             }
         }
         save()
+        if (repull) prefs().edit().putBoolean("cursors_reset", true).apply()
         refreshCache()
         synced = true
+        syncedAt = SystemClock.elapsedRealtime()
+        changed
+    }
+
+    private fun syncedWithin(ms: Long): Boolean = syncedAt != 0L && SystemClock.elapsedRealtime() - syncedAt < ms
+
+    /** Syncs unless the last sync finished less than `maxAgeMs` ago; answers whether anything changed. */
+    fun syncIfStale(maxAgeMs: Long): Boolean = synchronized(syncLock) { if (syncedWithin(maxAgeMs)) false else sync() }
+
+    /**
+     * For autofill: a sync if the last is older than a minute, waited for at
+     * most `waitMs` (then it goes on behind, and what the phone has is used).
+     * Offline, or anything else wrong, the same.
+     */
+    fun syncBriefly(waitMs: Long) {
+        if (syncedWithin(60_000)) return
+        val done = CountDownLatch(1)
+        thread {
+            try {
+                syncIfStale(60_000)
+            } catch (e: Exception) {
+                // What the phone has.
+            } finally {
+                done.countDown()
+            }
+        }
+        done.await(waitMs, TimeUnit.MILLISECONDS)
     }
 
     internal fun refreshCache() {
@@ -239,7 +282,7 @@ object Keyless {
             val plan = Native.obj("planConflict", JSONObject(sealed.toString()).put("remote", remote))
             plan.optJSONObject("copy")?.let { copy ->
                 val copied = Server.insertItem(access, copy.getString("id"), copy.getString("vaultId"), copy.getString("encOverview"), copy.getString("encDetails"))
-                Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", copied))
+                Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", copied).put("pushed", true))
             }
             rows = if (plan.getString("plan") == "overwrite") {
                 Server.patchItem(access, id, remote.getLong("revision"), plan.getJSONObject("body"))
@@ -248,7 +291,7 @@ object Keyless {
             }
         }
         if (rows.length() == 0) throw KeylessException("save_conflict")
-        Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", rows))
+        Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", rows).put("pushed", true))
         save()
         refreshCache()
         return id

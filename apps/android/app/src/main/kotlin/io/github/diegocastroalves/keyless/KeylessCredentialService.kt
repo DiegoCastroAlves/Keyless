@@ -69,8 +69,11 @@ class KeylessCredentialService : CredentialProviderService() {
             callback.onResult(BeginGetCredentialResponse.Builder().addAuthenticationAction(AuthenticationAction(getString(R.string.autofill_unlock), pending)).build())
             return
         }
-        // Telling a browser's page apart may need the network.
-        thread { callback.onResult(entries(this, request)) }
+        // Telling a browser's page apart may need the network; a sync first.
+        thread {
+            Keyless.syncBriefly(1_500)
+            callback.onResult(entries(this, request))
+        }
     }
 
     override fun onClearCredentialStateRequest(

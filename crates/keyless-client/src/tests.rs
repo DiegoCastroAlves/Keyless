@@ -115,6 +115,36 @@ fn signs_in_syncs_and_reads() {
 }
 
 #[test]
+fn own_writes_keep_the_cursor_and_nothing_counts_twice() {
+    let server = server();
+    let mut client = signed_in(&server);
+    const A: &str = "33333333-3333-4333-8333-333333333333";
+    const B: &str = "44444444-4444-4444-8444-444444444444";
+    let a = row(&server, A, 5, 1, &login("GitHub", "https://github.com", "pw1", 1));
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [a.clone()] }).to_string()));
+    // Written here and answered by the server after B (seq 6), written
+    // elsewhere and not pulled yet: the cursor stays, so B still comes.
+    let mine = row(&server, A, 7, 2, &login("GitHub", "https://github.com", "pw2", 2));
+    let applied = ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [mine.clone()], "pushed": true }).to_string()));
+    assert_eq!(applied["changed"], 1);
+    assert_eq!(ok(client.call("cursor", &json!({ "vaultId": VAULT }).to_string())), 5);
+    let b = row(&server, B, 6, 1, &login("Bank", "https://bank.example", "pw3", 1));
+    let applied = ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [b, mine] }).to_string()));
+    // Only B is new: our own write, pulled back, changes nothing.
+    assert_eq!(applied["changed"], 1);
+    assert_eq!(applied["cursor"], 7);
+    assert_eq!(ok(client.call("items", "")).as_array().unwrap().len(), 2);
+
+    // Pulling everything again changes nothing either.
+    ok(client.call("resetCursors", ""));
+    assert_eq!(ok(client.call("cursor", &json!({ "vaultId": VAULT }).to_string())), 0);
+    let applied = ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [a] }).to_string()));
+    assert_eq!(applied["changed"], 0);
+    assert_eq!(applied["rejected"], 1);
+    assert_eq!(ok(client.call("item", &json!({ "id": A }).to_string()))["details"]["fields"][1]["value"], "pw2");
+}
+
+#[test]
 fn refuses_what_the_server_should_not_send() {
     let server = server();
     let mut client = signed_in(&server);

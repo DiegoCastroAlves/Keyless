@@ -34,6 +34,9 @@ fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toI
 
 fun Context.accent(): Int = getColor(R.color.accent)
 
+/** "Syncing…" in the middle of a screen (an unlock for autofill or a passkey, while it syncs). */
+fun Context.syncingView(): View = label(getString(R.string.syncing), 14f, muted = true).apply { gravity = Gravity.CENTER }
+
 fun Context.label(text: CharSequence, size: Float = 15f, bold: Boolean = false, muted: Boolean = false): TextView =
     TextView(this).apply {
         this.text = text

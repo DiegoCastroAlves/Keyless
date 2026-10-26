@@ -56,6 +56,8 @@ struct Session {
 enum Server {
     static let base = "https://ednfhgbjtgkrmtnudcjr.supabase.co"
     static let key = "sb_publishable_3SSYrJqgt-zB30WaRHnuSw_YN7WaHqD"
+    /// Supabase Realtime's socket (the sync signals, Realtime.swift).
+    static let realtime = URL(string: "\(base.replacingOccurrences(of: "https://", with: "wss://"))/realtime/v1/websocket?apikey=\(key)&vsn=1.0.0")
 
     static func request(_ path: String, method: String = "GET", body: Any? = nil, token: String? = nil, headers: [String: String] = [:]) async throws -> Data {
         guard let url = URL(string: "\(base)/\(path)") else { throw KeylessError(key: "internal", message: path) }

@@ -56,8 +56,10 @@ class KeylessAutofillService : AutofillService() {
             callback.onSuccess(response)
             return
         }
-        // An app's logins may wait for its sites (AppSites).
+        // An app's logins may wait for its sites (AppSites). Android waits 5
+        // seconds for the answer: a sync gets a part of them.
         thread {
+            Keyless.syncBriefly(1_500)
             val response = try {
                 AutofillResponses.datasets(this, parsed, inline)
             } catch (e: Exception) {

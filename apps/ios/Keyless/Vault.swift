@@ -50,6 +50,12 @@ final class Vault: ObservableObject {
     private var session: Session?
     private var lastActivity = Date()
     private let page = 500
+    /// When the last sync finished; nil until one has since unlocking.
+    private var syncedAt: Date?
+    /// The sync signals and the periodic sync, while the app is open and unlocked.
+    private let realtime = Realtime()
+    private var ticker: Timer?
+    private var syncRequested = false
 
     var autoLockMinutes: Int {
         get { UserDefaults.standard.object(forKey: "auto_lock_minutes") as? Int ?? 5 }
@@ -85,8 +91,10 @@ final class Vault: ObservableObject {
     var trashedItems: [Item] { all.filter(\.trashed) }
 
     func lock() {
+        stopLive()
         _ = try? Native.call("lock")
         all = []
+        syncedAt = nil
         phase = hasAccount ? .locked : .signedOut
     }
 
@@ -126,6 +134,7 @@ final class Vault: ObservableObject {
         save()
         phase = .unlocked
         try await sync()
+        startLive()
     }
 
     func unlock(masterPassword: String) async throws {
@@ -135,6 +144,8 @@ final class Vault: ObservableObject {
         touch()
         refresh()
         phase = .unlocked
+        startLive()
+        Task { await syncIfStale(30) }
     }
 
     func unlockWithBiometrics(reason: String) async throws {
@@ -144,6 +155,8 @@ final class Vault: ObservableObject {
         touch()
         refresh()
         phase = .unlocked
+        startLive()
+        Task { await syncIfStale(30) }
     }
 
     func setBiometrics(_ on: Bool) {
@@ -155,7 +168,8 @@ final class Vault: ObservableObject {
         objectWillChange.send()
     }
 
-    private func token() async throws -> String {
+    /// The session's access token, refreshed when it is about to expire.
+    func token() async throws -> String {
         if let current = session, current.expiresAt - 60 > Date().timeIntervalSince1970 { return current.accessToken }
         guard let refresh = session?.refreshToken ?? Secure.get("refresh_token") else { throw KeylessError(key: "session_expired", message: "") }
         let renewed = try await Server.refresh(refresh)
@@ -164,25 +178,79 @@ final class Vault: ObservableObject {
         return renewed.accessToken
     }
 
-    /// Pulls the vaults and the items that changed, checked by the client.
-    func sync() async throws {
+    /// Pulls the vaults and the items that changed, checked by the client;
+    /// answers whether anything changed.
+    @discardableResult
+    func sync() async throws -> Bool {
         syncing = true
         defer { syncing = false }
         let access = try await token()
         let userId = status["userId"] as? String ?? ""
+        // Once: every item again, for those an older version skipped (its own
+        // writes moved the cursor past items not pulled yet).
+        let repull = !UserDefaults.standard.bool(forKey: "cursors_reset")
+        if repull { _ = try Native.call("resetCursors") }
         let memberships = try await Server.memberships(token: access, userId: userId)
-        _ = try Native.call("applyMemberships", memberships)
+        var changed = try Native.object("applyMemberships", memberships)["changed"] as? Bool ?? false
         for vault in try Native.array("vaults") {
             guard let vaultId = vault["id"] as? String else { continue }
             while true {
                 let cursor = (try Native.call("cursor", ["vaultId": vaultId]) as? Int) ?? 0
                 let rows = try await Server.itemsSince(token: access, vaultId: vaultId, cursor: cursor, limit: page)
-                _ = try Native.call("applyItems", ["vaultId": vaultId, "items": rows])
+                if (try Native.object("applyItems", ["vaultId": vaultId, "items": rows])["changed"] as? Int ?? 0) > 0 { changed = true }
                 if rows.count < page { break }
             }
         }
         save()
+        if repull { UserDefaults.standard.set(true, forKey: "cursors_reset") }
         refresh()
+        syncedAt = Date()
+        return changed
+    }
+
+    /// Syncs, without a word, unless one is under way or the last finished
+    /// less than `maxAge` seconds ago.
+    func syncIfStale(_ maxAge: TimeInterval) async {
+        guard phase == .unlocked, !syncing else { return }
+        if let syncedAt, Date().timeIntervalSince(syncedAt) < maxAge { return }
+        do {
+            try await sync()
+            syncError = nil
+        } catch {
+            // Offline or signed out: the next one, or the user's.
+        }
+    }
+
+    /// The sync signals (Realtime.swift) and a sync every minute, or every 5
+    /// while signals arrive: while the app is open and unlocked.
+    func startLive() {
+        guard phase == .unlocked else { return }
+        realtime.start(vault: self)
+        if ticker == nil {
+            ticker = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    await self.syncIfStale(self.realtime.listening ? 290 : 55)
+                }
+            }
+        }
+    }
+
+    func stopLive() {
+        realtime.stop()
+        ticker?.invalidate()
+        ticker = nil
+    }
+
+    /// A sync signal (or a join: changes made meanwhile): one sync for signals close together.
+    func signalled() {
+        guard !syncRequested else { return }
+        syncRequested = true
+        Task {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            syncRequested = false
+            await syncIfStale(0)
+        }
     }
 
     func refresh() {
@@ -231,7 +299,7 @@ final class Vault: ObservableObject {
             if let copy = plan["copy"] as? [String: Any], let copyId = copy["id"] as? String {
                 let copyVault = copy["vaultId"] as? String ?? vaultId
                 let copied = try await Server.insertItem(token: access, id: copyId, vaultId: copyVault, encOverview: copy["encOverview"] as? String ?? "", encDetails: copy["encDetails"] as? String ?? "")
-                _ = try Native.call("applyItems", ["vaultId": copyVault, "items": copied])
+                _ = try Native.call("applyItems", ["vaultId": copyVault, "items": copied, "pushed": true])
             }
             if plan["plan"] as? String == "overwrite", let revision = remote["revision"] as? Int, let body = plan["body"] as? [String: Any] {
                 rows = try await Server.patchItem(token: access, id: id, baseRevision: revision, body: body)
@@ -240,7 +308,7 @@ final class Vault: ObservableObject {
             }
         }
         if rows.isEmpty { throw KeylessError(key: "save_conflict", message: "") }
-        _ = try Native.call("applyItems", ["vaultId": vaultId, "items": rows])
+        _ = try Native.call("applyItems", ["vaultId": vaultId, "items": rows, "pushed": true])
         save()
         refresh()
     }
@@ -285,6 +353,7 @@ final class Vault: ObservableObject {
     }
 
     func signOut() async {
+        stopLive()
         if let current = session { await Server.signOut(current.accessToken) }
         session = nil
         _ = try? Native.call("forget")

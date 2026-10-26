@@ -56,7 +56,7 @@ internal fun MainActivity.tabScreen(id: String, content: LinearLayout, withNewIt
         addView(content)
     }
     val area = FrameLayout(this)
-    area.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    area.addView(pullToSync(scroll), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
     if (withNewItem && Keyless.writableVaults().isNotEmpty()) {
         val fab = Fab(this, getString(R.string.new_item)) { newItem(favorite = false) }
         area.addView(fab, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply { setMargins(dp(16), dp(16), dp(16), dp(16)) })

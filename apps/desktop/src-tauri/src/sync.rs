@@ -733,14 +733,20 @@ pub fn spawn_sync(app: &AppHandle) {
     });
 }
 
-/// Periodic sync while unlocked.
+/// Periodic sync while unlocked: every minute, or every 5 while the sync
+/// signals arrive (realtime.rs).
 pub fn start_background_sync(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         interval.tick().await;
         loop {
             interval.tick().await;
-            let unlocked = app.state::<AppState>().session.lock().await.is_some();
+            let state = app.state::<AppState>();
+            let recent = state.sync_status().last_synced_at.is_some_and(|at| now_secs() - at < 290);
+            if crate::realtime::listening() && recent {
+                continue;
+            }
+            let unlocked = state.session.lock().await.is_some();
             if unlocked && let Err(err) = sync_now(&app).await {
                 log::info!("background sync: {err}");
             }

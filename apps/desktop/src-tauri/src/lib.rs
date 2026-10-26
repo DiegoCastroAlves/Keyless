@@ -37,6 +37,7 @@ mod pinned;
 mod qr;
 mod shares;
 mod quick_access;
+mod realtime;
 mod recovery;
 mod secret_patterns;
 mod secrets;
@@ -247,6 +248,7 @@ pub fn run() {
             idle::init();
             lock::start(app.handle().clone());
             sync::start_background_sync(app.handle().clone());
+            realtime::start(app.handle().clone());
             bridge::server::start(app.handle().clone());
             ssh_agent::init(app.handle());
             health::init(app.handle());

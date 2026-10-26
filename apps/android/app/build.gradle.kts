@@ -81,4 +81,8 @@ dependencies {
     // the Credential Exchange standard (AccountScreens.kt, importFromApp).
     implementation("androidx.credentials.providerevents:providerevents:1.0.0-beta01")
     implementation("androidx.credentials.providerevents:providerevents-play-services:1.0.0-beta01")
+    // The sync signals' WebSocket to Supabase Realtime (Realtime.kt).
+    implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    // Pulling a list down to sync.
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.2.0")
 }

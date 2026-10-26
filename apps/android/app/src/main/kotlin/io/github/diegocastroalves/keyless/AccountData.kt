@@ -165,7 +165,7 @@ fun Keyless.importRun(targets: List<String>, updateChanged: Boolean, progress: P
                 rows.put(JSONObject().put("id", item.getString("id")).put("vault_id", vaultId).put("enc_overview", item.getString("encOverview")).put("enc_details", item.getString("encDetails")))
             }
             val answered = Server.insertItems(token(), rows)
-            Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", answered))
+            Native.run("applyItems", JSONObject().put("vaultId", vaultId).put("items", answered).put("pushed", true))
             added += answered.length()
         }
     }

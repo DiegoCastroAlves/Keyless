@@ -59,8 +59,11 @@ class PasskeyActivity : KeylessActivity() {
     private fun unlocked() {
         val request = PendingIntentHandler.retrieveBeginGetCredentialRequest(intent)
         // Off the main thread: telling a browser's page apart may need the
-        // network, and the passwords would be left out without a word.
+        // network, and the passwords would be left out without a word. First,
+        // what was added elsewhere since the last sync (the app was closed).
+        setContentView(syncingView())
         thread {
+            Keyless.syncBriefly(3_000)
             val entries = try {
                 request?.let { KeylessCredentialService.entries(this, it) }
             } catch (e: Exception) {

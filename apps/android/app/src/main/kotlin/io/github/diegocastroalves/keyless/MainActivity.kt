@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -33,9 +34,11 @@ import android.widget.ScrollView
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import org.json.JSONObject
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
@@ -181,6 +184,16 @@ class MainActivity : KeylessActivity() {
         if (screen !in AUTH_SCREENS && !Keyless.isUnlocked) route()
         // Back from Android's settings (autofill, passkeys): the steps done since.
         else if (screen == "setup") showSetup()
+        // Back in the app: what changed elsewhere meanwhile.
+        if (screen !in AUTH_SCREENS && screen != "none" && Keyless.isUnlocked) {
+            startLiveSync()
+            syncQuietly(30_000)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        stopLiveSync()
     }
 
     override fun onUserInteraction() {
@@ -295,7 +308,15 @@ class MainActivity : KeylessActivity() {
         ticking?.let { handler.removeCallbacks(it) }
         ticking = null
         if (name != "editor") editorBack = null
+        val fromAuth = screen in AUTH_SCREENS || screen == "none"
         screen = name
+        // Unlocked (or signed in, or opened unlocked): what changed elsewhere, then signals.
+        if (name in AUTH_SCREENS) {
+            stopLiveSync()
+        } else if (fromAuth) {
+            startLiveSync()
+            syncQuietly(30_000)
+        }
         root.removeAllViews()
         (listPage?.parent as? ViewGroup)?.removeView(listPage)
         // Locked or signed out: the list (and its titles) goes.
@@ -678,7 +699,7 @@ class MainActivity : KeylessActivity() {
         val adapter = ItemsAdapter()
         list.adapter = adapter
         val area = FrameLayout(this)
-        area.addView(list, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        area.addView(pullToSync(list), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         if (!searching && filter != "trash" && Keyless.writableVaults().isNotEmpty()) {
             val fab = Fab(this, getString(R.string.new_item)) { newItem(favorite = filter == "favorites") }
             area.addView(fab, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.BOTTOM or android.view.Gravity.END).apply { setMargins(dp(16), dp(16), dp(16), dp(16)) })
@@ -931,10 +952,108 @@ class MainActivity : KeylessActivity() {
                 if (status.text.isEmpty()) status.visibility = View.GONE
                 if (then != null) then() else if (screen == "list") listRefresh?.invoke()
             }
-            // Sentinel's daily downloads and the websites' icons, after the items are fresh.
-            if (failure == null) {
-                SentinelData.refresh(this, force = false)
-                SiteIcons.refresh(this, force = true)
+            if (failure == null) afterSync()
+        }
+    }
+
+    /** Sentinel's daily downloads and the websites' icons, after the items are fresh (on a background thread). */
+    private fun afterSync() {
+        SentinelData.refresh(this, force = false)
+        SiteIcons.refresh(this, force = true)
+    }
+
+    // ----- syncing on its own ----------------------------------------------------
+
+    /** Every minute while the vault shows, or every 5 while signals arrive (Realtime). */
+    private val syncTicker = object : Runnable {
+        override fun run() {
+            syncQuietly(if (Realtime.listening) 290_000 else 55_000)
+            handler.postDelayed(this, 60_000)
+        }
+    }
+    private var liveSync = false
+
+    /** The sync signals and the periodic sync, while the vault's screens show. */
+    private fun startLiveSync() {
+        if (liveSync) return
+        liveSync = true
+        handler.postDelayed(syncTicker, 60_000)
+        Realtime.start { syncQuietly(0, gather = true) }
+    }
+
+    private fun stopLiveSync() {
+        if (!liveSync) return
+        liveSync = false
+        handler.removeCallbacks(syncTicker)
+        Realtime.stop()
+    }
+
+    private val syncWaiting = AtomicBoolean(false)
+
+    /**
+     * Syncs behind the screen, without a word, unless the last sync is more
+     * recent than `maxAgeMs`, and draws the screen again if items changed.
+     * Calls while one waits to start make no more; `gather` waits a moment
+     * for signals close together.
+     */
+    internal fun syncQuietly(maxAgeMs: Long, gather: Boolean = false) {
+        if (syncWaiting.getAndSet(true)) return
+        thread {
+            if (gather) SystemClock.sleep(300)
+            syncWaiting.set(false)
+            val changed = try {
+                Keyless.syncIfStale(maxAgeMs)
+            } catch (e: Exception) {
+                // Offline or signed out: the next one, or the user's.
+                return@thread
+            }
+            if (changed) runOnUiThread { showSynced() }
+            afterSync()
+        }
+    }
+
+    /**
+     * The screen again after a sync brought changes, where it lists items:
+     * not an item open or the editor (what is typed or shown stays).
+     */
+    private fun showSynced() {
+        if (screen in AUTH_SCREENS || !Keyless.isUnlocked) return
+        when (screen) {
+            "home", "items", "sentinel" -> {
+                val y = tabScroll(root)?.scrollY ?: 0
+                showTab(screen)
+                tabScroll(root)?.let { scroll -> scroll.post { scroll.scrollTo(0, y) } }
+            }
+            "list" -> listRefresh?.invoke()
+        }
+    }
+
+    private fun tabScroll(view: View): ScrollView? = when (view) {
+        is ScrollView -> view
+        is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { tabScroll(view.getChildAt(it)) }
+        else -> null
+    }
+
+    /** `scroller` (a list, a tab's page) that syncs when pulled down at its top. */
+    internal fun pullToSync(scroller: View): View = SwipeRefreshLayout(this).apply {
+        setColorSchemeColors(getColor(R.color.accent))
+        setProgressBackgroundColorSchemeColor(getColor(R.color.panel))
+        addView(scroller, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        setOnRefreshListener {
+            thread {
+                val result = try {
+                    Keyless.sync()
+                } catch (e: Exception) {
+                    e
+                }
+                runOnUiThread {
+                    isRefreshing = false
+                    when (result) {
+                        is Exception -> Toast.makeText(this@MainActivity, errorText(result), Toast.LENGTH_SHORT).show()
+                        true -> showSynced()
+                    }
+                }
+                if (result !is Exception) afterSync()
             }
         }
     }

@@ -21,8 +21,16 @@ struct RootView: View {
         }
         .onOpenURL { url in try? vault.receive(link: url.absoluteString) }
         .onChange(of: scenePhase) { phase in
-            if phase == .active { vault.checkAutoLock() }
-            if phase == .background { vault.touch() }
+            if phase == .active {
+                vault.checkAutoLock()
+                // Back in the app: what changed elsewhere meanwhile, then signals.
+                vault.startLive()
+                Task { await vault.syncIfStale(30) }
+            }
+            if phase == .background {
+                vault.touch()
+                vault.stopLive()
+            }
         }
     }
 }

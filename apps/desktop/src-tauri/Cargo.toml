@@ -45,6 +45,11 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 thiserror = "2.0.21"
 tokio = { version = "1.53.2", features = ["sync", "time", "macros", "net", "io-util", "rt", "fs"] }
+# The sync signals (realtime.rs): a WebSocket to Supabase Realtime, its TLS
+# checked like reqwest's (the platform's verifier).
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
+rustls-platform-verifier = "0.7.1"
+futures-util = { version = "0.3.34", default-features = false, features = ["sink", "std"] }
 # Attached files the user wants gone go to the system trash.
 trash = "5.2"
 url = "2.5.8"

@@ -15,6 +15,10 @@ object Server {
     val BASE: String = BuildConfig.SERVER
     private const val KEY = "sb_publishable_3SSYrJqgt-zB30WaRHnuSw_YN7WaHqD"
 
+    /** Supabase Realtime's socket (the sync signals, Realtime.kt); none on a plain HTTP test server. */
+    val REALTIME: String? =
+        if (BASE.startsWith("https://")) "${BASE.trimEnd('/').replaceFirst("https://", "wss://")}/realtime/v1/websocket?apikey=$KEY&vsn=1.0.0" else null
+
     class Session(val accessToken: String, val refreshToken: String, val expiresAt: Long, val userId: String)
 
     private fun enc(value: String): String = URLEncoder.encode(value, "UTF-8")
