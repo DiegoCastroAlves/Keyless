@@ -8,6 +8,7 @@
 //! between the extension and the app.
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 
 use super::{CHROME_EXTENSION_IDS, FIREFOX_EXTENSION_ID};
 
@@ -78,32 +79,89 @@ fn write_message(output: &mut impl Write, message: &[u8]) -> std::io::Result<()>
     output.flush()
 }
 
-fn launch_app() {
-    if let Ok(exe) = std::env::current_exe() {
-        let mut command = std::process::Command::new(exe);
-        command
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        let _ = command.spawn();
+/// This executable where it is installed. Linux names a file replaced
+/// since the process started (an update) "<path> (deleted)".
+fn own_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let text = exe.to_str()?;
+    Some(PathBuf::from(text.strip_suffix(" (deleted)").unwrap_or(text)))
+}
+
+fn launch_app(path: &Path) {
+    let mut command = std::process::Command::new(path);
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let _ = command.spawn();
+}
+
+/// The installed file's device and inode.
+#[cfg(unix)]
+fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+/// Turns into the installed executable in place: same arguments, same pipes
+/// to the browser, which keeps its connection. Only returns by exiting.
+#[cfg(unix)]
+fn become_installed(path: &Path) -> ! {
+    use std::os::unix::process::CommandExt;
+    let _ = std::process::Command::new(path).args(std::env::args_os().skip(1)).exec();
+    // It failed: ending makes the browser start a new host next time.
+    std::process::exit(0)
+}
+
+/// The browser's messages, read without reading ahead (Unix): a host that
+/// turns into a newer one leaves the next messages in the pipe for it.
+fn browser_input() -> Box<dyn Read> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsFd;
+        if let Ok(fd) = std::io::stdin().as_fd().try_clone_to_owned() {
+            return Box::new(std::fs::File::from(fd));
+        }
     }
+    Box::new(std::io::stdin())
 }
 
 /// Runs the relay until the browser closes the pipe.
 pub fn run() {
-    let mut stdin = std::io::stdin().lock();
+    let mut stdin = browser_input();
     let mut stdout = std::io::stdout().lock();
     let mut connection: Option<(Stream, BufReader<Stream>)> = None;
+    let path = own_path();
+    // An update may replace the installed file while the browser keeps this
+    // host running: the app refuses a host older than itself, and this one
+    // would start the old app. Once it notices, the host answers and turns
+    // into the new one (the extension asks again when told the app is not
+    // running). Windows does not let a running program be replaced.
+    #[cfg(unix)]
+    let started = path.as_deref().and_then(file_identity);
 
     while let Some(message) = read_message(&mut stdin) {
+        #[cfg(unix)]
+        let outdated = path.as_deref().is_some_and(|p| started.is_some() && file_identity(p).is_some_and(|now| Some(now) != started));
         // The only message handled here: start the app when it isn't running.
         if serde_json::from_slice::<serde_json::Value>(&message)
             .ok()
             .is_some_and(|m| m.get("type").and_then(|t| t.as_str()) == Some("launch"))
         {
-            launch_app();
+            if let Some(path) = &path {
+                launch_app(path);
+            }
             let _ = write_message(&mut stdout, br#"{"type":"launch","ok":true}"#);
+            #[cfg(unix)]
+            if outdated && let Some(path) = &path {
+                become_installed(path);
+            }
             continue;
+        }
+        #[cfg(unix)]
+        if outdated && let Some(path) = &path {
+            let _ = write_message(&mut stdout, br#"{"type":"error","code":"app_not_running"}"#);
+            become_installed(path);
         }
 
         if connection.is_none() {
