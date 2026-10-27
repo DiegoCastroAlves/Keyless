@@ -90,9 +90,10 @@ for (const event of ["uncaughtException", "unhandledRejection"]) {
 }
 
 /** The address to talk to the browser at, once it is up. A first start on a
- * fresh machine can take a while. */
+ * fresh machine can take a while (over 30 s on a GitHub runner, 27/10). */
 async function endpoint() {
-  for (let i = 0; i < 300; i++) {
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline && browser.exitCode === null) {
     try {
       if (firefox) {
         const socket = new WebSocket(`ws://127.0.0.1:${port}/session`);
@@ -111,7 +112,7 @@ async function endpoint() {
     }
     await new Promise((r) => setTimeout(r, 100));
   }
-  throw new Error(`${firefox ? "firefox" : "chromium"} did not start`);
+  throw new Error(`${firefox ? "firefox" : "chromium"} did not start${browser.exitCode === null ? "" : ` (exited with ${browser.exitCode})`}`);
 }
 
 const ws = await endpoint();
