@@ -34,9 +34,6 @@ fun Context.dp(value: Int): Int = (value * resources.displayMetrics.density).toI
 
 fun Context.accent(): Int = getColor(R.color.accent)
 
-/** "Syncing…" in the middle of a screen (an unlock for autofill or a passkey, while it syncs). */
-fun Context.syncingView(): View = label(getString(R.string.syncing), 14f, muted = true).apply { gravity = Gravity.CENTER }
-
 fun Context.label(text: CharSequence, size: Float = 15f, bold: Boolean = false, muted: Boolean = false): TextView =
     TextView(this).apply {
         this.text = text
@@ -342,8 +339,12 @@ fun Activity.biometric(title: String, cipher: javax.crypto.Cipher, done: (javax.
     )
 }
 
-/** The unlock form: master password, or biometrics when on. */
+/**
+ * The unlock form: master password, or biometrics when on. Meanwhile, what
+ * changed on the server comes down, to be checked once unlocked.
+ */
 fun Activity.unlockForm(onUnlocked: () -> Unit, onSignOut: (() -> Unit)?): View {
+    thread { Keyless.prefetch() }
     val form = column()
     val password = field(getString(R.string.master_password), TEXT_PASSWORD, autofill = View.AUTOFILL_HINT_PASSWORD)
     val error = label("", 14f).apply { setTextColor(getColor(R.color.danger)) }

@@ -71,7 +71,7 @@ class KeylessCredentialService : CredentialProviderService() {
         }
         // Telling a browser's page apart may need the network; a sync first.
         thread {
-            Keyless.syncBriefly(1_500)
+            Keyless.syncBriefly(1_000)
             callback.onResult(entries(this, request))
         }
     }

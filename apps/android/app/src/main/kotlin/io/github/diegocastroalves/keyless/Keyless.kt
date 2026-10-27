@@ -7,8 +7,12 @@ import android.provider.Settings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 
 /**
@@ -168,52 +172,151 @@ object Keyless {
 
     fun exportUserKey(): String = Native.run("exportUserKey") as String
 
+    private val tokenLock = Any()
+
+    /** The access token, renewed one caller at a time (the refresh token is used once). */
     internal fun token(): String {
-        val current = session
-        if (current != null && current.expiresAt - 60 > System.currentTimeMillis() / 1000) return current.accessToken
-        val refresh = current?.refreshToken ?: SecureStore.get(app, "refresh_token") ?: throw KeylessException("session_expired")
-        val renewed = try {
-            Server.refresh(refresh)
-        } catch (e: KeylessException) {
-            // Signed out from another device: everything goes from here too.
-            if (e.key == "session_expired" && checkRevoked()) throw KeylessException("device_revoked")
-            throw e
+        synchronized(tokenLock) {
+            val current = session
+            if (current != null && current.expiresAt - 60 > System.currentTimeMillis() / 1000) return current.accessToken
+            val refresh = current?.refreshToken ?: SecureStore.get(app, "refresh_token") ?: throw KeylessException("session_expired")
+            val renewed = try {
+                Server.refresh(refresh)
+            } catch (e: KeylessException) {
+                // Signed out from another device: everything goes from here too.
+                if (e.key == "session_expired" && checkRevoked()) throw KeylessException("device_revoked")
+                throw e
+            }
+            session = renewed
+            SecureStore.put(app, "refresh_token", renewed.refreshToken)
+            deviceSeen(renewed.accessToken)
+            return renewed.accessToken
         }
-        session = renewed
-        SecureStore.put(app, "refresh_token", renewed.refreshToken)
-        deviceSeen(renewed.accessToken)
-        return renewed.accessToken
     }
 
     /**
      * Pulls the vaults and the items that changed, checked by the client, one
      * sync at a time; answers whether anything changed.
      */
-    fun sync(): Boolean = synchronized(syncLock) {
-        val access = token()
-        val userId = status().optString("userId")
+    fun sync(): Boolean = sync(prefetched = null)
+
+    /**
+     * What was fetched while the user unlocked (`prefetch`) goes in first;
+     * `prefetched` is told then. Older than a moment, the server is asked
+     * again for what changed since.
+     */
+    private fun sync(prefetched: (() -> Unit)?): Boolean = synchronized(syncLock) {
+        var changed = false
+        val early = takePrefetched()
+        if (early != null) {
+            changed = apply(early)
+            prefetched?.invoke()
+            if (SystemClock.elapsedRealtime() - early.fetchedAt < 2_000) return@synchronized changed
+        }
+        apply(fetch()) || changed
+    }
+
+    /** The server's rows since this phone's cursors (asked at `fetchedAt`), not checked yet. */
+    private class Fetched(val userId: String, val fetchedAt: Long, val memberships: String, val pages: Map<String, List<JSONArray>>)
+
+    /**
+     * The vaults, then each vault's new items, side by side. Opens nothing,
+     * so it runs while locked too: the token comes from the Keystore.
+     */
+    private fun fetch(): Fetched {
         // Once: every item again, for those an older version skipped (its own
         // writes moved the cursor past items not pulled yet).
-        val repull = !prefs().getBoolean("cursors_reset", false)
-        if (repull) Native.run("resetCursors")
-        var changed = Native.obj("applyMemberships", Server.memberships(access, userId)).optBoolean("changed")
+        if (!prefs().getBoolean("cursors_reset", false)) Native.run("resetCursors")
+        val access = token()
+        val userId = status().optString("userId")
+        val fetchedAt = SystemClock.elapsedRealtime()
+        val memberships = Server.memberships(access, userId)
+        val rows = JSONArray(memberships)
+        val vaultIds = (0 until rows.length()).map { rows.getJSONObject(it).getString("vault_id") }
+        val pages = ConcurrentHashMap<String, List<JSONArray>>()
+        val failure = AtomicReference<Exception>()
+        vaultIds.map { vaultId ->
+            thread {
+                try {
+                    pages[vaultId] = pagesSince(access, vaultId)
+                } catch (e: Exception) {
+                    failure.set(e)
+                }
+            }
+        }.forEach { it.join() }
+        failure.get()?.let { throw it }
+        return Fetched(userId, fetchedAt, memberships, pages)
+    }
+
+    private fun pagesSince(access: String, vaultId: String): List<JSONArray> {
+        val pages = mutableListOf<JSONArray>()
+        var cursor = (Native.run("cursor", JSONObject().put("vaultId", vaultId)) as Number).toLong()
+        while (true) {
+            val page = Server.itemsSince(access, vaultId, cursor, PAGE)
+            pages.add(page)
+            if (page.length() < PAGE) return pages
+            cursor = page.getJSONObject(page.length() - 1).getLong("seq")
+        }
+    }
+
+    /** Checks and keeps what `fetch` brought (unlocked); answers whether anything changed. */
+    private fun apply(fetched: Fetched): Boolean {
+        var changed = Native.obj("applyMemberships", fetched.memberships).optBoolean("changed")
         val vaultList = Native.arr("vaults")
         for (i in 0 until vaultList.length()) {
             val vaultId = vaultList.getJSONObject(i).getString("id")
-            while (true) {
-                val cursor = (Native.run("cursor", JSONObject().put("vaultId", vaultId)) as Number).toLong()
-                val page = Server.itemsSince(access, vaultId, cursor, PAGE)
+            for (page in fetched.pages[vaultId].orEmpty()) {
                 if (Native.obj("applyItems", JSONObject().put("vaultId", vaultId).put("items", page)).optInt("changed") > 0) changed = true
-                if (page.length() < PAGE) break
             }
         }
         save()
-        if (repull) prefs().edit().putBoolean("cursors_reset", true).apply()
+        if (!prefs().getBoolean("cursors_reset", false)) prefs().edit().putBoolean("cursors_reset", true).apply()
         refreshCache()
         synced = true
-        syncedAt = SystemClock.elapsedRealtime()
-        changed
+        syncedAt = fetched.fetchedAt
+        return changed
     }
+
+    private val prefetchLock = Any()
+    private var prefetching: FutureTask<Fetched>? = null
+    private var prefetchStarted = 0L
+
+    /**
+     * Fetches the server's changes while an unlock screen shows (the user's
+     * fingerprint or password takes about as long), so that unlocking only
+     * checks them: autofill answers at once with what was added elsewhere.
+     */
+    fun prefetch() {
+        if (!hasAccount) return
+        synchronized(prefetchLock) {
+            if (prefetching != null && SystemClock.elapsedRealtime() - prefetchStarted < 60_000) return
+            val task = FutureTask { fetch() }
+            prefetching = task
+            prefetchStarted = SystemClock.elapsedRealtime()
+            thread { task.run() }
+        }
+    }
+
+    /**
+     * What `prefetch` brought, waited for if still on its way: once, only if
+     * recent, and for the account signed in now.
+     */
+    private fun takePrefetched(): Fetched? {
+        val task = synchronized(prefetchLock) {
+            val task = prefetching
+            prefetching = null
+            if (SystemClock.elapsedRealtime() - prefetchStarted > 120_000) null else task
+        } ?: return null
+        val fetched = try {
+            task.get()
+        } catch (e: ExecutionException) {
+            // Offline then, perhaps not now: the sync asks itself.
+            return null
+        }
+        return fetched.takeIf { it.userId == status().optString("userId") }
+    }
+
+    private fun dropPrefetched() = synchronized(prefetchLock) { prefetching = null }
 
     private fun syncedWithin(ms: Long): Boolean = syncedAt != 0L && SystemClock.elapsedRealtime() - syncedAt < ms
 
@@ -222,15 +325,16 @@ object Keyless {
 
     /**
      * For autofill: a sync if the last is older than a minute, waited for at
-     * most `waitMs` (then it goes on behind, and what the phone has is used).
-     * Offline, or anything else wrong, the same.
+     * most `waitMs` (then it goes on behind, and what the phone has is used),
+     * or only until what was fetched while unlocking is in. Offline, or
+     * anything else wrong, the same.
      */
     fun syncBriefly(waitMs: Long) {
         if (syncedWithin(60_000)) return
         val done = CountDownLatch(1)
         thread {
             try {
-                syncIfStale(60_000)
+                synchronized(syncLock) { if (!syncedWithin(60_000)) sync(prefetched = { done.countDown() }) }
             } catch (e: Exception) {
                 // What the phone has.
             } finally {
@@ -407,6 +511,7 @@ object Keyless {
     private fun forgetHere() {
         session = null
         seenAt = 0L
+        dropPrefetched()
         prefs().edit().remove("device_id").remove("device_user").apply()
         Native.run("forget")
         clearCache()
