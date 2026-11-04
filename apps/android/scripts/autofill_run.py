@@ -12,8 +12,9 @@
 - the login of a site that names the app as its own (Digital Asset Links,
   by the app's certificate) suggested with no link, and not that of a
   site naming it with another certificate;
-- "Search Keyless" in the list: another login chosen for the app, filled
-  and linked to it (written to the server), then suggested by itself;
+- "Search Keyless" in the list: another login chosen for the app, which
+  asks whether to link it: only filled (nothing written), then filled and
+  linked to it (written to the server), then suggested by itself;
 - passwords through Credential Manager: one that needs unlocking first,
   another chosen with "Search Keyless" (and linked to the app), and a new
   one saved in Keyless.
@@ -324,10 +325,11 @@ def form_shows(name, text, seconds=20):
     return record(name, False, texts())
 
 
-def search_in_sheet(title, username, seconds=90):
+def search_in_sheet(title, username, answer, seconds=90):
     """Credential Manager's sheet: its sign-in options, "Search Keyless"
     there (scrolled to), then the login `title` in Keyless's list, searched
-    for by `username`; returns what the form app says."""
+    for by `username`, and `answer` to whether to link the app to it;
+    returns what the form app says."""
     width, height = screen_size()
     end = time.time() + seconds
     while time.time() < end:
@@ -336,7 +338,9 @@ def search_in_sheet(title, username, seconds=90):
         said = next((t for t, _, _, pkg in nodes if pkg == FORM and ("Got password for" in t or "Get failed" in t)), None)
         if said:
             return said
-        if "Choose a login" in shown:
+        if answer in shown:
+            tap_text(answer, PACKAGE)
+        elif "Choose a login" in shown:
             # Searched for (the list may not fit a small screen), by another
             # text than the one tapped: the search box shows it too.
             type_into(PACKAGE, 0, username)
@@ -499,27 +503,42 @@ def main():
     record("does not suggest the login of a site naming another certificate", "shopper" in shown and "impostor" not in shown, shown)
     hide_keyboard()
 
-    # Another login, chosen with "Search Keyless" and linked to the app: then
-    # it shows by itself. (GitHub's login has a website only, no app.)
+    # Another login, chosen with "Search Keyless": it asks whether to link
+    # the app to it. Only filled first (a login may be picked just for its
+    # email), then linked: then it shows by itself. (GitHub's login has a
+    # website only, no app.)
     github = "cccccccc-0000-4000-8000-000000000002"
     before = updates(writes_path, github)
-    start("LoginActivity")
-    check("the form app opens for Search Keyless", "Log in", 30)
-    if pick_from_list("offers Search Keyless in the list", "Search Keyless"):
-        if check("lists the logins to choose from", ["Choose a login", "Link Form test to this login", "Suggested", "All logins"], 30):
-            # Searched for (the list may not fit a small screen), by another
-            # text than the one tapped: the search box shows it too.
-            type_into(PACKAGE, 0, "octo")
-            wait_tap("GitHub", PACKAGE, seconds=10)
-            form_shows("fills the login chosen", "octo")
-            end = time.time() + 30
-            while time.time() < end and updates(writes_path, github) <= before:
-                time.sleep(2)
-            record("links the app to the login on the server", updates(writes_path, github) > before, "nothing written")
-            start("LoginActivity")
-            check("the form app opens again", "Log in", 30)
-            if pick_from_list("suggests the linked login by itself", "octo"):
-                form_shows("fills the linked login", "octo")
+
+    def search_keyless(answer, step):
+        start("LoginActivity")
+        check(f"the form app opens for Search Keyless ({step})", "Log in", 30)
+        if not pick_from_list(f"offers Search Keyless in the list ({step})", "Search Keyless"):
+            return False
+        if not check(f"lists the logins to choose from ({step})", ["Choose a login", "Suggested", "All logins"], 30):
+            return False
+        # Searched for (the list may not fit a small screen), by another
+        # text than the one tapped: the search box shows it too.
+        type_into(PACKAGE, 0, "octo")
+        wait_tap("GitHub", PACKAGE, seconds=10)
+        if not check(f"asks whether to link the app to the login ({step})", ["Link Form test to “GitHub”?", "Link and fill", "Just fill"], 20):
+            return False
+        wait_tap(answer, PACKAGE, seconds=10)
+        return form_shows(f"fills the login chosen ({step})", "octo")
+
+    if search_keyless("Just fill", "only filled"):
+        # Linking would be written at once (linkInBackground).
+        time.sleep(6)
+        record("links nothing when only filling", updates(writes_path, github) == before, "written")
+    if search_keyless("Link and fill", "linked"):
+        end = time.time() + 30
+        while time.time() < end and updates(writes_path, github) <= before:
+            time.sleep(2)
+        record("links the app to the login on the server", updates(writes_path, github) > before, "nothing written")
+        start("LoginActivity")
+        check("the form app opens again", "Log in", 30)
+        if pick_from_list("suggests the linked login by itself", "octo"):
+            form_shows("fills the linked login", "octo")
 
     # Passwords through Credential Manager, Keyless locked first.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
@@ -540,7 +559,7 @@ def main():
     start("LoginActivity")
     hide_keyboard()
     tap_text("Get password", FORM)
-    got = search_in_sheet("Bank", "client")
+    got = search_in_sheet("Bank", "client", "Link and fill")
     record("gives a password chosen with Search Keyless in Credential Manager", "Got password for client" in got, got)
     end = time.time() + 30
     while time.time() < end and updates(writes_path, bank) <= before:

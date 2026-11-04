@@ -14,9 +14,10 @@ import kotlin.concurrent.thread
 
 /**
  * "Search Keyless" in the autofill list: any login for the fields, chosen
- * by the user, those fitting the app or site first (AppLinks). With the
- * switch on, the app (or site) is added to the login, so that the login
- * shows by itself next time. Unlocks first when Keyless locked meanwhile.
+ * by the user, those fitting the app or site first (AppLinks). If the user
+ * says so once it is chosen, the app (or site) is added to the login, so
+ * that it shows by itself next time. Unlocks first when Keyless locked
+ * meanwhile.
  */
 class AutofillPickActivity : KeylessActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

@@ -693,7 +693,7 @@ everything the server sends, and the same decryption.
   the sites the app names in its manifest and those of logins named like
   the app are asked, so no other site learns about the vault; what they say
   is kept on the phone for a week. Any other login can be chosen for an app
-  by hand ("Search Keyless"), which links them.
+  by hand ("Search Keyless"); they are linked only if the user says so then.
 - Passkeys (Android 14 and later, Credential Manager): a browser's origin is
   believed only for Google's list of privileged browsers, checked by
   signing certificate, and must be the site or a subdomain over https; any

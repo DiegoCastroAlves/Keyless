@@ -57,8 +57,12 @@
     <string name="autofill_pick">Search Keyless</string>
     <string name="pick_login_title">Choose a login</string>
     <string name="pick_login_for">To fill in %1$s.</string>
-    <string name="link_app_to_login">Link %1$s to this login</string>
-    <string name="link_site_to_login">Add %1$s to this login</string>
+    <string name="link_ask_app">Link %1$s to “%2$s”?</string>
+    <string name="link_ask_site">Add %1$s to “%2$s”?</string>
+    <string name="link_ask_body">Then this login shows by itself next time.</string>
+    <string name="link_and_fill">Link and fill</string>
+    <string name="add_and_fill">Add and fill</string>
+    <string name="fill_only">Just fill</string>
     <string name="search_logins">Search logins</string>
     <string name="all_logins">All logins</string>
     <string name="linked_to">Linked to %1$s</string>

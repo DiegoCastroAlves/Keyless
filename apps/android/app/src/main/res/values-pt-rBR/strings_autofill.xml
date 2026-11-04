@@ -54,8 +54,12 @@
     <string name="autofill_pick">Buscar no Keyless</string>
     <string name="pick_login_title">Escolha um login</string>
     <string name="pick_login_for">Para preencher em %1$s.</string>
-    <string name="link_app_to_login">Vincular %1$s a este login</string>
-    <string name="link_site_to_login">Adicionar %1$s a este login</string>
+    <string name="link_ask_app">Vincular %1$s a “%2$s”?</string>
+    <string name="link_ask_site">Adicionar %1$s a “%2$s”?</string>
+    <string name="link_ask_body">Assim este login aparece direto da próxima vez.</string>
+    <string name="link_and_fill">Vincular e preencher</string>
+    <string name="add_and_fill">Adicionar e preencher</string>
+    <string name="fill_only">Só preencher</string>
     <string name="search_logins">Buscar logins</string>
     <string name="all_logins">Todos os logins</string>
     <string name="linked_to">Vinculado a %1$s</string>

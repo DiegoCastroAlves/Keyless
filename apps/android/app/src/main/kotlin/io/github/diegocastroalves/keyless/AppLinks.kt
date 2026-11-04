@@ -13,7 +13,6 @@ import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Switch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.Collator
@@ -201,8 +200,9 @@ internal fun Context.pickApp(loginWords: Set<String>, exclude: Set<String>, onPi
 
 /**
  * Choosing a login for an app (or a site) that has none of its own: a
- * search over the logins, those fitting the app first, and a switch to
- * link the app to the chosen login so it shows by itself next time.
+ * search over the logins, those fitting the app first. Once chosen, the
+ * user says whether to link the app to it, so it shows by itself next time
+ * (askLink); `onPick` gets the login and the answer.
  */
 internal fun Activity.loginPicker(packageName: String?, domain: String?, onPick: (Summary, Boolean) -> Unit, onCancel: () -> Unit): View {
     val appName = packageName?.let { AppLinks.label(this, it) ?: it }
@@ -216,12 +216,6 @@ internal fun Activity.loginPicker(packageName: String?, domain: String?, onPick:
 
     val page = column(20)
     page.add(brandHeader(getString(R.string.pick_login_title), if (target.isEmpty()) null else getString(R.string.pick_login_for, target)))
-    val link = Switch(this).apply {
-        text = if (packageName != null) getString(R.string.link_app_to_login, target) else getString(R.string.link_site_to_login, target)
-        isChecked = true
-        visibility = if (target.isEmpty()) View.GONE else View.VISIBLE
-    }
-    page.add(link, top = 12)
     val search = searchField(getString(R.string.search_logins))
     page.add(search, top = 12)
     val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
@@ -242,7 +236,10 @@ internal fun Activity.loginPicker(packageName: String?, domain: String?, onPick:
             for (login in found) {
                 val icon = loginIcon(login.category, login.title, login.overview.optJSONArray("urls"), login.iconUrl)
                 list.add(listRow(icon, login.title, login.subtitle).apply {
-                    setOnClickListener { onPick(login, link.isChecked && link.visibility == View.VISIBLE) }
+                    setOnClickListener {
+                        if (target.isEmpty()) onPick(login, false)
+                        else askLink(login.title, target, app = packageName != null, fits = fits.getValue(login) > 0) { link -> onPick(login, link) }
+                    }
                 })
             }
         }
@@ -253,4 +250,38 @@ internal fun Activity.loginPicker(packageName: String?, domain: String?, onPick:
     show("")
     search.onText { show(it) }
     return ScrollView(this).apply { addView(page) }
+}
+
+/**
+ * Whether to link `target` (an app, or a site) to the login just chosen,
+ * `title`, asked each time: a login may be picked only for its email, in an
+ * app it does not belong to. It fills either way. The answer that
+ * fits leads: linking for a login named like the app (`fits`), filling only
+ * for any other. Dismissed: back to the list.
+ */
+private fun Activity.askLink(title: String, target: String, app: Boolean, fits: Boolean, onAnswer: (Boolean) -> Unit) {
+    val buttons = column(0).apply { setPadding(dp(20), dp(12), dp(20), dp(8)) }
+    val dialog = AlertDialog.Builder(this)
+        .setTitle(getString(if (app) R.string.link_ask_app else R.string.link_ask_site, target, title))
+        .setMessage(R.string.link_ask_body)
+        .setView(buttons)
+        .create()
+    var answered = false
+    val answer = { link: Boolean ->
+        if (!answered) {
+            answered = true
+            dialog.dismiss()
+            onAnswer(link)
+        }
+    }
+    val linkText = getString(if (app) R.string.link_and_fill else R.string.add_and_fill)
+    val onlyText = getString(R.string.fill_only)
+    if (fits) {
+        buttons.add(primaryButton(linkText) { answer(true) })
+        buttons.add(secondaryButton(onlyText) { answer(false) }, top = 8)
+    } else {
+        buttons.add(primaryButton(onlyText) { answer(false) })
+        buttons.add(secondaryButton(linkText) { answer(true) }, top = 8)
+    }
+    dialog.show()
 }
