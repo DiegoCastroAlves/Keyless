@@ -2,7 +2,7 @@
 // addresses, "sign in with" accounts, places, related items and files, and
 // the expiry alert of date fields.
 
-import { Bell, BellOff, ClipboardList, Download, Eye, FileText, Link2, MapPin, Paperclip } from "lucide-react";
+import { Bell, BellOff, ClipboardList, Download, Eye, FileText, MapPin, Paperclip } from "lucide-react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -290,22 +290,42 @@ export function SpecialValue({ field, attachments, onPreview }: { field: FieldVi
     case "address":
       return <span className="selectable whitespace-pre-wrap break-words text-[15px]">{field.value}</span>;
     case "sign_in_with": {
-      const account = items.find((i) => i.id === field.link);
-      return (
-        <span className="flex flex-wrap items-center gap-x-2 text-[15px]">
-          {t("fields.signInWith", { provider: providerName(field.value ?? "") })}
-          {account && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                select(account.id);
-              }}
-              className="inline-flex items-center gap-1 text-[13px] text-accent hover:underline"
-            >
-              <Link2 className="size-3.5" />
-              {account.subtitle || account.title}
-            </button>
+      // The account it signs in with, as a card: its icon, its name and its
+      // username; a click opens it. With none linked, the provider's.
+      const account = items.find((i) => i.id === field.link && i.trashedAt === null);
+      const provider = field.value ?? "";
+      const site = PROVIDER_DOMAINS[provider as keyof typeof PROVIDER_DOMAINS]?.[0];
+      const card = (
+        <>
+          {account ? (
+            <ItemIcon title={account.title} category={account.category} url={account.iconUrl ?? undefined} item={account} size="sm" />
+          ) : (
+            <ItemIcon title={providerName(provider)} category="login" url={site ? `https://${site}` : undefined} size="sm" />
           )}
+          <span className="min-w-0">
+            <span className="block truncate text-[15px] text-fg">{account ? account.title : providerName(provider)}</span>
+            <span className="block truncate text-[13px] text-muted">{account ? account.subtitle || t("fields.signInWith", { provider: providerName(provider) }) : t("fields.noAccountLinked")}</span>
+          </span>
+        </>
+      );
+      if (!account) return <span className="mt-1 flex items-center gap-2.5">{card}</span>;
+      return (
+        <span
+          role="link"
+          tabIndex={0}
+          title={t("fields.openAccount")}
+          onClick={(e) => {
+            e.stopPropagation();
+            select(account.id);
+          }}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.stopPropagation();
+            select(account.id);
+          }}
+          className="-mx-1.5 mt-1 flex w-fit max-w-full items-center gap-2.5 rounded-lg px-1.5 py-1 hover:bg-panel-3"
+        >
+          {card}
         </span>
       );
     }
