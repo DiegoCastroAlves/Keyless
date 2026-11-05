@@ -9,7 +9,8 @@ import { useTranslation } from "react-i18next";
 import { ItemIcon } from "../../components/common";
 import { Combobox, IconButton, Input, Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuTrigger, cx } from "../../components/ui";
 import { api, errorCode, errorMessage, type Address, type AttachmentView, type ExpiryAlert, type Field, type FieldView, type FileInfo } from "../../lib/api";
-import { EXPIRY_ALERTS, PROVIDER_NAMES, SIGN_IN_PROVIDERS, categoryLabel } from "../../lib/categories";
+import { EXPIRY_ALERTS, PROVIDER_DOMAINS, PROVIDER_NAMES, SIGN_IN_PROVIDERS, categoryLabel } from "../../lib/categories";
+import { hostOf } from "../../lib/format";
 import { useApp } from "../../lib/store";
 import { toast } from "../../lib/toast";
 
@@ -131,23 +132,57 @@ export function AddressEditor({ field, onChange }: { field: Field; onChange: (fi
   );
 }
 
-/** Logins (other items) a field may point to. */
-function useItemOptions(exclude: string | null, logins = false) {
+/** Other items a field may point to. */
+function useItemOptions(exclude: string | null) {
   const items = useApp((s) => s.items);
   return useMemo(
-    () =>
-      items
-        .filter((i) => i.id !== exclude && i.trashedAt === null && (!logins || i.category === "login"))
-        .map((i) => ({ value: i.id, label: i.subtitle ? `${i.title} · ${i.subtitle}` : i.title })),
-    [items, exclude, logins],
+    () => items.filter((i) => i.id !== exclude && i.trashedAt === null).map((i) => ({ value: i.id, label: i.subtitle ? `${i.title} · ${i.subtitle}` : i.title })),
+    [items, exclude],
   );
 }
 
+/** Whether a login is an account of `provider`: one of its addresses is
+ * one of the provider's sites. */
+function isProviderAccount(provider: string, urls: string[]): boolean {
+  const domains = PROVIDER_DOMAINS[provider as keyof typeof PROVIDER_DOMAINS] ?? [];
+  return urls.some((url) => {
+    const host = hostOf(url).toLowerCase();
+    return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  });
+}
+
+/**
+ * A "sign in with" field: the provider, and which of its accounts. The
+ * provider's own logins come first, named by their email (all of them
+ * look alike otherwise: "Google", or the title they were saved with),
+ * then every other login.
+ */
 export function SignInWithEditor({ field, itemId, onChange }: { field: Field; itemId: string | null; onChange: (field: Field) => void }) {
   const { t } = useTranslation();
-  const accounts = useItemOptions(itemId, true);
+  const items = useApp((s) => s.items);
   const providers = SIGN_IN_PROVIDERS.map((p) => ({ value: p as string, label: providerName(p) }));
   const known = SIGN_IN_PROVIDERS.includes(field.value as (typeof SIGN_IN_PROVIDERS)[number]);
+  const accounts = useMemo(() => {
+    const logins = items.filter((i) => i.id !== itemId && i.trashedAt === null && i.category === "login");
+    const own = known ? logins.filter((i) => isProviderAccount(field.value, i.urls)) : [];
+    const others = logins.filter((i) => !own.includes(i));
+    const name = providerName(field.value);
+    return [
+      ...own.map((i) => ({
+        value: i.id,
+        label: i.subtitle || i.title,
+        // The title, unless it only names the provider.
+        hint: i.subtitle && i.title.trim().toLowerCase() !== name.toLowerCase() ? i.title : undefined,
+        keywords: [i.title],
+        group: t("fields.providerAccounts", { provider: name }),
+      })),
+      ...others.map((i) => ({
+        value: i.id,
+        label: i.subtitle ? `${i.title} · ${i.subtitle}` : i.title,
+        group: own.length > 0 ? t("fields.otherLogins") : undefined,
+      })),
+    ];
+  }, [items, itemId, known, field.value, t]);
   return (
     <div className="grid grid-cols-2 gap-1.5">
       <Combobox
@@ -162,6 +197,7 @@ export function SignInWithEditor({ field, itemId, onChange }: { field: Field; it
         onChange={(link) => onChange({ ...field, link })}
         options={[{ value: "", label: t("fields.noAccount") }, ...accounts]}
         placeholder={t("fields.account")}
+        className="min-w-80"
         searchPlaceholder={t("common.searchPlaceholder")}
       />
     </div>

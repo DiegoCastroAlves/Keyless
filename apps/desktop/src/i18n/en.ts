@@ -1323,6 +1323,8 @@ const en = {
     provider: "Provider",
     account: "Login used",
     noAccount: "No login",
+    providerAccounts: "{{provider}} accounts",
+    otherLogins: "Other logins",
     place: "Place",
     coordinates: "Latitude, longitude",
     chooseItem: "Choose an item",

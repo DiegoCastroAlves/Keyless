@@ -3,6 +3,7 @@ import { Command } from "cmdk";
 import { Check, ChevronDown, Search, X } from "lucide-react";
 import { Dialog as RDialog, DropdownMenu, Popover, Switch as RSwitch, Tooltip as RTooltip } from "radix-ui";
 import {
+  Fragment,
   forwardRef,
   useState,
   type ButtonHTMLAttributes,
@@ -330,6 +331,20 @@ export interface ComboOption<T extends string> {
   icon?: ReactNode;
   hint?: string;
   keywords?: string[];
+  /** A heading the option goes under, with the options around it that
+   * share it (keep them together). */
+  group?: string;
+}
+
+/** Options in runs that share a group (undefined: no heading). */
+function comboGroups<T extends string>(options: ComboOption<T>[]): { group: string | undefined; items: ComboOption<T>[] }[] {
+  const runs: { group: string | undefined; items: ComboOption<T>[] }[] = [];
+  for (const option of options) {
+    const last = runs[runs.length - 1];
+    if (last && last.group === option.group) last.items.push(option);
+    else runs.push({ group: option.group, items: [option] });
+  }
+  return runs;
 }
 
 /** Lists with more options than this can be searched. */
@@ -409,23 +424,32 @@ export function Combobox<T extends string>({
             )}
             <Command.List className="max-h-64 overflow-y-auto p-1">
               <Command.Empty className="px-3 py-6 text-center text-sm text-subtle">{t("common.noResults")}</Command.Empty>
-              {options.map((o) => (
-                <Command.Item
-                  key={o.value}
-                  value={`${o.label} ${o.value}`}
-                  keywords={o.keywords}
-                  onSelect={() => {
-                    onChange(o.value);
-                    setOpen(false);
-                  }}
-                  className="flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg data-[selected=true]:bg-panel-3"
-                >
-                  {o.icon && <span className="flex size-4 items-center justify-center text-muted">{o.icon}</span>}
-                  <span className="flex-1 truncate">{o.label}</span>
-                  {o.hint && <span className="text-xs text-subtle">{o.hint}</span>}
-                  {o.value === value && <Check className="size-4 text-accent" />}
-                </Command.Item>
-              ))}
+              {comboGroups(options).map(({ group, items }, run) => {
+                const rows = items.map((o) => (
+                  <Command.Item
+                    key={o.value}
+                    value={`${o.label} ${o.value}`}
+                    keywords={o.keywords}
+                    onSelect={() => {
+                      onChange(o.value);
+                      setOpen(false);
+                    }}
+                    className="flex cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-fg data-[selected=true]:bg-panel-3"
+                  >
+                    {o.icon && <span className="flex size-4 items-center justify-center text-muted">{o.icon}</span>}
+                    <span className="min-w-0 flex-1 truncate">{o.label}</span>
+                    {o.hint && <span className="max-w-[30%] shrink-0 truncate text-xs text-subtle">{o.hint}</span>}
+                    {o.value === value && <Check className="size-4 shrink-0 text-accent" />}
+                  </Command.Item>
+                ));
+                return group === undefined ? (
+                  <Fragment key={`run-${run}`}>{rows}</Fragment>
+                ) : (
+                  <Command.Group key={group} heading={group} className="[&_[cmdk-group-heading]]:px-2.5 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:text-subtle">
+                    {rows}
+                  </Command.Group>
+                );
+              })}
             </Command.List>
           </Command>
         </Popover.Content>

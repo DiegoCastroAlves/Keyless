@@ -1327,6 +1327,8 @@ const es: Translations = {
     provider: "Proveedor",
     account: "Acceso usado",
     noAccount: "Ningún acceso",
+    providerAccounts: "Cuentas de {{provider}}",
+    otherLogins: "Otros accesos",
     place: "Lugar",
     coordinates: "Latitud, longitud",
     chooseItem: "Elige un elemento",

@@ -60,7 +60,7 @@ import {
   type FormControl,
 } from "./fields";
 import { markupNodes } from "./markup";
-import { providerOf } from "./providers";
+import { PROVIDERS, isProviderPage, providerOf } from "./providers";
 import type { Credentials, FieldInfo, FormKind, PageState, Status } from "./types";
 
 const t = (key: string) => chrome.i18n.getMessage(key) || key;
@@ -735,9 +735,24 @@ document.addEventListener(
     const control = origin.closest<HTMLElement>(CLICKABLE);
     const provider = control ? providerOf(control) : null;
     if (provider) void send({ type: "provider_clicked", provider });
+    const email = providerPageAccount(origin);
+    if (email) void send({ type: "provider_account", email });
   },
   true,
 );
+
+/** On a provider's own page, what a click chose: an account in its list
+ * (Google marks each with its email), or the email typed in its box when
+ * going on. The site signed in to through it is linked to that account. */
+function providerPageAccount(origin: Element): string | null {
+  if (!PROVIDERS.some((provider) => isProviderPage(provider, location.href))) return null;
+  const listed = origin.closest<HTMLElement>("[data-identifier], [data-email]");
+  const picked = (listed?.getAttribute("data-identifier") || listed?.getAttribute("data-email") || "").trim();
+  if (picked.includes("@")) return picked;
+  if (!origin.closest(CLICKABLE)) return null;
+  const typed = deepQuery<HTMLInputElement>(document, 'input[type="email"], input[name="identifier"], input[name="loginfmt"]').find((input) => visible(input) && input.value.includes("@"));
+  return typed?.value.trim() ?? null;
+}
 
 const SIGN_IN_LINK = /^(sign ?in|log ?in|entrar|fazer login|acessar( (a )?conta)?|iniciar sesi[oó]n|ingresar|identif[ií]ca(te|r-se))$/i;
 

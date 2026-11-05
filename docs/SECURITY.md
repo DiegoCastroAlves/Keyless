@@ -999,8 +999,10 @@ or a password it suggested.
   script is told the account's email to pick, and only there, for three
   minutes. A provider button the user presses on a site without such a
   login is remembered for ten minutes in session storage; back on the site,
-  Keyless offers to save one (linked to the provider's login the user filled
-  there, or the only one Keyless has for it).
+  Keyless offers to save one, linked to the provider's login the user filled
+  there, or to the one with the email the user picked in the provider's
+  list or typed there (that email is kept with the rest, in session storage
+  only), or else to the only one Keyless has for it.
 - **Every kind of item in the popup.** The popup lists and shows any item
   (cards, notes, SSH keys…), within the vaults that browser may use. The app
   sends secret values (concealed fields, PINs, card numbers, old passwords)

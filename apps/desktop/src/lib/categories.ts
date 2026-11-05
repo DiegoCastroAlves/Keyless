@@ -282,6 +282,23 @@ export const PROVIDER_NAMES = {
 /** Providers a "sign in with" field can name. */
 export const SIGN_IN_PROVIDERS = ["google", "apple", "microsoft", "github", "facebook", "x", "amazon", "discord", "slack", "linkedin", "gitlab", "okta"] as const;
 
+/** Each provider's own sites: a login for one of them is an account of
+ * that provider, offered first for a "sign in with" field. */
+export const PROVIDER_DOMAINS: Record<(typeof SIGN_IN_PROVIDERS)[number], string[]> = {
+  google: ["google.com", "gmail.com"],
+  apple: ["apple.com", "icloud.com"],
+  microsoft: ["microsoft.com", "microsoftonline.com", "live.com", "outlook.com", "hotmail.com", "office.com"],
+  github: ["github.com"],
+  facebook: ["facebook.com"],
+  x: ["x.com", "twitter.com"],
+  amazon: ["amazon.com", "amazon.com.br", "amazon.es"],
+  discord: ["discord.com"],
+  slack: ["slack.com"],
+  linkedin: ["linkedin.com"],
+  gitlab: ["gitlab.com"],
+  okta: ["okta.com"],
+};
+
 export const EXPIRY_ALERTS = ["never", "day", "week", "two_weeks", "month", "two_months", "three_months", "six_months", "nine_months"] as const;
 
 /** Usernames of the user's logins, the most used first (a login's subtitle

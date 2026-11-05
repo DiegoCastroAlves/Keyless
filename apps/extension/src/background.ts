@@ -1263,6 +1263,8 @@ interface ProviderClick {
   providerUrl?: string;
   /** The provider's login Keyless filled there. */
   accountId?: string;
+  /** The account the user picked or typed there by hand (lowercased email). */
+  accountEmail?: string;
 }
 
 /** The tab a provider's page belongs to: its own, or the one that opened
@@ -1315,6 +1317,16 @@ async function providerFilled(tabId: number, url: string, id: string) {
   }
 }
 
+/** The account the user picked in a provider's list (or typed) while
+ * signing in to a site through it: the site's login is linked to the
+ * login Keyless has with that email. */
+async function providerAccount(tabId: number, url: string, email: string) {
+  for (const owner of await providerTabs(tabId)) {
+    const click = await sessionGet<ProviderClick>(providerClickKey(owner));
+    if (click?.visited && isProviderPage(click.provider, url)) await chrome.storage.session.set({ [providerClickKey(owner)]: { ...click, accountEmail: email.trim().toLowerCase() } });
+  }
+}
+
 /** The account was picked: not again on the pages that follow (asking for
  * the password shows it too). */
 async function providerPicked(tabId: number) {
@@ -1342,13 +1354,15 @@ async function providerReturn(tabId: number, url: string): Promise<boolean> {
   const click = await sessionGet<ProviderClick>(providerClickKey(tabId));
   if (!click?.visited || Date.now() - click.at > PROVIDER_SAVE_TTL_MS || isProviderPage(click.provider, url) || !(await sameSites(click.url, url))) return false;
   await chrome.storage.session.remove(providerClickKey(tabId));
-  // The account: the one filled on the provider's page, or the only login
-  // Keyless has there.
+  // The account: the one filled on the provider's page, the one with the
+  // email picked there, or the only login Keyless has there (unless the
+  // email picked is another one's).
   let account = click.accountId ?? "";
   let accountName = "";
   if (click.providerUrl && (await quickStatus()).state === "ready") {
     const there = (await call<Login[]>("match", { url: click.providerUrl }).catch(() => [])).filter((login) => !login.signInWith);
-    if (!account && there.length === 1) account = there[0].id;
+    if (!account && click.accountEmail) account = there.find((login) => login.username.trim().toLowerCase() === click.accountEmail)?.id ?? "";
+    else if (!account && there.length === 1) account = there[0].id;
     accountName = there.find((login) => login.id === account)?.username ?? "";
   }
   await setFormCapture(tabId, { kind: "sign_in_with", url: click.url, values: { provider: click.provider, account, accountName }, at: Date.now() });
@@ -2309,6 +2323,9 @@ async function handleContent(message: any, sender: chrome.runtime.MessageSender)
       return { ok: true, data: await providerStep(sender.tab.id, sender.url) };
     case "provider_picked":
       await providerPicked(sender.tab.id);
+      return { ok: true };
+    case "provider_account":
+      if (typeof message.email === "string" && message.email.includes("@") && message.email.length <= 254) await providerAccount(sender.tab.id, sender.url, message.email);
       return { ok: true };
     case "capture_done":
       // The login form went away without leaving the page.

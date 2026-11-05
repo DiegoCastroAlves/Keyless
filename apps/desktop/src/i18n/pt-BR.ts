@@ -1327,6 +1327,8 @@ const ptBR: Translations = {
     provider: "Provedor",
     account: "Login usado",
     noAccount: "Nenhum login",
+    providerAccounts: "Contas {{provider}}",
+    otherLogins: "Outros logins",
     place: "Lugar",
     coordinates: "Latitude, longitude",
     chooseItem: "Escolha um item",
