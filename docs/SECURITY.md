@@ -773,7 +773,9 @@ or a password it suggested.
   menu page itself gets nothing.
 - **A page cannot trick the user into clicking the menus** (clickjacking).
   The menus live in the browser's top layer, above the page, under a random
-  tag; changes the page makes to their element are undone. They ignore
+  tag; changes the page makes to their element are undone, and the page's
+  style rules do not reach it (its own rules are important, which outranks
+  every rule of the page). They ignore
   clicks until they have been on screen, unmoved and fully visible, for half
   a second: Chromium reports whether anything covers them or makes them
   see-through (IntersectionObserver v2), and the content script checks the

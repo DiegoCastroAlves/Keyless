@@ -248,9 +248,13 @@ function askContinuation() {
 
 const LOGO = `<svg class="logo" viewBox="0 0 1024 1024" width="18" height="18" aria-hidden="true"><circle cx="512" cy="512" r="452" fill="#14B8A6"/><circle cx="512" cy="512" r="318" fill="#073b37"/><circle cx="512" cy="438" r="94" fill="#fff"/><path d="M470 486H554L586 676Q590 702 564 702H460Q434 702 438 676Z" fill="#fff"/></svg>`;
 
+// Important, so no rule of the page applies to the menus' element: an
+// important rule of a shadow root beats the page's own, important or not.
+// Sites hide elements they did not define (Reddit: ":not(:defined) {
+// visibility: hidden }"), and the menus would then refuse every click.
 const STYLE = `
-:host { all: initial; position: fixed; inset: 0 auto auto 0; width: 0; height: 0; margin: 0; padding: 0; border: 0;
-  overflow: visible; background: transparent; }
+:host { all: initial !important; position: fixed !important; inset: 0 auto auto 0 !important; width: 0 !important; height: 0 !important;
+  margin: 0 !important; padding: 0 !important; border: 0 !important; overflow: visible !important; background: transparent !important; }
 .btn { position: fixed; z-index: 2147483646; height: 24px; min-width: 24px; border: 0; margin: 0; padding: 0 3px; border-radius: 12px;
   background: transparent; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 3px; }
 .btn:hover { background: rgba(20,184,166,.15); }
