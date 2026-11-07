@@ -8,7 +8,7 @@
 
 use keyless_core::{
     generator::{GeneratorOptions, generate},
-    password_rules,
+    password_rules::{self, SUGGESTED_LENGTH},
     item::{Category, Field, FieldExtra, FieldKind, FieldPurpose, ItemUrl, new_field_id},
 };
 use serde_json::{Value, json};
@@ -22,9 +22,6 @@ use crate::{
     state::AppState,
     sync::EVENT_ITEMS_CHANGED,
 };
-
-/// Default length of a suggested password.
-const SUGGESTED_LENGTH: usize = 20;
 
 fn is_login(category: Category) -> bool {
     matches!(category, Category::Login | Category::Password)
@@ -312,55 +309,15 @@ pub async fn set_suggestion_default(app: &AppHandle, options: Option<GeneratorOp
     crate::account_settings::set(app, SUGGESTION, options.map(|options| json!(options))).await
 }
 
-/// A password for a sign-up or change-password form, made as `options` say
-/// when the form and the site take that: within the field's maximum length,
-/// and following the website's password rules, those the page states (its
-/// `passwordrules` attribute) or the known ones for its site (see
-/// `keyless_core::password_rules`). Otherwise the closest one they take,
-/// with why in `adjusted` ("length" or "rules").
+/// A password for a sign-up or change-password form (see
+/// `password_rules::suggest`), following the website's password rules:
+/// those the page states (its `passwordrules` attribute) or the known ones
+/// for its site.
 pub fn suggest(options: &GeneratorOptions, max_length: Option<u64>, page_rules: &str, url: &str) -> Result<Value, &'static str> {
     generate(options).map_err(|_| "bad_request")?;
-    let max = max_length.map(|max| max as usize);
-    let rules = password_rules::parse(page_rules).or_else(|| password_rules::rules_for(&page_host(url))).map(|mut rules| {
-        // The field itself may allow less than the site says.
-        if let Some(max) = max {
-            rules.max_length = Some(rules.max_length.map_or(max, |m| m.min(max)));
-        }
-        rules
-    });
-    let made = |password: Zeroizing<String>, adjusted: Option<&str>| json!({ "password": password.as_str(), "options": options, "adjusted": adjusted });
-
-    // A random password or PIN longer than the field takes: as long as it does.
-    let mut asked = options.clone();
-    let mut adjusted = None;
-    if let (Some(max), GeneratorOptions::Random { length, .. } | GeneratorOptions::Pin { length }) = (max, &mut asked)
-        && *length > max
-    {
-        *length = max;
-        adjusted = Some("length");
-    }
-    let fits = |password: &str| max.is_none_or(|max| password.chars().count() <= max) && rules.as_ref().is_none_or(|rules| password_rules::follows(rules, password));
-    for _ in 0..20 {
-        if let Ok(generated) = generate(&asked)
-            && fits(&generated.password)
-        {
-            return Ok(made(generated.password, adjusted));
-        }
-    }
-
-    // Not what the site takes: what it does, as close as can be.
-    let (length, symbols) = match options {
-        GeneratorOptions::Random { length, symbols, .. } => (*length, *symbols),
-        _ => (SUGGESTED_LENGTH, true),
-    };
-    if let Some(rules) = &rules
-        && let Ok(generated) = password_rules::generate(rules, length, symbols)
-    {
-        return Ok(made(generated.password, Some("rules")));
-    }
-    let length = max.map_or(length, |max| length.min(max)).max(8);
-    let generated = generate(&GeneratorOptions::Random { length, uppercase: true, lowercase: true, digits: true, symbols, avoid_ambiguous: true }).map_err(|_| "error")?;
-    Ok(made(generated.password, Some("length")))
+    let rules = password_rules::parse(page_rules).or_else(|| password_rules::rules_for(&page_host(url)));
+    let made = password_rules::suggest(options, max_length.map(|max| max as usize), rules).map_err(|_| "error")?;
+    Ok(json!({ "password": made.password.as_str(), "options": options, "adjusted": made.adjusted }))
 }
 
 #[cfg(test)]

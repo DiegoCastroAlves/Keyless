@@ -20,7 +20,7 @@ use zeroize::Zeroizing;
 
 use crate::{
     Error, Result,
-    generator::{GeneratedPassword, uniform},
+    generator::{GeneratedPassword, GeneratorOptions, uniform},
 };
 
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -260,6 +260,64 @@ pub fn generate(rules: &PasswordRules, length: usize, symbols: bool) -> Result<G
         }
     }
     Err(Error::InvalidGeneratorOptions("the website's rules cannot be met".into()))
+}
+
+/// Default length of a suggested password, and of one made to follow a
+/// site's rules when the options are not for a random one.
+pub const SUGGESTED_LENGTH: usize = 20;
+
+/// A suggested password, and why it is not quite what the options asked
+/// for: "length" (the field takes fewer characters) or "rules" (the site's).
+pub struct Suggestion {
+    pub password: Zeroizing<String>,
+    pub adjusted: Option<&'static str>,
+}
+
+/// A password for a sign-up or change-password form, made as `options` say
+/// when the form and the site take that: within the field's maximum length
+/// and following `rules` (the page's own, or the known ones for its site).
+/// Otherwise the closest one they take, with why in `adjusted`.
+pub fn suggest(options: &GeneratorOptions, max_length: Option<usize>, rules: Option<PasswordRules>) -> Result<Suggestion> {
+    crate::generator::generate(options)?;
+    let rules = rules.map(|mut rules| {
+        // The field itself may allow less than the site says.
+        if let Some(max) = max_length {
+            rules.max_length = Some(rules.max_length.map_or(max, |m| m.min(max)));
+        }
+        rules
+    });
+
+    // A random password or PIN longer than the field takes: as long as it does.
+    let mut asked = options.clone();
+    let mut adjusted = None;
+    if let (Some(max), GeneratorOptions::Random { length, .. } | GeneratorOptions::Pin { length }) = (max_length, &mut asked)
+        && *length > max
+    {
+        *length = max;
+        adjusted = Some("length");
+    }
+    let fits = |password: &str| max_length.is_none_or(|max| password.chars().count() <= max) && rules.as_ref().is_none_or(|rules| follows(rules, password));
+    for _ in 0..20 {
+        if let Ok(generated) = crate::generator::generate(&asked)
+            && fits(&generated.password)
+        {
+            return Ok(Suggestion { password: generated.password, adjusted });
+        }
+    }
+
+    // Not what the site takes: what it does, as close as can be.
+    let (length, symbols) = match options {
+        GeneratorOptions::Random { length, symbols, .. } => (*length, *symbols),
+        _ => (SUGGESTED_LENGTH, true),
+    };
+    if let Some(rules) = &rules
+        && let Ok(generated) = generate(rules, length, symbols)
+    {
+        return Ok(Suggestion { password: generated.password, adjusted: Some("rules") });
+    }
+    let length = max_length.map_or(length, |max| length.min(max)).max(8);
+    let random = GeneratorOptions::Random { length, uppercase: true, lowercase: true, digits: true, symbols, avoid_ambiguous: true };
+    Ok(Suggestion { password: crate::generator::generate(&random)?.password, adjusted: Some("length") })
 }
 
 #[cfg(test)]

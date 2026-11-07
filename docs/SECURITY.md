@@ -694,6 +694,11 @@ everything the server sends, and the same decryption.
   the app are asked, so no other site learns about the vault; what they say
   is kept on the phone for a week. Any other login can be chosen for an app
   by hand ("Search Keyless"); they are linked only if the user says so then.
+- Where there is a password field, autofill also suggests a strong password,
+  made on the phone by the Rust generator within the field's length and the
+  known rules of the web page's site. It is shown on a Keyless screen that
+  cannot be captured, and saved with the login (uploaded) before it is
+  filled, so a password the app accepted is never lost.
 - Passkeys (Android 14 and later, Credential Manager): a browser's origin is
   believed only for Google's list of privileged browsers, checked by
   signing certificate, and must be the site or a subdomain over https; any

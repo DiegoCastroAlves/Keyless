@@ -27,8 +27,11 @@ import kotlin.concurrent.thread
  * the logins of the app (linked to it, or of the sites naming it: AppSites)
  * or website, best first, then "Search Keyless" to choose any login
  * (AutofillPickActivity), and the cards or identities a payment or address
- * form asks for. Suggestions show in the keyboard when it can show them
- * (Android 11+), in a list otherwise. It never fills Keyless itself.
+ * form asks for. Where there is a password field it also suggests a strong
+ * password (AutofillSuggestActivity): first on a sign-up or change-password
+ * form, last on others, as the form may not say what it is. Suggestions
+ * show in the keyboard when it can show them (Android 11+), in a list
+ * otherwise. It never fills Keyless itself.
  */
 class KeylessAutofillService : AutofillService() {
     override fun onFillRequest(request: FillRequest, cancellationSignal: CancellationSignal, callback: FillCallback) {
@@ -80,7 +83,8 @@ class KeylessAutofillService : AutofillService() {
         // A username may have been typed on an earlier screen.
         val values = HashMap<android.view.autofill.AutofillId, String>()
         request.fillContexts.forEach { values.putAll(AutofillParser.values(it.structure)) }
-        val password = parsed.passwords.firstNotNullOfOrNull { values[it]?.takeIf { v -> v.isNotEmpty() } }
+        // The new password of a change-password form, not the current one.
+        val password = (parsed.newPasswords + parsed.passwords).firstNotNullOfOrNull { values[it]?.takeIf { v -> v.isNotEmpty() } }
         if (password == null || parsed.packageName == packageName) {
             callback.onSuccess()
             return
@@ -180,22 +184,29 @@ object AutofillResponses {
      */
     @Suppress("DEPRECATION")
     fun datasets(context: Context, parsed: ParsedFields, inline: InlineSuggestionsRequest?): FillResponse? {
-        // A chip kept for "Search Keyless", at the end.
-        val chips = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) InlineSuggestions.Chips(context, inline, reserved = if (parsed.logins) 1 else 0) else null
+        // Chips kept for the end: "Search Keyless", and the suggested
+        // password when it is not first.
+        val suggest = parsed.passwords.isNotEmpty()
+        val reserved = (if (parsed.logins) 1 else 0) + (if (suggest && !parsed.signUp) 1 else 0)
+        val chips = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && inline != null) InlineSuggestions.Chips(context, inline, reserved = reserved) else null
         val builder = FillResponse.Builder()
         var count = 0
+        if (suggest && parsed.signUp) {
+            builder.addDataset(suggestDataset(context, parsed, chips))
+            count++
+        }
         if (parsed.logins) {
             val matches = (if (parsed.webDomain != null) Keyless.matches(parsed.webDomain, null) else AppSites.logins(context, parsed.packageName)).take(8)
             for ((index, match) in matches.withIndex()) {
                 val values = loginValues(Keyless.item(match.id))
                 if (values.username == null && values.password == null) continue
                 val dataset = dataset(context, chips, match.title, values.username)
-                if (!fillLogin(dataset, values, parsed.usernames, parsed.passwords)) continue
+                if (!fillLogin(dataset, values, parsed.usernames, parsed.loginPasswords)) continue
                 if (values.totp != null) {
                     val intent = Intent(context, AutofillFillActivity::class.java)
                         .putExtra(AutofillFillActivity.EXTRA_ITEM, match.id)
                         .putParcelableArrayListExtra(AutofillFillActivity.EXTRA_USERNAMES, ArrayList(parsed.usernames))
-                        .putParcelableArrayListExtra(AutofillFillActivity.EXTRA_PASSWORDS, ArrayList(parsed.passwords))
+                        .putParcelableArrayListExtra(AutofillFillActivity.EXTRA_PASSWORDS, ArrayList(parsed.loginPasswords))
                     val sender = PendingIntent.getActivity(context, 4000 + index, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE).intentSender
                     dataset.setAuthentication(sender)
                 }
@@ -206,6 +217,10 @@ object AutofillResponses {
         if (parsed.cards || parsed.identities) count += forms(context, parsed, builder, chips)
         if (parsed.logins) {
             builder.addDataset(pickDataset(context, parsed, chips))
+            count++
+        }
+        if (suggest && !parsed.signUp) {
+            builder.addDataset(suggestDataset(context, parsed, chips))
             count++
         }
         val save = saveInfo(parsed)
@@ -225,13 +240,38 @@ object AutofillResponses {
         val builder = Dataset.Builder(presentation(context, title, null))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) chips?.next(title, null, last = true)?.let { builder.setInlinePresentation(it) }
         // The values come once a login is chosen.
-        for (id in (parsed.usernames + parsed.passwords).distinct()) builder.setValue(id, null)
+        for (id in (parsed.usernames + parsed.loginPasswords).distinct()) builder.setValue(id, null)
         val intent = Intent(context, AutofillPickActivity::class.java)
             .putParcelableArrayListExtra(AutofillPickActivity.EXTRA_USERNAMES, ArrayList(parsed.usernames))
-            .putParcelableArrayListExtra(AutofillPickActivity.EXTRA_PASSWORDS, ArrayList(parsed.passwords))
+            .putParcelableArrayListExtra(AutofillPickActivity.EXTRA_PASSWORDS, ArrayList(parsed.loginPasswords))
             .putExtra(AutofillPickActivity.EXTRA_PACKAGE, if (parsed.webDomain == null) parsed.packageName else null)
             .putExtra(AutofillPickActivity.EXTRA_DOMAIN, parsed.webDomain)
         val sender = PendingIntent.getActivity(context, 4900, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE).intentSender
+        builder.setAuthentication(sender)
+        return builder.build()
+    }
+
+    /**
+     * "Suggest a strong password": shown and saved with the login in
+     * AutofillSuggestActivity, then put in the new password's fields (and
+     * its confirmation), with the username when one is given.
+     */
+    @Suppress("DEPRECATION")
+    private fun suggestDataset(context: Context, parsed: ParsedFields, chips: InlineSuggestions.Chips?): Dataset {
+        val title = context.getString(R.string.autofill_suggest)
+        val builder = Dataset.Builder(presentation(context, title, null))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) chips?.next(title, null, last = !parsed.signUp)?.let { builder.setInlinePresentation(it) }
+        // The values come once the password is used.
+        for (id in (parsed.usernames + parsed.suggestionFields).distinct()) builder.setValue(id, null)
+        val intent = Intent(context, AutofillSuggestActivity::class.java)
+            .putParcelableArrayListExtra(AutofillSuggestActivity.EXTRA_USERNAMES, ArrayList(parsed.usernames))
+            .putParcelableArrayListExtra(AutofillSuggestActivity.EXTRA_PASSWORDS, ArrayList(parsed.suggestionFields))
+            .putExtra(AutofillSuggestActivity.EXTRA_PACKAGE, if (parsed.webDomain == null) parsed.packageName else null)
+            .putExtra(AutofillSuggestActivity.EXTRA_DOMAIN, parsed.webDomain)
+            .putExtra(AutofillSuggestActivity.EXTRA_MAX_LENGTH, parsed.passwordMaxLength)
+            .putExtra(AutofillSuggestActivity.EXTRA_DIGITS, parsed.passwordDigits)
+            .putExtra(AutofillSuggestActivity.EXTRA_CHANGE, parsed.changesPassword)
+        val sender = PendingIntent.getActivity(context, 4901, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE).intentSender
         builder.setAuthentication(sender)
         return builder.build()
     }

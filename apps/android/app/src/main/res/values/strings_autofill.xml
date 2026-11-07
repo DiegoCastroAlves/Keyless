@@ -67,4 +67,12 @@
     <string name="all_logins">All logins</string>
     <string name="linked_to">Linked to %1$s</string>
     <string name="pick_no_values">This login has no username or password.</string>
+    <string name="autofill_suggest">Suggest a strong password</string>
+    <string name="suggest_title">Suggested password</string>
+    <string name="suggest_for">For %1$s.</string>
+    <string name="suggest_username">Username or email (optional)</string>
+    <string name="suggest_note">Keyless saves the login when you use it, so the password is not lost.</string>
+    <string name="suggest_use">Use and save</string>
+    <string name="suggest_length">This field takes up to %1$d characters.</string>
+    <string name="suggest_rules">Made with this site\'s password rules.</string>
 </resources>

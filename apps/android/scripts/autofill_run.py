@@ -15,6 +15,10 @@
 - "Search Keyless" in the list: another login chosen for the app, which
   asks whether to link it: only filled (nothing written), then filled and
   linked to it (written to the server), then suggested by itself;
+- a sign-up form: "Suggest a strong password" first in the list, the new
+  login saved, then the password filled in both fields, and the email
+  typed in the form added to that login when Android offers to save; on a
+  sign-in form it comes last;
 - passwords through Credential Manager: one that needs unlocking first,
   another chosen with "Search Keyless" (and linked to the app), and a new
   one saved in Keyless.
@@ -539,6 +543,70 @@ def main():
         check("the form app opens again", "Log in", 30)
         if pick_from_list("suggests the linked login by itself", "octo"):
             form_shows("fills the linked login", "octo")
+
+    # A new account: the suggested password first in the list of a sign-up
+    # form, the login saved before the password fills both fields; the email
+    # typed in the form comes with Android's offer to save, to the same login.
+    before = inserts(writes_path)
+    start("SignUpActivity")
+    check("the sign-up form opens", "Create an account", 30)
+    type_into(FORM, 0, "new@example.test")
+    x, y = fields(FORM)[1]
+    tap(x, y)
+    end = time.time() + 30
+    listed = []
+    while time.time() < end and "Suggest a strong password" not in listed:
+        time.sleep(2)
+        listed = [t for t, _, _, pkg in screen() if t and pkg != FORM]
+    first = next((t for t in listed if t in ("Suggest a strong password", "tester", "Search Keyless")), None)
+    record("suggests a strong password first on a sign-up form", first == "Suggest a strong password", " | ".join(listed))
+    if wait_tap("Suggest a strong password", other_than=FORM, seconds=10) and check(
+        "shows the suggested password", ["Suggested password", "For Form test.", "Username or email (optional)", "Use and save"], 30
+    ):
+        hide_keyboard()
+        scroll_to("Use and save")
+        tap_text("Use and save", PACKAGE)
+        end = time.time() + 30
+        while time.time() < end and inserts(writes_path) <= before:
+            time.sleep(2)
+        if record("saves the new login before filling", inserts(writes_path) > before, "nothing written"):
+            made = [json.loads(line)["id"] for line in open(writes_path) if json.loads(line).get("kind") == "insert"][-1]
+            hide_keyboard()
+            if wait_tap("Create account", FORM, seconds=20):
+                # Android's offer covers the form: answered first.
+                if check("Android offers to save the email typed in the form", "Keyless?", 30):
+                    tap_text("Save") or tap_text("Update")
+                    end = time.time() + 30
+                    while time.time() < end and updates(writes_path, made) == 0:
+                        time.sleep(2)
+                    record("adds the email to the login saved with the password", updates(writes_path, made) > 0 and inserts(writes_path) == before + 1, open(writes_path).read()[-600:])
+                form_shows("fills the suggested password and its confirmation", "Account created: new@example.test, passwords match (24 characters)")
+    hide_keyboard()
+    # On a sign-in form it is offered too, after the logins (the list
+    # scrolls on a small screen).
+    start("LoginActivity")
+    check("the form app opens for the suggestion's place", "Log in", 30)
+    x, y = fields(FORM)[1]
+    tap(x, y)
+    end = time.time() + 30
+    listed = []
+    while time.time() < end and "tester" not in listed:
+        time.sleep(2)
+        listed = [t for t, _, _, pkg in screen() if t and pkg != FORM]
+    first = next((t for t in listed if t in ("Suggest a strong password", "tester", "Search Keyless")), None)
+    found = "Suggest a strong password" in listed
+    for _ in range(4):
+        if found:
+            break
+        rows = [(cx, cy) for t, _, (cx, cy), pkg in screen() if pkg != FORM and t in ("tester", "GitHub", "octo", "Shop", "shopper", "Search Keyless")]
+        if len(rows) < 2:
+            break
+        top, bottom = min(r[1] for r in rows), max(r[1] for r in rows)
+        adb("shell", "input", "swipe", str(rows[0][0]), str(bottom), str(rows[0][0]), str(top), "400")
+        time.sleep(1)
+        found = "Suggest a strong password" in [t for t, _, _, pkg in screen() if pkg != FORM]
+    record("suggests a strong password last on a sign-in form", first == "tester" and found, " | ".join(listed))
+    hide_keyboard()
 
     # Passwords through Credential Manager, Keyless locked first.
     adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")

@@ -10,5 +10,7 @@
         <!-- Payment and address forms (FormsActivity.kt). -->
         <activity android:name=".CardActivity" android:exported="true" />
         <activity android:name=".AddressActivity" android:exported="true" />
+        <!-- A sign-up form (SignUpActivity.kt). -->
+        <activity android:name=".SignUpActivity" android:exported="true" />
     </application>
 </manifest>

@@ -292,6 +292,7 @@ impl Client {
             "sealTombstone" => self.seal_tombstone(json),
             "planConflict" => self.plan_conflict(json),
             "generate" => self.generate(json),
+            "suggestPassword" => self.suggest_password(json),
             "draftOf" => self.draft_of(json),
             "saveDraft" => self.save_draft(json),
             "duplicate" => self.duplicate(json),
@@ -866,15 +867,28 @@ impl Client {
             Some(id) => {
                 let (vault_id, overview, mut details) = self.open_item(id)?;
                 let old = details.password().map(str::to_string);
-                if old.as_deref() == Some(a.password.as_str()) {
+                // A username for a login saved without one (a password
+                // suggested before the username was typed).
+                let username = a.username.trim();
+                let named = !username.is_empty() && details.username().unwrap_or_default().is_empty();
+                if named {
+                    match details.fields.iter_mut().find(|f| f.purpose == Some(FieldPurpose::Username)) {
+                        Some(field) => field.value = username.to_string(),
+                        None => details.fields.insert(0, field("username", FieldKind::Text, username, Some(FieldPurpose::Username))),
+                    }
+                }
+                let same = old.as_deref() == Some(a.password.as_str());
+                if same && !named {
                     return Ok(Value::Null);
                 }
-                match details.fields.iter_mut().find(|f| f.purpose == Some(FieldPurpose::Password)) {
-                    Some(field) => field.value = a.password.to_string(),
-                    None => details.fields.push(field("password", FieldKind::Concealed, &a.password, Some(FieldPurpose::Password))),
-                }
-                if let Some(old) = old.filter(|o| !o.is_empty()) {
-                    details.password_history.insert(0, PasswordHistoryEntry { value: old, changed_at: a.now });
+                if !same {
+                    match details.fields.iter_mut().find(|f| f.purpose == Some(FieldPurpose::Password)) {
+                        Some(field) => field.value = a.password.to_string(),
+                        None => details.fields.push(field("password", FieldKind::Concealed, &a.password, Some(FieldPurpose::Password))),
+                    }
+                    if let Some(old) = old.filter(|o| !o.is_empty()) {
+                        details.password_history.insert(0, PasswordHistoryEntry { value: old, changed_at: a.now });
+                    }
                 }
                 (vault_id, overview, details)
             }

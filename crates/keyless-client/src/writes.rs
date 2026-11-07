@@ -7,6 +7,7 @@ use keyless_core::{
     draft::{self, DraftError, ItemDraft},
     generator::{GeneratorOptions, generate},
     item::stamp_version,
+    password_rules,
     vault::Tombstone,
 };
 use serde::Deserialize;
@@ -123,6 +124,25 @@ impl Client {
         let options: GeneratorOptions = args(json)?;
         let generated = generate(&options).map_err(|e| Failure { key: "invalid_request", message: e.to_string() })?;
         Ok(json!({ "password": generated.password.as_str(), "entropyBits": generated.entropy_bits }))
+    }
+
+    /// A password for a sign-up form's field (see `password_rules::suggest`):
+    /// made with `options`, as `generate`, within the field's `maxLength` and
+    /// following the known rules of the web page's site (`domain`).
+    pub(crate) fn suggest_password(&self, json: &str) -> Outcome<Value> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct A {
+            options: GeneratorOptions,
+            #[serde(default)]
+            max_length: Option<usize>,
+            #[serde(default)]
+            domain: Option<String>,
+        }
+        let a: A = args(json)?;
+        let rules = a.domain.as_deref().and_then(password_rules::rules_for);
+        let made = password_rules::suggest(&a.options, a.max_length.filter(|&max| max > 0), rules).map_err(|e| Failure { key: "invalid_request", message: e.to_string() })?;
+        Ok(json!({ "password": made.password.as_str(), "adjusted": made.adjusted }))
     }
 
     /// A new SSH key (Ed25519) with `comment`: the private key, public key

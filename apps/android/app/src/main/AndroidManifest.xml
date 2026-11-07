@@ -98,6 +98,13 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- "Suggest a strong password" in the autofill list: saved with the login, then filled. -->
+        <activity
+            android:name=".AutofillSuggestActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- Also Android's autofill settings' gear (xml/autofill_service.xml). -->
         <activity
             android:name=".AutofillCheckActivity"

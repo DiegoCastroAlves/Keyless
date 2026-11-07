@@ -304,6 +304,23 @@ fn saves_logins_from_autofill() {
     let item = ok(client.call("item", &json!({ "id": id }).to_string()));
     assert_eq!(item["details"]["fields"][1]["value"], "second");
     assert_eq!(item["details"]["password_history"][0]["value"], "first");
+
+    // Saved with a suggested password before the username was typed: the
+    // username comes later, with the same password.
+    let sealed = ok(client.call("sealLogin", &json!({ "url": "android://app.example", "title": "App", "password": "made", "now": 300 }).to_string()));
+    let id = sealed["id"].as_str().unwrap().to_string();
+    let stored = json!({ "id": id, "vault_id": VAULT, "enc_overview": sealed["encOverview"], "enc_details": sealed["encDetails"], "revision": 1, "seq": 32, "deleted_at": null, "enc_tombstone": null });
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored] }).to_string()));
+    let sealed = ok(client.call("sealLogin", &json!({ "id": id, "username": " me@app.example ", "password": "made", "now": 400 }).to_string()));
+    let stored = json!({ "id": id, "vault_id": VAULT, "enc_overview": sealed["encOverview"], "enc_details": sealed["encDetails"], "revision": 2, "seq": 33, "deleted_at": null, "enc_tombstone": null });
+    ok(client.call("applyItems", &json!({ "vaultId": VAULT, "items": [stored] }).to_string()));
+    let item = ok(client.call("item", &json!({ "id": id }).to_string()));
+    assert_eq!(item["details"]["fields"][0]["value"], "me@app.example");
+    assert_eq!(item["details"]["fields"][1]["value"], "made");
+    assert_eq!(item["overview"]["subtitle"], "me@app.example");
+    assert!(item["details"]["password_history"].as_array().is_none_or(|h| h.is_empty()));
+    // A username it has already is kept.
+    assert!(ok(client.call("sealLogin", &json!({ "id": id, "username": "other", "password": "made", "now": 500 }).to_string())).is_null());
 }
 
 #[test]
@@ -369,6 +386,28 @@ fn generates_passwords() {
     let words = ok(client.call("generate", &json!({ "kind": "memorable", "words": 4, "separator": "." }).to_string()));
     assert_eq!(words["password"].as_str().unwrap().split('.').count(), 4);
     assert_eq!(error(client.call("generate", &json!({ "kind": "random", "length": 2 }).to_string())), "invalid_request");
+}
+
+#[test]
+fn suggests_passwords_a_form_takes() {
+    let mut client = Client::new();
+    let mut suggest = |args: Value| ok(client.call("suggestPassword", &args.to_string()));
+    let random = json!({ "kind": "random", "length": 24 });
+    let made = suggest(json!({ "options": random }));
+    assert_eq!(made["password"].as_str().unwrap().chars().count(), 24);
+    assert!(made["adjusted"].is_null());
+    // The field's limit.
+    let made = suggest(json!({ "options": random, "maxLength": 12 }));
+    assert_eq!(made["password"].as_str().unwrap().chars().count(), 12);
+    assert_eq!(made["adjusted"], "length");
+    // A PIN for a numeric field.
+    let made = suggest(json!({ "options": { "kind": "pin", "length": 6 }, "maxLength": 4 }));
+    let pin = made["password"].as_str().unwrap();
+    assert!(pin.len() == 4 && pin.chars().all(|c| c.is_ascii_digit()));
+    // The known rules of the page's site (Apple: at most 63 characters).
+    let made = suggest(json!({ "options": { "kind": "random", "length": 100 }, "domain": "appleid.apple.com" }));
+    assert_eq!(made["password"].as_str().unwrap().chars().count(), 63);
+    assert_eq!(error(client.call("suggestPassword", &json!({ "options": { "kind": "random", "length": 2 } }).to_string())), "invalid_request");
 }
 
 /// The server's row after a write of `sealed` (content or tombstone).

@@ -64,4 +64,12 @@
     <string name="all_logins">Todos os logins</string>
     <string name="linked_to">Vinculado a %1$s</string>
     <string name="pick_no_values">Este login não tem usuário nem senha.</string>
+    <string name="autofill_suggest">Sugerir senha forte</string>
+    <string name="suggest_title">Senha sugerida</string>
+    <string name="suggest_for">Para %1$s.</string>
+    <string name="suggest_username">Usuário ou e-mail (opcional)</string>
+    <string name="suggest_note">Ao usar, o Keyless salva o login, para a senha não se perder.</string>
+    <string name="suggest_use">Usar e salvar</string>
+    <string name="suggest_length">Este campo aceita até %1$d caracteres.</string>
+    <string name="suggest_rules">Feita com as regras de senha deste site.</string>
 </resources>

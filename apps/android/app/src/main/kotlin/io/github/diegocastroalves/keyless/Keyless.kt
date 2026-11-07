@@ -436,6 +436,19 @@ object Keyless {
     /** A password for the generator's options. */
     fun generate(options: JSONObject): String = Native.obj("generate", options).getString("password")
 
+    /**
+     * A password for a form's new password field: made with `options`
+     * within the field's `maxLength` (0: any) and the known rules of the
+     * web page's site. "password", and "adjusted" when it is not quite
+     * what the options say ("length" or "rules").
+     */
+    fun suggestPassword(options: JSONObject, maxLength: Int, domain: String?): JSONObject {
+        val args = JSONObject().put("options", options)
+        if (maxLength > 0) args.put("maxLength", maxLength)
+        if (domain != null) args.put("domain", domain)
+        return Native.obj("suggestPassword", args)
+    }
+
     fun item(id: String): JSONObject = Native.obj("item", JSONObject().put("id", id))
 
     fun totp(uri: String): JSONObject = Native.obj("totp", JSONObject().put("uri", uri).put("now", System.currentTimeMillis() / 1000))
@@ -460,19 +473,29 @@ object Keyless {
 
     /**
      * Saves a login typed in another app or a website (autofill): a new one,
-     * or a new password for the one with that username there.
+     * or a new password for the one with that username there. A password
+     * suggested a moment ago goes to the login saved with it (the username
+     * may have been typed after). Returns the login's id.
      */
-    fun saveLogin(domain: String?, packageName: String?, title: String, username: String, password: String) {
+    fun saveLogin(domain: String?, packageName: String?, title: String, username: String, password: String): String? {
         val url = if (domain != null) "https://$domain" else "android://$packageName"
         val args = JSONObject().put("username", username)
         if (domain != null) args.put("domain", domain) else args.put("packageName", packageName)
-        val existing = Native.run("findLogin", args) as? String
+        val suggestion = suggested?.takeIf { it.password == password && System.currentTimeMillis() - it.at < SUGGESTED_FOR }
+        val existing = Native.run("findLogin", args) as? String ?: suggestion?.id
         val seal = JSONObject().put("url", url).put("title", title).put("username", username).put("password", password).put("now", now())
         if (existing != null) seal.put("id", existing)
-        // Null: the same password is already there.
-        val sealed = Native.run("sealLogin", seal) as? JSONObject ?: return
-        upload(sealed)
+        // Null: the same login is already there.
+        val sealed = Native.run("sealLogin", seal) as? JSONObject ?: return existing
+        return upload(sealed)
     }
+
+    /** A password suggested in autofill and saved with its login (see saveLogin). */
+    class Suggested(val id: String, val password: String, val at: Long)
+
+    @Volatile var suggested: Suggested? = null
+
+    private const val SUGGESTED_FOR = 30 * 60 * 1000L
 
     /** The passkeys kept for `rpId` (only `allow` when the site names some). */
     fun passkeysFor(rpId: String, allow: List<String>): List<JSONObject> {

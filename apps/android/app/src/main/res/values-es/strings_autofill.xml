@@ -64,4 +64,12 @@
     <string name="all_logins">Todos los inicios de sesión</string>
     <string name="linked_to">Vinculado a %1$s</string>
     <string name="pick_no_values">Este inicio de sesión no tiene usuario ni contraseña.</string>
+    <string name="autofill_suggest">Sugerir una contraseña segura</string>
+    <string name="suggest_title">Contraseña sugerida</string>
+    <string name="suggest_for">Para %1$s.</string>
+    <string name="suggest_username">Usuario o correo (opcional)</string>
+    <string name="suggest_note">Al usarla, Keyless guarda el inicio de sesión para que la contraseña no se pierda.</string>
+    <string name="suggest_use">Usar y guardar</string>
+    <string name="suggest_length">Este campo admite hasta %1$d caracteres.</string>
+    <string name="suggest_rules">Creada con las reglas de contraseña de este sitio.</string>
 </resources>
