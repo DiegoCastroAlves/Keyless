@@ -365,10 +365,11 @@ function aloneIn(input: HTMLInputElement, box: Element | null): boolean {
 
 /** The text of the block around a field's box, a few levels up while it
  * holds no other fields: a dialog's title and help ("Enter your
- * authentication code"), which pages often leave out of the field itself. */
+ * authentication code"), which pages often leave out of the field itself
+ * (Instagram's sit 6 levels above the code's form). */
 function contextText(input: HTMLInputElement, box: Element | null): string {
   let node: Element | null = box ?? composedParent(input);
-  for (let level = 0; node && level < 4; level++) {
+  for (let level = 0; node && level < 8; level++) {
     const parent = composedParent(node);
     if (!parent || Array.from(parent.querySelectorAll<HTMLInputElement>("input")).filter((i) => TYPED.has(i.type)).length > 1) break;
     node = parent;
@@ -452,7 +453,11 @@ export function fieldKind(input: HTMLInputElement): Kind | null {
   if (numeric) otp += 0.5;
   // A field that looks like a code, in a block that says what for (Deel:
   // "Introduza o código" under "Introduza o seu código de autenticação").
-  if (otp > 0 && otp < 3 && !withPassword && (numeric || short(input)) && OTP_SURE.test(contextText(input, box))) otp += 1;
+  // Or one only called a code, alone in its box, with nothing else about it
+  // (Instagram: "Código", no length nor keyboard, under "Ir para o app de
+  // autenticação").
+  const namedCode = alone && OTP_WORDS.test(strong) && !USERNAME_WORDS.test(strong);
+  if (otp > 0 && otp < 3 && !withPassword && (numeric || short(input) || namedCode) && OTP_SURE.test(contextText(input, box))) otp += namedCode ? 1.5 : 1;
   if (NOT_OTP.test(strong) || (!OTP_WORDS.test(strong) && NOT_OTP.test(near))) otp -= 4;
 
   if (otp >= 3 && otp >= user) return "otp";

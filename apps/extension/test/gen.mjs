@@ -42,6 +42,14 @@ const WORDS = {
     signin: "Sign in",
     signup: "Create account",
     next: "Next",
+    meta: {
+      title: "Go to your authentication app",
+      help: "Enter the 6-digit code for this account from the two-factor authentication app that you set up (such as Duo Mobile or Google Authenticator).",
+      label: "Code",
+      trust: "Trust this device and skip this step from now on",
+      other: "Try another way",
+    },
+    track: { title: "Track your order", label: "Tracking code", button: "Track" },
     otpDialog: {
       title: ["Enter your authentication code", "Two-factor authentication", "Verify it's you"],
       help: ["Check the code in your authenticator app", "Open your authenticator app to see the code"],
@@ -69,6 +77,14 @@ const WORDS = {
     signin: "Entrar",
     signup: "Criar conta",
     next: "Continuar",
+    meta: {
+      title: "Ir para o app de autenticação",
+      help: "Insira o código de 6 dígitos para esta conta exibido no app de autenticação de dois fatores que você configurou (como o Duo Mobile ou o Google Authenticator).",
+      label: "Código",
+      trust: "Confiar neste dispositivo e pular esta etapa a partir de agora",
+      other: "Tentar outra forma",
+    },
+    track: { title: "Acompanhe seu pedido", label: "Código de rastreio", button: "Rastrear" },
     otpDialog: {
       title: ["Introduza o seu código de autenticação", "Verificação em duas etapas", "Confirme que é você"],
       help: ["Verifique o código na sua aplicação de autenticação", "Abra o seu app autenticador para ver o código"],
@@ -96,6 +112,14 @@ const WORDS = {
     signin: "Iniciar sesión",
     signup: "Crear cuenta",
     next: "Siguiente",
+    meta: {
+      title: "Ve a tu app de autenticación",
+      help: "Ingresa el código de 6 dígitos de esta cuenta que aparece en la app de autenticación en dos pasos que configuraste (como Duo Mobile o Google Authenticator).",
+      label: "Código",
+      trust: "Confiar en este dispositivo y omitir este paso a partir de ahora",
+      other: "Probar otra forma",
+    },
+    track: { title: "Sigue tu pedido", label: "Código de seguimiento", button: "Buscar" },
     otpDialog: {
       title: ["Introduce tu código de autenticación", "Verificación en dos pasos", "Confirma que eres tú"],
       help: ["Consulta el código en tu aplicación de autenticación", "Abre tu app de autenticación para ver el código"],
@@ -146,6 +170,22 @@ function field({ key, label, type = "text", meaningful, autocomplete, labeling, 
 }
 
 const button = (text, type = "submit") => `<button type="${type}">${esc(text)}</button>`;
+
+/** A step in the shape of Meta's sign-in pages (Instagram, Facebook): see
+ * KINDS.otpMeta. A code page has the "trust this device" checkbox and a
+ * second way out; the others one button. */
+function metaStep(w, label, expect, title, help) {
+  const code = expect.codeForm;
+  const id = `_r_${Math.floor(rand() * 30).toString(36)}_`;
+  const role = (text, disabled) =>
+    `<div><div><div role="button" tabindex="${disabled ? -1 : 0}"${disabled ? ' aria-disabled="true"' : ""}><div role="none"><div><div role="none"><span><span>${esc(text)}</span></span></div></div></div></div></div></div>`;
+  const input = `<input data-k="o" dir="ltr" autocomplete="off" aria-invalid="false" id="${id}" type="text" value="" tabindex="0">`;
+  const form = `<form action="" method="GET" onsubmit="return false"><div><div><div class="row"><div class="fl">${input}<label class="float" for="${id}">${esc(label)}</label></div><div></div></div></div></div><input class="hp" aria-hidden="true" tabindex="-1" type="submit"></form>`;
+  const trust = code ? `<div><div><label><div role="none"><input type="checkbox" checked name="checkbox"></div><div><span>${esc(w.meta.trust)}</span></div></label></div></div>` : "";
+  const buttons = code ? role(w.next, true) + role(w.meta.other, false) : role(w.track.button, false);
+  const head = `<div><div><span>Ana • Instagram</span></div><div><span dir="auto">${esc(title)}</span></div>${help ? `<div><span dir="auto">${esc(help)}</span></div>` : ""}</div>`;
+  return { inner: `<div>${head}<div><div><div class="art"></div></div><div><div><div><div>${form}${trust}${buttons}</div></div></div></div></div></div>`, expect };
+}
 
 // ----- Containers ------------------------------------------------------------------
 
@@ -337,6 +377,17 @@ const KINDS = {
       expect: { fields: { o: "otp" }, codeForm: true, submit: true },
     };
   },
+  // Instagram's code step (Meta's pages): a field only called "Code", no
+  // length nor keyboard, alone in its form with a hidden submit; the "trust
+  // this device" checkbox and the buttons (role="button") after the form;
+  // the title and help 6 levels above it, sometimes without the help.
+  otpMeta(w) {
+    return metaStep(w, w.meta.label, { fields: { o: "otp" }, codeForm: true, submit: true }, w.meta.title, rand() < 0.5 ? w.meta.help : "");
+  },
+  // The same shape for a code that is not a sign-in's (tracking an order).
+  trackCode(w) {
+    return metaStep(w, w.track.label, { fields: { o: "none" }, codeForm: false }, w.track.title, "");
+  },
   honeypot(w, labeling) {
     const hiders = ["hp", "hp2", "hp3", "hp4"];
     const hp = `<div class="${pick(hiders)}"><input data-k="trap" type="text" name="email" autocomplete="off" tabindex="-1"></div>`;
@@ -372,10 +423,14 @@ const PLAN = [
   ["transparent", 6],
   ["phoneSignup", 6],
   ["otpDialog", 9],
+  ["otpMeta", 9],
+  ["trackCode", 6],
 ];
 
 // Shadow roots on cards and addresses are left for the shapes they come in.
 const NOT_IN_SHADOW = new Set(["split", "transparent"]);
+/** Pages that bring their own form. */
+const OWN_FORM = new Set(["otpMeta", "trackCode"]);
 
 /** Header/footer noise on some sign-in pages: a search box, a newsletter. */
 function noise(w) {
@@ -395,7 +450,7 @@ for (const [kind, count] of PLAN) {
     const lang = LANGS[(n + i) % LANGS.length];
     const w = WORDS[lang];
     const labeling = LABELINGS[(n * 7 + i) % LABELINGS.length];
-    const container = NOT_IN_SHADOW.has(kind) ? pick(["form", "div"]) : CONTAINERS[(n * 5 + i * 3) % CONTAINERS.length];
+    const container = OWN_FORM.has(kind) ? "div" : NOT_IN_SHADOW.has(kind) ? pick(["form", "div"]) : CONTAINERS[(n * 5 + i * 3) % CONTAINERS.length];
     const page = KINDS[kind](w, labeling);
     const [markup, script] = contain(container, page.inner);
     const extra = ["login", "step1", "idStep", "honeypot", "otpPass"].includes(kind) ? noise(w) : { header: "", footer: "", expect: {} };
