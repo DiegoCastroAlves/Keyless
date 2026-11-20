@@ -50,6 +50,14 @@ const WORDS = {
       other: "Try another way",
     },
     track: { title: "Track your order", label: "Tracking code", button: "Track" },
+    mfa: {
+      title: "Two-factor authentication",
+      help: "Enter the authentication code from your two-factor authentication app",
+      label: "Authentication code",
+      description: "From the authenticator app registered as",
+      cancel: "Cancel",
+      verify: "Verify",
+    },
     otpDialog: {
       title: ["Enter your authentication code", "Two-factor authentication", "Verify it's you"],
       help: ["Check the code in your authenticator app", "Open your authenticator app to see the code"],
@@ -85,6 +93,14 @@ const WORDS = {
       other: "Tentar outra forma",
     },
     track: { title: "Acompanhe seu pedido", label: "Código de rastreio", button: "Rastrear" },
+    mfa: {
+      title: "Autenticação de dois fatores",
+      help: "Digite o código do seu app de autenticação de dois fatores",
+      label: "Código de autenticação",
+      description: "Do app autenticador registrado como",
+      cancel: "Cancelar",
+      verify: "Verificar",
+    },
     otpDialog: {
       title: ["Introduza o seu código de autenticação", "Verificação em duas etapas", "Confirme que é você"],
       help: ["Verifique o código na sua aplicação de autenticação", "Abra o seu app autenticador para ver o código"],
@@ -120,6 +136,14 @@ const WORDS = {
       other: "Probar otra forma",
     },
     track: { title: "Sigue tu pedido", label: "Código de seguimiento", button: "Buscar" },
+    mfa: {
+      title: "Autenticación en dos pasos",
+      help: "Introduce el código de tu app de autenticación",
+      label: "Código de autenticación",
+      description: "De la app de autenticación registrada como",
+      cancel: "Cancelar",
+      verify: "Verificar",
+    },
     otpDialog: {
       title: ["Introduce tu código de autenticación", "Verificación en dos pasos", "Confirma que eres tú"],
       help: ["Consulta el código en tu aplicación de autenticación", "Abre tu app de autenticación para ver el código"],
@@ -388,6 +412,22 @@ const KINDS = {
   trackCode(w) {
     return metaStep(w, w.track.label, { fields: { o: "none" }, codeForm: false }, w.track.title, "");
   },
+  // Supabase's code step: the label points at a box around the field, not
+  // at it, so the field is only named "code" (name, id) with "XXXXXX" for a
+  // placeholder, no length nor keyboard; a padlock drawn in the box, the
+  // authenticator app named under the field (not always), Cancel and Verify.
+  otpLabelElsewhere(w) {
+    const m = w.mfa;
+    const id = `_r_${Math.floor(rand() * 60).toString(36)}_-form-item`;
+    const description = rand() < 0.5 ? `<div id="${id}-description">${esc(m.description)} <strong>1pass</strong></div>` : "";
+    const icon = `<div style="position:absolute;left:10px;top:8px;pointer-events:none"><svg width="20" height="20" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11"></rect></svg></div>`;
+    const input = `<input data-k="o" id="code" name="code" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="XXXXXX" value="">`;
+    const form = `<form id="sign-in-mfa-form" method="POST" onsubmit="return false"><div><div name="code"><div><label for="${id}"><span>${esc(m.label)}</span></label></div><div><div><div style="position:relative" id="${id}" aria-describedby="${id}-description">${icon}${input}</div></div>${description}</div></div></div><div><button type="button">${esc(m.cancel)}</button><button type="submit" form="sign-in-mfa-form">${esc(m.verify)}</button></div></form>`;
+    return {
+      inner: `<div><div><h1>${esc(m.title)}</h1><h2>${esc(m.help)}</h2></div><fieldset style="display:contents"><div>${form}<div><span>?</span><ul><li><a href="#">Sign out</a></li></ul></div></div></fieldset></div>`,
+      expect: { fields: { o: "otp" }, codeForm: true, submit: true },
+    };
+  },
   honeypot(w, labeling) {
     const hiders = ["hp", "hp2", "hp3", "hp4"];
     const hp = `<div class="${pick(hiders)}"><input data-k="trap" type="text" name="email" autocomplete="off" tabindex="-1"></div>`;
@@ -425,12 +465,13 @@ const PLAN = [
   ["otpDialog", 9],
   ["otpMeta", 9],
   ["trackCode", 6],
+  ["otpLabelElsewhere", 6],
 ];
 
 // Shadow roots on cards and addresses are left for the shapes they come in.
 const NOT_IN_SHADOW = new Set(["split", "transparent"]);
 /** Pages that bring their own form. */
-const OWN_FORM = new Set(["otpMeta", "trackCode"]);
+const OWN_FORM = new Set(["otpMeta", "trackCode", "otpLabelElsewhere"]);
 
 /** Header/footer noise on some sign-in pages: a search box, a newsletter. */
 function noise(w) {
