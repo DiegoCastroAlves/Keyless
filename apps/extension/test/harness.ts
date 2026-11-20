@@ -48,7 +48,8 @@ function describe(input: HTMLInputElement | HTMLSelectElement): string {
 }
 
 function check(): { ok: boolean; problems: string[]; seen: Record<string, string> } {
-  const expect: Expect = JSON.parse(document.getElementById("expect")?.textContent ?? "{}");
+  // In a template: its text is not the page's (a script's is).
+  const expect: Expect = JSON.parse((document.getElementById("expect") as HTMLTemplateElement | null)?.content.textContent ?? "{}");
   const problems: string[] = [];
   const seen: Record<string, string> = {};
   const controls = deepQuery<HTMLInputElement | HTMLSelectElement>(document, "input, select");

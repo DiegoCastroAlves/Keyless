@@ -247,7 +247,7 @@ for (const page of index) {
   await visit(`${base}/pages/${page.name}.html`, 60);
   const result = await evaluate("__keyless.check()");
   if (process.env.EXPLAIN && !result.ok) {
-    for (const key of Object.keys(JSON.parse(await evaluate('document.getElementById("expect").textContent')).fields ?? {})) {
+    for (const key of Object.keys(JSON.parse(await evaluate('document.getElementById("expect").content.textContent')).fields ?? {})) {
       console.log(page.name, key, JSON.stringify(await evaluate(`__keyless.explain(${JSON.stringify(key)})`)));
     }
   }

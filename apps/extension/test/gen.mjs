@@ -423,8 +423,13 @@ const KINDS = {
     const icon = `<div style="position:absolute;left:10px;top:8px;pointer-events:none"><svg width="20" height="20" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11"></rect></svg></div>`;
     const input = `<input data-k="o" id="code" name="code" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="XXXXXX" value="">`;
     const form = `<form id="sign-in-mfa-form" method="POST" onsubmit="return false"><div><div name="code"><div><label for="${id}"><span>${esc(m.label)}</span></label></div><div><div><div style="position:relative" id="${id}" aria-describedby="${id}-description">${icon}${input}</div></div>${description}</div></div></div><div><button type="button">${esc(m.cancel)}</button><button type="submit" form="sign-in-mfa-form">${esc(m.verify)}</button></div></form>`;
+    // Signed in (the first step done), the dashboard's frame is around it:
+    // a sidebar whose text comes first, more than a block's worth.
+    const projects = ["keyless-prod", "keyless-staging", "bora-ali", "landing", "analytics", "billing-api", "docs-site", "mobile-backend"];
+    const sidebar = `<nav><p>Organizations</p><ul>${projects.map((p) => `<li><a href="#">${p}</a> <span>Free plan · South America (São Paulo) · Postgres 17 · Last active 3 days ago</span></li>`).join("")}</ul><p>Documentation · Status · Changelog · Feedback</p></nav>`;
+    const page = `<div><div><h1>${esc(m.title)}</h1><h2>${esc(m.help)}</h2></div><fieldset style="display:contents"><div>${form}<div><span>?</span><ul><li><a href="#">Sign out</a></li></ul></div></div></fieldset></div>`;
     return {
-      inner: `<div><div><h1>${esc(m.title)}</h1><h2>${esc(m.help)}</h2></div><fieldset style="display:contents"><div>${form}<div><span>?</span><ul><li><a href="#">Sign out</a></li></ul></div></div></fieldset></div>`,
+      inner: `<div class="shell">${sidebar}<div><div><main>${page}</main></div></div></div>`,
       expect: { fields: { o: "otp" }, codeForm: true, submit: true },
     };
   },
@@ -498,7 +503,7 @@ for (const [kind, count] of PLAN) {
     const expect = { ...page.expect, fields: { ...page.expect.fields, ...extra.expect } };
     const name = String(n).padStart(3, "0");
     const html = `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${kind} ${name}</title><script src="../dist/harness.js"></script><style>${STYLE}</style></head>
-<body><script type="application/json" id="expect">${JSON.stringify(expect)}</script>
+<body><template id="expect">${esc(JSON.stringify(expect))}</template>
 ${extra.header}<main>${markup}</main>${extra.footer}
 <script>${script}</script></body></html>`;
     writeFileSync(new URL(`${name}.html`, OUT), html);

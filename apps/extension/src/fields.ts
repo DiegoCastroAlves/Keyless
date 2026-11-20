@@ -363,18 +363,38 @@ function aloneIn(input: HTMLInputElement, box: Element | null): boolean {
   return box !== null && Array.from(box.querySelectorAll("input")).filter((i) => TYPED.has(i.type) && (i === input || visible(i))).length === 1;
 }
 
-/** The text of the block around a field's box, a few levels up while it
- * holds no other fields: a dialog's title and help ("Enter your
- * authentication code"), which pages often leave out of the field itself
- * (Instagram's sit 6 levels above the code's form). */
-function contextText(input: HTMLInputElement, box: Element | null): string {
+/** Elements whose text no one sees. */
+const UNSEEN_TEXT = new Set(["script", "style", "template", "noscript"]);
+
+/** The text of a block as the page shows it (not its scripts and styles),
+ * up to `max` characters. */
+function shownText(node: Element, max: number): string {
+  const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
+    acceptNode: (text) => (UNSEEN_TEXT.has(text.parentElement?.localName ?? "") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  let text = "";
+  for (let next = walker.nextNode(); next && text.length < max; next = walker.nextNode()) text += ` ${next.nodeValue ?? ""}`;
+  return text.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+/** Whether the block around a field's box says what the field is for: the
+ * box itself, then a few levels up while it holds no other fields (a
+ * dialog's title and help, "Enter your authentication code", which pages
+ * often leave out of the field itself; Instagram's sit 6 levels above the
+ * code's form). Nearest first, and not the page's body: a block high up
+ * starts with whatever comes before the field (Supabase, signed in: its
+ * code form says "From the authenticator app", the page around it other
+ * things first). */
+function contextSays(input: HTMLInputElement, box: Element | null, pattern: RegExp): boolean {
   let node: Element | null = box ?? composedParent(input);
-  for (let level = 0; node && level < 8; level++) {
+  for (let level = 0; node && level <= 8; level++) {
+    if (pattern.test(shownText(node, 600))) return true;
     const parent = composedParent(node);
-    if (!parent || Array.from(parent.querySelectorAll<HTMLInputElement>("input")).filter((i) => TYPED.has(i.type)).length > 1) break;
+    if (!parent || parent === document.body || parent === document.documentElement) return false;
+    if (Array.from(parent.querySelectorAll<HTMLInputElement>("input")).filter((i) => TYPED.has(i.type)).length > 1) return false;
     node = parent;
   }
-  return textOf(node, 600);
+  return false;
 }
 
 /** What the field's box says about itself: its buttons, its action. */
@@ -457,7 +477,7 @@ export function fieldKind(input: HTMLInputElement): Kind | null {
   // (Instagram: "Código", no length nor keyboard, under "Ir para o app de
   // autenticação").
   const namedCode = alone && OTP_WORDS.test(strong) && !USERNAME_WORDS.test(strong);
-  if (otp > 0 && otp < 3 && !withPassword && (numeric || short(input) || namedCode) && OTP_SURE.test(contextText(input, box))) otp += namedCode ? 1.5 : 1;
+  if (otp > 0 && otp < 3 && !withPassword && (numeric || short(input) || namedCode) && contextSays(input, box, OTP_SURE)) otp += namedCode ? 1.5 : 1;
   if (NOT_OTP.test(strong) || (!OTP_WORDS.test(strong) && NOT_OTP.test(near))) otp -= 4;
 
   if (otp >= 3 && otp >= user) return "otp";
